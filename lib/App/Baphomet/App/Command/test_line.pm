@@ -49,7 +49,7 @@ sub usage_desc { return '%c test_line %o <line>'; }
 sub opt_spec {
 	return (
 		[ 'rule=s',      'the rule to check the line against' ],
-		[ 'parser=s',    'the parser to parse the line with', { default => 'bsd_syslog' } ],
+		[ 'parser=s',    'the parser to parse the line with', { default => 'syslog' } ],
 		[ 'config=s',    'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
 		[ 'rules-dir=s', 'the rules dir, instead of the one from the config' ],
 	);

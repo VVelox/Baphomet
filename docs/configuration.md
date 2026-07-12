@@ -47,7 +47,7 @@ Watcher keys...
 | key | what |
 | --- | --- |
 | `log` | The log file to follow. Required. |
-| `parser` | The parser for lines of that log. Required. |
+| `parser` | The parser for lines of that log. Defaults to `syslog`. |
 | `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. With an array, rules are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `max_retrys` / `find_time` / `ban_time` | Optional overrides for this watcher. |
 
@@ -58,10 +58,17 @@ global over default.
 
 | parser | what |
 | --- | --- |
+| `syslog` | Either of the two below, sniffed per line. The default, and the right pick when a log's format is unknown or mixed. |
 | `bsd_syslog` | RFC 3164 syslog... `Jul 12 08:15:50 host daemon[pid]: message`. Also handles a leading `<PRI>` and the FreeBSD verbose `<facility.level>` form. |
 | `ietf_syslog` | RFC 5424 syslog... `<PRI>1 timestamp host app procid msgid sd message`. |
+| `http_access` | HTTP access logs, both the common and combined formats. For `http/*` rules, not `syslog/*` ones. |
 
-`json` and `raw` are planned but not yet implemented.
+The specific syslog parsers are the stricter choice when the format is
+known... they refuse lines that should not be in that log to begin with.
+Rule types and parsers pair up... `syslog/*` rules take the syslog
+parsers, `http/*` rules take `http_access`, and a mismatched pairing is a
+start error rather than a watcher that silently matches nothing. `json`
+and `raw` are planned but not yet implemented.
 
 ## A fuller example
 

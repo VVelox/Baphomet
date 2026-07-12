@@ -104,6 +104,7 @@ Watcher hashes take the keys below.
 
     - parser :: The parser for lines of that log. See
           L<App::Baphomet::Parser> for the known parsers.
+        Default :: syslog
 
     - rule :: The rule, or a array of rules, to match parsed lines
           against, relative to rules_dir, in the form C<type/name>. With a
@@ -275,10 +276,7 @@ sub check_kur_def {
 		if ( !defined( $watcher->{log} ) || $watcher->{log} eq '' ) {
 			die( $where . 'lacks a log' );
 		}
-		if ( !defined( $watcher->{parser} ) ) {
-			die( $where . 'lacks a parser' );
-		}
-		if ( !App::Baphomet::Parser::is_known( $watcher->{parser} ) ) {
+		if ( defined( $watcher->{parser} ) && !App::Baphomet::Parser::is_known( $watcher->{parser} ) ) {
 			die( $where . 'has the unknown parser "' . $watcher->{parser} . '"' );
 		}
 		if ( !defined( $watcher->{rule} ) ) {
@@ -288,6 +286,7 @@ sub check_kur_def {
 		if ( !@rules ) {
 			die( $where . 'has a empty rule array' );
 		}
+		my $parser = defined( $watcher->{parser} ) ? $watcher->{parser} : 'syslog';
 		foreach my $rule (@rules) {
 			if ( !defined($rule) || ref($rule) ne '' ) {
 				die( $where . 'has a non-string rule entry' );
@@ -298,6 +297,17 @@ sub check_kur_def {
 			my ($rule_type) = split( /\//, $rule );
 			if ( !App::Baphomet::Rules::known_type($rule_type) ) {
 				die( $where . 'has a rule of the unknown type "' . $rule_type . '"' );
+			}
+			# a mismatched pairing would parse fine and then match nothing, forever
+			if ( !App::Baphomet::Rules::type_accepts_parser( $rule_type, $parser ) ) {
+				die(      $where
+						. 'pairs the rule "'
+						. $rule
+						. '" of the type "'
+						. $rule_type
+						. '" with the parser "'
+						. $parser
+						. '", whose lines that type can not consume' );
 			}
 		} ## end foreach my $rule (@rules)
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))

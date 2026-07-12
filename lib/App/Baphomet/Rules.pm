@@ -3,7 +3,8 @@ package App::Baphomet::Rules;
 use 5.006;
 use strict;
 use warnings;
-use YAML::XS                    ();
+use YAML::XS                     ();
+use App::Baphomet::Rules::HTTP   ();
 use App::Baphomet::Rules::Syslog ();
 
 =pod
@@ -41,6 +42,12 @@ The known types are as below.
 
     - syslog :: L<App::Baphomet::Rules::Syslog>
 
+    - http :: L<App::Baphomet::Rules::HTTP>
+
+Each type consumes lines of specific parsers... syslog rules take the
+syslog parsers while http rules take http_access. See
+L</type_accepts_parser>.
+
 Loading compiles the rule and then runs the tests embedded in it, refusing
 to hand back a rule whose own tests do not pass, so a broken rule fails
 loudly at load time instead of silently matching nothing while logs scroll
@@ -59,7 +66,15 @@ Initiates the object. Will die on errors.
 
 =cut
 
-my %types = ( 'syslog' => 'App::Baphomet::Rules::Syslog', );
+my %types = (
+	'syslog' => 'App::Baphomet::Rules::Syslog',
+	'http'   => 'App::Baphomet::Rules::HTTP',
+);
+
+my %type_parsers = (
+	'syslog' => { 'syslog' => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1 },
+	'http'   => { 'http_access' => 1 },
+);
 
 sub new {
 	my ( $blank, %opts ) = @_;
@@ -186,6 +201,30 @@ sub known_type {
 
 	return defined($type) && defined( $types{$type} ) ? 1 : 0;
 } ## end sub known_type
+
+=head2 type_accepts_parser
+
+Returns true if rules of the passed type can consume lines from the passed
+parser. Usable as a plain function.
+
+    if ( App::Baphomet::Rules::type_accepts_parser( $type, $parser ) ) { ... }
+
+=cut
+
+sub type_accepts_parser {
+	my ( $type, $parser ) = @_;
+
+	# allow being called as a method as well
+	if ( ref($type) || ( defined($type) && $type eq __PACKAGE__ ) ) {
+		( $type, $parser ) = ( $_[1], $_[2] );
+	}
+
+	if ( !defined($type) || !defined($parser) || !defined( $type_parsers{$type} ) ) {
+		return 0;
+	}
+
+	return defined( $type_parsers{$type}{$parser} ) ? 1 : 0;
+} ## end sub type_accepts_parser
 
 =head1 AUTHOR
 

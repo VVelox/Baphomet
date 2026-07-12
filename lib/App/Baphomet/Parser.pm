@@ -4,7 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::Parser::BSDSyslog  ();
+use App::Baphomet::Parser::HTTPAccess ();
 use App::Baphomet::Parser::IETFSyslog ();
+use App::Baphomet::Parser::Syslog     ();
 
 =pod
 
@@ -33,15 +35,25 @@ to the parser implementations.
 
 The known parsers are as below.
 
+    - syslog :: Either RFC 3164 or RFC 5424 syslog, sniffed per line. The
+          right pick when a log's format is unknown or mixed. See
+          L<App::Baphomet::Parser::Syslog>.
+
     - bsd_syslog :: RFC 3164 syslog. See L<App::Baphomet::Parser::BSDSyslog>.
 
     - ietf_syslog :: RFC 5424 syslog. See L<App::Baphomet::Parser::IETFSyslog>.
 
+    - http_access :: HTTP access logs, both the common and combined
+          formats. Hands back its own shape, for http type rules... see
+          L<App::Baphomet::Parser::HTTPAccess>.
+
 json and raw are planned but not yet implemented.
 
-Each parser takes a line and hands back either undef, for a line it can not
-make sense of, or a hash with the keys below, any of which other than
-message may be undef when the line does not carry it.
+Each syslog parser takes a line and hands back either undef, for a line it
+can not make sense of, or a hash with the keys below, any of which other
+than format and message may be undef when the line does not carry it.
+
+    - format :: Which grammar parsed the line, bsd_syslog or ietf_syslog.
 
     - time :: The timestamp, as the raw string from the line.
 
@@ -75,8 +87,10 @@ the line could not be parsed. Will die if the parser is not a known one.
 =cut
 
 my %parsers = (
+	'syslog'      => \&App::Baphomet::Parser::Syslog::parse,
 	'bsd_syslog'  => \&App::Baphomet::Parser::BSDSyslog::parse,
 	'ietf_syslog' => \&App::Baphomet::Parser::IETFSyslog::parse,
+	'http_access' => \&App::Baphomet::Parser::HTTPAccess::parse,
 );
 
 sub parse {

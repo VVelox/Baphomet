@@ -1,0 +1,45 @@
+---
+# Matches bots probing for admin panels and login pages that are not
+# there. Adapted from the path vocabulary of fail2ban's botsearch-common
+# (fail2ban's own botsearch filters read the apache/nginx error logs,
+# which Baphomet does not parse yet)... here it is the access log form,
+# gated on the request having failed.
+status:
+  - 401
+  - 403
+  - 404
+match:
+  - field: path
+    regexp: '(?i)^/*(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?myadmin|mysqladmin)(?:/|$)'
+  - field: path
+    regexp: '(?i)^/*(?:roundcube|(?:ext)?mail|horde|v?-?webmail)(?:/|$)'
+  - field: path
+    regexp: '(?i)/wp-(?:login|signup|admin)\.php(?:$|\?)'
+  - field: path
+    regexp: '^/*cgi-bin/'
+tests:
+  positive:
+    - message: '115.249.248.145 - - [23/Dec/2013:09:49:10 +0100] "GET /pma/ HTTP/1.1" 404 196 "-" "python-requests/2.x"'
+      found: 1
+      data:
+        host: "115.249.248.145"
+    - message: '115.249.248.145 - - [23/Dec/2013:09:49:11 +0100] "GET /phpmyadmin HTTP/1.1" 404 196 "-" "python-requests/2.x"'
+      found: 1
+      data:
+        host: "115.249.248.145"
+    - message: '198.51.100.86 - - [22/Jul/2008:06:48:30 +0200] "GET /wp-login.php HTTP/1.0" 404 291'
+      found: 1
+      data:
+        host: "198.51.100.86"
+    - message: '203.0.113.44 - - [12/Jul/2026:08:15:50 -0500] "POST /webmail/ HTTP/1.1" 403 199 "-" "-"'
+      found: 1
+      data:
+        host: "203.0.113.44"
+  negative:
+    # the same probing paths served successfully are someone's real site
+    - message: '198.51.100.7 - - [12/Jul/2026:08:15:51 -0500] "GET /webmail/ HTTP/1.1" 200 5120 "-" "Mozilla/5.0"'
+      found: 0
+      undefed: ["host"]
+    - message: '198.51.100.8 - - [12/Jul/2026:08:15:52 -0500] "GET /blog/wp-content/style.css HTTP/1.1" 404 196 "-" "Mozilla/5.0"'
+      found: 0
+      undefed: ["host"]

@@ -11,8 +11,12 @@ my @modules = (
 	'App::Baphomet::Parser',
 	'App::Baphomet::Parser::BSDSyslog',
 	'App::Baphomet::Parser::IETFSyslog',
+	'App::Baphomet::Parser::Syslog',
+	'App::Baphomet::Parser::HTTPAccess',
 	'App::Baphomet::Rules',
+	'App::Baphomet::Rules::Base',
 	'App::Baphomet::Rules::Syslog',
+	'App::Baphomet::Rules::HTTP',
 	'App::Baphomet::Galla',
 	'App::Baphomet::App',
 );

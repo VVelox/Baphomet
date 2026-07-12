@@ -3,8 +3,9 @@
 Rules are YAML files under the rules dir, by default
 `/usr/local/etc/baphomet/rules`. A rule name is its relative path with out
 the `.yaml`, so the rule `syslog/sshd` is the file `syslog/sshd.yaml`. The
-first path component is the rule type, and `syslog` is currently the only
-type.
+first path component is the rule type... `syslog` for syslog lines, which
+most of this page is about, and `http` for HTTP access logs, covered at
+the end.
 
 A rule carries its own tests, and they are ran every time it is loaded... a
 rule that fails its own tests refuses to load, failing `baphomet start`
@@ -87,10 +88,51 @@ must not. Each is a hash...
 | key | what |
 | --- | --- |
 | `message` | The full log line, as it would appear in the log. Required. |
-| `parser` | The parser to parse it with. Defaults to `bsd_syslog`. |
+| `parser` | The parser to parse it with. Defaults to `bsd_syslog`... stricter is better inside a rule's own tests, though `syslog` or `ietf_syslog` may be named per test. |
 | `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and 0 for negative. |
 | `data` | For positive tests, capture names to the values they should of captured. |
 | `undefed` | For negative tests, capture names that should not be defined. |
+
+## http rules
+
+Rules of the `http` type work on lines parsed by the `http_access` parser
+(common and combined access logs). There is nothing to extract... the
+client is already the `host` field of the parsed line, so a http rule just
+decides which lines are offenses, and what gets banned is always `host`.
+
+```yaml
+---
+# gates... optional, ANDed, same string-or-//regexp// convention
+status:
+  - 401
+  - 403
+  - //^5//
+method:
+  - GET
+  - POST
+# matches... ORed, first hit wins, each naming the parsed field it runs against
+match:
+  - field: user_agent
+    regexp: '(?i:masscan|zgrab|sqlmap)'
+  - field: path
+    regexp: '\.(?:env|git)(?:$|/)'
+# ignores... same shape, a hit vetoes the line
+ignore:
+  - field: user_agent
+    regexp: 'FriendlyAuditBot'
+tests:
+  positive:
+    - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 404 196 "-" "zgrab/0.x"'
+      found: 1
+      data:
+        host: "203.0.113.9"
+```
+
+The matchable fields are host, ident, user, time, request, method, path,
+protocol, status, bytes, referer, user_agent, and format. Gates-only rules
+(every 401, say) are legal... a rule with neither gates nor matches is a
+error. Tests default to the `http_access` parser. See
+`perldoc App::Baphomet::Rules::HTTP` for the full reference.
 
 ## Writing one
 

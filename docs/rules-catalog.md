@@ -37,11 +37,23 @@ what got ported... the aggressive/ddos mode machinery is dropped.
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
 | `syslog/xinetd-fail` | xinetd connection failures | `xinetd` |
 
+## http rules
+
+For access logs via the `http_access` parser... these ban the client
+field, and the daemon gate column does not apply.
+
+| rule | watches for |
+| --- | --- |
+| `http/badbots` | requests from known bad bots by user agent... from fail2ban apache-badbots, list trimmed to the still recognizable plus modern scanners, meant to be extended locally |
+| `http/botsearch` | probes for admin panels and login pages that 40x... adapted from fail2ban's botsearch-common path vocabulary into access log form |
+
 ## Not ported, and why
 
-- **The web server family** (apache-*, nginx-*, lighttpd, haproxy, and
-  friends)... these match access/error logs in the web servers' own
-  formats, not syslog. They wait on the planned `raw` parser type.
+- **The web server error log family** (apache-auth, apache-noscript,
+  nginx-http-auth, modsecurity, and friends)... those match the error
+  logs, whose format the `http_access` parser does not handle. A future
+  error log parser's business. apache-fakegooglebot is also out, as its
+  trick is a reverse DNS check, not a regexp.
 - **mysqld-auth, exim, exim-spam, mongodb-auth, and other own-format
   logs**... same story, their logs do not go through syslog in a shape the
   syslog parsers handle.

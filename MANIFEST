@@ -21,14 +21,20 @@ lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
 lib/App/Baphomet/Parser.pm
 lib/App/Baphomet/Parser/BSDSyslog.pm
+lib/App/Baphomet/Parser/HTTPAccess.pm
 lib/App/Baphomet/Parser/IETFSyslog.pm
+lib/App/Baphomet/Parser/Syslog.pm
 lib/App/Baphomet/Rules.pm
+lib/App/Baphomet/Rules/Base.pm
+lib/App/Baphomet/Rules/HTTP.pm
 lib/App/Baphomet/Rules/Syslog.pm
 Makefile.PL
 MANIFEST			This list of files
 rc/freebsd/baphomet
 rc/systemd/baphomet.service
 README.md
+rules/http/badbots.yaml
+rules/http/botsearch.yaml
 rules/syslog/asterisk.yaml
 rules/syslog/courier-auth.yaml
 rules/syslog/courier-smtp.yaml
@@ -62,8 +68,11 @@ t/galla.t
 t/manager-new.t
 t/manifest.t
 t/parser-bsd.t
+t/parser-http-access.t
 t/parser-ietf.t
+t/parser-syslog.t
 t/pod-coverage.t
 t/pod.t
+t/rules-http.t
 t/rules-shipped.t
 t/rules.t

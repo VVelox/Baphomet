@@ -83,6 +83,7 @@ sub parse {
 		my $severity = $pri % 8;
 
 		return {
+			'format'   => 'ietf_syslog',
 			'time'     => $time eq '-' ? undef : $time,
 			'hostname' => $hostname eq '-' ? undef : $hostname,
 			'daemon'   => $daemon eq '-' ? undef : $daemon,

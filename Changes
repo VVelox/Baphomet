@@ -4,6 +4,14 @@ Revision history for App-Baphomet
         - Initial release. Log watcher for Ereshkigal... tails logs, parses
           syslog lines, matches them against YAML rules, and consigns
           offending IPs to Kur via the Ereshkigal manager socket.
+        - The http_access parser handles common and combined HTTP access
+          logs, matched by rules of the new http type... gates on status
+          and method plus per-field match/ignore regexps, banning the
+          client field. Ships http/badbots and http/botsearch. Rule types
+          and parsers are cross-checked at start.
+        - The syslog parser handles both RFC 3164 and RFC 5424, sniffed
+          per line, and is the default when a watcher does not name a
+          parser. Parsed lines carry a format key saying which won.
         - Rules may carry ignore_regexp entries, the fail2ban ignoreregex
           equivalent, and a watcher's rule may be a array of rules checked
           first-match-wins, for logs carrying several daemons.

@@ -121,6 +121,7 @@ sub parse {
 		}
 
 		return {
+			'format'   => 'bsd_syslog',
 			'time'     => $time,
 			'hostname' => $hostname,
 			'daemon'   => $daemon,

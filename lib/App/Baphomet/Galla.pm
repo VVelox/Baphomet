@@ -196,7 +196,7 @@ sub new {
 
 		$self->{watchers}{$watcher_name} = {
 			'log'       => $watcher->{log},
-			'parser'    => $watcher->{parser},
+			'parser'    => defined( $watcher->{parser} ) ? $watcher->{parser} : 'syslog',
 			'rules'     => \@rule_names,
 			'rule_objs' => \@rule_objs,
 			'settings'  => resolve_settings( $config, $kur_settings, $watcher ),

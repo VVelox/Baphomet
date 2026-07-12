@@ -84,7 +84,6 @@ max_retrys = 7
 
 [kur.sshd.multilog]
 log = "$dir/log"
-parser = "bsd_syslog"
 rule = [ "syslog/sshd", "syslog/other" ]
 max_retrys = 2
 EOC
@@ -170,6 +169,7 @@ is( scalar(@sent), 1, 'no ban after aging out' );
 #
 
 is_deeply( $galla->{watchers}{multilog}{rules}, [ 'syslog/sshd', 'syslog/other' ], 'rule list loaded in order' );
+is( $galla->{watchers}{multilog}{parser}, 'syslog', 'parser defaults to syslog when unspecified' );
 
 # a otherd line passes through sshd's daemon gate untouched and matches the second rule
 $galla->_handle_line( 'multilog', 'Jul 12 08:15:50 vixen42 otherd[9]: worse thing involving 7.7.7.7' );

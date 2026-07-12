@@ -101,6 +101,25 @@ rule = [ "syslog/postfix", "syslog/postfix-sasl", "syslog/dovecot" ]
 This needs a kur named `mail` on the Ereshkigal side covering the mail
 ports.
 
+## A web server's access log
+
+Access logs use the `http_access` parser and `http/*` rules... the parser
+must be named, as the `syslog` default is for syslog rules only and the
+mismatch is a start error.
+
+```toml
+[kur.www]
+max_retrys = 3
+ban_time = 3600
+
+[kur.www.accesslog]
+log = "/var/log/nginx/access.log"
+parser = "http_access"
+rule = [ "http/badbots", "http/botsearch" ]
+```
+
+This needs a kur named `www` on the Ereshkigal side covering ports 80/443.
+
 ## A custom rule for a custom daemon
 
 `/usr/local/etc/baphomet/rules/syslog/toaster.yaml`...

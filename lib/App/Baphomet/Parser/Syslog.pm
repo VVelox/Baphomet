@@ -1,0 +1,99 @@
+package App::Baphomet::Parser::Syslog;
+
+use 5.006;
+use strict;
+use warnings;
+use App::Baphomet::Parser::BSDSyslog  ();
+use App::Baphomet::Parser::IETFSyslog ();
+
+=pod
+
+=head1 NAME
+
+App::Baphomet::Parser::Syslog - Syslog line parser for Baphomet handling both RFC 3164 and RFC 5424.
+
+=head1 VERSION
+
+Version 0.0.1
+
+=cut
+
+our $VERSION = '0.0.1';
+
+=head1 SYNOPSIS
+
+    use App::Baphomet::Parser::Syslog ();
+
+    my $parsed = App::Baphomet::Parser::Syslog::parse($line);
+
+=head1 DESCRIPTION
+
+Handles syslog lines of either format by delegating to
+L<App::Baphomet::Parser::BSDSyslog> and
+L<App::Baphomet::Parser::IETFSyslog>, so there is exactly one definition of
+each grammar. Which parser gets tried first is picked by sniffing the
+line... a C<< <PRI> >> followed by a digit is the RFC 5424 version field,
+while a RFC 3164 line has a month name there. The sniff is only an
+ordering hint, not a gate... a failed first attempt falls through to the
+other parser.
+
+This is the parser to reach for when a log's format is unknown or mixed.
+When the format is known, the specific parsers are the stricter choice, as
+they refuse lines that should not be in that log to begin with.
+
+The C<format> key of the returned hash says which grammar won,
+C<bsd_syslog> or C<ietf_syslog>.
+
+=head1 FUNCTIONS
+
+=head2 parse
+
+Parses a single line. Returns the parsed hash, as described in
+L<App::Baphomet::Parser>, or undef if the line could not be parsed by
+either grammar.
+
+    my $parsed = App::Baphomet::Parser::Syslog::parse($line);
+
+=cut
+
+sub parse {
+	my ($line) = @_;
+
+	if ( !defined($line) ) {
+		return undef;
+	}
+
+	my @order;
+	if ( $line =~ /^\s*<\d{1,3}>\d/ ) {
+		@order = ( \&App::Baphomet::Parser::IETFSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse );
+	} else {
+		@order = ( \&App::Baphomet::Parser::BSDSyslog::parse, \&App::Baphomet::Parser::IETFSyslog::parse );
+	}
+
+	foreach my $try (@order) {
+		my $parsed = $try->($line);
+		if ( defined($parsed) ) {
+			return $parsed;
+		}
+	}
+
+	return undef;
+} ## end sub parse
+
+=head1 AUTHOR
+
+Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
+
+=head1 LICENSE AND COPYRIGHT
+
+This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
+
+This is free software, licensed under:
+
+  The GNU General Public License, Version 2, June 1991, or (at your
+  option) any later version, matching fail2ban, which parts of this
+  project, most notably the shipped rules, are derived from.
+
+=cut
+
+1;
