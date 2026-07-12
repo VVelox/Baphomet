@@ -1,0 +1,43 @@
+---
+# Matches postfix smtpd SASL auth failures. Based on the auth mode of the
+# fail2ban postfix filter, translated to Baphomet and simplified. Pairs
+# with syslog/postfix, which handles the rejects... a maillog watcher
+# usually wants both, via a rule array.
+daemons:
+  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+message_regexp:
+  - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Dec  2 22:24:22 hel postfix/smtpd[7676]: warning: 114-44-142-233.dynamic.hinet.net[114.44.142.233]: SASL CRAM-MD5 authentication failed: PDc3OTEwNTkyNTEyMzA2NDIuMTIyODI1MzA2MUBoZWw+"
+      found: 1
+      data:
+        SRC: "114.44.142.233"
+    - message: "Mar 10 13:33:30 gandalf postfix/smtpd[3937]: warning: HOSTNAME[1.1.1.1]: SASL LOGIN authentication failed: authentication failure"
+      found: 1
+      data:
+        SRC: "1.1.1.1"
+    - message: "Sep  6 00:44:56 trianon postfix/submission/smtpd[11538]: warning: unknown[82.221.106.233]: SASL LOGIN authentication failed: UGFzc3dvcmQ6"
+      found: 1
+      data:
+        SRC: "82.221.106.233"
+    - message: "Sep  6 00:44:57 trianon postfix/submission/smtpd[11538]: warning: unknown[82.221.106.233]: SASL login authentication failed: UGFzc3dvcmQ6"
+      found: 1
+      data:
+        SRC: "82.221.106.233"
+    - message: "Jan 29 08:11:45 mail postfix-incoming/smtpd[10752]: warning: unknown[1.1.1.1]: SASL LOGIN authentication failed: Password:"
+      found: 1
+      data:
+        SRC: "1.1.1.1"
+  negative:
+    - message: "Feb  3 08:29:28 mail postfix/smtpd[21022]: warning: unknown[1.1.1.1]: SASL LOGIN authentication failed: Connection lost to authentication server"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jan 14 16:18:16 xxx postfix/smtpd[14933]: warning: host[192.0.2.5]: SASL CRAM-MD5 authentication failed: Invalid authentication mechanism"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jan 14 16:18:17 xxx postfix/smtpd[14933]: connect from mail.example.com[192.0.2.6]"
+      found: 0
+      undefed: ["SRC"]

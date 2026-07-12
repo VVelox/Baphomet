@@ -1,0 +1,42 @@
+---
+# Matches courier imap/pop3 login failures. Based on the fail2ban
+# courier-auth filter, translated to Baphomet and simplified.
+daemons:
+  - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
+message_regexp:
+  - '^LOGIN FAILED, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Apr 23 21:59:01 dns2 imapd: LOGIN FAILED, user=sales@example.com, ip=[::ffff:1.2.3.4]"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Apr 23 21:59:38 dns2 pop3d: LOGIN FAILED, user=info@example.com, ip=[::ffff:198.51.100.76]"
+      found: 1
+      data:
+        SRC: "198.51.100.76"
+    - message: "Nov 13 08:11:53 server imapd-ssl: LOGIN FAILED, user=user@domain.tld, ip=[::ffff:198.51.100.33]"
+      found: 1
+      data:
+        SRC: "198.51.100.33"
+    - message: "Apr 17 19:17:11 SERVER courierpop3login: LOGIN FAILED, user=USER@EXAMPLE.org, ip=[::ffff:1.2.3.4]"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Apr 17 19:17:12 server imapd-ssl: LOGIN FAILED, method=PLAIN, ip=[::ffff:192.0.2.4]"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    - message: "Apr 27 09:00:00 servername imapd: LOGIN FAILED, user=tester, ip=[::ffff:192.0.2.5], port=[255]"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 imapd: LOGIN, user=kitsune, ip=[::ffff:192.0.2.5], port=[38542], protocol=IMAP"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 dovecot: LOGIN FAILED, user=kitsune, ip=[::ffff:192.0.2.5]"
+      found: 0
+      undefed: ["SRC"]

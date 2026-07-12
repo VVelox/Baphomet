@@ -1,0 +1,48 @@
+---
+# Matches proftpd failures. Based on the fail2ban proftpd filter,
+# translated to Baphomet and simplified.
+daemons:
+  - proftpd
+message_regexp:
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+USER (?:\S+|.*?)(?: \(Login failed\))?: (?:[uU]ser not authorized for login|[nN]o such user found|[iI]ncorrect password|[pP]assword expired|[aA]ccount disabled|[iI]nvalid shell: ''\S+''|[uU]ser in \S+|[lL]imit (?:access|configuration) denies login|[nN]ot a UserAlias|[mM]aximum login length exceeded)'
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+SECURITY VIOLATION: (?:\S+|.*?) login attempted'
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+Maximum login attempts \(\d+\) exceeded'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 proftpd[123]: myhost.domain.com (123.123.123.123[123.123.123.123]): USER username (Login failed): User in /etc/ftpusers"
+      found: 1
+      data:
+        SRC: "123.123.123.123"
+    - message: "Jul 12 08:15:50 vixen42 proftpd[123]: platypus.ace-hosting.com.au (mail.bloodymonster.net[::ffff:67.227.224.66]): USER username (Login failed): Incorrect password."
+      found: 1
+      data:
+        SRC: "67.227.224.66"
+    - message: "Jul 12 08:15:50 vixen42 proftpd[123]: platypus.ace-hosting.com.au (::ffff:101.71.143.238[::ffff:101.71.143.238]): USER god: no such user found from ::ffff:101.71.143.238 [::ffff:101.71.143.238] to ::ffff:123.212.99.194:21"
+      found: 1
+      data:
+        SRC: "101.71.143.238"
+    - message: "Jul 12 08:15:50 vixen42 proftpd[123]: platypus.ace-hosting.com.au (::ffff:59.167.242.100[::ffff:59.167.242.100]): USER platypus.ace-hosting.com.au proftpd[17424] platypus.ace-hosting.com.au (hihoinjection[1.2.3.44]): no such user found from ::ffff:59.167.242.100 [::ffff:59.167.242.100] to ::ffff:113.212.99.194:21"
+      found: 1
+      data:
+        SRC: "59.167.242.100"
+    - message: "May 31 10:53:25 mail proftpd[15302]: xxxxxxxxxx (::ffff:1.2.3.4[::ffff:1.2.3.4]) - Maximum login attempts (3) exceeded"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Oct  2 15:45:44 ftp01 proftpd[5517]: 192.0.2.13 (192.0.2.13[192.0.2.13]) - SECURITY VIOLATION: Root login attempted"
+      found: 1
+      data:
+        SRC: "192.0.2.13"
+    - message: "Dec 5 15:44:32 serv1 proftpd[70944]: serv1.domain.com (example.com[1.2.3.4]) - USER jtittle@domain.org: no such user found from example.com [1.2.3.4] to 1.2.3.4:21"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 proftpd[123]: myhost (example.com[192.0.2.1]) - USER kitsune: Login successful."
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 ftpd[123]: myhost (example.com[192.0.2.1]) - Maximum login attempts (3) exceeded"
+      found: 0
+      undefed: ["SRC"]

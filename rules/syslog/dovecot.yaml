@@ -1,0 +1,82 @@
+---
+# Matches dovecot auth failures. Based on the fail2ban dovecot filter in
+# its normal mode, translated to Baphomet and simplified... the aggressive
+# mode no-auth-attempt matching is dropped.
+daemons:
+  - dovecot
+  - dovecot-auth
+  - //^dovecot//
+  - //^auth(?:-worker)?\b//
+message_regexp:
+  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\):(?: user=<[^>]*>,)?(?: method=\S+,)? rip=%%%%SRC%%%%'
+  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*?,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*?,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Dec 12 11:19:11 dunnart dovecot: pop3-login: Aborted login (tried to use disabled plaintext auth): rip=190.210.136.21, lip=113.212.99.193"
+      found: 1
+      data:
+        SRC: "190.210.136.21"
+    - message: "Jun 13 16:30:54 platypus dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<username.bob>, method=PLAIN, rip=49.176.98.87, lip=113.212.99.194, TLS"
+      found: 1
+      data:
+        SRC: "49.176.98.87"
+    - message: "Jun 23 00:52:43 vhost1-ua dovecot: pop3-login: Disconnected: Inactivity (auth failed, 1 attempts): user=<info>, method=PLAIN, rip=193.95.245.163, lip=176.214.13.210"
+      found: 1
+      data:
+        SRC: "193.95.245.163"
+    - message: "Jul 02 13:49:31 hostname dovecot[442]: pop3-login: Aborted login (auth failed, 1 attempts in 17 secs): user=<test>, method=PLAIN, rip=192.51.100.13, lip=203.0.113.17, session=<YADINsQCDs5BH8Pg>"
+      found: 1
+      data:
+        SRC: "192.51.100.13"
+    - message: "Jul 12 08:15:50 vixen42 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=web rhost=176.61.140.224"
+      found: 1
+      data:
+        SRC: "176.61.140.224"
+    # a rhost injected into ruser must not be what gets captured
+    - message: "Jul 12 08:15:50 vixen42 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=rhost=1.2.3.4 rhost=192.0.43.10"
+      found: 1
+      data:
+        SRC: "192.0.43.10"
+    - message: "Jan 29 05:32:50 mail dovecot: auth-worker(304): pam(username,1.2.3.4): pam_authenticate() failed: Authentication failure (password mismatch?)"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jan 29 18:55:55 mail dovecot: auth-worker(12182): pam(user,192.0.2.4): pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    - message: "Jul 02 13:49:32 hostname dovecot[442]: dovecot: auth(default): pam(account@MYSERVERNAME.com,200.76.17.206): pam_authenticate() failed: User not known to the underlying authentication module: 2 Time(s)"
+      found: 1
+      data:
+        SRC: "200.76.17.206"
+    - message: "Jan 29 05:13:50 mail dovecot: auth: passwd-file(username,1.2.3.4): unknown user"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jan 29 13:54:06 auth-worker(22401): Info: sql(admin@example.de,192.0.2.5,<n4JLdHNVngZGpV2j>): unknown user"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: "Jun 11 13:57:17 main dovecot: auth: sql(admin@example.ru,192.168.144.226,<6rXunFtu493AqJDi>): Password mismatch"
+      found: 1
+      data:
+        SRC: "192.168.144.226"
+    - message: "Jun 12 11:48:12 auth-worker(80180): Info: conn unix:auth-worker (uid=143): auth-worker<13247>: sql(support,192.0.2.6): unknown user"
+      found: 1
+      data:
+        SRC: "192.0.2.6"
+  negative:
+    # no auth attempts is the aggressive mode's business, not ours
+    - message: "Jun 13 20:48:11 platypus dovecot: pop3-login: Disconnected (no auth attempts): rip=121.44.24.254, lip=113.212.99.194, TLS: Disconnected"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jun 13 21:48:06 platypus dovecot: pop3-login: Disconnected: Inactivity (no auth attempts): rip=180.200.180.81, lip=113.212.99.194, TLS"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=192.0.2.99, lip=113.212.99.194, TLS"
+      found: 0
+      undefed: ["SRC"]

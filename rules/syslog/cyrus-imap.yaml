@@ -1,0 +1,42 @@
+---
+# Matches cyrus imap/pop3 login failures. Based on the fail2ban cyrus-imap
+# filter, translated to Baphomet and simplified.
+daemons:
+  - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
+message_regexp:
+  - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jan 4 21:51:05 hostname cyrus/imap[5355]: badlogin: localhost.localdomain [127.0.0.1] plaintext cyrus@localdomain SASL(-13): authentication failure: checkpass failed"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+    - message: "Feb 20 17:23:32 cyrus/pop3[4297]: badlogin: example.com [1.2.3.4] plaintext mail0001 SASL(-13): authentication failure: checkpass failed"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jun 8 18:11:13 lampserver imap[4480]: badlogin: example.com [198.51.100.45] DIGEST-MD5 [SASL(-13): authentication failure: client response doesn't match what we generated]"
+      found: 1
+      data:
+        SRC: "198.51.100.45"
+    - message: "Dec 21 10:01:57 hostname imapd[18454]: badlogin: example.com [198.51.100.57] CRAM-MD5 [SASL(-13): authentication failure: incorrect digest response]"
+      found: 1
+      data:
+        SRC: "198.51.100.57"
+    - message: "Jul 17 22:55:56 derry cyrus/imaps[7568]: badlogin: serafinat.xxxxxx [1.2.3.4] plain [SASL(-13): user not found: user: pressy@derry property: cmusaslsecretPLAIN not found in sasldb]"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Mar  8 05:25:21 host imap[22130]: badlogin: [192.0.2.4] plain [SASL(-13): authentication failure: Password verification failed]"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 cyrus/imap[123]: login: example.com [192.0.2.1] kitsune PLAIN+TLS User logged in"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 dovecot[123]: badlogin: example.com [192.0.2.1] plaintext kitsune SASL(-13): authentication failure: checkpass failed"
+      found: 0
+      undefed: ["SRC"]

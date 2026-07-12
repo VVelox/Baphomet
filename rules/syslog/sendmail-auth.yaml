@@ -1,0 +1,49 @@
+---
+# Matches sendmail authentication failures. Based on the fail2ban
+# sendmail-auth filter, translated to Baphomet and simplified.
+daemons:
+  - sendmail
+  - sm-mta
+  - sm-acceptingconnections
+message_regexp:
+  - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?: possible SMTP attack: command=AUTH, count=\d+$'
+  - '^(?:\w{14,20}: )?AUTH failure \([^\)]+\):(?: [^:]+:)? (?:authentication failure|user not found): [^,]*, (?:user=(?:\S+|.*?), )?relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Feb 16 23:33:20 smtp1 sm-mta[5133]: s1GNXHYB005133: [190.5.230.178]: possible SMTP attack: command=AUTH, count=5"
+      found: 1
+      data:
+        SRC: "190.5.230.178"
+    - message: "Feb 24 13:00:17 kismet sm-acceptingconnections[1499]: s1OHxxSn001499: 192.241.70.95.dsl.static.turk.net [95.70.241.192] (may be forged): possible SMTP attack: command=AUTH, count=6"
+      found: 1
+      data:
+        SRC: "95.70.241.192"
+    - message: "Feb 24 14:00:01 server sendmail[3529566]: xA32R2PQ3529566: [192.0.2.2]: possible SMTP attack: command=AUTH, count=5"
+      found: 1
+      data:
+        SRC: "192.0.2.2"
+    - message: "Feb 25 04:02:27 relay1 sendmail[16664]: 06I02CNi016764: AUTH failure (LOGIN): authentication failure (-13) SASL(-13): authentication failure: checkpass failed, user=user@example.com, relay=example.com [192.0.2.3] (may be forged)"
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+    - message: "Feb 25 04:02:28 relay1 sendmail[16665]: 06I02CNi016765: AUTH failure (LOGIN): authentication failure (-13) SASL(-13): authentication failure: checkpass failed, user=criminal, relay=[192.0.2.100], relay=[192.0.2.4] (may be forged)"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    - message: "May 24 01:58:40 server sm-mta[65696]: 14NNwaRl065696: AUTH failure (DIGEST-MD5): user not found (-20) SASL(-13): user not found: unable to canonify user and get auxprops, user=scanner, relay=[192.0.2.5]"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: "May 29 23:14:05 server sendmail[25411]: 26H8MRrS025411: AUTH failure (LOGIN): authentication failure (-13) SASL(-13): authentication failure: checkpass failed, relay=[192.0.2.9]"
+      found: 1
+      data:
+        SRC: "192.0.2.9"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 sm-mta[123]: 14NNwaRl065696: from=<a@example.com>, size=0, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=example.com [192.0.2.1]"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 sm-mta[123]: 14NNwaRl065697: AUTH=server, relay=example.com [192.0.2.1], authid=kitsune, mech=PLAIN, bits=0"
+      found: 0
+      undefed: ["SRC"]

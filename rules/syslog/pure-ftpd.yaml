@@ -1,0 +1,28 @@
+---
+# Matches pure-ftpd failures. Based on the fail2ban pure-ftpd filter,
+# translated to Baphomet and simplified... only the ASCII spellings of the
+# localized auth failure message are carried over, the non-ASCII ones are
+# dropped.
+daemons:
+  - pure-ftpd
+message_regexp:
+  - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jan 31 16:54:07 desktop pure-ftpd: (?@24.79.92.194) [WARNING] Authentication failed for user [Administrator]"
+      found: 1
+      data:
+        SRC: "24.79.92.194"
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@::ffff:192.0.2.77) [WARNING] Authentication failed for user [admin]"
+      found: 1
+      data:
+        SRC: "192.0.2.77"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@192.0.2.1) [INFO] New connection from 192.0.2.1"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (kitsune@192.0.2.1) [INFO] kitsune is now logged in"
+      found: 0
+      undefed: ["SRC"]

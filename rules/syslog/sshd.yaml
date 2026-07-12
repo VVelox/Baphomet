@@ -1,0 +1,93 @@
+---
+# Matches sshd auth failures. Based on the fail2ban sshd filter in its
+# normal mode, translated to Baphomet and simplified... the multi-line
+# machinery, the mode switching, and the nofail/forget tagging are all
+# dropped, so only lines that are themselves failures match.
+daemons:
+  - sshd
+  - sshd-session
+message_regexp:
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?User \S+ from %%%%SRC%%%% not allowed because'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?refused connect from \S+ \(%%%%SRC%%%%\)'
+  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%'
+  - '^Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
+  - '^Did not receive identification string from %%%%SRC%%%%'
+  - '^Bad protocol version identification .* from %%%%SRC%%%%'
+  - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 1
+      data:
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 vixen42 sshd[1094]: error: PAM: Authentication failure for root from 192.0.2.11"
+      found: 1
+      data:
+        SRC: "192.0.2.11"
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[2279]: Failed password for root from 2001:db8::badc:0ffe port 62022 ssh2"
+      found: 1
+      data:
+        SRC: "2001:db8::badc:0ffe"
+    - message: "Jul 12 08:15:50 vixen42 sshd[3161]: error: maximum authentication attempts exceeded for root from 203.0.113.4 port 4321 ssh2 [preauth]"
+      found: 1
+      data:
+        SRC: "203.0.113.4"
+    - message: "Jul 12 08:15:50 vixen42 sshd[4189]: User root from 198.51.100.9 not allowed because not listed in AllowUsers"
+      found: 1
+      data:
+        SRC: "198.51.100.9"
+    - message: "Jul 12 08:15:50 vixen42 sshd[5911]: ROOT LOGIN REFUSED FROM 198.51.100.1"
+      found: 1
+      data:
+        SRC: "198.51.100.1"
+    - message: "Jul 12 08:15:50 vixen42 sshd[6021]: refused connect from bad.example.com (192.0.2.99)"
+      found: 1
+      data:
+        SRC: "192.0.2.99"
+    - message: "Jul 12 08:15:50 vixen42 sshd[7113]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=192.0.2.33  user=root"
+      found: 1
+      data:
+        SRC: "192.0.2.33"
+    - message: "Jul 12 08:15:50 vixen42 sshd[8231]: Received disconnect from 192.0.2.55 port 48372: 3: com.jcraft.jsch.JSchException: Auth fail [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.55"
+    - message: "Jul 12 08:15:50 vixen42 sshd[9145]: Did not receive identification string from 198.51.100.77 port 9922"
+      found: 1
+      data:
+        SRC: "198.51.100.77"
+    - message: "Jul 12 08:15:50 vixen42 sshd[9250]: Bad protocol version identification 'GET / HTTP/1.1' from 203.0.113.66 port 44444"
+      found: 1
+      data:
+        SRC: "203.0.113.66"
+    - message: "Jul 12 08:15:50 vixen42 sshd[9366]: banner exchange: Connection from 203.0.113.67 port 33321: invalid format"
+      found: 1
+      data:
+        SRC: "203.0.113.67"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 sshd[36749]: Connection closed by authenticating user root 192.0.2.3 port 5555 [preauth]"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 sshd[1]: Server listening on 0.0.0.0 port 22."
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 sshd[8232]: Received disconnect from 192.0.2.55 port 48372: 11: disconnected by user"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 cron[1234]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 0
+      undefed: ["SRC"]

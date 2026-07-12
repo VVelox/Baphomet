@@ -1,0 +1,31 @@
+---
+# Matches webmin login failures. Based on the fail2ban webmin-auth filter,
+# translated to Baphomet and simplified.
+daemons:
+  - webmin
+message_regexp:
+  - '^Non-existent login as .+ from %%%%SRC%%%%\s*$'
+  - '^Invalid login as .+ from %%%%SRC%%%%\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Dec 13 08:15:18 sb1 webmin[25875]: Invalid login as root from 89.2.49.230 "
+      found: 1
+      data:
+        SRC: "89.2.49.230"
+    - message: "Dec 12 23:14:19 sb1 webmin[22134]: Non-existent login as robert from 188.40.105.142 "
+      found: 1
+      data:
+        SRC: "188.40.105.142"
+    - message: "Sep 25 10:38:11 platypus webmin[27249]: Non-existent login as admin@goodeyedeer.com.au from 14.200.251.155"
+      found: 1
+      data:
+        SRC: "14.200.251.155"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 webmin[29544]: Successful login as root from 86.0.6.217"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 sshd[29544]: Invalid login as root from 86.0.6.217"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,39 @@
+---
+# Matches PAM authentication failures logged by any daemon. Based on the
+# fail2ban pam-generic filter, translated to Baphomet and simplified.
+#
+# The rhost of a PAM failure is not always a IP... some services hand PAM a
+# hostname, so this uses the HOST token and ban_var and whatever matched is
+# what gets sent to Ereshkigal.
+daemons:
+  - //.//
+message_regexp:
+  - '^\(?pam_[a-z0-9_]+(?:\(\S+\))?\)?:? authentication failure;(?:\s*(?:logname|e?uid|tty)=\S*){0,4}\s+ruser=\S* rhost=%%%%HOST%%%%(?:\s+user=\S*)?\s*$'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: "Feb  7 15:10:42 example pure-ftpd: (pam_unix) authentication failure; logname= uid=0 euid=0 tty=pure-ftpd ruser=sample-user rhost=192.168.1.1 "
+      found: 1
+      data:
+        HOST: "192.168.1.1"
+    - message: "May 12 09:47:54 vaio sshd[16004]: (pam_unix) authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=71-13-115-12.static.mdsn.wi.charter.com  user=root"
+      found: 1
+      data:
+        HOST: "71-13-115-12.static.mdsn.wi.charter.com"
+    - message: "Jul 19 18:11:26 srv2 vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=an8767 rhost=www.google.com"
+      found: 1
+      data:
+        HOST: "www.google.com"
+    - message: "Jul 19 18:11:26 srv2 vsftpd: pam_unix: authentication failure; logname= uid=0 euid=0 tty=ftp ruser=an8767 rhost=www.google.com"
+      found: 1
+      data:
+        HOST: "www.google.com"
+  negative:
+    # pam in the daemon position rather than leading the message
+    - message: "Nov 25 17:12:13 webmail pop(pam_unix)[4920]: authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=192.168.10.3 user=mailuser"
+      found: 0
+      undefed: ["HOST"]
+    - message: "Jul 19 18:11:27 srv2 vsftpd: pam_unix(vsftpd:auth): session opened for user kitsune by (uid=0)"
+      found: 0
+      undefed: ["HOST"]

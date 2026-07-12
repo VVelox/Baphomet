@@ -1,0 +1,52 @@
+---
+# Matches solid-pop3d authentication failures. Based on the fail2ban
+# solid-pop3d filter, translated to Baphomet and simplified. solid-pop3d
+# needs to be compiled with --enable-logextend for the IP to show up in the
+# log messages... the PAM failure messages carry no usable rhost and are
+# not matched.
+daemons:
+  - solid-pop3d
+message_regexp:
+  - '^authentication failed: (?:no such user|can''t map user name): .*? - %%%%SRC%%%%$'
+  - '^(?:APOP )?authentication failed for (?:mapped )?user .*? - %%%%SRC%%%%$'
+  - '^root login not allowed - %%%%SRC%%%%$'
+  - '^can''t find APOP secret for user .*? - %%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: authentication failed: no such user: adrian - 123.33.44.45"
+      found: 1
+      data:
+        SRC: "123.33.44.45"
+    - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: authentication failed: can't map user name: adrian - 123.33.44.45"
+      found: 1
+      data:
+        SRC: "123.33.44.45"
+    - message: "Nov 17 23:10:03 emf1pt2-2-35-70 solid-pop3d[16993]: authentication failed for user jacques - 190.16.165.230"
+      found: 1
+      data:
+        SRC: "190.16.165.230"
+    - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: authentication failed for mapped user adrain - 123.33.44.45"
+      found: 1
+      data:
+        SRC: "123.33.44.45"
+    - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: APOP authentication failed for user adrian - 123.33.44.45"
+      found: 1
+      data:
+        SRC: "123.33.44.45"
+    - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: root login not allowed - 123.33.44.45"
+      found: 1
+      data:
+        SRC: "123.33.44.45"
+    - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: can't find APOP secret for user adrian - 123.33.44.45"
+      found: 1
+      data:
+        SRC: "123.33.44.45"
+  negative:
+    - message: "Nov 17 23:17:50 emf1pt2-2-35-70 solid-pop3d[17176]: pam_unix(solid-pop3d:auth): authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=  user=jacques"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 solid-pop3d[3822]: authentication succeeded for user adrian - 123.33.44.45"
+      found: 0
+      undefed: ["SRC"]

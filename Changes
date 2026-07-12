@@ -1,5 +1,14 @@
-Revision history for Baphomet
+Revision history for App-Baphomet
 
-0.01    Date/time
-        First version, released on an unsuspecting world.
-
+0.0.1	2026-07-12
+        - Initial release. Log watcher for Ereshkigal... tails logs, parses
+          syslog lines, matches them against YAML rules, and consigns
+          offending IPs to Kur via the Ereshkigal manager socket.
+        - Rules may carry ignore_regexp entries, the fail2ban ignoreregex
+          equivalent, and a watcher's rule may be a array of rules checked
+          first-match-wins, for logs carrying several daemons.
+        - Licensed GPL-2.0-or-later, matching fail2ban, which the shipped
+          rules are derived from.
+        - Ships 25 syslog rules translated from the fail2ban filters, each
+          carrying tests mined from the fail2ban test log corpus. See
+          docs/rules-catalog.md.

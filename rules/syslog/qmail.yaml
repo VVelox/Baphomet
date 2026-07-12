@@ -1,0 +1,40 @@
+---
+# Matches qmail/rblsmtpd RBL rejections and blocks. Based on the fail2ban
+# qmail filter, translated to Baphomet and simplified. Covers a few
+# different RBL patches to qmail and rblsmtpd, so usually only one of these
+# regexps will ever fire on a given host. The stock djb rblsmtpd does not
+# log rejections at all.
+daemons:
+  - qmail
+  - rblsmtpd
+message_regexp:
+  - '^\d+\.\d+ rblsmtpd: %%%%SRC%%%% pid \d+ \S+ 4\d\d \S+\s*$'
+  - '^\d+\.\d+ qmail-smtpd: 4\d\d badiprbl: ip %%%%SRC%%%% rbl: \S+\s*$'
+  - '^\S+ blocked %%%%SRC%%%% \S+ -\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Sep  6 07:33:33 sd6 qmail: 1157520813.485077 rblsmtpd: 198.51.100.77 pid 19597 sbl-xbl.spamhaus.org: 451 http://www.spamhaus.org/query/bl?ip=198.51.100.77"
+      found: 1
+      data:
+        SRC: "198.51.100.77"
+    - message: "Sep  6 07:18:29 sd6 qmail: 1157519909.633171 qmail-smtpd: 421 badiprbl: ip 198.51.100.54 rbl: example.com"
+      found: 1
+      data:
+        SRC: "198.51.100.54"
+    - message: "Jun 30 15:13:33 ns1 rblsmtpd: relays.ordb.org blocked 193.111.120.47 ordb-test.null.dk -"
+      found: 1
+      data:
+        SRC: "193.111.120.47"
+    - message: "Jun 30 15:13:55 ns1 rblsmtpd: relays.osirusoft.com blocked 192.203.178.107 sbl.crynwr.com -"
+      found: 1
+      data:
+        SRC: "192.203.178.107"
+  negative:
+    - message: "Jul 12 08:25:49 sd6 qmail: 1157520813.485077 status: local 0/10 remote 0/20"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 sd6 qmail: 1157520813.485077 delivery 5: success: did_0+0+1/"
+      found: 0
+      undefed: ["SRC"]

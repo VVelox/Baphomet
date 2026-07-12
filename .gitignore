@@ -35,3 +35,5 @@ inc/
 /*.zip
 
 scratch.md
+design.md
+bin/*

@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# PROVIDE: baphomet
+# REQUIRE: NETWORKING ereshkigal
+# KEYWORD: shutdown
+#
+# Add the following to /etc/rc.conf[.local] to enable baphomet...
+#
+#   baphomet_enable="YES"
+#
+# Optionally...
+#
+#   baphomet_config="/usr/local/etc/baphomet/config.toml"
+
+. /etc/rc.subr
+
+name="baphomet"
+rcvar="baphomet_enable"
+
+load_rc_config $name
+
+: ${baphomet_enable:="NO"}
+: ${baphomet_config:="/usr/local/etc/baphomet/config.toml"}
+
+pidfile="/var/run/baphomet/pid"
+start_cmd="/usr/local/bin/baphomet start --config ${baphomet_config}"
+stop_cmd="/usr/local/bin/baphomet stop"
+status_cmd="/usr/local/bin/baphomet status"
+
+run_rc_command "$1"

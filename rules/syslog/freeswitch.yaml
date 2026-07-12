@@ -1,0 +1,39 @@
+---
+# Matches freeswitch SIP auth failures. Based on the fail2ban freeswitch
+# filter, translated to Baphomet and simplified... the prefregex machinery
+# is folded into each regexp, the mode switching is dropped in favor of the
+# default "extra" mode which combines the normal and ddos regexps, and the
+# optional duplicated timestamp that shows up when logging via syslog is
+# handled inline.
+daemons:
+  - freeswitch
+message_regexp:
+  - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? Can''t find user \[[^@]+@[^\]]+\] from %%%%SRC%%%%$'
+  - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? SIP auth (?:failure|challenge) \((?:REGISTER|INVITE)\) on sofia profile ''[^'']+'' for \[[^\]]*\] from ip %%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 freeswitch[123]: [WARNING] sofia_reg.c:1533 SIP auth challenge (INVITE) on sofia profile 'internal' for [011448708752617@192.168.2.51] from ip 81.94.202.251"
+      found: 1
+      data:
+        SRC: "81.94.202.251"
+    - message: "Jul 12 08:15:50 vixen42 freeswitch[123]: [WARNING] sofia_reg.c:1478 SIP auth failure (INVITE) on sofia profile 'internal' for [000972543480510@192.168.2.51] from ip 5.11.47.236"
+      found: 1
+      data:
+        SRC: "5.11.47.236"
+    - message: "Jul 12 08:15:50 vixen42 freeswitch[122921]: 2016-09-25 18:57:58.150982 [WARNING] sofia_reg.c:2889 Can't find user [201@::1] from 192.0.2.1"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+    - message: "Jul 12 08:15:50 vixen42 freeswitch[123]: [WARN] [SOFIA] [sofia_reg.c:4130] Can't find user [101@148.251.134.154] from 192.0.2.3"
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 freeswitch[123]: 2013-12-31 17:39:54.767815 [DEBUG] sofia.c:7954 IP 185.24.234.141 Rejected by acl \"domains\". Falling back to Digest auth."
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 freeswitch[123]: [NOTICE] switch_channel.c:1104 New Channel sofia/internal/201@192.168.2.51 [a5b0d8f2-3c44-4f9a-a26b-1a1d2b8f00aa]"
+      found: 0
+      undefed: ["SRC"]

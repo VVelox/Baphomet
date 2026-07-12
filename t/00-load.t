@@ -4,10 +4,23 @@ use strict;
 use warnings;
 use Test::More;
 
-plan tests => 1;
+my @modules = (
+	'App::Baphomet',
+	'App::Baphomet::LogDrek',
+	'App::Baphomet::Config',
+	'App::Baphomet::Parser',
+	'App::Baphomet::Parser::BSDSyslog',
+	'App::Baphomet::Parser::IETFSyslog',
+	'App::Baphomet::Rules',
+	'App::Baphomet::Rules::Syslog',
+	'App::Baphomet::Galla',
+	'App::Baphomet::App',
+);
 
-BEGIN {
-    use_ok( 'Baphomet' ) || print "Bail out!\n";
+plan tests => scalar(@modules);
+
+foreach my $module (@modules) {
+	use_ok($module) || print "Bail out!\n";
 }
 
-diag( "Testing Baphomet $Baphomet::VERSION, Perl $], $^X" );
+diag("Testing App::Baphomet $App::Baphomet::VERSION, Perl $], $^X");

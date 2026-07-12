@@ -1,0 +1,29 @@
+---
+# Matches xinetd connection failures. Based on the fail2ban xinetd-fail
+# filter, translated to Baphomet and simplified... the FAIL: prefregex is
+# folded into each regexp. "address" is a xinetd deny_from/only_from
+# rejection and "libwrap" a tcp wrappers hosts.(allow|deny) rejection.
+daemons:
+  - xinetd
+message_regexp:
+  - '^FAIL: \S+ address from=%%%%SRC%%%%$'
+  - '^FAIL: \S+ libwrap from=%%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "May 15 17:38:49 boo xinetd[16256]: FAIL: telnet address from=198.51.100.169"
+      found: 1
+      data:
+        SRC: "198.51.100.169"
+    - message: "Aug  3 14:38:49 backup xinetd[31234]: FAIL: amanda libwrap from=198.51.100.223"
+      found: 1
+      data:
+        SRC: "198.51.100.223"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 xinetd[16256]: START: telnet pid=12345 from=198.51.100.169"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 xinetd[16256]: EXIT: telnet status=0 pid=12345 duration=10(sec)"
+      found: 0
+      undefed: ["SRC"]

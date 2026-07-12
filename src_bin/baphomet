@@ -1,0 +1,44 @@
+#!perl
+
+=head1 NAME
+
+baphomet - Log watcher that consigns misbehaving IPs to Kur via Ereshkigal.
+
+=head1 SYNOPSIS
+
+baphomet [B<-s> <socket>] <command> [<args>]
+
+baphomet start [B<--config>=<config>] [B<-f>|B<--foreground>]
+
+baphomet stop
+
+baphomet status [B<--all>] [<galla>]
+
+baphomet check_rules [B<--config>=<config>] [B<--rules-dir>=<dir>] [<rule> ...]
+
+baphomet test_line B<--rule>=<rule> [B<--parser>=<parser>]
+[B<--config>=<config>] [B<--rules-dir>=<dir>] <line>
+
+=head1 DESCRIPTION
+
+Reads logs, matches lines against rules, and forwards the IPs of repeat
+offenders to L<Ereshkigal> to be banned.
+
+C<baphomet start> reads the config, by default
+C</usr/local/etc/baphomet/config.toml>, daemonizes, and spawns and
+supervises a galla process for each hash under C<kur> in the config, each
+of which follows the logs of its watchers. The other commands talk to the
+running manager over it's unix socket, by default
+C</var/run/baphomet/socket>, or in the case of check_rules and test_line
+just work on the rules directly.
+
+See L<App::Baphomet> for the config file format and
+C<baphomet help <command>> for the various commands.
+
+=cut
+
+use strict;
+use warnings;
+use App::Baphomet::App;
+
+App::Baphomet::App->run;

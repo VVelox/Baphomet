@@ -1,0 +1,30 @@
+---
+# Matches sieve (cyrus timsieved) login failures. Based on the fail2ban
+# sieve filter, translated to Baphomet and simplified.
+daemons:
+  - '//^(?:cyrus/)?(?:tim)?sieved?$//'
+message_regexp:
+  - '^badlogin: \S+ ?\[(?:::ffff:)?%%%%SRC%%%%\] \S+ authentication failure$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Dec 1 20:36:56 mail sieve[23713]: badlogin: example.com[1.2.3.4] PLAIN authentication failure"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jul 18 17:21:58 ophelia cyrus/timsieved[12305]: badlogin: example.com[1.2.3.4] PLAIN authentication failure"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Sep 25 22:07:38 web9 timsieved[21040]: badlogin: web4[1.2.3.4] OTP authentication failure"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 sieve[123]: login: example.com[192.0.2.1] PLAIN User logged in"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 dovecot[123]: badlogin: example.com[192.0.2.1] PLAIN authentication failure"
+      found: 0
+      undefed: ["SRC"]

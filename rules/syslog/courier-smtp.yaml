@@ -1,0 +1,39 @@
+---
+# Matches courier smtp relay/auth failures. Based on the fail2ban
+# courier-smtp filter, translated to Baphomet and simplified.
+daemons:
+  - courieresmtpd
+message_regexp:
+  - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?[^:]*: 550 User (?:<.*> )?unknown\.?$'
+  - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?msg="535 Authentication failed\.",cmd:(?: AUTH \S+)?(?: [0-9a-zA-Z\+/=]+)?(?: \S+)$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Apr 10 03:47:57 web courieresmtpd: error,relay=::ffff:1.2.3.4,ident=tmf,from=<tmf@example.com>,to=<mailman-subscribe@example.com>: 550 User unknown."
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jul  4 18:39:39 mail courieresmtpd: error,relay=::ffff:1.2.3.4,from=<picaro@astroboymail.com>,to=<user@update.net>: 550 User <benny> unknown"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jul  3 23:07:20 szerver courieresmtpd: error,relay=::ffff:1.2.3.4,msg=\"535 Authentication failed.\",cmd: YWRvYmVhZG9iZQ=="
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Aug 14 12:51:04 mail.server courieresmtpd[26762]: error,relay=::ffff:1.2.3.4,msg=\"535 Authentication failed.\",cmd: AUTH PLAIN AAAAABBBBCCCCWxlZA== admin"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Aug 14 12:51:05 mail.server courieresmtpd[425070]: error,relay=::ffff:192.0.2.3,port=43632,msg=\"535 Authentication failed.\",cmd: AUTH LOGIN PlcmSpIp@example.com"
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 courieresmtpd[123]: error,relay=::ffff:192.0.2.3,from=<a@example.com>,to=<b@example.net>: 517 Down for maintenance."
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 vixen42 courieresmtpd[123]: started,ip=[::ffff:192.0.2.3]"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,21 @@
+# systemd unit for the Baphomet log watcher
+#
+#   cp rc/systemd/baphomet.service /etc/systemd/system/
+#   systemctl daemon-reload
+#   systemctl enable --now baphomet
+
+[Unit]
+Description=Baphomet log watcher for Ereshkigal
+Documentation=man:baphomet(1)
+After=network.target
+Wants=ereshkigal.service
+After=ereshkigal.service
+
+[Service]
+Type=forking
+PIDFile=/var/run/baphomet/pid
+ExecStart=/usr/local/bin/baphomet start
+ExecStop=/usr/local/bin/baphomet stop
+
+[Install]
+WantedBy=multi-user.target

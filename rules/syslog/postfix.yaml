@@ -1,0 +1,66 @@
+---
+# Matches postfix smtpd rejects and abuse. Based on the fail2ban postfix
+# filter in its default mode, translated to Baphomet and simplified... the
+# ddos and aggressive mode matching is dropped, and SASL auth failures live
+# in syslog/postfix-sasl.
+daemons:
+  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+message_regexp:
+  - '^\w+: (?:milter-)?reject: [A-Z]{4} from [^\[]*\[%%%%SRC%%%%\](?::\d+)?: [45][50][04] [45]\.\d\.\d+ (?:(?:<[^>]*>)?: )?(?:(?:Helo command|(?:Sender|Recipient) address) rejected: )?(?:Service unavailable|(?:Client host|Command|Data command) rejected|Relay access denied|(?:Host|Domain) not found|need fully-qualified hostname|match|[Uu](?:ser unknown|ndeliverable address))\b'
+  - '^(?:improper command pipelining|too many errors) after \S+ from [^\[]*\[%%%%SRC%%%%\](?::\d+)?:?\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Feb 21 09:21:54 xxx postfix/smtpd[14398]: NOQUEUE: reject: RCPT from example.com[192.0.43.10]: 450 4.7.1 : Helo command rejected: Host not found; from=<> to=<> proto=ESMTP helo="
+      found: 1
+      data:
+        SRC: "192.0.43.10"
+    - message: "Jul 12 07:47:48 saturn postfix/smtpd[8738]: NOQUEUE: reject: RCPT from 1-2-3-4-example.com[1.2.3.4]: 554 5.7.1 <smtp@example.com>: Relay access denied; from=<john@example.com> to=<smtp@example.org> proto=SMTP helo=<198.51.100.17>"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jul 18 23:12:56 xxx postfix/smtpd[8738]: NOQUEUE: reject: RCPT from foo[192.51.100.43]: 554 5.7.1 <foo@bad.domain>: Sender address rejected: match bad.domain; from=<foo@bad.domain> to=<foo@porcupine.org> proto=SMTP helo=<192.51.100.43>"
+      found: 1
+      data:
+        SRC: "192.51.100.43"
+    - message: "Aug 13 15:45:46 server postfix/smtpd[13844]: 00ADB3C0899: reject: RCPT from example.com[192.0.2.1]: 550 5.1.1 <sales@server.com>: Recipient address rejected: User unknown in local recipient table; from=<xxxxxx@example.com> to=<sales@server.com> proto=ESMTP helo=<mail.example.com>"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+    - message: "May 19 00:00:30 proxy2 postfix/smtpd[16123]: NOQUEUE: reject: RCPT from example.net[192.0.2.2]: 550 5.1.1 <user1@example.com>: Recipient address rejected: undeliverable address: verification failed; from=<user2@example.org> to=<user1@example.com> proto=ESMTP helo=<example.net>"
+      found: 1
+      data:
+        SRC: "192.0.2.2"
+    - message: "Dec 21 21:17:29 xxx postfix/smtpd[7150]: NOQUEUE: reject: RCPT from badserver.example.com[93.184.216.34]: 450 4.7.1 Client host rejected: cannot find your hostname, [93.184.216.34]; from=<badactor@example.com> to=<goodguy@example.com> proto=ESMTP helo=<badserver.example.com>"
+      found: 1
+      data:
+        SRC: "93.184.216.34"
+    - message: "Jan 31 13:55:24 xxx postfix/smtpd[3462]: NOQUEUE: reject: EHLO from s271272.static.corbina.ru[78.107.251.238]: 504 5.5.2 <User>: Helo command rejected: need fully-qualified hostname; proto=SMTP helo=<User>"
+      found: 1
+      data:
+        SRC: "78.107.251.238"
+    - message: "Mar 7 02:09:33 server postfix/smtpd[27246]: 1D8CC1CA0A7F: milter-reject: DATA from 66-220-155-151.mail-mail.facebook.com[192.0.2.151]: 550 5.7.1 Command rejected; from=<security@mail.example.com> to=<hostmaster@example.com> proto=ESMTP helo=<192-0-2-151.mail-mail.example.com>"
+      found: 1
+      data:
+        SRC: "192.0.2.151"
+    - message: "Jan 12 11:07:49 emf1pt2-2-35-70 postfix/smtpd[13767]: improper command pipelining after DATA from unknown[181.21.131.88]:"
+      found: 1
+      data:
+        SRC: "181.21.131.88"
+    - message: "Dec 18 02:05:46 platypus postfix/smtpd[16349]: improper command pipelining after NOOP from unknown[216.245.198.245]"
+      found: 1
+      data:
+        SRC: "216.245.198.245"
+  negative:
+    # trailing content after the pipelining line means it was more than a probe
+    - message: "Jun 12 08:58:35 srv postfix/smtpd[29306]: improper command pipelining after AUTH from unknown[192.0.2.11]: QUIT"
+      found: 0
+      undefed: ["SRC"]
+    # sporadical connection aborts within the DATA phase are lawful
+    - message: "Feb 18 09:50:05 xxx postfix/smtpd[42]: lost connection after DATA from good-host.example.com[192.0.2.10]"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Feb 18 09:50:06 xxx postfix/qmgr[404]: 32A991CA0A7F: removed"
+      found: 0
+      undefed: ["SRC"]

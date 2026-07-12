@@ -1,0 +1,112 @@
+#!perl
+
+=head1 NAME
+
+galla - Log watching worker for Baphomet.
+
+=head1 SYNOPSIS
+
+galla B<--name>=<name> [B<--config>=<config>] [B<-f>|B<--foreground>]
+
+galla -v|--version
+
+galla -h|--help
+
+=head1 DESCRIPTION
+
+Runs a single L<App::Baphomet::Galla> instance, handling one kur from the
+config... following the logs of its watchers, matching lines against the
+rules, and consigning IPs that rack up too many matches to Kur via the
+Ereshkigal manager socket.
+
+The socket and PID file go under C<$run_base_dir/galla/>, named for the
+kur... C<< <name>.sock >> and C<< <name>.pid >>.
+
+Normally spawned and supervised by C<baphomet>, but usable standalone.
+
+=head1 FLAGS
+
+=head2 -v|--version
+
+Show version info.
+
+=head2 -h|--help
+
+Show help info.
+
+=head2 --name=<name>
+
+The name of the kur under the config this galla is for.
+
+This must be specified.
+
+=head2 --config=<config>
+
+Path to the TOML config file.
+
+Default is /usr/local/etc/baphomet/config.toml
+
+=head2 -f|--foreground
+
+Do not daemonize. This is used by baphomet when spawning galla instances so
+they can be supervised.
+
+=cut
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+use Net::Server::Daemonize qw(daemonize);
+use App::Baphomet::Galla;
+
+sub main::VERSION_MESSAGE {
+	print 'galla v. ' . $App::Baphomet::Galla::VERSION . "\n";
+	exit 255;
+}
+
+sub main::HELP_MESSAGE {
+	pod2usage( -exitval => 255, -verbose => 2, -output => \*STDOUT, );
+}
+
+my $name;
+my $config = '/usr/local/etc/baphomet/config.toml';
+my $foreground;
+my $version;
+my $help;
+GetOptions(
+	'version|v'    => \$version,
+	'help|h'       => \$help,
+	'name=s'       => \$name,
+	'config=s'     => \$config,
+	'foreground|f' => \$foreground,
+) || pod2usage( -exitval => 255, -verbose => 1, -output => \*STDERR, );
+
+# print version or help if requested
+if ($help) {
+	main::HELP_MESSAGE;
+	exit 42;
+}
+if ($version) {
+	main::VERSION_MESSAGE;
+	exit 42;
+}
+
+my $galla = App::Baphomet::Galla->new(
+	'config' => $config,
+	'name'   => $name,
+);
+
+if ($foreground) {
+	# supervised by baphomet or ran by hand, so just write the PID file ourselves
+	open( my $pid_fh, '>', $galla->pid_path )
+		|| die( 'Failed to open the PID file "' . $galla->pid_path . '"... ' . $! );
+	print $pid_fh $$;
+	close($pid_fh);
+} else {
+	daemonize( $>, ( split( /\s+/, $) ) )[0], $galla->pid_path );
+}
+
+$galla->start_server;
+
+unlink( $galla->pid_path ) if -e $galla->pid_path;

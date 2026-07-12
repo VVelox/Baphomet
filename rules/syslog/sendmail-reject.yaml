@@ -1,0 +1,88 @@
+---
+# Matches sendmail spam/relay rejects. Based on the fail2ban
+# sendmail-reject filter in its normal mode, translated to Baphomet and
+# simplified... the extra/aggressive mode regexps and the multi-line
+# "No such user here" nofail machinery are dropped.
+daemons:
+  - sendmail
+  - sm-mta
+  - sm-acceptingconnections
+message_regexp:
+  - '^(?:\w{14,20}: )?ruleset=check_rcpt, arg1=<\S+@\S+>, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=(?:550 5\.7\.1(?: <\S+@\S+>\.\.\.)?(?: Relaying denied\.)? (?:IP name possibly forged \[(?:\d+\.){3}\d+\]|Proper authentication required\.|IP name lookup failed \[(?:\d+\.){3}\d+\]|Fix reverse DNS for \S+)|553 5\.1\.8(?: <\S+@\S+>\.\.\.)? Domain of sender address \S+ does not exist|550 5\.[71]\.1 <\S+@\S+>\.\.\. (?:Rejected: .*|User unknown))$'
+  - '^(?:\w{14,20}: )?ruleset=check_relay(?:, arg\d+=\S*)*, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=421 4\.3\.2 (?:Connection rate limit exceeded\.|Too many open connections\.)$'
+  - '^(?:\w{14,20}: )?rejecting commands from (?:\S* )?\[(?:IPv6:)?%%%%SRC%%%%\] due to pre-greeting traffic after \d+ seconds$'
+  - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\]: (?i:expn|vrfy) \S+ \[rejected\]$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Feb 25 03:01:10 kismet sm-acceptingconnections[27713]: s1P819mk027713: ruleset=check_rcpt, arg1=<asservnew@freemailhost.ru>, relay=128-68-136-133.broadband.corbina.ru [128.68.136.133], reject=550 5.7.1 <asservnew@freemailhost.ru>... Relaying denied. Proper authentication required."
+      found: 1
+      data:
+        SRC: "128.68.136.133"
+    - message: "Feb 23 21:36:14 petermurray sm-mta[22248]: s1NLaDQT022248: ruleset=check_rcpt, arg1=<dautareuk2@hotmail.it>, relay=int0.client.access.azadnet.net [80.253.155.119] (may be forged), reject=550 5.7.1 <dautareuk2@hotmail.it>... Relaying denied. IP name possibly forged [80.253.155.119]"
+      found: 1
+      data:
+        SRC: "80.253.155.119"
+    - message: "Feb 23 07:57:28 petermurray sm-mta[6519]: s1N7vR47006519: ruleset=check_rcpt, arg1=<camila.pinto@camilopinto.pt>, relay=[2.180.185.27], reject=553 5.1.8 <camila.pinto@camilopinto.pt>... Domain of sender address camila.pinto@andrewweitzman.com does not exist"
+      found: 1
+      data:
+        SRC: "2.180.185.27"
+    - message: "Feb 23 07:00:08 petermurray sm-mta[3992]: s1N706jo003992: ruleset=check_rcpt, arg1=<joaofr@camilopinto.pt>, relay=[151.232.63.226], reject=550 5.7.1 <joaofr@camilopinto.pt>... Rejected: 151.232.63.226 listed at sbl-xbl.spamhaus.org"
+      found: 1
+      data:
+        SRC: "151.232.63.226"
+    - message: "Feb 27 15:49:02 batman sm-mta[88377]: s1REn1un088377: ruleset=check_rcpt, arg1=<non-existing-user@example.com>, relay=189-30-205-74.paebv701.dsl.brasiltelecom.net.br [189.30.205.74], reject=550 5.1.1 <non-existing-user@example.com>... User unknown"
+      found: 1
+      data:
+        SRC: "189.30.205.74"
+    - message: "Feb 27 15:44:18 batman sm-mta[87838]: s1REiHdq087838: ruleset=check_rcpt, arg1=<gert-jan@t-online.ch>, relay=[41.204.78.137], reject=550 5.7.1 <gert-jan@t-online.ch>... Relaying denied. IP name lookup failed [41.204.78.137]"
+      found: 1
+      data:
+        SRC: "41.204.78.137"
+    - message: "Feb 22 15:20:27 localhost sm-mta[275631]: 13O9Ixhq275631: ruleset=check_rcpt, arg1=<linda@domain.com>, relay=[192.0.2.5], reject=550 5.7.1 <linda@domain.com>... Fix reverse DNS for 192.0.2.5"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: "Feb 24 01:46:44 petermurray sm-mta[24422]: ruleset=check_relay, arg1=leased-line-54-82.telecom.by, arg2=217.21.54.82, relay=leased-line-54-82.telecom.by [217.21.54.82], reject=421 4.3.2 Connection rate limit exceeded."
+      found: 1
+      data:
+        SRC: "217.21.54.82"
+    - message: "Feb 27 15:49:07 batman sm-mta[88390]: ruleset=check_relay, arg1=189-30-205-74.paebv701.dsl.brasiltelecom.net.br, arg2=189.30.205.74, relay=189-30-205-74.paebv701.dsl.brasiltelecom.net.br [189.30.205.74], reject=421 4.3.2 Too many open connections."
+      found: 1
+      data:
+        SRC: "189.30.205.74"
+    - message: "Feb 19 20:17:12 server sm-mta[201892]: ruleset=check_relay, arg1=[192.0.2.123], arg2=192.0.2.123, relay=host.example.com [192.0.2.123] (may be forged), reject=421 4.3.2 Connection rate limit exceeded."
+      found: 1
+      data:
+        SRC: "192.0.2.123"
+    - message: "Feb 27 10:53:06 batman sm-mta[44307]: s1R9r60D044307: rejecting commands from  [209.15.212.253] due to pre-greeting traffic after 0 seconds"
+      found: 1
+      data:
+        SRC: "209.15.212.253"
+    - message: "Feb 27 10:53:07 strange sm-mta[18001]: u9A0GtpL018001: rejecting commands from example.com [1.2.3.4] due to pre-greeting traffic after 6 seconds"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Feb 23 21:18:47 batman sm-mta[93301]: s1NKIkZa093301: [76.72.174.70]: EXPN root [rejected]"
+      found: 1
+      data:
+        SRC: "76.72.174.70"
+    - message: "Feb 13 01:16:50 batman sm-mta[25815]: s1D0GoSs025815: [217.193.142.180]: vrfy info [rejected]"
+      found: 1
+      data:
+        SRC: "217.193.142.180"
+    - message: "Feb 22 14:02:44 batman sm-mta[4030]: s1MD2hsd004030: rrcs-24-73-201-194.se.biz.rr.com [24.73.201.194]: VRFY root [rejected]"
+      found: 1
+      data:
+        SRC: "24.73.201.194"
+  negative:
+    - message: "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026250: <arhipov@domain.com>... No such user here"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026254: from=<davaojk25@domain.com>, size=0, class=0, nrcpts=0, bodytype=8BITMIME, proto=ESMTP, daemon=MTA, relay=163.23.32.95.dsl-dynamic.vsi.ru [95.32.23.163]"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Mar 6 16:55:28 s192-168-0-1 sm-mta[20949]: v26LtRA0020949: some-host-24.example.org [192.0.2.194] did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA"
+      found: 0
+      undefed: ["SRC"]

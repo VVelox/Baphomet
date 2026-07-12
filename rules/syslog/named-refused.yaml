@@ -1,0 +1,47 @@
+---
+# Matches denied queries and zone transfers logged by BIND. Based on the
+# fail2ban named-refused filter, translated to Baphomet and simplified...
+# only the syslog form is handled, not BIND's own file log format.
+#
+# Note the fail2ban filter's warning applies here too... running this on a
+# resolver that legitimately refuses things can punish the innocent, so
+# know your named config before wiring this up.
+daemons:
+  - //^named(?:-\w+)?$//
+message_regexp:
+  - '^(?:[\w-]+: ){0,2}client(?: @\S*)? %%%%SRC%%%%#\d+(?: \([^\)]+\))?: (?:view [\w-]+: )?(?:query(?: \(cache\))?|zone transfer|bad zone transfer request: ''\S+/IN'': non-authoritative zone).* (?:denied|\(NOTAUTH\))\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 24 14:16:55 raid5 named[3935]: client 194.145.196.18#4795: query 'ricreig.com/NS/IN' denied"
+      found: 1
+      data:
+        SRC: "194.145.196.18"
+    - message: "Jul 24 14:17:13 raid5 named[3935]: client 148.160.29.6#33081: query (cache) 'geo-mueller.de/NS/IN' denied"
+      found: 1
+      data:
+        SRC: "148.160.29.6"
+    - message: "Jul 24 14:23:36 raid5 named[3935]: client 62.109.4.89#9334: view external: query (cache) './NS/IN' denied"
+      found: 1
+      data:
+        SRC: "62.109.4.89"
+    - message: "Aug 17 08:20:22 catinthehat named[2954]: client 223.252.23.219#56275: zone transfer 'openquery.eu/AXFR/IN' denied"
+      found: 1
+      data:
+        SRC: "223.252.23.219"
+    - message: "Jul 12 08:15:50 vixen42 named[2954]: error: client 1.2.3.4#52115: zone transfer 'domain.com/AXFR/IN' denied"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jul 12 08:15:50 vixen42 named[2954]: client 82.207.95.42#40278 (redginseng.com.ua): query (cache) 'redginseng.com.ua/A/IN' denied"
+      found: 1
+      data:
+        SRC: "82.207.95.42"
+  negative:
+    - message: "Jul 24 14:16:57 raid5 named[3935]: client 194.145.196.18#4795: query 'example.com/A/IN' approved"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 24 14:16:58 raid5 named[3935]: zone example.com/IN: loaded serial 2026071200"
+      found: 0
+      undefed: ["SRC"]

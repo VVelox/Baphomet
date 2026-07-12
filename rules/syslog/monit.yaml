@@ -1,0 +1,51 @@
+---
+# Matches monit httpd access failures. Based on the fail2ban monit filter,
+# translated to Baphomet and simplified... covers both the old
+# "Warning: Client ... supplied" form and the newer
+# "HttpRequest: access denied" form. The ignore_regexp is the fail2ban
+# filter's suggested (commented out) ignoreregex for the empty user on
+# first connect, ported here as a real ignore.
+daemons:
+  - monit
+message_regexp:
+  - '^(?:error\s*:\s+)?(?:Warning|HttpRequest):\s+(?:access denied\s+--\s+)?[Cc]lient ''?\[?%%%%SRC%%%%\]?''?(?:\s+supplied|\s*:)\s+(?:unknown user ''[^'']+''|wrong password for user ''[^'']*''|empty password)'
+ignore_regexp:
+  - '^\w+: access denied -- client \[?%%%%SRC%%%%\]?: unknown user ''''$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Mar  9 09:18:32 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: empty password"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Mar  9 09:18:33 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: unknown user 'test1'"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Mar  9 09:18:34 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: wrong password for user 'test2'"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "Jul 12 08:15:50 vixen42 monit[123]: error    : Warning: Client '69.93.127.111' supplied unknown user 'foo' accessing monit httpd"
+      found: 1
+      data:
+        SRC: "69.93.127.111"
+    - message: "Jul 12 08:15:50 vixen42 monit[123]: error    : Warning: Client '97.113.189.111' supplied wrong password for user 'admin' accessing monit httpd"
+      found: 1
+      data:
+        SRC: "97.113.189.111"
+    - message: "Jul 12 08:15:50 vixen42 monit[123]: error    : HttpRequest: access denied -- client [192.168.1.85]: wrong password for user 'root'"
+      found: 1
+      data:
+        SRC: "192.168.1.85"
+  negative:
+    - message: "Mar  9 09:18:31 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: unknown user ''"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Mar  9 09:18:28 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: missing or invalid Authorization header"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Mar  9 09:18:29 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: empty username"
+      found: 0
+      undefed: ["SRC"]
