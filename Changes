@@ -4,14 +4,29 @@ Revision history for App-Baphomet
         - Initial release. Log watcher for Ereshkigal... tails logs, parses
           syslog lines, matches them against YAML rules, and consigns
           offending IPs to Kur via the Ereshkigal manager socket.
+        - A watcher's log may be a array of files and entries may be
+          globs, re-expanded every ten seconds while running, so new
+          matches, like a freshly created jail, get picked up live.
+        - The raw parser is the no-op escape hatch, the whole line as the
+          message, matched by rules of the raw type... syslog rules minus
+          the daemon gate. Never format-sniffed, only explicitly
+          configured. Ships raw/mysqld-auth, raw/exim, and raw/3proxy.
+        - The apache_error and nginx_error parsers handle the web server
+          error logs, matched by rules of the http_error type... level and
+          module gates plus message regexps, banning the parsed client.
+          nginx structured pairs are peeled into fields, rightmost wins
+          against injection. Rules may set test_parser to default the
+          parser for all their embedded tests.
         - The http_access parser handles common and combined HTTP access
           logs, matched by rules of the new http type... gates on status
           and method plus per-field match/ignore regexps, banning the
           client field. Ships http/badbots and http/botsearch. Rule types
           and parsers are cross-checked at start.
-        - The syslog parser handles both RFC 3164 and RFC 5424, sniffed
-          per line, and is the default when a watcher does not name a
-          parser. Parsed lines carry a format key saying which won.
+        - The syslog parser handles RFC 3164, RFC 5424, and the JSON
+          output of syslog-ng (also available on its own as json_syslog),
+          sniffed per line, and is the default when a watcher does not
+          name a parser. Parsed lines carry a format key saying which
+          won. The syslog rules apply to JSON logs unchanged.
         - Rules may carry ignore_regexp entries, the fail2ban ignoreregex
           equivalent, and a watcher's rule may be a array of rules checked
           first-match-wins, for logs carrying several daemons.

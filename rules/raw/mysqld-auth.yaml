@@ -1,0 +1,32 @@
+---
+# Matches MySQL/MariaDB auth failures in the server's own error log,
+# both the old 130324-style and the newer ISO timestamps. Based on the
+# fail2ban mysqld-auth filter, translated to Baphomet and simplified.
+#
+# Uses the HOST token and ban_var as mysqld logs hostnames when name
+# resolution is on.
+message_regexp:
+  - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2} )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%'' (?:to database ''[^'']*''|\(using password: (?:YES|NO)\))*\s*$'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: "130324  0:04:00 [Warning] Access denied for user 'root'@'192.168.1.35' (using password: NO)"
+      found: 1
+      data:
+        HOST: "192.168.1.35"
+    - message: "130324 17:56:14 [Warning] Access denied for user 'root'@'61.160.223.112' (using password: YES)"
+      found: 1
+      data:
+        HOST: "61.160.223.112"
+    - message: "2026-07-12 8:24:09 1234 [Warning] Access denied for user 'root'@'sql.example.com' (using password: YES)"
+      found: 1
+      data:
+        HOST: "sql.example.com"
+  negative:
+    - message: "130324 10:00:00 [Note] Plugin 'FEDERATED' is disabled."
+      found: 0
+      undefed: ["HOST"]
+    - message: "130324 12:00:00 [Warning] Aborted connection 123 to db: 'unconnected' user: 'root' host: 'localhost' (Got timeout reading communication packets)"
+      found: 0
+      undefed: ["HOST"]

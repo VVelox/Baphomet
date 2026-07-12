@@ -1,0 +1,30 @@
+---
+# Matches Apache CGI requests carrying headers attempting to exploit the
+# shellshock bug, as complained about by the shell itself. Based on the
+# fail2ban apache-shellshock filter, translated to Baphomet and
+# simplified.
+level:
+  - error
+message_regexp:
+  - '^/bin/(?:[bd]a)?sh: warning: HTTP_[^:]+: ignoring function definition attempt(?:, referer: \S+)?\s*$'
+  - '^/bin/(?:[bd]a)?sh: error importing function definition for `HTTP_[^'']+''(?:, referer: \S+)?\s*$'
+tests:
+  positive:
+    - message: '[Thu Sep 25 09:27:18.813902 2014] [cgi:error] [pid 16860] [client 89.207.132.76:59635] AH01215: /bin/bash: warning: HTTP_TEST: ignoring function definition attempt'
+      found: 1
+      data:
+        client: "89.207.132.76"
+        code: "AH01215"
+    - message: '[Thu Sep 25 09:29:56.141832 2014] [cgi:error] [pid 16864] [client 162.247.73.206:41273] AH01215: /bin/bash: error importing function definition for `HTTP_TEST'''
+      found: 1
+      data:
+        client: "162.247.73.206"
+  negative:
+    # shell chatter that is not a function definition attempt
+    - message: '[Thu Sep 25 09:30:00.141832 2014] [cgi:error] [pid 16864] [client 192.168.33.1:41273] AH01215: /bin/bash: warning: setlocale: LC_ALL: cannot change locale (en_US.UTF-8)'
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: '[Sat Jun 01 02:17:43 2013] [notice] Apache/2.4.57 (FreeBSD) configured -- resuming normal operations'
+      found: 0
+      undefed: ["client"]

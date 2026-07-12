@@ -95,4 +95,15 @@ ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'new d
 write_config("\n[kur.empty]\nban_time = 300\n");
 ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'new dies on a watcherless kur' );
 
+# a watcher with a log array and a glob passes validation
+write_config(
+	"\n[kur.sshd.globwatcher]\nlog = [ \"$dir/log\", \"$dir/jails/*/auth.log\" ]\nparser = \"bsd_syslog\"\nrule = \"syslog/sshd\"\n"
+);
+ok( eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'log arrays with globs check out' )
+	|| diag($@);
+
+# but a empty log array does not
+write_config("\n[kur.sshd.badwatcher]\nlog = [ ]\nparser = \"bsd_syslog\"\nrule = \"syslog/sshd\"\n");
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'new dies on a empty log array' );
+
 done_testing;

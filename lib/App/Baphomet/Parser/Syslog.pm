@@ -5,6 +5,7 @@ use strict;
 use warnings;
 use App::Baphomet::Parser::BSDSyslog  ();
 use App::Baphomet::Parser::IETFSyslog ();
+use App::Baphomet::Parser::JSONSyslog ();
 
 =pod
 
@@ -28,14 +29,14 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-Handles syslog lines of either format by delegating to
-L<App::Baphomet::Parser::BSDSyslog> and
-L<App::Baphomet::Parser::IETFSyslog>, so there is exactly one definition of
-each grammar. Which parser gets tried first is picked by sniffing the
-line... a C<< <PRI> >> followed by a digit is the RFC 5424 version field,
-while a RFC 3164 line has a month name there. The sniff is only an
-ordering hint, not a gate... a failed first attempt falls through to the
-other parser.
+Handles syslog lines of any of the formats by delegating to
+L<App::Baphomet::Parser::BSDSyslog>, L<App::Baphomet::Parser::IETFSyslog>,
+and L<App::Baphomet::Parser::JSONSyslog>, so there is exactly one
+definition of each grammar. Which parser gets tried first is picked by
+sniffing the line... a leading C<{> is syslog-ng JSON output, a
+C<< <PRI> >> followed by a digit is the RFC 5424 version field, and a RFC
+3164 line has a month name there. The sniff is only an ordering hint, not
+a gate... a failed attempt falls through to the remaining parsers.
 
 This is the parser to reach for when a log's format is unknown or mixed.
 When the format is known, the specific parsers are the stricter choice, as
@@ -64,10 +65,21 @@ sub parse {
 	}
 
 	my @order;
-	if ( $line =~ /^\s*<\d{1,3}>\d/ ) {
-		@order = ( \&App::Baphomet::Parser::IETFSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse );
+	if ( $line =~ /^\s*\{/ ) {
+		@order = (
+			\&App::Baphomet::Parser::JSONSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse,
+			\&App::Baphomet::Parser::IETFSyslog::parse,
+		);
+	} elsif ( $line =~ /^\s*<\d{1,3}>\d/ ) {
+		@order = (
+			\&App::Baphomet::Parser::IETFSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse,
+			\&App::Baphomet::Parser::JSONSyslog::parse,
+		);
 	} else {
-		@order = ( \&App::Baphomet::Parser::BSDSyslog::parse, \&App::Baphomet::Parser::IETFSyslog::parse );
+		@order = (
+			\&App::Baphomet::Parser::BSDSyslog::parse, \&App::Baphomet::Parser::IETFSyslog::parse,
+			\&App::Baphomet::Parser::JSONSyslog::parse,
+		);
 	}
 
 	foreach my $try (@order) {

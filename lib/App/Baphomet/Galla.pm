@@ -6,8 +6,9 @@ use warnings;
 use base 'Error::Helper';
 use POE                              qw( Wheel::FollowTail );
 use POE::Component::Server::JSONUnix ();
+use File::Glob                       qw( bsd_glob );
 use Ereshkigal::Client               ();
-use App::Baphomet::Config            qw( load_config check_kur_def kur_split resolve_settings watcher_rules );
+use App::Baphomet::Config            qw( load_config check_kur_def kur_split resolve_settings watcher_rules watcher_logs );
 use App::Baphomet::Parser            ();
 use App::Baphomet::Rules             ();
 use App::Baphomet::LogDrek           qw( log_drek );
@@ -195,12 +196,12 @@ sub new {
 		} ## end foreach my $rule_name (@rule_names)
 
 		$self->{watchers}{$watcher_name} = {
-			'log'       => $watcher->{log},
+			'log_spec'  => [ watcher_logs($watcher) ],
 			'parser'    => defined( $watcher->{parser} ) ? $watcher->{parser} : 'syslog',
 			'rules'     => \@rule_names,
 			'rule_objs' => \@rule_objs,
 			'settings'  => resolve_settings( $config, $kur_settings, $watcher ),
-			'wheel'     => undef,
+			'wheels'    => {},
 		};
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
@@ -247,13 +248,16 @@ The socket is chmoded to 0600 given only the manager, running as the same
 user, talks to it.
 
 A sweeper runs every ten seconds, retrying bans Ereshkigal could not be
-reached for and dropping match counts that have aged out of find_time.
+reached for, dropping match counts that have aged out of find_time, and
+re-expanding any globs in the log specs of the watchers... new matches
+get followed and vanished matches get dropped, while literal entries are
+never dropped.
 
 The JSON commands handled are as below.
 
-    - status :: Instance status info... watchers, stats, effective
-          settings, how many IPs are being counted, and any bans pending
-          retry.
+    - status :: Instance status info... watchers with their log specs and
+          the files currently being followed, stats, effective settings,
+          how many IPs are being counted, and any bans pending retry.
 
     - stop :: Stop following the logs and exit. Pending bans that could
           not be delivered are lost.
@@ -331,32 +335,112 @@ sub _poe_start {
 	my $ident = 'galla-' . $self->{name};
 
 	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
-		my $watcher = $self->{watchers}{$watcher_name};
+		my @files = $self->_resolve_watcher_logs( $self->{watchers}{$watcher_name} );
 
-		if ( !-e $watcher->{log} ) {
+		if ( !@files ) {
 			log_drek( 'err',
-				'the log "' . $watcher->{log} . '" of the watcher "' . $watcher_name . '" does not exist yet',
+				'the watcher "' . $watcher_name . '" resolved to no files at all... globs will be rechecked',
 				undef, $ident );
 		}
 
-		my $wheel = POE::Wheel::FollowTail->new(
-			'Filename'   => $watcher->{log},
-			'InputEvent' => 'got_line',
-			'ErrorEvent' => 'tail_error',
-			'ResetEvent' => 'tail_reset',
-		);
-
-		$watcher->{wheel} = $wheel;
-		$self->{wheel_to_watcher}{ $wheel->ID } = $watcher_name;
-
-		log_drek( 'info', 'following "' . $watcher->{log} . '" for the watcher "' . $watcher_name . '"',
-			undef, $ident );
+		foreach my $file (@files) {
+			$self->_start_tail( $watcher_name, $file );
+		}
 	} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
 
 	$kernel->delay( 'sweep', 10 );
 
 	return;
 } ## end sub _poe_start
+
+# starts following a single file for a watcher... must be called from
+# with in the tailing session, as that is who the wheel belongs to
+sub _start_tail {
+	my ( $self, $watcher_name, $file ) = @_;
+
+	my $ident   = 'galla-' . $self->{name};
+	my $watcher = $self->{watchers}{$watcher_name};
+
+	if ( !-e $file ) {
+		log_drek( 'err', 'the log "' . $file . '" of the watcher "' . $watcher_name . '" does not exist yet',
+			undef, $ident );
+	}
+
+	my $wheel = POE::Wheel::FollowTail->new(
+		'Filename'   => $file,
+		'InputEvent' => 'got_line',
+		'ErrorEvent' => 'tail_error',
+		'ResetEvent' => 'tail_reset',
+	);
+
+	$watcher->{wheels}{$file} = $wheel;
+	$self->{wheel_to_watcher}{ $wheel->ID } = $watcher_name;
+
+	log_drek( 'info', 'following "' . $file . '" for the watcher "' . $watcher_name . '"', undef, $ident );
+
+	return;
+} ## end sub _start_tail
+
+# expands the log spec of a watcher into the files to follow... entries
+# with glob metacharacters are expanded and may match nothing, everything
+# else is kept literally even if it does not exist yet... deduped, order
+# preserving
+sub _resolve_watcher_logs {
+	my ( $self, $watcher ) = @_;
+
+	my @files;
+	my %seen;
+	foreach my $entry ( @{ $watcher->{log_spec} } ) {
+		my @matched;
+		if ( $entry =~ /[*?\[{]/ ) {
+			@matched = bsd_glob($entry);
+		} else {
+			@matched = ($entry);
+		}
+		foreach my $file (@matched) {
+			if ( !defined( $seen{$file} ) ) {
+				$seen{$file} = 1;
+				push( @files, $file );
+			}
+		}
+	} ## end foreach my $entry ( @{ $watcher->{log_spec} } )
+
+	return @files;
+} ## end sub _resolve_watcher_logs
+
+# re-expands the globs of every watcher, following new matches and
+# dropping wheels for vanished ones... literal entries always resolve to
+# themselves, so they are never dropped... must be called from with in
+# the tailing session
+sub _rescan_logs {
+	my ($self) = @_;
+
+	my $ident = 'galla-' . $self->{name};
+
+	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
+		my $watcher = $self->{watchers}{$watcher_name};
+
+		my %desired = map { $_ => 1 } $self->_resolve_watcher_logs($watcher);
+
+		foreach my $file ( sort( keys(%desired) ) ) {
+			if ( !defined( $watcher->{wheels}{$file} ) ) {
+				$self->_start_tail( $watcher_name, $file );
+			}
+		}
+
+		foreach my $file ( sort( keys( %{ $watcher->{wheels} } ) ) ) {
+			if ( !defined( $desired{$file} ) ) {
+				my $wheel = delete( $watcher->{wheels}{$file} );
+				delete( $self->{wheel_to_watcher}{ $wheel->ID } );
+				log_drek( 'info',
+					'no longer following "' . $file . '" for the watcher "' . $watcher_name . '"... unmatched',
+					undef, $ident );
+			}
+		} ## end foreach my $file ( sort( keys( %{ $watcher->{wheels...}})))
+	} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
+
+	return;
+} ## end sub _rescan_logs
 
 sub _poe_got_line {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
@@ -407,6 +491,9 @@ sub _poe_sweep {
 	}
 
 	$self->_sweep;
+	# in the POE state rather than _sweep as wheel handling belongs to
+	# this session
+	$self->_rescan_logs;
 
 	$kernel->delay( 'sweep', 10 );
 
@@ -418,7 +505,7 @@ sub _poe_stop_tails {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		$self->{watchers}{$watcher_name}{wheel} = undef;
+		$self->{watchers}{$watcher_name}{wheels} = {};
 	}
 	$self->{wheel_to_watcher} = {};
 
@@ -576,10 +663,11 @@ sub _cmd_status {
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
 		my $watcher = $self->{watchers}{$watcher_name};
 		$watchers->{$watcher_name} = {
-			'log'      => $watcher->{log},
-			'parser'   => $watcher->{parser},
-			'rules'    => $watcher->{rules},
-			'settings' => $watcher->{settings},
+			'logs'      => $watcher->{log_spec},
+			'following' => [ sort( keys( %{ $watcher->{wheels} } ) ) ],
+			'parser'    => $watcher->{parser},
+			'rules'     => $watcher->{rules},
+			'settings'  => $watcher->{settings},
 		};
 	}
 

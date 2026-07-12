@@ -137,7 +137,7 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:status|method|match|ignore|tests)$/ ) {
+		if ( $key !~ /^(?:status|method|match|ignore|test_parser|tests)$/ ) {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}

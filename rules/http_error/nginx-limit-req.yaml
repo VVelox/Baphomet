@@ -1,0 +1,39 @@
+---
+# Matches nginx limit_req rate limiting rejections, the ngx_http_limit_req_module
+# limiting requests lines. Based on the fail2ban nginx-limit-req filter,
+# translated to Baphomet and simplified... all zones match, as with the
+# fail2ban default.
+test_parser: nginx_error
+level:
+  - error
+message_regexp:
+  - '^limiting requests, excess: [\d.]+ by zone "[^"]+"'
+tests:
+  positive:
+    - message: '2015/10/29 20:01:02 [error] 256554#0: *99927 limiting requests, excess: 1.852 by zone "one", client: 1.2.3.4, server: example.com, request: "POST /index.htm HTTP/1.0", host: "exmaple.com"'
+      found: 1
+      data:
+        client: "1.2.3.4"
+        server: "example.com"
+    - message: '2015/10/29 19:24:05 [error] 12684#12684: *22174 limiting requests, excess: 1.495 by zone "one", client: 192.0.2.0, server: example.com, request: "GET /index.php HTTP/1.1", host: "example.com", referrer: "https://example.com"'
+      found: 1
+      data:
+        client: "192.0.2.0"
+        referrer: "https://example.com"
+    - message: '2016/09/30 08:36:06 [error] 22923#0: *4758725916 limiting requests, excess: 15.243 by zone "one", client: 13.123.1.123, server: example.com, request: "GET / HTTP/1.1", host: "example.com"'
+      found: 1
+      data:
+        client: "13.123.1.123"
+    - message: '2016/09/30 08:36:06 [error] 22923#0: *4758725916 limiting requests, excess: 15.243 by zone "one", client: 2606:2800:220:1:248:1893:25c8:1946, server: example.com, request: "GET / HTTP/1.1", host: "example.com"'
+      found: 1
+      data:
+        client: "2606:2800:220:1:248:1893:25c8:1946"
+  negative:
+    # an ordinary missing file is not rate limiting
+    - message: '2012/04/09 11:53:37 [error] 2865#0: *66648 open() "/var/www/favicon.ico" failed (2: No such file or directory), client: 192.0.43.11, server: www.myhost.com, request: "GET /favicon.ico HTTP/1.1", host: "www.myhost.com"'
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: '2015/10/29 20:01:03 [notice] 256554#0: using the "epoll" event method'
+      found: 0
+      undefed: ["client"]

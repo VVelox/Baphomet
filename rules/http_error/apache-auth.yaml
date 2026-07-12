@@ -1,0 +1,68 @@
+---
+# Matches Apache auth failures in the error log, both the 2.2 and 2.4
+# shapes. Based on the fail2ban apache-auth filter in its normal mode,
+# translated to Baphomet and simplified.
+level:
+  - error
+message_regexp:
+  - '^client (?:denied by server configuration|used wrong authentication scheme)\b'
+  - '^user (?!`)(?:\S*|.*?) (?:auth(?:oriz|entic)ation failure|not found|denied by provider)\b'
+  - '^Authorization of user (?:\S*|.*?) to access .*? failed\b'
+  - '^(?:[A-Z]\w+: )?user (?:\S*|.*?): password mismatch\b'
+  - '^(?:[A-Z]\w+: )?user `(?:[^'']*|.*?)'' in realm `.+'' (?:auth(?:oriz|entic)ation failure|not found|denied by provider)\b'
+  - '^(?:[A-Z]\w+: )?invalid nonce .* received - length is not\b'
+  - '^(?:[A-Z]\w+: )?realm mismatch - got `(?:[^'']*|.*?)'' but expected\b'
+  - '^(?:[A-Z]\w+: )?unknown algorithm `(?:[^'']*|.*?)'' received\b'
+  - '^invalid qop `(?:[^'']*|.*?)'' received\b'
+  - '^(?:[A-Z]\w+: )?invalid nonce .*? received - user attempted time travel\b'
+  - '^(?:No h|H)ostname \S+ provided via SNI(?:, but no hostname provided| and hostname \S+ provided| for a name based virtual host)\b'
+tests:
+  positive:
+    - message: "[Thu Jul 11 01:21:43 2013] [error] [client 194.228.20.113] user dsfasdf not found: /"
+      found: 1
+      data:
+        client: "194.228.20.113"
+    - message: "[Thu Jul 11 01:21:41 2013] [error] [client 194.228.20.113] user  not found: /"
+      found: 1
+      data:
+        client: "194.228.20.113"
+    - message: "[Thu Jul 11 01:21:44 2013] [error] [client 2606:2800:220:1:248:1893:25c8:1946] user test-ipv6 not found: /"
+      found: 1
+      data:
+        client: "2606:2800:220:1:248:1893:25c8:1946"
+    - message: "[Wed Jul 17 23:20:45 2013] [error] [client 127.0.0.1] client denied by server configuration: /var/www/html/noentry/cant_get_me.html"
+      found: 1
+      data:
+        client: "127.0.0.1"
+    - message: "[Sat Jul 20 21:34:49.453232 2013] [access_compat:error] [pid 17512:tid 140123104306944] [client 127.0.0.1:51380] AH01797: client denied by server configuration: /var/www/html/noentry/cant_get_me.html"
+      found: 1
+      data:
+        client: "127.0.0.1"
+        client_port: "51380"
+        module: "access_compat"
+        code: "AH01797"
+    - message: "[Sun Sep 14 21:44:43.008606 2014] [authz_core:error] [pid 10691] [client 192.3.9.178:44271] AH01630: client denied by server configuration: /var/www/html/noentry/cant_get_me.html"
+      found: 1
+      data:
+        client: "192.3.9.178"
+    - message: "[Sat Jul 20 21:37:32.266605 2013] [auth_basic:error] [pid 17512:tid 140123079128832] [client 127.0.0.1:51386] AH01618: user  not found: /basic/file/cant_get_me.html"
+      found: 1
+      data:
+        client: "127.0.0.1"
+    - message: "[Wed Jul 17 22:18:52 2013] [error] [client 127.0.0.1] user username: authentication failure for \"/basic/file\": Password Mismatch"
+      found: 1
+      data:
+        client: "127.0.0.1"
+    - message: "[Sat Jul 20 21:39:11.978080 2013] [auth_basic:error] [pid 17512:tid 140123053950720] [client 127.0.0.1:51390] AH01617: user username: authentication failure for \"/basic/file\": Password Mismatch"
+      found: 1
+      data:
+        client: "127.0.0.1"
+  negative:
+    # a client bracket injected into a file path must not trick the matching
+    - message: "[Sat Jun 01 02:17:42 2013] [error] [client 192.168.33.1] File does not exist: /srv/http/site/[client 192.168.0.1] user root not found"
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: "[Sat Jun 01 02:17:43 2013] [notice] Apache/2.4.57 (FreeBSD) configured -- resuming normal operations"
+      found: 0
+      undefed: ["client"]

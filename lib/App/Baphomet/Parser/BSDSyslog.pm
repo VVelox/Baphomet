@@ -3,6 +3,8 @@ package App::Baphomet::Parser::BSDSyslog;
 use 5.006;
 use strict;
 use warnings;
+# only used at runtime, so the circular use with the dispatcher is harmless
+use App::Baphomet::Parser ();
 
 =pod
 
@@ -47,21 +49,6 @@ facility and severity will not always be available as most log files carry
 neither a <PRI> nor the verbose form.
 
 =cut
-
-my @severity_names = ( 'emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug' );
-
-my %severity_numbers;
-{
-	my $number = 0;
-	foreach my $name (@severity_names) {
-		$severity_numbers{$name} = $number;
-		$number++;
-	}
-	# common alternate spellings
-	$severity_numbers{'error'}   = 3;
-	$severity_numbers{'warn'}    = 4;
-	$severity_numbers{'panic'}   = 0;
-}
 
 my $month_re     = qr/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/;
 my $timestamp_re = qr/$month_re\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}/;
@@ -110,13 +97,14 @@ sub parse {
 		if ( defined($pri) ) {
 			$facility = int( $pri / 8 );
 			$severity = $pri % 8;
-			$level    = $severity_names[$severity];
+			$level    = App::Baphomet::Parser::severity_name($severity);
 		}
 		if ( defined($verbose_facility) ) {
 			$facility = $verbose_facility;
 			$level    = $verbose_level;
-			if ( defined( $severity_numbers{$verbose_level} ) ) {
-				$severity = $severity_numbers{$verbose_level};
+			my $verbose_severity = App::Baphomet::Parser::severity_number($verbose_level);
+			if ( defined($verbose_severity) ) {
+				$severity = $verbose_severity;
 			}
 		}
 

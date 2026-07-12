@@ -1,0 +1,55 @@
+---
+# Matches exim auth failures, rejects, and SMTP protocol abuse in the
+# exim mainlog. Based on the fail2ban exim filter in its normal mode,
+# translated to Baphomet and simplified... exim writes its own log
+# format, so this is a raw rule and every regexp leads with the mainlog
+# timestamp shape.
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? \w+ authenticator failed for (?:[^\[\( ]* )?(?:\(\S*\) )?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?: 535 Incorrect authentication data(?: \(set_id=.*\)|: \d+ Time\(s\))?\s*$'
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? sender verify fail for <\S+>: (?:Unknown user|Unrouteable address|all relevant MX records point to non-existent hosts)\s*$'
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? rejected RCPT [^@]+@\S+: (?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$'
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? SMTP protocol synchronization error \([^)]*\): rejected (?:connection from|"\S+") (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)? (?:next )?input=".*"\s*$'
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? SMTP call from (?:[^\[\( ]* )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)? dropped: too many (?:nonmail commands|syntax or protocol errors) \(last (?:command )?was "[^"]*"\)\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2013-01-04 17:03:46 login authenticator failed for rrcs-24-106-174-74.se.biz.rr.com ([192.168.2.33]) [24.106.174.74]: 535 Incorrect authentication data (set_id=brian)"
+      found: 1
+      data:
+        SRC: "24.106.174.74"
+    - message: "2013-06-12 03:57:58 login authenticator failed for (ylmf-pc) [120.196.140.45]: 535 Incorrect authentication data: 1 Time(s)"
+      found: 1
+      data:
+        SRC: "120.196.140.45"
+    - message: "2013-06-12 13:18:11 login authenticator failed for (USER-KVI9FGS9KP) [101.66.165.86]: 535 Incorrect authentication data"
+      found: 1
+      data:
+        SRC: "101.66.165.86"
+    - message: "2013-06-10 10:10:59 H=ufficioestampa.it (srv.ufficioestampa.it) [193.169.56.211] sender verify fail for <user@example.com>: Unrouteable address"
+      found: 1
+      data:
+        SRC: "193.169.56.211"
+    - message: "2013-06-10 18:33:32 [10099] H=(yakult.com.tw) [202.132.70.178]:3755 I=[1.2.3.4]:25 F=menacedsj04@listserv.eurasia.org rejected RCPT dir@ml3.ru: relay not permitted"
+      found: 1
+      data:
+        SRC: "202.132.70.178"
+    - message: '2013-06-02 06:54:20 [13314] SMTP protocol synchronization error (input sent without waiting for greeting): rejected connection from H=[211.148.195.192]:25936 I=[1.2.3.4]:25 input="GET / HTTP/1.1\r\n\r\n"'
+      found: 1
+      data:
+        SRC: "211.148.195.192"
+    - message: '2013-06-02 09:05:48 [18505] SMTP protocol synchronization error (next input sent too soon: pipelining was not advertised): rejected "RSET" H=ba77.mx83.fr [82.96.160.77]:58302 I=[1.2.3.4]:25 next input="QUIT\r\n"'
+      found: 1
+      data:
+        SRC: "82.96.160.77"
+    - message: '2013-06-02 09:22:05 [19591] SMTP call from pc012-6201.spo.scu.edu.tw [163.14.21.161]:3767 I=[1.2.3.4]:25 dropped: too many nonmail commands (last was "RSET")'
+      found: 1
+      data:
+        SRC: "163.14.21.161"
+  negative:
+    - message: "2013-06-02 09:22:06 [19592] 1UhErCG-000657-Vd <= kitsune@example.com H=mail.example.com [192.0.2.44] P=esmtp S=2938"
+      found: 0
+      undefed: ["SRC"]
+    - message: "2013-06-02 09:22:07 Start queue run: pid=19599"
+      found: 0
+      undefed: ["SRC"]

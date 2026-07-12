@@ -1,0 +1,39 @@
+---
+# Matches Apache mod_security denials, the Access denied with a 4xx or
+# 5xx code lines. Based on the fail2ban apache-modsecurity filter,
+# translated to Baphomet and simplified.
+level:
+  - error
+message_regexp:
+  - '^(?:\[client [^\]]+\] )?ModSecurity:\s+(?:\[(?:\w+ "[^"]*"|[^\]]*)\]\s*)*Access denied with code [45]\d\d'
+tests:
+  positive:
+    - message: '[Mon Dec 23 13:12:31 2013] [error] [client 173.255.225.101] ModSecurity:  [file "/etc/httpd/modsecurity.d/activated_rules/modsecurity_crs_21_protocol_anomalies.conf"] [line "47"] [id "960015"] [rev "1"] [msg "Request Missing an Accept Header"] [severity "NOTICE"] [ver "OWASP_CRS/2.2.8"] [maturity "9"] [accuracy "9"] [tag "OWASP_CRS/PROTOCOL_VIOLATION/MISSING_HEADER_ACCEPT"] [tag "WASCTC/WASC-21"][tag "OWASP_TOP_10/A7"] [tag "PCI/6.5.10"] Access denied with code 403 (phase 2). Operator EQ matched 0 at REQUEST_HEADERS. [hostname "www.mysite.net"] [uri "/"] [unique_id "Urf@f12qgHIAACrFOlgAAABA"]'
+      found: 1
+      data:
+        client: "173.255.225.101"
+    - message: '[Sat Dec 28 09:18:05 2013] [error] [client 32.65.254.69] ModSecurity: [file "/etc/httpd/modsecurity.d/10_asl_rules.conf"] [line "635"] [id "340069"] [rev "4"] [msg "Atomicorp.com UNSUPPORTED DELAYED Rules: Web vulnerability scanner"] [severity "CRITICAL"] Access denied with code 403 (phase 2). Pattern match "(?:nessus(?:_is_probing_you_|test)|^/w00tw00t\\\\.at\\\\.)" at REQUEST_URI. [hostname "192.81.249.191"] [uri "/w00tw00t.at.blackhats.romanian.anti-sec:)"] [unique_id "4Q6RdsBR@b4AAA65LRUAAAAA"] '
+      found: 1
+      data:
+        client: "32.65.254.69"
+    # two client entries in the message, gh-2247
+    - message: '[Sat Sep 28 09:18:06 2018] [error] [client 192.0.2.1:55555] [client 192.0.2.1] ModSecurity: [file "/etc/httpd/modsecurity.d/10_asl_rules.conf"] [line "635"] [id "340069"] [rev "4"] [msg "Atomicorp.com UNSUPPORTED DELAYED Rules: Web vulnerability scanner"] [severity "CRITICAL"] Access denied with code 403 (phase 2). Pattern match "(?:nessus(?:_is_probing_you_|test)|^/w00tw00t\\\\.at\\\\.)" at REQUEST_URI. [hostname "192.81.249.191"] [uri "/w00tw00t.at.blackhats.romanian.anti-sec:)"] [unique_id "4Q6RdsBR@b4AAA65LRUAAAAA"] '
+      found: 1
+      data:
+        client: "192.0.2.1"
+        client_port: "55555"
+    # the new format of apache 2.4 with php-fpm, gh-2717, in the [:error]
+    # prefork empty module shape
+    - message: '[Sat May 09 00:35:52.389262 2020] [:error] [pid 22406:tid 139985298601728] [client 192.0.2.2:47762] [client 192.0.2.2] ModSecurity: Access denied with code 401 (phase 2). Operator EQ matched 1 at IP:blocked. [file "/etc/httpd/modsecurity.d/activated_rules/modsecurity_wp_login.conf"] [line "14"] [id "500000"] [msg "Ip address blocked for 15 minutes, more than 5 login attempts in 3 minutes."] [hostname "example.com"] [uri "/wp-login.php"] [unique_id "XrYlGL5IY3I@EoLOgAAAA8"], referer: https://example.com/wp-login.php'
+      found: 1
+      data:
+        client: "192.0.2.2"
+  negative:
+    # a mod_security warning is not a denial
+    - message: '[Mon Dec 23 13:12:32 2013] [error] [client 192.168.33.1] ModSecurity: Warning. Pattern match "^[\\d.:]+$" at REQUEST_HEADERS:Host. [file "/etc/httpd/modsecurity.d/rules.conf"] [line "98"] [id "960017"]'
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: '[Sat Jun 01 02:17:43 2013] [notice] Apache/2.4.57 (FreeBSD) configured -- resuming normal operations'
+      found: 0
+      undefed: ["client"]

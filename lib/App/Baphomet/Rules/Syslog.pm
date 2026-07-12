@@ -4,8 +4,6 @@ use 5.006;
 use strict;
 use warnings;
 use base 'App::Baphomet::Rules::Base';
-use Regexp::IPv4 qw( $IPv4_re );
-use Regexp::IPv6 qw( $IPv6_re );
 
 =pod
 
@@ -113,7 +111,8 @@ Ereshkigal.
 
 Positive and negative tests for verifying the rule works. These are ran at
 load time and a rule failing its own tests refuses to load. Each test is a
-hash with the keys below.
+hash with the keys below. A top level C<test_parser> key sets the default
+parser for all of them.
 
     - message :: The full log line to test with. Required.
 
@@ -128,21 +127,6 @@ hash with the keys below.
 
     - undefed :: For negative tests, a array of capture names that should
           not be defined.
-
-=cut
-
-my $dns_re = qr/(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9\-]{0,62}/;
-
-my %tokens = (
-	'IP4'    => qr/$IPv4_re/,
-	'IP6'    => qr/$IPv6_re/,
-	'ADDR'   => qr/(?:$IPv4_re|$IPv6_re)/,
-	'DNS'    => $dns_re,
-	'HOST'   => qr/(?:$IPv4_re|$IPv6_re|$dns_re)/,
-	'SUBNET' => qr/(?:$IPv4_re|$IPv6_re)(?:\/[0-9]{1,3})?/,
-	'SRC'    => qr/(?:$IPv4_re|$IPv6_re)/,
-	'DEST'   => qr/(?:$IPv4_re|$IPv6_re)/,
-);
 
 =head1 METHODS
 
@@ -163,12 +147,10 @@ sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		name            => defined( $opts{name} ) ? $opts{name} : 'unnamed',
-		def             => $opts{def},
-		daemon_strings  => {},
-		daemon_regexps  => [],
-		regexps         => [],
-		ignore_regexps  => [],
+		name           => defined( $opts{name} ) ? $opts{name} : 'unnamed',
+		def            => $opts{def},
+		daemon_strings => {},
+		daemon_regexps => [],
 	};
 	bless $self;
 
@@ -180,23 +162,12 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:daemons|message_regexp|ignore_regexp|ban_var|tests)$/ ) {
+		if ( $key !~ /^(?:daemons|message_regexp|ignore_regexp|ban_var|test_parser|tests)$/ ) {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
 
-	if ( defined( $def->{ignore_regexp} ) ) {
-		if ( ref( $def->{ignore_regexp} ) ne 'ARRAY' ) {
-			die( 'The ignore_regexp of the rule "' . $name . '" is not a array' );
-		}
-		foreach my $item ( @{ $def->{ignore_regexp} } ) {
-			if ( !defined($item) || ref($item) ne '' ) {
-				die( 'The ignore_regexp of the rule "' . $name . '" contains a non-string entry' );
-			}
-		}
-	} ## end if ( defined( $def->{ignore_regexp} ) )
-
-	foreach my $key ( 'daemons', 'message_regexp', 'ban_var' ) {
+	foreach my $key ( 'daemons', 'ban_var' ) {
 		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
 			die( 'The rule "' . $name . '" lacks a ' . $key . ' array or it is empty' );
 		}
@@ -205,7 +176,7 @@ sub new {
 				die( 'The ' . $key . ' of the rule "' . $name . '" contains a non-string entry' );
 			}
 		}
-	} ## end foreach my $key ( 'daemons', 'message_regexp',...)
+	} ## end foreach my $key ( 'daemons', 'ban_var' )
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
@@ -227,97 +198,11 @@ sub new {
 		}
 	} ## end foreach my $daemon ( @{ $def->{daemons} } )
 
-	# compile the ignore regexps... tokens work here too, but nothing is
-	# captured from them, so the aliases are just thrown away
-	if ( defined( $def->{ignore_regexp} ) ) {
-		my $ignore_int = 0;
-		foreach my $regexp ( @{ $def->{ignore_regexp} } ) {
-			my %ignore_aliases;
-			my $expanded = $regexp;
-			$expanded =~ s/%%%%([A-Z0-9]+)%%%%/$self->_expand_token( $1, \%ignore_aliases, 'ignore ' . $ignore_int, $regexp )/ge;
-
-			my $compiled;
-			eval { $compiled = qr/$expanded/; };
-			if ($@) {
-				die(      'The ignore_regexp entry '
-						. $ignore_int
-						. ' of the rule "'
-						. $name
-						. '", "'
-						. $regexp
-						. '", does not compile... '
-						. $@ );
-			}
-
-			push( @{ $self->{ignore_regexps} }, $compiled );
-			$ignore_int++;
-		} ## end foreach my $regexp ( @{ $def->{ignore_regexp} ...})
-	} ## end if ( defined( $def->{ignore_regexp} ) )
-
-	# compile the message regexps, expanding tokens into named captures
-	my $entry_int = 0;
-	foreach my $regexp ( @{ $def->{message_regexp} } ) {
-		my %aliases;
-		my $expanded = $regexp;
-		$expanded =~ s/%%%%([A-Z0-9]+)%%%%/$self->_expand_token( $1, \%aliases, $entry_int, $regexp )/ge;
-
-		my $compiled;
-		eval { $compiled = qr/$expanded/; };
-		if ($@) {
-			die(      'The message_regexp entry '
-					. $entry_int
-					. ' of the rule "'
-					. $name
-					. '", "'
-					. $regexp
-					. '", does not compile... '
-					. $@ );
-		}
-
-		push(
-			@{ $self->{regexps} },
-			{
-				'regexp'   => $compiled,
-				'original' => $regexp,
-				'aliases'  => \%aliases,
-				'paired'   => ( defined( $aliases{SRC} ) && defined( $aliases{DEST} ) ) ? 1 : 0,
-			}
-		);
-
-		$entry_int++;
-	} ## end foreach my $regexp ( @{ $def->{message_regexp}...})
+	# the token and regexp machinery lives in the base class
+	$self->_compile_message_regexps($def);
 
 	return $self;
 } ## end sub new
-
-# expands a single token occurrence into a named capture group, numbering
-# the capture name if the token has already been seen in this entry given
-# perl does not allow duplicate capture names in a single regexp
-sub _expand_token {
-	my ( $self, $token, $aliases, $entry_int, $original ) = @_;
-
-	if ( !defined( $tokens{$token} ) ) {
-		die(      'The message_regexp entry '
-				. $entry_int
-				. ' of the rule "'
-				. $self->{name}
-				. '", "'
-				. $original
-				. '", uses the unknown token "'
-				. $token
-				. '"' );
-	}
-
-	if ( !defined( $aliases->{$token} ) ) {
-		$aliases->{$token} = [$token];
-		return '(?<' . $token . '>' . $tokens{$token} . ')';
-	}
-
-	my $alias = $token . '_' . ( scalar( @{ $aliases->{$token} } ) + 1 );
-	push( @{ $aliases->{$token} }, $alias );
-
-	return '(?<' . $alias . '>' . $tokens{$token} . ')';
-} ## end sub _expand_token
 
 =head2 check
 
@@ -359,42 +244,7 @@ sub check {
 		return undef;
 	}
 
-	# a ignore_regexp match vetoes the line entirely
-	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
-		if ( $parsed->{message} =~ $ignore ) {
-			return undef;
-		}
-	}
-
-	my $entry_int = 0;
-	foreach my $entry ( @{ $self->{regexps} } ) {
-		if ( $parsed->{message} =~ $entry->{regexp} ) {
-			my %caps = %+;
-
-			# fold numbered token occurrences back under the plain token name
-			foreach my $token ( keys( %{ $entry->{aliases} } ) ) {
-				foreach my $alias ( @{ $entry->{aliases}{$token} } ) {
-					if ( defined( $caps{$alias} ) && !defined( $caps{$token} ) ) {
-						$caps{$token} = $caps{$alias};
-					}
-					if ( $alias ne $token ) {
-						delete( $caps{$alias} );
-					}
-				}
-			} ## end foreach my $token ( keys( %{ $entry->{aliases}...}))
-
-			# SRC/DEST only regard as being found if matched together
-			if ( $entry->{paired} && ( !defined( $caps{SRC} ) || !defined( $caps{DEST} ) ) ) {
-				$entry_int++;
-				next;
-			}
-
-			return { 'data' => \%caps, 'regexp' => $entry_int };
-		} ## end if ( $parsed->{message} =~ $entry->{regexp...})
-		$entry_int++;
-	} ## end foreach my $entry ( @{ $self->{regexps} } )
-
-	return undef;
+	return $self->_check_message( $parsed->{message} );
 } ## end sub check
 
 =head2 ban_var

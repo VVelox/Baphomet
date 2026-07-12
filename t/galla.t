@@ -60,6 +60,13 @@ open( $fh, '>', $dir . '/log' ) || die($!);
 print $fh '';
 close($fh);
 
+make_path( $dir . '/glob' );
+foreach my $glob_file ( 'a.log', 'b.log' ) {
+	open( $fh, '>', $dir . '/glob/' . $glob_file ) || die($!);
+	print $fh '';
+	close($fh);
+}
+
 open( $fh, '>', $dir . '/config.toml' ) || die($!);
 print $fh <<"EOC";
 run_base_dir = "$dir/run"
@@ -86,6 +93,10 @@ max_retrys = 7
 log = "$dir/log"
 rule = [ "syslog/sshd", "syslog/other" ]
 max_retrys = 2
+
+[kur.sshd.globlog]
+log = [ "$dir/log", "$dir/glob/*.log", "$dir/notyet.log" ]
+rule = "syslog/sshd"
 EOC
 close($fh);
 
@@ -107,6 +118,38 @@ is( $galla->{watchers}{otherlog}{settings}{max_retrys}, 7,   'watcher override o
 
 ok( !eval { App::Baphomet::Galla->new( 'config' => $dir . '/config.toml', 'name' => 'nope' ); 1 },
 	'new dies on a unknown kur' );
+
+#
+# log specs... arrays, globs, literals, dedupe, rescan resolution
+#
+
+is_deeply(
+	$galla->{watchers}{globlog}{log_spec},
+	[ $dir . '/log', $dir . '/glob/*.log', $dir . '/notyet.log' ],
+	'log array kept as the spec'
+);
+is_deeply( $galla->{watchers}{authlog}{log_spec}, [ $dir . '/log' ], 'scalar log becomes a one entry spec' );
+
+my @resolved = $galla->_resolve_watcher_logs( $galla->{watchers}{globlog} );
+is_deeply(
+	\@resolved,
+	[ $dir . '/log', $dir . '/glob/a.log', $dir . '/glob/b.log', $dir . '/notyet.log' ],
+	'glob expanded, nonexistent literal kept'
+);
+
+# a new file matching the glob shows up on the next resolution
+open( my $new_fh, '>', $dir . '/glob/c.log' ) || die($!);
+close($new_fh);
+@resolved = $galla->_resolve_watcher_logs( $galla->{watchers}{globlog} );
+ok( ( grep { $_ eq $dir . '/glob/c.log' } @resolved ), 'a new glob match shows up on rescan' );
+unlink( $dir . '/glob/c.log' );
+@resolved = $galla->_resolve_watcher_logs( $galla->{watchers}{globlog} );
+ok( !( grep { $_ eq $dir . '/glob/c.log' } @resolved ), 'and vanishes when the file does' );
+
+# dedupe across entries
+$galla->{watchers}{globlog}{log_spec} = [ $dir . '/log', $dir . '/log', $dir . '/glob/a.log' ];
+@resolved = $galla->_resolve_watcher_logs( $galla->{watchers}{globlog} );
+is_deeply( \@resolved, [ $dir . '/log', $dir . '/glob/a.log' ], 'duplicate entries deduped' );
 
 #
 # line handling, with _send_ban swapped out for a recorder

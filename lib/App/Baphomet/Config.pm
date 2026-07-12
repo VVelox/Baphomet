@@ -20,7 +20,7 @@ Version 0.0.1
 
 our $VERSION = '0.0.1';
 
-our @EXPORT_OK = qw( load_config kur_split check_kur_def resolve_settings watcher_rules );
+our @EXPORT_OK = qw( load_config kur_split check_kur_def resolve_settings watcher_rules watcher_logs );
 
 =head1 SYNOPSIS
 
@@ -100,7 +100,15 @@ Top level keys are as below.
 
 Watcher hashes take the keys below.
 
-    - log :: The log file to follow.
+    - log :: The log file, or a array of them, to follow. Entries
+          containing glob metacharacters are expanded, and re-expanded
+          every ten seconds while running, so new matches get picked up
+          and vanished ones dropped. Literal entries are kept even if the
+          file does not exist yet.
+
+          log = "/var/log/auth.log"
+          log = "/jails/*/var/log/auth.log"
+          log = [ "/var/log/maillog", "/var/log/mail/*.log" ]
 
     - parser :: The parser for lines of that log. See
           L<App::Baphomet::Parser> for the known parsers.
@@ -262,8 +270,10 @@ sub check_kur_def {
 			if ( $key !~ /^(?:log|parser|rule|max_retrys|find_time|ban_time)$/ ) {
 				die( $where . 'has the unknown key "' . $key . '"' );
 			}
-			# rule may be a array of rules... everything else is a scalar
-			if ( ref( $watcher->{$key} ) ne '' && !( $key eq 'rule' && ref( $watcher->{$key} ) eq 'ARRAY' ) ) {
+			# rule and log may be arrays... everything else is a scalar
+			if ( ref( $watcher->{$key} ) ne ''
+				&& !( $key =~ /^(?:rule|log)$/ && ref( $watcher->{$key} ) eq 'ARRAY' ) )
+			{
 				die( $where . 'key "' . $key . '" is not a scalar' );
 			}
 		}
@@ -273,8 +283,17 @@ sub check_kur_def {
 			die( $where . 'has ' . $watcher_settings_error );
 		}
 
-		if ( !defined( $watcher->{log} ) || $watcher->{log} eq '' ) {
+		if ( !defined( $watcher->{log} ) ) {
 			die( $where . 'lacks a log' );
+		}
+		my @logs = watcher_logs($watcher);
+		if ( !@logs ) {
+			die( $where . 'has a empty log array' );
+		}
+		foreach my $log (@logs) {
+			if ( !defined($log) || ref($log) ne '' || $log eq '' ) {
+				die( $where . 'has a empty or non-string log entry' );
+			}
 		}
 		if ( defined( $watcher->{parser} ) && !App::Baphomet::Parser::is_known( $watcher->{parser} ) ) {
 			die( $where . 'has the unknown parser "' . $watcher->{parser} . '"' );
@@ -359,6 +378,26 @@ sub watcher_rules {
 
 	return ( $watcher->{rule} );
 } ## end sub watcher_rules
+
+=head2 watcher_logs
+
+Returns the log entries of a watcher as a list, regardless of if its log
+key is a single entry or a array of them. Does not expand globs... that is
+the galla's business, as it has to redo it while running.
+
+    my @logs = watcher_logs($watcher);
+
+=cut
+
+sub watcher_logs {
+	my ($watcher) = @_;
+
+	if ( ref( $watcher->{log} ) eq 'ARRAY' ) {
+		return @{ $watcher->{log} };
+	}
+
+	return ( $watcher->{log} );
+} ## end sub watcher_logs
 
 # returns a error string if any of max_retrys/find_time/ban_time present in
 # the passed hash is invalid, undef otherwise

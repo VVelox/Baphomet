@@ -5,7 +5,8 @@ Rules are YAML files under the rules dir, by default
 the `.yaml`, so the rule `syslog/sshd` is the file `syslog/sshd.yaml`. The
 first path component is the rule type... `syslog` for syslog lines, which
 most of this page is about, and `http` for HTTP access logs, covered at
-the end.
+the end, `http_error` for apache/nginx error logs right after it, and
+`raw` for everything else, last.
 
 A rule carries its own tests, and they are ran every time it is loaded... a
 rule that fails its own tests refuses to load, failing `baphomet start`
@@ -133,6 +134,67 @@ protocol, status, bytes, referer, user_agent, and format. Gates-only rules
 (every 401, say) are legal... a rule with neither gates nor matches is a
 error. Tests default to the `http_access` parser. See
 `perldoc App::Baphomet::Rules::HTTP` for the full reference.
+
+## http_error rules
+
+Rules of the `http_error` type work on lines parsed by the `apache_error`
+or `nginx_error` parsers. As with http rules, the offender is already the
+`client` field of the parsed line and is what gets banned, and lines with
+no client (startup notices) are never offenses. As with syslog rules, the
+matching is `message_regexp`/`ignore_regexp` against the message free
+text... for apache that is what follows the `[client ip]` and the
+optional `AHnnnnn:` code, and for nginx the trailing
+`, client: ..., server: ...` pairs are peeled into fields first, so the
+regexps stay clean of them.
+
+```yaml
+---
+level:                   # optional gates, ANDed, string-or-//regexp//
+  - error
+module:                  # apache 2.4 module... a module gate makes a rule 2.4 only
+  - auth_basic
+message_regexp:
+  - '^user \S*: password mismatch'
+ignore_regexp:
+  - 'from the health checker'
+test_parser: nginx_error # per rule test parser default... apache_error if unset
+tests:
+  positive:
+    - message: '[Wed Jul 17 22:18:52 2013] [error] [client 127.0.0.1] user username: authentication failure for "/basic/file": Password Mismatch'
+      found: 1
+      data:
+        client: "127.0.0.1"
+```
+
+Named captures in a winning regexp get merged into `data`. See
+`perldoc App::Baphomet::Rules::HTTPError` for the full reference.
+
+## raw rules
+
+Rules of the `raw` type work on lines from the `raw` parser, the no-op
+escape hatch where the whole line is the message. A raw rule is a syslog
+rule with out the daemons gate... the same `message_regexp` with the same
+tokens, the same `ignore_regexp`, and the same `ban_var`. Tests default to
+the `raw` parser.
+
+```yaml
+---
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} auth failure from %%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2026-07-12 08:15:50 auth failure from 1.2.3.4"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+```
+
+The missing gate has a real cost... **every regexp runs against every
+line** of the log. Anchor with `^` and lead each regexp with the log's own
+timestamp shape, which restores most of the gate's cheap rejection, and
+keep raw watchers on single purpose app logs rather than busy shared ones.
 
 ## Writing one
 

@@ -47,16 +47,48 @@ field, and the daemon gate column does not apply.
 | `http/badbots` | requests from known bad bots by user agent... from fail2ban apache-badbots, list trimmed to the still recognizable plus modern scanners, meant to be extended locally |
 | `http/botsearch` | probes for admin panels and login pages that 40x... adapted from fail2ban's botsearch-common path vocabulary into access log form |
 
+## http_error rules
+
+For apache/nginx error logs via the `apache_error` and `nginx_error`
+parsers... these ban the parsed client field.
+
+| rule | watches for |
+| --- | --- |
+| `http_error/apache-auth` | Apache auth failures... both 2.2 and 2.4 spellings |
+| `http_error/apache-botsearch` | requests for admin panels that are not there, per the error log |
+| `http_error/apache-modsecurity` | mod_security Access denied lines |
+| `http_error/apache-nohome` | probing for user home dirs |
+| `http_error/apache-noscript` | requests for scripts that are not there |
+| `http_error/apache-overflows` | overlong or malformed request lines |
+| `http_error/apache-shellshock` | shellshock attempts |
+| `http_error/nginx-http-auth` | nginx basic auth failures |
+| `http_error/nginx-limit-req` | ngx_http_limit_req rejections |
+| `http_error/nginx-botsearch` | missing-path probes, per the error log |
+
+## raw rules
+
+For logs in their own formats via the `raw` parser... regexp-extracted
+offenders, like syslog rules but with no daemon gate.
+
+| rule | watches for |
+| --- | --- |
+| `raw/mysqld-auth` | MySQL/MariaDB auth failures in the server error log (HOST token... may be a hostname) |
+| `raw/exim` | exim mainlog auth failures, rejects, and SMTP protocol abuse |
+| `raw/3proxy` | 3proxy denied connections |
+
 ## Not ported, and why
 
-- **The web server error log family** (apache-auth, apache-noscript,
-  nginx-http-auth, modsecurity, and friends)... those match the error
-  logs, whose format the `http_access` parser does not handle. A future
-  error log parser's business. apache-fakegooglebot is also out, as its
-  trick is a reverse DNS check, not a regexp.
-- **mysqld-auth, exim, exim-spam, mongodb-auth, and other own-format
-  logs**... same story, their logs do not go through syslog in a shape the
-  syslog parsers handle.
+- **apache-fakegooglebot**... its trick is a reverse DNS check, not a
+  regexp.
+- **apache-pass**... despite the name it is an access log filter for a
+  port-knocking-ish setup, thin enough to write locally as a http rule if
+  wanted.
+- **mongodb-auth**... a fail2ban multiline correlation filter (SKIPLINES
+  with a connection id backreference), and Baphomet matches line by line.
+  Modern mongod also logs structured JSON, a future generic json parser
+  customer.
+- **exim-spam** and other own-format stragglers... portable as raw rules
+  the same way exim was, just not shipped yet.
 - **recidive**... fail2ban watching its own log. The Baphomet equivalent
   would be a rule watching Ereshkigal's own syslog output for repeat
   consignments and re-banning long. A future idea.

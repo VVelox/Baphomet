@@ -3,6 +3,8 @@ package App::Baphomet::Parser::IETFSyslog;
 use 5.006;
 use strict;
 use warnings;
+# only used at runtime, so the circular use with the dispatcher is harmless
+use App::Baphomet::Parser ();
 
 =pod
 
@@ -35,8 +37,6 @@ available for lines this parses. Fields given as the nil value, C<->, come
 back as undef. STRUCTURED-DATA is skipped over rather than parsed out.
 
 =cut
-
-my @severity_names = ( 'emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug' );
 
 =head1 FUNCTIONS
 
@@ -90,7 +90,7 @@ sub parse {
 			'pid'      => $pid eq '-' ? undef : $pid,
 			'facility' => int( $pri / 8 ),
 			'severity' => $severity,
-			'level'    => $severity_names[$severity],
+			'level'    => App::Baphomet::Parser::severity_name($severity),
 			'message'  => defined($message) ? $message : '',
 		};
 	} ## end if ( $line =~ /^ ... )

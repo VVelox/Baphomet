@@ -1,0 +1,51 @@
+---
+# Matches Apache requests for a fixed vocabulary of exploitable or
+# valuable web things that do not exist under the webroot... webmail,
+# phpmyadmin, wordpress logins, cgi-bin, and the like. Based on the
+# fail2ban apache-botsearch filter with the path vocabulary of
+# botsearch-common.conf expanded inline, translated to Baphomet and
+# simplified. The webroot is /var/www/, matching the fail2ban default.
+level:
+  - error
+message_regexp:
+  - '^(?:File does not exist|script not found or unable to stat): /var/www/\/?(?:roundcube|(?:ext)?mail|horde|(?:v-?)?webmail|(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?[Mm]y[Aa]dmin)|wp-(?:login|signup|admin)\.php|cgi-bin|mysqladmin)[^,]*(?:, referer: \S+)?\s*$'
+  - '^script ''/var/www/\/?(?:roundcube|(?:ext)?mail|horde|(?:v-?)?webmail|(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?[Mm]y[Aa]dmin)|wp-(?:login|signup|admin)\.php|cgi-bin|mysqladmin)[^,]*'' not found or unable to stat(?:, referer: \S+)?\s*$'
+tests:
+  positive:
+    - message: '[Mon Dec 23 09:49:10 2013] [error] [client 115.249.248.145] File does not exist: /var/www/pma'
+      found: 1
+      data:
+        client: "115.249.248.145"
+    - message: '[Mon Dec 23 09:49:10 2013] [error] [client 115.249.248.145] File does not exist: /var/www/phpmyadmin'
+      found: 1
+      data:
+        client: "115.249.248.145"
+    - message: '[Fri Jan 03 09:33:53 2014] [error] [client 46.23.77.174] File does not exist: /var/www/v-webmail'
+      found: 1
+      data:
+        client: "46.23.77.174"
+    - message: '[Fri Jan 03 09:20:25 2014] [error] [client 46.23.77.174] File does not exist: /var/www/mail_this_entry'
+      found: 1
+      data:
+        client: "46.23.77.174"
+    - message: '[Mon Dec 23 21:21:39 2013] [error] [client 183.60.244.49] File does not exist: /var/www/extmail, referer: http://www.baidu.com'
+      found: 1
+      data:
+        client: "183.60.244.49"
+    - message: '[Tue Jul 22 06:48:30 2008] [error] [client 198.51.100.86] script not found or unable to stat: /var/www/wp-login.php'
+      found: 1
+      data:
+        client: "198.51.100.86"
+    - message: '[Tue Dec 31 09:13:47 2013] [error] [client 176.102.37.56] script ''/var/www/wp-login.php'' not found or unable to stat'
+      found: 1
+      data:
+        client: "176.102.37.56"
+  negative:
+    # mail.php is not directly under the webroot, so not the vocabulary
+    - message: '[Fri Jan 03 14:50:39 2014] [error] [client 92.43.20.165] script ''/var/www/forum/mail.php'' not found or unable to stat'
+      found: 0
+      undefed: ["client"]
+    # right vocabulary but the wrong sort of failure
+    - message: '[Fri Dec 06 09:29:34 2013] [error] [client 122.49.201.178] client denied by server configuration: /var/www/webmail/.htaccess'
+      found: 0
+      undefed: ["client"]

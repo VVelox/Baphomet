@@ -1,0 +1,43 @@
+---
+# Matches nginx basic auth failures in the error log. Based on the
+# fail2ban nginx-http-auth filter in its normal mode, translated to
+# Baphomet and simplified... the aggressive mode SSL handshake fallback is
+# dropped.
+test_parser: nginx_error
+level:
+  - error
+message_regexp:
+  - '^user "(?:[^"]+|.*?)":? (?:password mismatch|was not found in "[^"]*")'
+tests:
+  positive:
+    - message: '2012/04/09 11:53:29 [error] 2865#0: *66647 user "xyz" was not found in "/var/www/.htpasswd", client: 192.0.43.10, server: www.myhost.com, request: "GET / HTTP/1.1", host: "www.myhost.com"'
+      found: 1
+      data:
+        client: "192.0.43.10"
+        server: "www.myhost.com"
+    - message: '2012/04/09 11:53:36 [error] 2865#0: *66647 user "xyz": password mismatch, client: 192.0.43.10, server: www.myhost.com, request: "GET / HTTP/1.1", host: "www.myhost.com"'
+      found: 1
+      data:
+        client: "192.0.43.10"
+    - message: '2014/04/02 12:37:58 [error] 6563#0: *1861 user "scribendio": password mismatch, client: 10.0.2.2, server: scribend.io, request: "GET /admin HTTP/1.1", host: "scribend.io", referrer: "https://scribend.io/admin"'
+      found: 1
+      data:
+        client: "10.0.2.2"
+        referrer: "https://scribend.io/admin"
+    - message: '2014/04/03 22:20:38 [error] 30708#0: *3 user "scriben dio": password mismatch, client: 192.0.2.1, server: , request: "GET / HTTP/1.1", host: "localhost:8443"'
+      found: 1
+      data:
+        client: "192.0.2.1"
+    # injection via the tail... the rightmost client is the one nginx wrote
+    - message: '2014/04/03 22:20:40 [error] 30708#0: *3 user "test": password mismatch, client: 127.0.0.1, server: test, request: "GET / HTTP/1.1", host: "localhost:8443"": was not found in "/etc/nginx/.htpasswd", client: 192.0.2.2, server: , request: "GET / HTTP/1.1", host: "localhost:8443"'
+      found: 1
+      data:
+        client: "192.0.2.2"
+  negative:
+    # the SSL handshake fallback is aggressive mode business, not ours
+    - message: '2020/11/25 14:42:16 [crit] 76952#76952: *2454307 SSL_do_handshake() failed (SSL: error:1408F0C6:SSL routines:ssl3_get_record:packet length too long) while SSL handshaking, client: 142.93.180.14, server: 0.0.0.0:443'
+      found: 0
+      undefed: ["client"]
+    - message: '2012/04/09 11:53:37 [error] 2865#0: *66648 open() "/var/www/favicon.ico" failed (2: No such file or directory), client: 192.0.43.11, server: www.myhost.com, request: "GET /favicon.ico HTTP/1.1", host: "www.myhost.com"'
+      found: 0
+      undefed: ["client"]

@@ -1,0 +1,56 @@
+---
+# Matches Apache requests of a long or suspicious nature... invalid
+# methods or URIs, overlong URIs, and garbage in or after the request
+# line. Based on the fail2ban apache-overflows filter, translated to
+# Baphomet and simplified. Deliberately not end-anchored, as the lines
+# can carry very long URLs.
+level:
+  - error
+message_regexp:
+  - '^Invalid (?:method|URI) in request\b'
+  - '^request failed: URI too long \(longer than \d+\)'
+  - '^request failed: erroneous characters after protocol string:'
+  - '^request failed: invalid characters in URI\b'
+tests:
+  positive:
+    - message: '[Tue Mar 16 15:39:29 2010] [error] [client 58.179.109.179] Invalid URI in request \xf9h\xa9\xf3\x88\x8cXKj \xbf-l*4\x87n\xe4\xfe\xd4\x1d\x06\x8c\xf8m\\rS\xf6n\xeb\x8'
+      found: 1
+      data:
+        client: "58.179.109.179"
+    - message: '[Sat Mar 15 16:04:06.105212 2010] [core:error] [pid 17408] [client 192.0.2.1:55280] AH00126: Invalid URI in request GET /static/../../../a/../../../../etc/passwd HTTP/1.1'
+      found: 1
+      data:
+        client: "192.0.2.1"
+        code: "AH00126"
+    - message: '[Thu Nov 15 03:09:59 2007] [error] [client 89.189.71.87] Invalid method in request NOOP'
+      found: 1
+      data:
+        client: "89.189.71.87"
+    - message: '[Wed Oct 29 11:55:14 2008] [error] [client 127.0.0.1] Invalid method in request \x16\x03\x01 - possible attempt to establish SSL connection when the server isn''t expecting it'
+      found: 1
+      data:
+        client: "127.0.0.1"
+    - message: '[Fri Jul 30 11:23:54 2010] [error] [client 10.85.6.69] request failed: URI too long (longer than 8190)'
+      found: 1
+      data:
+        client: "10.85.6.69"
+    - message: '[Fri Nov 14 16:11:55 2003] [error] [client 1.2.3.4] request failed: erroneous characters after protocol string: User-Agent: Mozilla/5.0 (Windows; U; Win98; en-US; m18) Gecko/20001108 Netscape6/6.0'
+      found: 1
+      data:
+        client: "1.2.3.4"
+    # not in the fail2ban corpus... a synthetic httpd 2.4 line for the
+    # invalid characters shape
+    - message: '[Sat Mar 15 16:04:07.105212 2010] [core:error] [pid 17408] [client 192.0.2.5:55281] AH00566: request failed: invalid characters in URI'
+      found: 1
+      data:
+        client: "192.0.2.5"
+        code: "AH00566"
+  negative:
+    # an ordinary missing file is not an overflow
+    - message: '[Sat Jun 01 02:17:42 2013] [error] [client 192.168.33.1] File does not exist: /var/www/html/index.html'
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: '[Sat Jun 01 02:17:43 2013] [notice] Apache/2.4.57 (FreeBSD) configured -- resuming normal operations'
+      found: 0
+      undefed: ["client"]

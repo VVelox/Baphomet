@@ -1,0 +1,47 @@
+---
+# Matches Apache requests for scripts that do not exist, php, asp, exe,
+# pl, and cgi-bin things, including the php-fpm "Primary script unknown"
+# shape. Based on the fail2ban apache-noscript filter, translated to
+# Baphomet and simplified.
+level:
+  - error
+message_regexp:
+  - '^(?:[Ff]ile|script|[Gg]ot) (?:does not exist|not found or unable to stat): /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin/)\b'
+  - '^script ''/\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin/)\S*'' not found or unable to stat'
+  - '^[Gg]ot error ''[Pp]rimary script unknown(?:\\n)?'''
+tests:
+  positive:
+    - message: '[Tue Jul 22 06:48:30 2008] [error] [client 198.51.100.86] File does not exist: /home/southern/public_html/azenv.php'
+      found: 1
+      data:
+        client: "198.51.100.86"
+    - message: '[Tue Jul 22 06:48:30 2008] [error] [client 198.51.100.86] script not found or unable to stat: /home/e-smith/files/ibays/Primary/cgi-bin/php'
+      found: 1
+      data:
+        client: "198.51.100.86"
+    - message: '[Tue Aug 11 08:56:17.580412 2020] [cgi:error] [pid 27550:tid 140110750279424] [client 192.0.2.1:18071] AH02811: script not found or unable to stat: /usr/lib/cgi-bin/kerbynet'
+      found: 1
+      data:
+        client: "192.0.2.1"
+        code: "AH02811"
+    - message: '[Sun Jun 09 07:57:47 2013] [error] [client 192.0.43.10] script ''/usr/lib/cgi-bin/gitweb.cgiwp-login.php'' not found or unable to stat'
+      found: 1
+      data:
+        client: "192.0.43.10"
+    - message: '[Sun Mar 11 08:56:20.913548 2018] [proxy_fcgi:error] [pid 742:tid 140142593419008] [client 192.0.2.106:50900] AH01071: Got error ''Primary script unknown\n'''
+      found: 1
+      data:
+        client: "192.0.2.106"
+    - message: '[Tue Jul 09 14:27:42.650548 2019] [proxy_fcgi:error] [pid 22075:tid 140322524440320] [client 127.0.0.1] AH01071: Got error ''Primary script unknown'''
+      found: 1
+      data:
+        client: "127.0.0.1"
+  negative:
+    # not a script, just a plain missing file
+    - message: '[Sat Jun 01 02:17:42 2013] [error] [client 192.168.33.1] File does not exist: /var/www/html/index.html'
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: '[Sat Jun 01 02:17:43 2013] [notice] Apache/2.4.57 (FreeBSD) configured -- resuming normal operations'
+      found: 0
+      undefed: ["client"]

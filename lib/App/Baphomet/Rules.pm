@@ -3,9 +3,11 @@ package App::Baphomet::Rules;
 use 5.006;
 use strict;
 use warnings;
-use YAML::XS                     ();
-use App::Baphomet::Rules::HTTP   ();
-use App::Baphomet::Rules::Syslog ();
+use YAML::XS                        ();
+use App::Baphomet::Rules::HTTP      ();
+use App::Baphomet::Rules::HTTPError ();
+use App::Baphomet::Rules::Raw       ();
+use App::Baphomet::Rules::Syslog    ();
 
 =pod
 
@@ -44,8 +46,13 @@ The known types are as below.
 
     - http :: L<App::Baphomet::Rules::HTTP>
 
+    - http_error :: L<App::Baphomet::Rules::HTTPError>
+
+    - raw :: L<App::Baphomet::Rules::Raw>
+
 Each type consumes lines of specific parsers... syslog rules take the
-syslog parsers while http rules take http_access. See
+syslog parsers, http rules take http_access, http_error rules take
+apache_error and nginx_error, and raw rules take raw. See
 L</type_accepts_parser>.
 
 Loading compiles the rule and then runs the tests embedded in it, refusing
@@ -67,13 +74,17 @@ Initiates the object. Will die on errors.
 =cut
 
 my %types = (
-	'syslog' => 'App::Baphomet::Rules::Syslog',
-	'http'   => 'App::Baphomet::Rules::HTTP',
+	'syslog'     => 'App::Baphomet::Rules::Syslog',
+	'http'       => 'App::Baphomet::Rules::HTTP',
+	'http_error' => 'App::Baphomet::Rules::HTTPError',
+	'raw'        => 'App::Baphomet::Rules::Raw',
 );
 
 my %type_parsers = (
-	'syslog' => { 'syslog' => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1 },
-	'http'   => { 'http_access' => 1 },
+	'syslog'     => { 'syslog' => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1, 'json_syslog' => 1 },
+	'http'       => { 'http_access' => 1 },
+	'http_error' => { 'apache_error' => 1, 'nginx_error' => 1 },
+	'raw'        => { 'raw' => 1 },
 );
 
 sub new {

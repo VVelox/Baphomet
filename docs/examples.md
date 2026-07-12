@@ -58,6 +58,15 @@ parser = "bsd_syslog"
 rule = "syslog/sshd"
 ```
 
+Or with a glob, one watcher covers every jail, including ones created
+while running... globs are re-expanded every ten seconds...
+
+```toml
+[kur.sshd.jails]
+log = "/jails/*/var/log/auth.log"
+rule = "syslog/sshd"
+```
+
 ## A stricter watcher
 
 Per watcher overrides layer over the kur and global settings...
@@ -119,6 +128,25 @@ rule = [ "http/badbots", "http/botsearch" ]
 ```
 
 This needs a kur named `www` on the Ereshkigal side covering ports 80/443.
+
+The error log rides along in the same kur, sharing its offense counter,
+with the parser matching the server...
+
+```toml
+[kur.www.errorlog]
+log = "/var/log/nginx/error.log"
+parser = "nginx_error"
+rule = "http_error/nginx-http-auth"
+```
+
+...or for Apache...
+
+```toml
+[kur.www.errorlog]
+log = "/var/log/httpd-error.log"
+parser = "apache_error"
+rule = [ "http_error/apache-auth", "http_error/apache-botsearch", "http_error/apache-overflows" ]
+```
 
 ## A custom rule for a custom daemon
 

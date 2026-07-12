@@ -1,0 +1,39 @@
+---
+# Matches nginx requests for a fixed vocabulary of exploitable or
+# valuable web things that do not exist... webmail, phpmyadmin,
+# wordpress logins, cgi-bin, and the like. Based on the fail2ban
+# nginx-botsearch filter with the path vocabulary of
+# botsearch-common.conf expanded inline, translated to Baphomet and
+# simplified... only the error log regexp is ported, the access log one
+# is covered elsewhere. The vocabulary is checked against the missing
+# path in the message rather than the request URI, so it is anchored to
+# any slash of the path rather than the start of the URI.
+test_parser: nginx_error
+level:
+  - error
+message_regexp:
+  - '^(?:\S+ )?"[^"]*/(?:roundcube|(?:ext)?mail|horde|(?:v-?)?webmail|(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?[Mm]y[Aa]dmin)|wp-(?:login|signup|admin)\.php|cgi-bin|mysqladmin)[^",]*" (?:failed|is not found) \(2: No such file or directory\)'
+tests:
+  positive:
+    - message: '2015/01/21 10:56:10 [error] 2833#0: *16336 open() "/var/www/site/cgi-bin/php4" failed (2: No such file or directory), client: 5.7.9.2, server: localhost, request: "GET /cgi-bin/php4 HTTP/1.1", host: "1.2.3.4"'
+      found: 1
+      data:
+        client: "5.7.9.2"
+        server: "localhost"
+    - message: '2015/01/21 10:57:10 [error] 2833#0: *16336 open() "/var/www/site/cgi-bin/php4" failed (2: No such file or directory), client: 5.7.9.2, server: localhost, request: "POST /cgi-bin/php4 HTTP/1.1", host: "1.2.3.4"'
+      found: 1
+      data:
+        client: "5.7.9.2"
+    - message: '2015/01/21 15:02:27 [error] 2833#0: *16813 "/var/www/site/roundcube/" is not found (2: No such file or directory), client: 5.7.9.2, server: localhost, request: "GET /roundcube/ HTTP/1.1", host: "1.2.3.4"'
+      found: 1
+      data:
+        client: "5.7.9.2"
+  negative:
+    # a missing file outside the vocabulary
+    - message: '2012/04/09 11:53:37 [error] 2865#0: *66648 open() "/var/www/favicon.ico" failed (2: No such file or directory), client: 192.0.43.11, server: www.myhost.com, request: "GET /favicon.ico HTTP/1.1", host: "www.myhost.com"'
+      found: 0
+      undefed: ["client"]
+    # no client at all
+    - message: '2015/01/21 10:56:11 [notice] 2833#0: using the "epoll" event method'
+      found: 0
+      undefed: ["client"]

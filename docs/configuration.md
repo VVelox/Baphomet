@@ -46,7 +46,7 @@ Watcher keys...
 
 | key | what |
 | --- | --- |
-| `log` | The log file to follow. Required. |
+| `log` | The log file, or an array of them, to follow. Entries containing glob metacharacters are expanded, and re-expanded every ten seconds while running... new matches get followed, vanished matches get dropped, and literal entries are kept even if the file does not exist yet. Required. |
 | `parser` | The parser for lines of that log. Defaults to `syslog`. |
 | `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. With an array, rules are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `max_retrys` / `find_time` / `ban_time` | Optional overrides for this watcher. |
@@ -58,17 +58,23 @@ global over default.
 
 | parser | what |
 | --- | --- |
-| `syslog` | Either of the two below, sniffed per line. The default, and the right pick when a log's format is unknown or mixed. |
+| `syslog` | Any of the three below, sniffed per line. The default, and the right pick when a log's format is unknown or mixed. |
 | `bsd_syslog` | RFC 3164 syslog... `Jul 12 08:15:50 host daemon[pid]: message`. Also handles a leading `<PRI>` and the FreeBSD verbose `<facility.level>` form. |
 | `ietf_syslog` | RFC 5424 syslog... `<PRI>1 timestamp host app procid msgid sd message`. |
+| `json_syslog` | The JSON output of syslog-ng, one object per line, `$(format-json --scope rfc3164 --scope rfc5424)` style. The `syslog/*` rules apply to it unchanged. |
 | `http_access` | HTTP access logs, both the common and combined formats. For `http/*` rules, not `syslog/*` ones. |
+| `apache_error` | Apache error logs, both the 2.2 and 2.4 shapes. For `http_error/*` rules. |
+| `nginx_error` | nginx error logs. For `http_error/*` rules. |
+| `raw` | The no-op escape hatch for logs nothing else fits... the whole line is the message. For `raw/*` rules, and never format-sniffed... it must be configured explicitly. |
 
 The specific syslog parsers are the stricter choice when the format is
 known... they refuse lines that should not be in that log to begin with.
 Rule types and parsers pair up... `syslog/*` rules take the syslog
-parsers, `http/*` rules take `http_access`, and a mismatched pairing is a
-start error rather than a watcher that silently matches nothing. `json`
-and `raw` are planned but not yet implemented.
+parsers, `http/*` rules take `http_access`, `http_error/*` rules take
+`apache_error` and `nginx_error`, `raw/*` rules take `raw`, and a
+mismatched pairing is a start error rather than a watcher that silently
+matches nothing. A generic `json` parser for arbitrary application JSON is
+planned but not yet implemented.
 
 ## A fuller example
 

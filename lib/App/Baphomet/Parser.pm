@@ -3,10 +3,14 @@ package App::Baphomet::Parser;
 use 5.006;
 use strict;
 use warnings;
-use App::Baphomet::Parser::BSDSyslog  ();
-use App::Baphomet::Parser::HTTPAccess ();
-use App::Baphomet::Parser::IETFSyslog ();
-use App::Baphomet::Parser::Syslog     ();
+use App::Baphomet::Parser::ApacheError ();
+use App::Baphomet::Parser::BSDSyslog   ();
+use App::Baphomet::Parser::HTTPAccess  ();
+use App::Baphomet::Parser::IETFSyslog  ();
+use App::Baphomet::Parser::JSONSyslog  ();
+use App::Baphomet::Parser::NginxError  ();
+use App::Baphomet::Parser::Raw         ();
+use App::Baphomet::Parser::Syslog      ();
 
 =pod
 
@@ -35,19 +39,33 @@ to the parser implementations.
 
 The known parsers are as below.
 
-    - syslog :: Either RFC 3164 or RFC 5424 syslog, sniffed per line. The
-          right pick when a log's format is unknown or mixed. See
-          L<App::Baphomet::Parser::Syslog>.
+    - syslog :: RFC 3164, RFC 5424, or syslog-ng JSON output, sniffed per
+          line. The right pick when a log's format is unknown or mixed.
+          See L<App::Baphomet::Parser::Syslog>.
 
     - bsd_syslog :: RFC 3164 syslog. See L<App::Baphomet::Parser::BSDSyslog>.
 
     - ietf_syslog :: RFC 5424 syslog. See L<App::Baphomet::Parser::IETFSyslog>.
 
+    - json_syslog :: The JSON output of syslog-ng, one object per line.
+          See L<App::Baphomet::Parser::JSONSyslog>.
+
     - http_access :: HTTP access logs, both the common and combined
           formats. Hands back its own shape, for http type rules... see
           L<App::Baphomet::Parser::HTTPAccess>.
 
-json and raw are planned but not yet implemented.
+    - apache_error :: Apache error logs, both the 2.2 and 2.4 shapes.
+          For http_error type rules... see
+          L<App::Baphomet::Parser::ApacheError>.
+
+    - nginx_error :: nginx error logs. For http_error type rules... see
+          L<App::Baphomet::Parser::NginxError>.
+
+    - raw :: The no-op escape hatch... the whole line becomes the message.
+          For raw type rules... see L<App::Baphomet::Parser::Raw>.
+
+A generic json parser for arbitrary application JSON is planned but not
+yet implemented.
 
 Each syslog parser takes a line and hands back either undef, for a line it
 can not make sense of, or a hash with the keys below, any of which other
@@ -90,7 +108,11 @@ my %parsers = (
 	'syslog'      => \&App::Baphomet::Parser::Syslog::parse,
 	'bsd_syslog'  => \&App::Baphomet::Parser::BSDSyslog::parse,
 	'ietf_syslog' => \&App::Baphomet::Parser::IETFSyslog::parse,
+	'json_syslog' => \&App::Baphomet::Parser::JSONSyslog::parse,
 	'http_access' => \&App::Baphomet::Parser::HTTPAccess::parse,
+	'apache_error' => \&App::Baphomet::Parser::ApacheError::parse,
+	'nginx_error'  => \&App::Baphomet::Parser::NginxError::parse,
+	'raw'          => \&App::Baphomet::Parser::Raw::parse,
 );
 
 sub parse {
@@ -116,6 +138,61 @@ sub is_known {
 
 	return defined($parser) && defined( $parsers{$parser} ) ? 1 : 0;
 }
+
+=head2 severity_name
+
+Returns the name for a numeric syslog severity, 0 through 7... emerg,
+alert, crit, err, warning, notice, info, or debug. Returns undef for
+anything else. Shared by the syslog family of parsers.
+
+    my $name = App::Baphomet::Parser::severity_name($severity);
+
+=cut
+
+my @severity_names = ( 'emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug' );
+
+my %severity_numbers;
+{
+	my $number = 0;
+	foreach my $name (@severity_names) {
+		$severity_numbers{$name} = $number;
+		$number++;
+	}
+	# common alternate spellings
+	$severity_numbers{'error'} = 3;
+	$severity_numbers{'warn'}  = 4;
+	$severity_numbers{'panic'} = 0;
+}
+
+sub severity_name {
+	my ($severity) = @_;
+
+	if ( !defined($severity) || $severity !~ /^[0-7]$/ ) {
+		return undef;
+	}
+
+	return $severity_names[$severity];
+} ## end sub severity_name
+
+=head2 severity_number
+
+Returns the numeric syslog severity for a name, handling the common
+alternate spellings error, warn, and panic. Returns undef for anything
+unknown. Shared by the syslog family of parsers.
+
+    my $severity = App::Baphomet::Parser::severity_number($level);
+
+=cut
+
+sub severity_number {
+	my ($level) = @_;
+
+	if ( !defined($level) ) {
+		return undef;
+	}
+
+	return $severity_numbers{ lc($level) };
+} ## end sub severity_number
 
 =head2 known_parsers
 
