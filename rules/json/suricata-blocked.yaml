@@ -1,0 +1,48 @@
+---
+# Suricata alerts whose action was to block, per eve.json alert.action ==
+# "blocked"... reject rules in any mode, and drop rules when Suricata runs
+# inline. This defers to Suricata's own IPS decision... if its ruleset
+# says drop/reject this traffic, consign the source to Kur so the firewall
+# blocks it outright, beyond the one flow Suricata handled.
+#
+# Mode caveat... in pure IDS mode a drop-intent rule logs action
+# "allowed", as Suricata could not actually drop, so this rule then
+# catches only reject rules. Run Suricata inline to have drop rules report
+# "blocked", or fall back to the class and severity rules for passive
+# setups.
+#
+# The offender may be the src or the dest of the flow depending on where
+# the alert fired... a rejected C2 callout from a inside host has the
+# offender as the dest. Both are candidates and ban_not_internal consigns
+# whichever is not one of your own hosts... set the internal config field,
+# which defaults to the ignore IPs.
+gate:
+  - field: event_type
+    values: [ alert ]
+  - field: alert.action
+    values: [ blocked ]
+ban_var:
+  - src_ip
+  - dest_ip
+ban_not_internal: true
+tests:
+  positive:
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"10.0.0.5","dest_port":443,"proto":"TCP","alert":{"action":"blocked","gid":1,"signature_id":2402000,"rev":1,"signature":"ET DROP Dshield Block Listed Source group 1","category":"Misc Attack","severity":2}}'
+      found: 1
+      data:
+        src_ip: "192.0.2.66"
+    # a reject rule, blocked in any mode
+    - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","event_type":"alert","src_ip":"198.51.100.9","dest_ip":"10.0.0.5","proto":"TCP","alert":{"action":"blocked","signature":"ET SCAN reject","category":"Attempted Information Leak","severity":2}}'
+      found: 1
+      data:
+        src_ip: "198.51.100.9"
+  negative:
+    # an allowed alert is not a block decision... a passive drop-intent
+    # rule looks like this
+    - message: '{"timestamp":"2026-07-12T08:15:52.123456+0000","event_type":"alert","src_ip":"192.0.2.67","dest_ip":"10.0.0.5","proto":"TCP","alert":{"action":"allowed","signature":"ET INFO thing","category":"Misc activity","severity":3}}'
+      found: 0
+      undefed: ["src_ip"]
+    # not a alert event at all
+    - message: '{"timestamp":"2026-07-12T08:15:53.123456+0000","event_type":"flow","src_ip":"192.0.2.68","dest_ip":"10.0.0.5","proto":"TCP"}'
+      found: 0
+      undefed: ["src_ip"]

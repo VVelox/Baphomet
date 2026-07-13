@@ -4,9 +4,58 @@ Revision history for App-Baphomet
         - Initial release. Log watcher for Ereshkigal... tails logs, parses
           syslog lines, matches them against YAML rules, and consigns
           offending IPs to Kur via the Ereshkigal manager socket.
+        - A optional Neti gate on the manager socket, the enable_auth unix
+          ownership auth challenge gated by authed_users and authed_groups,
+          matching Ereshkigal. socket_mode is now validated at load, and
+          socket_group/socket_mode gate the manager socket as before.
+        - A internal config field, global and per kur, marking your own
+          hosts, and a ban_not_internal rule option consigning the end of
+          a flow that is not internal. internal defaults to the ignore
+          IPs. All the Suricata rules use it, so the offender is picked as
+          the external end whether it is the src or the dest... the flow
+          direction depends on where the alert fired.
+        - json/suricata-blocked, consigning sources Suricata itself chose
+          to block, per eve.json alert.action == "blocked".
+        - A rule per Suricata classification class,
+          json/suricata-<classtype>, gating on alert.category and
+          consigning src_ip, so eve.json can be acted on class by class.
+          43 of them, from Suricata's own classification.config.
+        - An EVE event log, a Suricata-shaped NDJSON record of what the
+          gallas do... found and consign events with eve_type baphomet,
+          the raw and parsed line, the found data, a count, and the rule
+          minus its tests. Path set by default, written only when
+          eve_enable is on. See docs/eve.md.
+        - A ignore_ips list, global and per kur, of addresses and CIDRs
+          never consigned no matter what the rules say.
+        - Each galla persists its state to tablets under cache_base_dir...
+          counters, pending bans, correlation context, and log positions,
+          checkpointed and restored, so a restart or crash does not forget
+          an attacker mid-way and lines written while down are still read.
+        - Native systemd journal support... a watcher takes a journal of
+          journalctl matches instead of a log, followed via journalctl -o
+          json, cursor persisted across restarts. The syslog rules apply
+          to it unchanged.
+        - Repeat offender escalation via the recidive table... every
+          consignment is recorded to a shared ledger and a IP consigned
+          too many times across all kurs is dragged through a further gate
+          to the recidive kur.
+        - A migration guide for people coming from fail2ban, docs/fail2ban.md.
         - A watcher's log may be a array of files and entries may be
           globs, re-expanded every ten seconds while running, so new
           matches, like a freshly created jail, get picked up live.
+        - Multiline support via keyed correlation... capture_regexp
+          entries harvest context under a key, keyed message_regexp
+          entries resolve through it or defer awaiting it, either order,
+          TTL bounded and per watcher. Rule tests may be sequences via
+          messages. Ships raw/mongodb-auth-legacy and completes
+          sendmail-reject's No such user pair.
+        - The json parser handles generic JSON application logs, whatever
+          the schema, flattening nesting into dotted field paths matched
+          by rules of the json type... field gates, per-field match and
+          ignore regexps with tokens, and ban_var resolving either a
+          capture or a field path. Ships json/mongodb-auth (the modern
+          structured format), json/caddy-botsearch, and json/suricata,
+          and a journalctl -o json example in the docs.
         - The raw parser is the no-op escape hatch, the whole line as the
           message, matched by rules of the raw type... syslog rules minus
           the daemon gate. Never format-sniffed, only explicitly

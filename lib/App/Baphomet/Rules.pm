@@ -6,6 +6,7 @@ use warnings;
 use YAML::XS                        ();
 use App::Baphomet::Rules::HTTP      ();
 use App::Baphomet::Rules::HTTPError ();
+use App::Baphomet::Rules::JSON      ();
 use App::Baphomet::Rules::Raw       ();
 use App::Baphomet::Rules::Syslog    ();
 
@@ -48,12 +49,14 @@ The known types are as below.
 
     - http_error :: L<App::Baphomet::Rules::HTTPError>
 
+    - json :: L<App::Baphomet::Rules::JSON>
+
     - raw :: L<App::Baphomet::Rules::Raw>
 
 Each type consumes lines of specific parsers... syslog rules take the
 syslog parsers, http rules take http_access, http_error rules take
-apache_error and nginx_error, and raw rules take raw. See
-L</type_accepts_parser>.
+apache_error and nginx_error, json rules take json, and raw rules take
+raw. See L</type_accepts_parser>.
 
 Loading compiles the rule and then runs the tests embedded in it, refusing
 to hand back a rule whose own tests do not pass, so a broken rule fails
@@ -77,13 +80,15 @@ my %types = (
 	'syslog'     => 'App::Baphomet::Rules::Syslog',
 	'http'       => 'App::Baphomet::Rules::HTTP',
 	'http_error' => 'App::Baphomet::Rules::HTTPError',
+	'json'       => 'App::Baphomet::Rules::JSON',
 	'raw'        => 'App::Baphomet::Rules::Raw',
 );
 
 my %type_parsers = (
-	'syslog'     => { 'syslog' => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1, 'json_syslog' => 1 },
+	'syslog'     => { 'syslog' => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1, 'json_syslog' => 1, 'journal' => 1 },
 	'http'       => { 'http_access' => 1 },
 	'http_error' => { 'apache_error' => 1, 'nginx_error' => 1 },
+	'json'       => { 'json' => 1 },
 	'raw'        => { 'raw' => 1 },
 );
 

@@ -1,0 +1,34 @@
+---
+# Suricata alerts classified "policy-violation" (Potential Corporate Privacy Violation), per eve.json. One of the
+# per-class Suricata rules... gates on the alert category. Pick the
+# classes you want to hit on. See rules-catalog.md.
+#
+# The offender may be the src or the dest of the flow depending on where
+# the alert fired, so both are candidates and ban_not_internal consigns
+# whichever is not one of your own hosts... set the internal config field,
+# which defaults to the ignore IPs.
+gate:
+  - field: event_type
+    values: [ alert ]
+  - field: alert.category
+    values: [ "Potential Corporate Privacy Violation" ]
+ban_var:
+  - src_ip
+  - dest_ip
+ban_not_internal: true
+tests:
+  positive:
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST policy-violation","category":"Potential Corporate Privacy Violation","severity":1}}'
+      found: 1
+      data:
+        src_ip: "192.0.2.66"
+        dest_ip: "203.0.113.5"
+  negative:
+    # not a alert event... no category to gate on
+    - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","event_type":"flow","src_ip":"192.0.2.67","dest_ip":"203.0.113.5","proto":"TCP"}'
+      found: 0
+      undefed: ["src_ip"]
+    # a alert of a different class
+    - message: '{"timestamp":"2026-07-12T08:15:52.123456+0000","event_type":"alert","src_ip":"192.0.2.68","dest_ip":"203.0.113.5","proto":"TCP","alert":{"signature":"OTHER","category":"Not Suspicious Traffic","severity":3}}'
+      found: 0
+      undefed: ["src_ip"]

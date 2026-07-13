@@ -1,0 +1,37 @@
+---
+# Matches bots probing a Caddy server for admin panels and login pages
+# that are not there, per its JSON access log. The path vocabulary is
+# fail2ban's botsearch-common, as with http/botsearch. Test lines are
+# hand built from the documented Caddy access log shape.
+gate:
+  - field: status
+    values: [ 401, 403, 404 ]
+match:
+  - field: request.uri
+    regexp: '(?i)^/*(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?myadmin|mysqladmin)(?:/|$|\?)'
+  - field: request.uri
+    regexp: '(?i)^/*(?:roundcube|(?:ext)?mail|horde|v?-?webmail)(?:/|$|\?)'
+  - field: request.uri
+    regexp: '(?i)/wp-(?:login|signup|admin)\.php(?:$|\?)'
+  - field: request.uri
+    regexp: '^/*cgi-bin/'
+ban_var:
+  - request.client_ip
+tests:
+  positive:
+    - message: '{"level":"info","ts":1783948550.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"203.0.113.9","remote_port":"54321","client_ip":"203.0.113.9","proto":"HTTP/1.1","method":"GET","host":"example.com","uri":"/wp-login.php"},"status":404,"size":0}'
+      found: 1
+      data:
+        request.client_ip: "203.0.113.9"
+    - message: '{"level":"info","ts":1783948551.456,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"203.0.113.10","remote_port":"54322","client_ip":"203.0.113.10","proto":"HTTP/2.0","method":"GET","host":"example.com","uri":"/phpmyadmin/?lang=en"},"status":403,"size":0}'
+      found: 1
+      data:
+        request.client_ip: "203.0.113.10"
+  negative:
+    # the same probing path served successfully is someone's real site
+    - message: '{"level":"info","ts":1783948552.789,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"198.51.100.7","remote_port":"54323","client_ip":"198.51.100.7","proto":"HTTP/1.1","method":"GET","host":"example.com","uri":"/webmail/"},"status":200,"size":5120}'
+      found: 0
+      undefed: ["request.client_ip"]
+    - message: '{"level":"info","ts":1783948553.012,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"198.51.100.8","remote_port":"54324","client_ip":"198.51.100.8","proto":"HTTP/1.1","method":"GET","host":"example.com","uri":"/blog/wp-content/style.css"},"status":404,"size":0}'
+      found: 0
+      undefed: ["request.client_ip"]

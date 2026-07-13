@@ -87,7 +87,7 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:message_regexp|ignore_regexp|ban_var|test_parser|tests)$/ ) {
+		if ( $key !~ /^(?:message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|test_parser|tests)$/ ) {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
@@ -107,6 +107,7 @@ sub new {
 
 	# the token and regexp machinery lives in the base class
 	$self->_compile_message_regexps($def);
+	$self->_compile_capture_regexps($def);
 
 	return $self;
 } ## end sub new
@@ -123,13 +124,13 @@ match, returns a hash as below, same as syslog rules.
 =cut
 
 sub check {
-	my ( $self, $parsed ) = @_;
+	my ( $self, $parsed, $scope ) = @_;
 
 	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{message} ) ) {
 		return undef;
 	}
 
-	return $self->_check_message( $parsed->{message} );
+	return $self->_check_message( $parsed->{message}, $scope );
 } ## end sub check
 
 =head2 ban_var

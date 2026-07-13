@@ -1,0 +1,46 @@
+---
+# Consigns the offenders behind Suricata alerts, per eve.json, at
+# severities 1 and 2. Test lines are hand built from the documented eve
+# alert shape.
+#
+# Know your ruleset before wiring this up... IDS alerts are only as good
+# as the rules producing them, a false positive here is a ban, and a
+# spoofed-source alert bans whoever got spoofed. The ignore entry below
+# shows the shape for exempting noisy signatures.
+#
+# The offender may be the src or the dest of the flow depending on where
+# the alert fired, so both are candidates and ban_not_internal consigns
+# whichever is not one of your own hosts... set the internal config field,
+# which defaults to the ignore IPs.
+gate:
+  - field: event_type
+    values: [ alert ]
+  - field: alert.severity
+    values: [ 1, 2 ]
+ignore:
+  - field: alert.signature
+    regexp: '^SURICATA STREAM'
+ban_var:
+  - src_ip
+  - dest_ip
+ban_not_internal: true
+tests:
+  positive:
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","flow_id":123456789,"in_iface":"em0","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":20,"signature":"ET SCAN Potential SSH Scan","category":"Attempted Information Leak","severity":2}}'
+      found: 1
+      data:
+        src_ip: "192.0.2.66"
+        dest_ip: "203.0.113.5"
+  negative:
+    # not a alert
+    - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","flow_id":123456790,"event_type":"flow","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP"}'
+      found: 0
+      undefed: ["src_ip"]
+    # too low a severity
+    - message: '{"timestamp":"2026-07-12T08:15:52.123456+0000","flow_id":123456791,"event_type":"alert","src_ip":"192.0.2.67","src_port":4445,"dest_ip":"203.0.113.5","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2100498,"rev":7,"signature":"GPL ATTACK_RESPONSE id check returned root","category":"Potentially Bad Traffic","severity":3}}'
+      found: 0
+      undefed: ["src_ip"]
+    # a exempted noisy signature
+    - message: '{"timestamp":"2026-07-12T08:15:53.123456+0000","flow_id":123456792,"event_type":"alert","src_ip":"192.0.2.68","src_port":4446,"dest_ip":"203.0.113.5","dest_port":443,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2210045,"rev":2,"signature":"SURICATA STREAM Packet with invalid ack","category":"Generic Protocol Command Decode","severity":2}}'
+      found: 0
+      undefed: ["src_ip"]

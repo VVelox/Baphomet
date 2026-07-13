@@ -66,8 +66,8 @@ logs unchanged.
 
 Key lookup is case folded, so rekeyed lowercase templates work too. Keys
 outside the set above, such as the SDATA ones or custom pairs, are
-silently ignored... surfacing arbitrary JSON fields is the business of the
-planned generic json parser, not this one. Empty string values count as
+silently ignored... surfacing arbitrary JSON fields is the business of
+L<App::Baphomet::Parser::JSON>, not this one. Empty string values count as
 absent, matching how syslog-ng renders unset macros.
 
 Only the one object per line form is handled... pretty printed JSON

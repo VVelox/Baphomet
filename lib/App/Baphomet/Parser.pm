@@ -7,6 +7,8 @@ use App::Baphomet::Parser::ApacheError ();
 use App::Baphomet::Parser::BSDSyslog   ();
 use App::Baphomet::Parser::HTTPAccess  ();
 use App::Baphomet::Parser::IETFSyslog  ();
+use App::Baphomet::Parser::Journal     ();
+use App::Baphomet::Parser::JSON        ();
 use App::Baphomet::Parser::JSONSyslog  ();
 use App::Baphomet::Parser::NginxError  ();
 use App::Baphomet::Parser::Raw         ();
@@ -50,6 +52,10 @@ The known parsers are as below.
     - json_syslog :: The JSON output of syslog-ng, one object per line.
           See L<App::Baphomet::Parser::JSONSyslog>.
 
+    - journal :: The JSON export of the systemd journal, mapped onto the
+          syslog shape... the parser for journal watchers. See
+          L<App::Baphomet::Parser::Journal>.
+
     - http_access :: HTTP access logs, both the common and combined
           formats. Hands back its own shape, for http type rules... see
           L<App::Baphomet::Parser::HTTPAccess>.
@@ -61,11 +67,12 @@ The known parsers are as below.
     - nginx_error :: nginx error logs. For http_error type rules... see
           L<App::Baphomet::Parser::NginxError>.
 
+    - json :: Generic JSON application logs, whatever the schema, one
+          object per line flattened into dotted field paths. For json
+          type rules... see L<App::Baphomet::Parser::JSON>.
+
     - raw :: The no-op escape hatch... the whole line becomes the message.
           For raw type rules... see L<App::Baphomet::Parser::Raw>.
-
-A generic json parser for arbitrary application JSON is planned but not
-yet implemented.
 
 Each syslog parser takes a line and hands back either undef, for a line it
 can not make sense of, or a hash with the keys below, any of which other
@@ -109,9 +116,11 @@ my %parsers = (
 	'bsd_syslog'  => \&App::Baphomet::Parser::BSDSyslog::parse,
 	'ietf_syslog' => \&App::Baphomet::Parser::IETFSyslog::parse,
 	'json_syslog' => \&App::Baphomet::Parser::JSONSyslog::parse,
+	'journal'     => \&App::Baphomet::Parser::Journal::parse,
 	'http_access' => \&App::Baphomet::Parser::HTTPAccess::parse,
 	'apache_error' => \&App::Baphomet::Parser::ApacheError::parse,
 	'nginx_error'  => \&App::Baphomet::Parser::NginxError::parse,
+	'json'         => \&App::Baphomet::Parser::JSON::parse,
 	'raw'          => \&App::Baphomet::Parser::Raw::parse,
 );
 

@@ -81,3 +81,25 @@ status and stop, but stop is still stop.
 
 Everything logs to syslog under the daemon facility, the manager as
 `baphomet` and each worker as `galla-<kur>`.
+
+## The tablets
+
+Each galla writes its state to clay tablets under `cache_base_dir`, so a
+restart or a crash does not forget what it was in the middle of...
+
+```
+/var/cache/baphomet/
+├── galla.<kur>.counters.csv    per-IP offense counts, still-live hits
+├── galla.<kur>.pending.csv     bans Ereshkigal could not be reached for
+├── galla.<kur>.positions.csv   file, inode, and byte offset per followed log
+└── galla.<kur>.context.jsonl   correlation context and deferred offenses
+```
+
+Checkpointed on the `checkpoint` cadence from the sweeper and again on
+stop, atomically via temp file and rename. On start the tablets are read
+back... counters and pending bans pruned to what is still relevant,
+correlation context restored into the rules, and each log resumed at its
+saved offset if it is the same file grown longer (so lines written while
+the galla was down are still read), or from the top if it was rotated or
+truncated. The tablets are the counting-side echo of Ereshkigal's own ban
+tablets... the bans themselves live over there.

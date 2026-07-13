@@ -70,13 +70,16 @@ foreach my $glob_file ( 'a.log', 'b.log' ) {
 open( $fh, '>', $dir . '/config.toml' ) || die($!);
 print $fh <<"EOC";
 run_base_dir = "$dir/run"
+cache_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 max_retrys = 3
 find_time = 600
+ignore_ips = [ "127.0.0.0/8" ]
 
 [kur.sshd]
 ban_time = 300
+ignore_ips = [ "198.51.100.99" ]
 
 [kur.sshd.authlog]
 log = "$dir/log"
@@ -224,6 +227,20 @@ is( $sent[-1]{ip}, '7.7.7.7', 'second rule in the list matched and banned via it
 my $matched_before = $galla->{stats}{matched};
 $galla->_handle_line( 'multilog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 8.8.8.8' );
 is( $galla->{stats}{matched}, $matched_before + 1, 'a line is counted once across the rule list' );
+
+#
+# ignore_ips... global plus kur, checked before anything accumulates
+#
+
+my $ignored_before = $galla->{stats}{ignored};
+foreach ( 1 .. 4 ) {
+	feed('bad thing from 127.0.0.5');
+	feed('bad thing from 198.51.100.99');
+}
+is( $galla->{stats}{ignored}, $ignored_before + 8, 'ignored hits counted' );
+ok( !defined( $galla->{counters}{'127.0.0.5'} ),     'globally ignored IP has no counter' );
+ok( !defined( $galla->{counters}{'198.51.100.99'} ), 'kur ignored IP has no counter' );
+ok( !( grep { $_->{ip} =~ /^(?:127\.|198\.51\.100\.99)/ } @sent ), 'no ignored IP was ever banned' );
 
 #
 # ban failure and the retry sweep

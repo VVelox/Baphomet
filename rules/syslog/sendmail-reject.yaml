@@ -1,8 +1,10 @@
 ---
 # Matches sendmail spam/relay rejects. Based on the fail2ban
 # sendmail-reject filter in its normal mode, translated to Baphomet and
-# simplified... the extra/aggressive mode regexps and the multi-line
-# "No such user here" nofail machinery are dropped.
+# simplified... the extra/aggressive mode regexps are dropped. The
+# multi-line "No such user here" pair is handled via correlation... the
+# No such user line carries no host, so it defers on its queue id until
+# the from= line carrying the relay address arrives.
 daemons:
   - sendmail
   - sm-mta
@@ -12,6 +14,13 @@ message_regexp:
   - '^(?:\w{14,20}: )?ruleset=check_relay(?:, arg\d+=\S*)*, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=421 4\.3\.2 (?:Connection rate limit exceeded\.|Too many open connections\.)$'
   - '^(?:\w{14,20}: )?rejecting commands from (?:\S* )?\[(?:IPv6:)?%%%%SRC%%%%\] due to pre-greeting traffic after \d+ seconds$'
   - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\]: (?i:expn|vrfy) \S+ \[rejected\]$'
+  - regexp: '^(?<QID>\w{14,20}): <[^@]+@[^>]+>\.\.\. No such user here$'
+    key: QID
+    defer: 300
+capture_regexp:
+  - regexp: '^(?<QID>\w{14,20}): from=<[^@]+@[^>]+>, size=\d+, class=\d+, nrcpts=\d+, bodytype=\w+, proto=E?SMTP, daemon=MTA, relay=\S+ \[(?:IPv6:)?%%%%SRC%%%%\]$'
+    key: QID
+    ttl: 300
 ban_var:
   - SRC
 tests:
@@ -76,11 +85,20 @@ tests:
       found: 1
       data:
         SRC: "24.73.201.194"
+    # the No such user pair resolves through the queue id
+    - messages:
+        - "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026254: <davaojk25@domain.com>... No such user here"
+        - "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026254: from=<davaojk25@domain.com>, size=0, class=0, nrcpts=0, bodytype=8BITMIME, proto=ESMTP, daemon=MTA, relay=163.23.32.95.dsl-dynamic.vsi.ru [95.32.23.163]"
+      found: 1
+      data:
+        SRC: "95.32.23.163"
   negative:
+    # a No such user line whose queue id never gets a from= resolves to no one
     - message: "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026250: <arhipov@domain.com>... No such user here"
       found: 0
       undefed: ["SRC"]
-    - message: "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026254: from=<davaojk25@domain.com>, size=0, class=0, nrcpts=0, bodytype=8BITMIME, proto=ESMTP, daemon=MTA, relay=163.23.32.95.dsl-dynamic.vsi.ru [95.32.23.163]"
+    # a from= line alone is context, not a offense
+    - message: "Nov  3 11:35:30 Microsoft sendmail[26254]: rA37ZTSC026299: from=<someone@domain.com>, size=0, class=0, nrcpts=0, bodytype=8BITMIME, proto=ESMTP, daemon=MTA, relay=163.23.32.95.dsl-dynamic.vsi.ru [95.32.23.163]"
       found: 0
       undefed: ["SRC"]
     - message: "Mar 6 16:55:28 s192-168-0-1 sm-mta[20949]: v26LtRA0020949: some-host-24.example.org [192.0.2.194] did not issue MAIL/EXPN/VRFY/ETRN during connection to MTA"

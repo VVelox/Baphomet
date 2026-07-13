@@ -5,8 +5,8 @@ Rules are YAML files under the rules dir, by default
 the `.yaml`, so the rule `syslog/sshd` is the file `syslog/sshd.yaml`. The
 first path component is the rule type... `syslog` for syslog lines, which
 most of this page is about, and `http` for HTTP access logs, covered at
-the end, `http_error` for apache/nginx error logs right after it, and
-`raw` for everything else, last.
+the end, `http_error` for apache/nginx error logs and `json` for JSON
+application logs right after it, and `raw` for everything else, last.
 
 A rule carries its own tests, and they are ran every time it is loaded... a
 rule that fails its own tests refuses to load, failing `baphomet start`
@@ -94,6 +94,40 @@ must not. Each is a hash...
 | `data` | For positive tests, capture names to the values they should of captured. |
 | `undefed` | For negative tests, capture names that should not be defined. |
 
+## Correlation... when the offense and the address are on different lines
+
+Some daemons log the offense and the offender's address separately, tied
+by a key like a connection or queue id... pre-4.4 mongod logs
+`[conn7] Failed to authenticate` with no address and later
+`[conn7] end connection 192.0.2.35:53276`. syslog and raw rules handle
+this with `capture_regexp` entries, which harvest context rather than
+being offenses, and keyed `message_regexp` entries...
+
+```yaml
+capture_regexp:
+  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+    key: KEY
+    ttl: 600
+message_regexp:
+  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
+    key: KEY
+    defer: 600
+ban_var:
+  - SRC
+```
+
+A keyed offense resolves through the stored captures of a capture line
+with the same key, whichever order the two arrive in... `defer` says how
+long a offense may wait for its address, `ttl` how long harvested context
+lives. Both directions work, so sendmail's address-first queue id pairs
+and mongodb's offense-first conn id pairs are the same machinery. State is
+per watcher and in memory only.
+
+Tests for these use `messages:`, an array of lines fed through in order,
+with `found` being the expected count of found results across the
+sequence. See `raw/mongodb-auth-legacy` and the No such user pair in
+`syslog/sendmail-reject` for shipped examples.
+
 ## http rules
 
 Rules of the `http` type work on lines parsed by the `http_access` parser
@@ -168,6 +202,66 @@ tests:
 
 Named captures in a winning regexp get merged into `data`. See
 `perldoc App::Baphomet::Rules::HTTPError` for the full reference.
+
+## Banning the external end of a flow
+
+Some sources, Suricata's eve.json above all, log both ends of a flow and
+which one is the offender depends on where in the stream the alert fired.
+A rule that lists both endpoints as ban_vars and sets `ban_not_internal`
+consigns only the ends that are not one of your own hosts...
+
+```yaml
+ban_var:
+  - src_ip
+  - dest_ip
+ban_not_internal: true
+```
+
+Your own hosts are the `internal` config field, which defaults to the
+`ignore_ips` list. So an inbound attack bans the external src, an outbound
+callout bans the external dest, a transit flow bans both, and a
+host-to-host flow bans neither. A ignored IP is never consigned regardless,
+so the consigned end is by extension not ignored either. Works on syslog,
+raw, and json rules... anywhere a rule has more than one endpoint ban_var.
+
+## json rules
+
+Rules of the `json` type work on lines parsed by the `json` parser, which
+flattens whatever the application logged into dotted field paths
+(`attr.remote`, `request.client_ip`, `tags.0`). The rule says which fields
+matter... ANDed `gate` entries pinning fields to value lists
+(string-or-`//regexp//`), ORed first-match-wins `match` entries running
+regexps (tokens included) against named fields, and vetoing `ignore`
+entries of the same shape. A rule needs at least a gate or a match.
+
+`ban_var` resolves against the found line's data, which is the flattened
+fields merged with the winning match's captures... so it may name a token
+capture like `SRC` when the address has to be dug out of a string like
+`"remote":"192.0.2.5:54321"`, or a field path like `request.client_ip`
+when the log hands the address over bare.
+
+```yaml
+---
+gate:
+  - field: c
+    values: [ ACCESS ]
+  - field: msg
+    values: [ "Authentication failed" ]
+match:
+  - field: attr.remote
+    regexp: '^%%%%SRC%%%%:\d+$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '{"c":"ACCESS","msg":"Authentication failed","attr":{"remote":"192.0.2.5:54321"}}'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+```
+
+Tests default to the `json` parser, each message being one line of JSON.
+See `perldoc App::Baphomet::Rules::JSON` for the full reference.
 
 ## raw rules
 

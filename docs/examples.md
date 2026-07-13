@@ -148,6 +148,54 @@ parser = "apache_error"
 rule = [ "http_error/apache-auth", "http_error/apache-botsearch", "http_error/apache-overflows" ]
 ```
 
+## The systemd journal
+
+On a host where sshd only logs to the journal, a watcher takes a `journal`
+of journalctl matches instead of a `log`... the galla runs
+`journalctl -f -o json` for it, and the shipped `syslog/*` rules apply
+unchanged, since the journal parser maps onto the syslog shape.
+
+```toml
+[kur.sshd.journal]
+journal = [ "SYSLOG_IDENTIFIER=sshd", "SYSLOG_IDENTIFIER=sshd-session" ]
+rule = "syslog/sshd"
+```
+
+Matches of the same field are ORed and different fields ANDed, as with
+fail2ban's journalmatch. Give `journal = true` to follow the whole
+journal. The last cursor is saved to the tablets, so a restart resumes
+just after the last line seen rather than replaying or skipping. This
+needs journalctl on the host... its path is the `journalctl_bin` setting.
+
+## Escalating repeat offenders
+
+An IP that keeps coming back, kur after kur, week after week, has earned a
+deeper gate. Turn on recidive and give the Ereshkigal side a kur to hold
+them...
+
+Ereshkigal side...
+
+```toml
+[kur.recidive]
+backend   = "pf"
+# no ports/protocols... block them outright
+```
+
+Baphomet side...
+
+```toml
+[recidive]
+kur        = "recidive"
+max_retrys = 5
+find_time  = 604800
+ban_time   = 0
+```
+
+Now any IP consigned five times across sshd, the mail kurs, the web kurs,
+whatever, inside a week is consigned to the recidive kur eternally. The
+shared ledger under `/var/cache/baphomet/consignments.csv` is what the
+gallas count against, so it works across every kur at once.
+
 ## A custom rule for a custom daemon
 
 `/usr/local/etc/baphomet/rules/syslog/toaster.yaml`...

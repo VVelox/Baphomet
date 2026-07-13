@@ -1,0 +1,42 @@
+---
+# Matches MongoDB auth failures in the pre-4.4 plain text log, where the
+# failure line carries no address... the conn id correlates it with the
+# later end connection line that does. Based on the fail2ban mongodb-auth
+# filter, its multiline correlation recast as a capture_regexp. For 4.4
+# and later use json/mongodb-auth instead.
+capture_regexp:
+  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+    key: KEY
+    ttl: 600
+message_regexp:
+  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
+    key: KEY
+    defer: 600
+ban_var:
+  - SRC
+tests:
+  positive:
+    - messages:
+        - "2016-11-20T00:04:00.110+0100 [conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound Could not find user root@admin"
+        - "2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)"
+      found: 1
+      data:
+        SRC: "192.0.2.35"
+    - messages:
+        - "2016-11-20T00:24:00.110+0100 [conn5] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound Could not find user root@admin"
+        - "2016-11-20T00:24:00.111+0100 [conn5] end connection 192.0.2.171:53276 (0 connections now open)"
+      found: 1
+      data:
+        SRC: "192.0.2.171"
+  negative:
+    # a failure whose connection never ends resolves to no one
+    - message: "2016-11-20T00:24:00.110+0100 [conn334] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed key mismatch"
+      found: 0
+    # a mismatched conn id never completes
+    - messages:
+        - "2016-11-20T00:30:00.110+0100 [conn400] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed"
+        - "2016-11-20T00:30:00.111+0100 [conn401] end connection 192.0.2.99:53280 (0 connections now open)"
+      found: 0
+    # an end connection alone is not a offense
+    - message: "2016-11-20T00:31:00.110+0100 [conn500] end connection 192.0.2.100:53281 (0 connections now open)"
+      found: 0

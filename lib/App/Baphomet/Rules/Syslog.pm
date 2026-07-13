@@ -101,6 +101,32 @@ fail2ban equivalent is C<ignoreregex>. Tokens work here too.
     ignore_regexp:
       - 'from %%%%SRC%%%% whom we like'
 
+=head2 capture_regexp / keyed message_regexp entries
+
+For daemons that log the offense and the offender's address on separate
+lines sharing a correlation key, like a connection or queue id.
+
+    capture_regexp:
+      - regexp: '^\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+        key: KEY
+        ttl: 600
+    message_regexp:
+      - regexp: '^\[conn(?<KEY>\d+)\] Failed to authenticate'
+        key: KEY
+        defer: 600
+
+capture_regexp entries harvest context rather than being offenses... a hit
+stores the folded captures under the value of the named capture C<key>
+names, for C<ttl> seconds (default 60). message_regexp entries may be
+hashes instead of plain strings... on match the key is looked up and any
+stored captures merge into the data, the line's own captures winning. Not
+found plus C<defer> parks the offense for that many seconds awaiting a
+capture line with the key, several of which may complete at once. Not
+found with out defer falls through to the next entry.
+
+Correlation state is per watcher, in memory only, and bounded... a galla
+restart forgets pending correlations.
+
 =head2 ban_var
 
 The named regexp matches to use for bans. For each name here that a
@@ -114,7 +140,13 @@ load time and a rule failing its own tests refuses to load. Each test is a
 hash with the keys below. A top level C<test_parser> key sets the default
 parser for all of them.
 
-    - message :: The full log line to test with. Required.
+    - message :: The full log line to test with. Either this or messages
+          is required.
+
+    - messages :: A array of lines fed through in order, for testing
+          correlation... each test entry runs in its own throwaway scope,
+          found is the expected count of found results across the
+          sequence, and data asserts against the last of them.
 
     - parser :: The parser to parse it with.
         Default :: bsd_syslog
@@ -162,7 +194,8 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:daemons|message_regexp|ignore_regexp|ban_var|test_parser|tests)$/ ) {
+		if ( $key !~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|test_parser|tests)$/ )
+		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
@@ -200,6 +233,7 @@ sub new {
 
 	# the token and regexp machinery lives in the base class
 	$self->_compile_message_regexps($def);
+	$self->_compile_capture_regexps($def);
 
 	return $self;
 } ## end sub new
@@ -218,7 +252,7 @@ the plain token name.
 =cut
 
 sub check {
-	my ( $self, $parsed ) = @_;
+	my ( $self, $parsed, $scope ) = @_;
 
 	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{message} ) ) {
 		return undef;
@@ -244,7 +278,7 @@ sub check {
 		return undef;
 	}
 
-	return $self->_check_message( $parsed->{message} );
+	return $self->_check_message( $parsed->{message}, $scope );
 } ## end sub check
 
 =head2 ban_var

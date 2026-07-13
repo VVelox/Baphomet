@@ -1,0 +1,167 @@
+#!perl
+use 5.006;
+use strict;
+use warnings;
+use Test::More;
+use File::Temp            qw( tempdir );
+use File::Path            qw( make_path );
+use App::Baphomet::Parser ();
+use App::Baphomet::Rules  ();
+
+my $rules_dir = tempdir( CLEANUP => 1 );
+make_path( $rules_dir . '/raw' );
+
+sub write_rule {
+	my ( $name, $yaml ) = @_;
+	open( my $fh, '>', $rules_dir . '/' . $name . '.yaml' ) || die($!);
+	print $fh $yaml;
+	close($fh);
+	return;
+}
+
+sub raw_line {
+	my ($line) = @_;
+	return App::Baphomet::Parser::parse( 'raw', $line );
+}
+
+#
+# offense first, address later... the mongodb shape, with defer
+#
+
+write_rule( 'raw/defer', <<'EOR' );
+---
+capture_regexp:
+  - regexp: '^\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+    key: KEY
+    ttl: 60
+message_regexp:
+  - regexp: '^\[conn(?<KEY>\d+)\] auth failed'
+    key: KEY
+    defer: 60
+ban_var:
+  - SRC
+tests:
+  positive:
+    - messages:
+        - "[conn7] auth failed"
+        - "[conn7] end connection 192.0.2.35:53276"
+      found: 1
+      data:
+        SRC: "192.0.2.35"
+    # several offenses on one connection all complete at once
+    - messages:
+        - "[conn8] auth failed"
+        - "[conn8] auth failed"
+        - "[conn8] end connection 192.0.2.36:53277"
+      found: 2
+      data:
+        SRC: "192.0.2.36"
+  negative:
+    - message: "[conn9] auth failed"
+      found: 0
+    # key mismatch never completes
+    - messages:
+        - "[conn10] auth failed"
+        - "[conn11] end connection 192.0.2.37:53278"
+      found: 0
+EOR
+
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $defer = $rules->load('raw/defer');
+ok( defined($defer), 'defer rule loaded, embedded sequence tests passed' );
+
+# the same by hand, checking the found shapes and the more array
+my $found = $defer->check( raw_line('[conn1] auth failed'), 'scope-a' );
+ok( !defined($found), 'deferred offense not found yet' );
+$found = $defer->check( raw_line('[conn1] auth failed'), 'scope-a' );
+ok( !defined($found), 'second deferred offense not found yet' );
+$found = $defer->check( raw_line('[conn1] end connection 192.0.2.5:1234'), 'scope-a' );
+ok( defined($found), 'capture line completes' );
+is( $found->{data}{SRC}, '192.0.2.5', 'completion carries the address' );
+is( scalar( @{ $found->{more} } ), 1, 'second completion in more' );
+is( $found->{more}[0]{data}{SRC}, '192.0.2.5', 'more completion carries the address too' );
+
+# scope isolation... conn1 in another scope knows nothing
+$found = $defer->check( raw_line('[conn1] end connection 192.0.2.9:1234'), 'scope-b' );
+ok( !defined($found), 'a different scope has no pendings for the same key' );
+
+# TTL expiry via sweep_state
+$found = $defer->check( raw_line('[conn2] auth failed'), 'scope-a' );
+$defer->sweep_state( time + 120 );
+$found = $defer->check( raw_line('[conn2] end connection 192.0.2.6:1234'), 'scope-a' );
+ok( !defined($found), 'a swept pending does not complete' );
+
+#
+# address first, offense later... the sendmail shape, no defer needed
+#
+
+write_rule( 'raw/lookup', <<'EOR' );
+---
+capture_regexp:
+  - regexp: '^(?<QID>\w+): from someone relay \[%%%%SRC%%%%\]'
+    key: QID
+    ttl: 60
+message_regexp:
+  - regexp: '^(?<QID>\w+): user unknown'
+    key: QID
+ban_var:
+  - SRC
+tests:
+  positive:
+    - messages:
+        - "q123AB: from someone relay [192.0.2.44]"
+        - "q123AB: user unknown"
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+  negative:
+    # the offense with out the earlier context is unresolvable
+    - message: "q999ZZ: user unknown"
+      found: 0
+EOR
+
+my $lookup = $rules->load('raw/lookup');
+ok( defined($lookup), 'lookup rule loaded, embedded sequence tests passed' );
+
+$lookup->check( raw_line('qAAA: from someone relay [192.0.2.50]'), 's' );
+$found = $lookup->check( raw_line('qAAA: user unknown'), 's' );
+ok( defined($found), 'keyed offense resolves through stored context' );
+is( $found->{data}{SRC}, '192.0.2.50', 'address from the stored captures' );
+is( $found->{regexp},    0,            'offense entry index reported' );
+
+# context expiry
+$lookup->check( raw_line('qBBB: from someone relay [192.0.2.51]'), 's' );
+$lookup->sweep_state( time + 120 );
+$found = $lookup->check( raw_line('qBBB: user unknown'), 's' );
+ok( !defined($found), 'expired context does not resolve' );
+
+# plain string entries still work alongside keyed ones
+write_rule( 'raw/mixed', <<'EOR' );
+---
+message_regexp:
+  - 'plain bad thing from %%%%SRC%%%%'
+  - regexp: '^(?<QID>\w+): keyed bad thing'
+    key: QID
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "plain bad thing from 192.0.2.60"
+      found: 1
+      data:
+        SRC: "192.0.2.60"
+EOR
+my $mixed = $rules->load('raw/mixed');
+ok( defined($mixed), 'mixed string and hash entries load' );
+
+#
+# invalid defs
+#
+
+write_rule( 'raw/badcap', "---\ncapture_regexp:\n  - regexp: 'x'\nmessage_regexp:\n  - 'y'\nban_var:\n  - SRC\n" );
+ok( !eval { $rules->load('raw/badcap'); 1 }, 'capture entry with out a key refuses to load' );
+
+write_rule( 'raw/badhash', "---\nmessage_regexp:\n  - regexp: 'x'\nban_var:\n  - SRC\n" );
+ok( !eval { $rules->load('raw/badhash'); 1 }, 'hash message entry with out a key refuses to load' );
+
+done_testing;

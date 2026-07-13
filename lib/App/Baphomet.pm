@@ -129,7 +129,12 @@ sub new {
 		$self->{errorString} = $@;
 		$self->warn;
 	}
-	foreach my $item ( 'run_base_dir', 'rules_dir', 'ereshkigal_socket', 'galla_bin', 'timeout', 'socket_group' ) {
+	foreach my $item (
+		'run_base_dir', 'rules_dir',    'ereshkigal_socket', 'galla_bin',
+		'timeout',      'socket_group', 'enable_auth',        'authed_users',
+		'authed_groups', 'auth_temp_dir'
+		)
+	{
 		$self->{$item} = $config->{$item};
 	}
 	$self->{socket_mode} = oct( '' . $config->{socket_mode} );
@@ -306,25 +311,34 @@ sub start_server {
 	);
 
 	my $server = POE::Component::Server::JSONUnix->spawn(
-		'socket_path' => $self->socket_path,
-		'socket_mode' => $self->{socket_mode},
-		'alias'       => 'baphomet_server',
-		'on_error'    => sub {
+		'socket_path'   => $self->socket_path,
+		'socket_mode'   => $self->{socket_mode},
+		'alias'         => 'baphomet_server',
+		'auth_required' => $self->{enable_auth} ? 1 : 0,
+		defined( $self->{auth_temp_dir} ) ? ( 'auth_temp_dir' => $self->{auth_temp_dir} ) : (),
+		'on_error' => sub {
 			my ( $operation, $errnum, $errstr ) = @_;
 			log_drek( 'err', 'socket error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')' );
 		},
 		'commands' => {
 			'status' => sub {
+				my ( undef, undef, $ctx ) = @_;
+				$self->_authorize($ctx);
 				return $self->_cmd_status;
 			},
 			'status_all' => sub {
+				my ( undef, undef, $ctx ) = @_;
+				$self->_authorize($ctx);
 				return $self->_cmd_status_all;
 			},
 			'status_galla' => sub {
-				my ( undef, $request ) = @_;
+				my ( undef, $request, $ctx ) = @_;
+				$self->_authorize($ctx);
 				return $self->_cmd_status_galla($request);
 			},
 			'stop' => sub {
+				my ( undef, undef, $ctx ) = @_;
+				$self->_authorize($ctx);
 				log_drek( 'info', 'stop requested' );
 				$poe_kernel->post( 'baphomet_manager', 'stop_all' );
 				# the current session is the JSONUnix server session, so this
@@ -343,8 +357,15 @@ sub start_server {
 
 	$self->{started} = time;
 
-	log_drek( 'info',
-		'started... socket=' . $self->socket_path . ' gallas=' . join( ',', sort( keys( %{ $self->{gallas} } ) ) ) );
+	log_drek(
+		'info',
+		'started... socket='
+			. $self->socket_path
+			. ' auth='
+			. ( $self->{enable_auth} ? 'on' : 'off' )
+			. ' gallas='
+			. join( ',', sort( keys( %{ $self->{gallas} } ) ) )
+	);
 
 	$poe_kernel->run;
 
@@ -352,6 +373,71 @@ sub start_server {
 
 	return;
 } ## end sub start_server
+
+# checks if the user is in the passed users list or a member of one of the
+# passed groups... membership is resolved at request time so user/group
+# database changes apply with out a restart
+sub _user_in_lists {
+	my ( $self, $username, $uid, $users, $groups ) = @_;
+
+	foreach my $user ( @{$users} ) {
+		if ( $user eq $username ) {
+			return 1;
+		}
+	}
+
+	# the user's primary group
+	my $primary_gid = ( getpwuid($uid) )[3];
+	my $primary_group;
+	if ( defined($primary_gid) ) {
+		$primary_group = getgrgid($primary_gid);
+	}
+
+	foreach my $group ( @{$groups} ) {
+		if ( defined($primary_group) && $group eq $primary_group ) {
+			return 1;
+		}
+		# unknown groups just never match rather than erroring
+		my $members = ( getgrnam($group) )[3];
+		if ( defined($members) ) {
+			foreach my $member ( split( /\s+/, $members ) ) {
+				if ( $member eq $username ) {
+					return 1;
+				}
+			}
+		}
+	} ## end foreach my $group ( @{$groups} )
+
+	return 0;
+} ## end sub _user_in_lists
+
+# the Neti gate... authorizes the authenticated user behind the context,
+# dieing if they are not allowed... a no-op when enable_auth is off. UID 0
+# always passes, as does any user in authed_users or a authed_groups
+sub _authorize {
+	my ( $self, $ctx ) = @_;
+
+	if ( !$self->{enable_auth} ) {
+		return;
+	}
+
+	my $uid      = $ctx->uid;
+	my $username = $ctx->username;
+	if ( !defined($uid) ) {
+		# should be unreachable as JSONUnix gates unauthed commands first
+		die('authentication required');
+	}
+	if ( $uid == 0 ) {
+		return;
+	}
+	$username = '' if !defined($username);
+
+	if ( $self->_user_in_lists( $username, $uid, $self->{authed_users}, $self->{authed_groups} ) ) {
+		return;
+	}
+
+	die( 'The user "' . $username . '" is not permitted past the Neti gate' );
+} ## end sub _authorize
 
 sub _galla_client {
 	my ( $self, $name ) = @_;

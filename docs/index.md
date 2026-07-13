@@ -23,8 +23,12 @@ looses and oversees them.
   tests. Read this to write your own.
 - [rules-catalog.md](rules-catalog.md) ... the shipped rules, what each
   watches for, and what was deliberately not ported from fail2ban.
+- [eve.md](eve.md) ... the EVE event log, a Suricata-shaped NDJSON record
+  of what the gallas do.
 - [usage.md](usage.md) ... the `baphomet` CLI.
 - [examples.md](examples.md) ... copy-paste scenarios.
+- [fail2ban.md](fail2ban.md) ... the concept map, what is better, what is
+  still missing, and how to migrate a jail.
 
 ## Module POD
 

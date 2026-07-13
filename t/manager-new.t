@@ -41,12 +41,14 @@ close($fh);
 my $group = getgrgid( ( split( /\s+/, $) ) )[0] );
 
 sub write_config {
-	my ($extra) = @_;
+	my ( $extra, $toplevel ) = @_;
+	$toplevel = '' if !defined($toplevel);
 	open( my $config_fh, '>', $dir . '/config.toml' ) || die($!);
 	print $config_fh <<"EOC";
 run_base_dir = "$dir/run"
 rules_dir = "$dir/rules"
 socket_group = "$group"
+$toplevel
 
 [kur.sshd]
 ban_time = 300
@@ -106,4 +108,53 @@ ok( eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'log ar
 write_config("\n[kur.sshd.badwatcher]\nlog = [ ]\nparser = \"bsd_syslog\"\nrule = \"syslog/sshd\"\n");
 ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'new dies on a empty log array' );
 
+#
+# the Neti gate... auth config
+#
+
+write_config( '', "enable_auth = true\nauthed_users = [ \"alice\" ]\nauthed_groups = [ \"wheel\" ]" );
+my $authed = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+is( $authed->{enable_auth}, 1, 'enable_auth read as 1' );
+is_deeply( $authed->{authed_users},  ['alice'], 'authed_users read' );
+is_deeply( $authed->{authed_groups}, ['wheel'], 'authed_groups read' );
+
+# _authorize is a no-op when auth is off
+write_config('');
+my $plain = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+is( $plain->{enable_auth}, 0, 'enable_auth defaults off' );
+ok( eval { $plain->_authorize( FakeCtx->new( 1000, 'nobody' ) ); 1 }, 'auth off... anyone passes' );
+
+# with auth on... UID 0 always passes, a listed user passes, others are refused
+ok( eval { $authed->_authorize( FakeCtx->new( 0,    'root' ) );   1 }, 'UID 0 passes the Neti gate' );
+ok( eval { $authed->_authorize( FakeCtx->new( 1001, 'alice' ) );  1 }, 'a authed user passes' );
+ok( !eval { $authed->_authorize( FakeCtx->new( 1002, 'mallory' ) ); 1 }, 'an unlisted user is refused' );
+like( $@, qr/Neti gate/, 'refusal names the Neti gate' );
+
+# a bad authed list is a config error
+write_config( '', "enable_auth = true\nauthed_users = \"notanarray\"" );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a non-array authed_users is a error' );
+
+#
+# socket_mode / socket_group
+#
+
+write_config( '', 'socket_mode = "0640"' );
+ok( eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a valid socket_mode checks out' ) || diag($@);
+
+write_config( '', 'socket_mode = "garbage"' );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a non-octal socket_mode is a error' );
+
+write_config( '', 'socket_mode = "999"' );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a non-octal-digit socket_mode is a error' );
+
 done_testing;
+
+# a stand in for the JSONUnix auth context, giving _authorize a uid and username
+package FakeCtx;
+
+sub new {
+	my ( $class, $uid, $username ) = @_;
+	return bless { uid => $uid, username => $username }, $class;
+}
+sub uid      { return $_[0]->{uid} }
+sub username { return $_[0]->{username} }

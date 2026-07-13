@@ -1,0 +1,32 @@
+---
+# Matches MongoDB auth failures in the structured JSON log mongod has
+# written since 4.4. Test lines are hand built from the documented output
+# shape... fail2ban's mongodb-auth filter covers only the pre-4.4 text
+# format, via multiline correlation Baphomet does not do.
+gate:
+  - field: c
+    values: [ ACCESS ]
+  - field: msg
+    values: [ "Authentication failed" ]
+match:
+  - field: attr.remote
+    regexp: '^%%%%SRC%%%%:\d+$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '{"t":{"$date":"2026-07-12T08:15:50.123+00:00"},"s":"I","c":"ACCESS","id":20249,"ctx":"conn123","msg":"Authentication failed","attr":{"mechanism":"SCRAM-SHA-256","speculative":false,"principalName":"root","authenticationDatabase":"admin","remote":"192.0.2.5:54321","extraInfo":{},"error":"AuthenticationFailed: SCRAM authentication failed, storedKey mismatch"}}'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: '{"t":{"$date":"2026-07-12T08:15:51.456+00:00"},"s":"I","c":"ACCESS","id":20251,"ctx":"conn124","msg":"Authentication failed","attr":{"mechanism":"SCRAM-SHA-256","principalName":"admin","authenticationDatabase":"admin","remote":"2001:db8::7:41234","error":"UserNotFound: Could not find user \"admin\" for db \"admin\""}}'
+      found: 1
+      data:
+        SRC: "2001:db8::7"
+  negative:
+    - message: '{"t":{"$date":"2026-07-12T08:15:52.789+00:00"},"s":"I","c":"ACCESS","id":20250,"ctx":"conn125","msg":"Successfully authenticated","attr":{"principalName":"kitsune","authenticationDatabase":"admin","remote":"192.0.2.9:54322"}}'
+      found: 0
+      undefed: ["SRC"]
+    - message: '{"t":{"$date":"2026-07-12T08:15:53.012+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.0.2.9:54323","connectionCount":3}}'
+      found: 0
+      undefed: ["SRC"]
