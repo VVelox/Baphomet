@@ -98,7 +98,8 @@ ok( -f $dir . '/cache/consignments.csv', 'ledger written' );
 open( $fh, '<', $dir . '/cache/consignments.csv' ) || die($!);
 my @rows = <$fh>;
 close($fh);
-is( scalar( grep { /,9\.9\.9\.9$/ } @rows ), 3, 'three ledger rows for the recidivist' );
+is( scalar( grep { /,9\.9\.9\.9,/ } @rows ), 3, 'three ledger rows for the recidivist' );
+like( $rows[0], qr/^epoch,kur,ip,rule,watcher$/, 'the ledger carries its header' );
 
 # a second galla sharing the ledger sees the history... one more from it
 # tips a would-be recidivist already at 2
@@ -118,7 +119,7 @@ is( scalar( grep { $_->{kur} eq 'recidive' && $_->{ip} eq '7.7.7.7' } @sent ),
 	1, 'the ledger is shared across gallas' );
 
 #
-# recidive off means no ledger, no escalation
+# recidive off still chisels the ledger, but never escalates
 #
 
 open( $fh, '>', $dir . '/config-plain.toml' ) || die($!);
@@ -146,6 +147,17 @@ $plain->_ban_ip( '1.1.1.1', 300 );
 $plain->_ban_ip( '1.1.1.1', 300 );
 $plain->_ban_ip( '1.1.1.1', 300 );
 is( scalar( grep { $_->{kur} eq 'recidive' } @sent ), 0, 'no escalation with recidive off' );
-ok( !-f $dir . '/cache2/consignments.csv', 'no ledger with recidive off' );
+ok( -f $dir . '/cache2/consignments.csv', 'the ledger is chiseled even with recidive off' );
+open( $fh, '<', $dir . '/cache2/consignments.csv' ) || die($!);
+@rows = <$fh>;
+close($fh);
+is( scalar( grep { /,1\.1\.1\.1,/ } @rows ), 3, 'three ledger rows with recidive off' );
+
+# a consignment carrying its context chisels rule and watcher into the row
+$plain->_ban_ip( '2.2.2.2', 300, { 'watcher' => 'authlog', 'rule_name' => 'syslog/sshd' } );
+open( $fh, '<', $dir . '/cache2/consignments.csv' ) || die($!);
+@rows = <$fh>;
+close($fh);
+is( scalar( grep { m{,2\.2\.2\.2,syslog/sshd,authlog$} } @rows ), 1, 'rule and watcher chiseled into the row' );
 
 done_testing;

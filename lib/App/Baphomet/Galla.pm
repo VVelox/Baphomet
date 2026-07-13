@@ -110,6 +110,8 @@ sub new {
 			bans        => 0,
 			ban_errors  => 0,
 			recidivists => 0,
+			per_watcher => {},
+			per_rule    => {},
 		},
 	};
 	bless $self;
@@ -129,6 +131,7 @@ sub new {
 	}
 	$self->{run_base_dir}      = $config->{run_base_dir};
 	$self->{tablet_base_dir}   = $config->{tablet_base_dir};
+	$self->{ledger_keep}       = $config->{ledger_keep};
 	$self->{ereshkigal_socket} = $config->{ereshkigal_socket};
 	$self->{recidive}          = $config->{recidive};
 	$self->{timeout}           = $config->{timeout};
@@ -276,7 +279,7 @@ sub new {
 		};
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
-	# bring back the tablets... counters, pending bans, correlation
+	# bring back the tablets... counters, pending bans, stats, correlation
 	# context, and log positions from the last run
 	$self->_load_state;
 
@@ -322,7 +325,7 @@ Returns the path of a state tablet of the given kind for this instance.
 sub state_path {
 	my ( $self, $kind ) = @_;
 
-	my $suffix = $kind eq 'context' ? 'jsonl' : 'csv';
+	my $suffix = ( $kind eq 'context' || $kind eq 'stats' ) ? 'jsonl' : 'csv';
 
 	return $self->{tablet_base_dir} . '/galla.' . $self->{name} . '.' . $kind . '.' . $suffix;
 }
@@ -378,8 +381,8 @@ sub _read_tablet {
 =head2 checkpoint
 
 Writes the state tablets out now... the counters, the pending bans, the
-correlation context, and the log positions. Called periodically by the
-sweeper and on stop.
+running stats, the correlation context, and the log positions. Called
+periodically by the sweeper and on stop.
 
     $galla->checkpoint;
 
@@ -443,6 +446,16 @@ sub checkpoint {
 					print $fh _csv_escape($watcher_name) . ',' . _csv_escape($cursor) . "\n";
 				}
 			}
+		}
+	);
+
+	# the running stats, one JSON line, so the totals mean since first
+	# loosing rather than since the last respawn
+	$self->_write_tablet(
+		'stats',
+		sub {
+			my ($fh) = @_;
+			print $fh encode_json( $self->{stats} ) . "\n";
 		}
 	);
 
@@ -582,6 +595,32 @@ sub _load_state {
 		{
 			$self->{journal_cursors}{$watcher_name} = $cursor;
 		}
+	} ## end foreach my $line ( $self->_read_tablet...)
+
+	# stats... take the stored totals, but only shapes and numbers that
+	# make sense, as the tablet may be from a older format
+	foreach my $line ( $self->_read_tablet('stats') ) {
+		if ( $line eq '' ) {
+			next;
+		}
+		my $decoded;
+		eval { $decoded = decode_json($line); };
+		if ( ref($decoded) ne 'HASH' ) {
+			next;
+		}
+		foreach my $key ( keys( %{ $self->{stats} } ) ) {
+			if ( !defined( $decoded->{$key} ) ) {
+				next;
+			}
+			if ( ref( $self->{stats}{$key} ) eq 'HASH' ) {
+				if ( ref( $decoded->{$key} ) eq 'HASH' ) {
+					$self->{stats}{$key} = $decoded->{$key};
+				}
+			} elsif ( ref( $decoded->{$key} ) eq '' && $decoded->{$key} =~ /^[0-9]+$/ ) {
+				$self->{stats}{$key} = $decoded->{$key} + 0;
+			}
+		} ## end foreach my $key ( keys( %{ $self->{stats} } ) )
+		last;
 	} ## end foreach my $line ( $self->_read_tablet...)
 
 	# correlation context
@@ -727,6 +766,10 @@ The JSON commands handled are as below.
           the files currently being followed, stats, effective settings,
           how many IPs are being counted, and any bans pending retry.
 
+    - accused :: The IPs currently accumulating offenses but not yet
+          consigned... per IP the live hit count and the epochs of the
+          first and last hit.
+
     - stop :: Stop following the logs and exit. Pending bans that could
           not be delivered are lost.
 
@@ -751,6 +794,9 @@ sub start_server {
 		'commands' => {
 			'status' => sub {
 				return $self->_cmd_status;
+			},
+			'accused' => sub {
+				return $self->_cmd_accused;
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -1158,6 +1204,22 @@ sub _poe_stop_tails {
 # the POE side running
 #
 
+# ticks a stat by name... the galla-wide count always, plus the per
+# watcher and per rule breakdowns when those are known
+sub _tick {
+	my ( $self, $key, $watcher_name, $rule_name ) = @_;
+
+	$self->{stats}{$key}++;
+	if ( defined($watcher_name) ) {
+		$self->{stats}{per_watcher}{$watcher_name}{$key}++;
+	}
+	if ( defined($rule_name) ) {
+		$self->{stats}{per_rule}{$rule_name}{$key}++;
+	}
+
+	return;
+} ## end sub _tick
+
 # handles a single line from the log of the specified watcher
 sub _handle_line {
 	my ( $self, $watcher_name, $line, $source ) = @_;
@@ -1167,11 +1229,11 @@ sub _handle_line {
 		return;
 	}
 
-	$self->{stats}{lines}++;
+	$self->_tick( 'lines', $watcher_name );
 
 	my $parsed = App::Baphomet::Parser::parse( $watcher->{parser}, $line );
 	if ( !defined($parsed) ) {
-		$self->{stats}{unparsed}++;
+		$self->_tick( 'unparsed', $watcher_name );
 		return;
 	}
 
@@ -1179,8 +1241,10 @@ sub _handle_line {
 	# matching more than one rule only counts once... the watcher name
 	# scopes any correlation state, as keys like conn ids are only unique
 	# with in one log
-	foreach my $rule_obj ( @{ $watcher->{rule_objs} } ) {
-		my $found = $rule_obj->check( $parsed, $watcher_name );
+	for ( my $rule_int = 0; $rule_int < scalar( @{ $watcher->{rule_objs} } ); $rule_int++ ) {
+		my $rule_obj  = $watcher->{rule_objs}[$rule_int];
+		my $rule_name = $watcher->{rules}[$rule_int];
+		my $found     = $rule_obj->check( $parsed, $watcher_name );
 		if ( !defined($found) ) {
 			next;
 		}
@@ -1188,16 +1252,19 @@ sub _handle_line {
 		# a capture line may have completed several deferred offenses
 		my @all_found = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
 		foreach my $one (@all_found) {
-			$self->{stats}{matched}++;
+			$self->_tick( 'matched', $watcher_name, $rule_name );
 
 			# the EVE context for this match, shared by the found event and
-			# any consign it triggers
+			# any consign it triggers... watcher and rule_name ride along
+			# for the stats and the ledger
 			my $context = {
-				'source' => $source,
-				'raw'    => $line,
-				'parsed' => $parsed,
-				'found'  => $one->{data},
-				'rule'   => $rule_obj,
+				'source'    => $source,
+				'raw'       => $line,
+				'parsed'    => $parsed,
+				'found'     => $one->{data},
+				'rule'      => $rule_obj,
+				'rule_name' => $rule_name,
+				'watcher'   => $watcher_name,
 			};
 
 			# a ban_not_internal rule consigns the end of the flow that is
@@ -1226,7 +1293,7 @@ sub _handle_line {
 		} ## end foreach my $one (@all_found)
 
 		last;
-	} ## end foreach my $rule_obj ( @{ $watcher->{rule_objs}...})
+	} ## end for ( my $rule_int = 0; $rule_int < scalar...)
 
 	return;
 } ## end sub _handle_line
@@ -1258,7 +1325,7 @@ sub _register_hit {
 
 	# the ignored never accumulate so much as a counter
 	if ( ip_ignored( $self->{ignore_ips}, $ip ) ) {
-		$self->{stats}{ignored}++;
+		$self->_tick( 'ignored', $watcher_name );
 		return undef;
 	}
 
@@ -1290,15 +1357,18 @@ sub _ban_ip {
 
 	my $ident = 'galla-' . $self->{name};
 
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
+
 	eval { $self->_send_ban( $ip, $ban_time ); };
 	if ($@) {
-		$self->{stats}{ban_errors}++;
+		$self->_tick( 'ban_errors', $watcher_name, $rule_name );
 		$self->{pending_bans}{$ip} = $ban_time;
 		log_drek( 'err', 'consigning ' . $ip . ' to Kur failed, will retry... ' . $@, undef, $ident );
 		return;
 	}
 
-	$self->{stats}{bans}++;
+	$self->_tick( 'bans', $watcher_name, $rule_name );
 	delete( $self->{pending_bans}{$ip} );
 	log_drek( 'info',
 		'consigned ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
@@ -1315,10 +1385,11 @@ sub _ban_ip {
 		}
 	);
 
-	# record the consignment to the shared ledger and, if this IP has been
-	# consigned too many times across all kurs, drag it through a further
-	# gate to the recidive kur
-	$self->_recidive_check($ip);
+	# chisel the consignment into the shared ledger and, if this IP has
+	# been consigned too many times across all kurs, drag it through a
+	# further gate to the recidive kur
+	my $ledger_count = $self->_ledger_append_and_count( $ip, $context );
+	$self->_recidive_check( $ip, $ledger_count );
 
 	return;
 } ## end sub _ban_ip
@@ -1347,18 +1418,18 @@ sub _send_ban {
 
 # returns the path of the shared consignment ledger, under the tablet dir,
 # not per galla as every galla writes to the one ledger
-sub recidive_ledger_path {
+sub ledger_path {
 	my ($self) = @_;
 
 	return $self->{tablet_base_dir} . '/consignments.csv';
 }
 
-# records a consignment to the shared ledger and escalates to the recidive
-# kur if the IP has now been consigned max_retrys times with in find_time
-# across all kurs... a no-op when recidive is off, and never re-counts a
-# recidive escalation it's self
+# escalates to the recidive kur if the IP has now been consigned
+# max_retrys times with in find_time across all kurs, per the ledger count
+# from _ledger_append_and_count... a no-op when recidive is off, and never
+# re-counts a recidive escalation it's self
 sub _recidive_check {
-	my ( $self, $ip ) = @_;
+	my ( $self, $ip, $count ) = @_;
 
 	if ( !defined( $self->{recidive} ) ) {
 		return;
@@ -1368,17 +1439,14 @@ sub _recidive_check {
 		return;
 	}
 
-	my $now        = time;
-	my $find_time  = defined( $self->{recidive}{find_time} ) ? $self->{recidive}{find_time} : 604800;
 	my $max_retrys = defined( $self->{recidive}{max_retrys} ) ? $self->{recidive}{max_retrys} : 5;
 	my $ban_time   = defined( $self->{recidive}{ban_time} ) ? $self->{recidive}{ban_time} : 0;
 
-	my $count = $self->_ledger_append_and_count( $ip, $now, $find_time );
 	if ( !defined($count) || $count < $max_retrys ) {
 		return;
 	}
 
-	$self->{stats}{recidivists}++;
+	$self->_tick('recidivists');
 	log_drek(
 		'info',
 		'recidivist '
@@ -1414,35 +1482,60 @@ sub _recidive_check {
 	return;
 } ## end sub _recidive_check
 
-# appends a consignment row under a exclusive lock and returns how many
-# times this IP appears with in find_time... the lock serializes the
-# several gallas sharing the one ledger
+# chisels a consignment row into the shared ledger under a exclusive lock
+# and returns how many times this IP appears with in the recidive window...
+# the lock serializes the several gallas sharing the one ledger. Rows are
+# epoch,kur,ip,rule,watcher, pruned to ledger_keep but never inside the
+# recidive window, and rows landing on the recidive kur it's self are never
+# counted, as a escalation's landing is not a offense
 sub _ledger_append_and_count {
-	my ( $self, $ip, $now, $find_time ) = @_;
+	my ( $self, $ip, $context ) = @_;
 
-	my $path  = $self->recidive_ledger_path;
+	my $now = time;
+	my $find_time =
+		defined( $self->{recidive} )
+		? ( defined( $self->{recidive}{find_time} ) ? $self->{recidive}{find_time} : 604800 )
+		: 0;
+	my $recidive_kur = defined( $self->{recidive} ) ? $self->{recidive}{kur} : '';
+
+	# rows still inside the recidive window must survive whatever
+	# ledger_keep says... 0 means keep forever
+	my $keep = $self->{ledger_keep};
+	if ( $keep && $keep < $find_time ) {
+		$keep = $find_time;
+	}
+
+	my $rule    = defined($context) && defined( $context->{rule_name} ) ? $context->{rule_name} : '';
+	my $watcher = defined($context) && defined( $context->{watcher} )   ? $context->{watcher}   : '';
+
+	my $path  = $self->ledger_path;
 	my $count = 0;
 	eval {
 		open( my $fh, '+>>', $path ) || die( 'open failed... ' . $! );
 		flock( $fh, 2 ) || die( 'lock failed... ' . $! );    # LOCK_EX
 
-		print $fh $now . ',' . $self->{name} . ',' . $ip . "\n";
+		print $fh $now . ','
+			. $self->{name} . ','
+			. $ip . ','
+			. _csv_escape($rule) . ','
+			. _csv_escape($watcher) . "\n";
 
 		# read the whole ledger back and count this IP with in the window,
-		# rewriting it pruned so it does not grow without bound
+		# rewriting it pruned so it does not grow past ledger_keep... the
+		# header is skipped by the epoch check and rewritten fresh
 		seek( $fh, 0, 0 );
 		my @kept;
 		while ( my $line = <$fh> ) {
 			chomp($line);
-			my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 3 );
-			if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) ) {
+			my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 4 );
+			if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) || $row_ip eq '' ) {
 				next;
 			}
-			if ( ( $now - $epoch ) >= $find_time ) {
+			if ( $keep && ( $now - $epoch ) >= $keep ) {
 				next;
 			}
-			push( @kept, $epoch . ',' . $kur . ',' . $row_ip );
-			if ( $row_ip eq $ip ) {
+			push( @kept, $line );
+			if ( $row_ip eq $ip && $find_time && ( $now - $epoch ) < $find_time && $kur ne $recidive_kur ) {
 				$count++;
 			}
 		} ## end while ( my $line = <$fh> )
@@ -1450,12 +1543,13 @@ sub _ledger_append_and_count {
 		# rewrite pruned
 		seek( $fh, 0, 0 );
 		truncate( $fh, 0 );
+		print $fh "epoch,kur,ip,rule,watcher\n";
 		print $fh join( "\n", @kept ) . ( @kept ? "\n" : '' );
 
 		close($fh);
 	};
 	if ($@) {
-		log_drek( 'err', 'the recidive ledger "' . $path . '" could not be updated... ' . $@,
+		log_drek( 'err', 'the consignment ledger "' . $path . '" could not be updated... ' . $@,
 			undef, 'galla-' . $self->{name} );
 		return undef;
 	}
@@ -1535,6 +1629,28 @@ sub _cmd_status {
 		'recidive'     => defined( $self->{recidive} ) ? $self->{recidive}{kur} : undef,
 	};
 } ## end sub _cmd_status
+
+sub _cmd_accused {
+	my ($self) = @_;
+
+	my $accused = {};
+	foreach my $ip ( keys( %{ $self->{counters} } ) ) {
+		my $hits = $self->{counters}{$ip};
+		if ( !@{$hits} ) {
+			next;
+		}
+		$accused->{$ip} = {
+			'hits'  => scalar( @{$hits} ),
+			'first' => $hits->[0],
+			'last'  => $hits->[-1],
+		};
+	}
+
+	return {
+		'name'    => $self->{name},
+		'accused' => $accused,
+	};
+} ## end sub _cmd_accused
 
 sub _cmd_stop {
 	my ( $self, $ctx ) = @_;

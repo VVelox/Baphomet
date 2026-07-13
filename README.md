@@ -12,8 +12,9 @@ log files of its kur, parses the lines, reads them against its rules like
 omen tablets, and counts the offenses of each IP. An IP that racks up
 `max_retrys` offenses with in `find_time` seconds is seized and consigned
 to Kur... a ban request sent to the Ereshkigal manager socket, targeted at
-the kur of the same name over there. Ereshkigal does the actual
-firewalling. Baphomet never touches the firewall itself.
+the kur of the same name over there, a real kur or a fan_out gate relaying
+to several. Ereshkigal does the actual firewalling. Baphomet never touches
+the firewall itself.
 
 Watching sshd looks like this in `/usr/local/etc/baphomet/config.toml`...
 
@@ -38,6 +39,13 @@ baphomet start
 
 # see what they are up to
 baphomet status --all
+
+# the IPs being counted toward a consignment, and who Kur already holds
+baphomet accused
+baphomet consigned
+
+# the consignment history... when, which kur, which IP, by which rule
+baphomet ledger --since 7d
 
 # verify the rules pass their own embedded tests
 baphomet check_rules

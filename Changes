@@ -9,6 +9,25 @@ Revision history for App-Baphomet
           syslog daemons, a large raw batch of own-format app and webmail
           logs, more web rules, and slapd via keyed correlation. 135 rules
           shipped now.
+        - Visibility commands matching what fail2ban shows... baphomet
+          accused lists the IPs being counted but not yet consigned, per
+          IP the live hit count and first/last hit epochs, via a new
+          accused action on the galla and manager sockets. baphomet
+          consigned asks Ereshkigal who Kur holds for the kurs this
+          Baphomet feeds, expanding fan_out gates to their members and
+          marking bans still pending delivery, with --ip answering which
+          kurs hold a address. baphomet ledger reads the consignment
+          history... when, which kur, which IP, by which rule and watcher,
+          filterable by kur, IP, --since, and --tail.
+        - The shared consignment ledger is now chiseled on every
+          consignment, recidive or no, and carries rule and watcher
+          columns. Retention is bounded by the new ledger_keep setting,
+          30 days by default, 0 meaning forever, never pruning inside the
+          recidive window.
+        - Stats now break down per watcher and per rule alongside the
+          galla-wide totals, and persist across restarts via a new stats
+          tablet... totals mean since first loosing, not since the last
+          respawn.
         - A optional Neti gate on the manager socket, the enable_auth unix
           ownership auth challenge gated by authed_users and authed_groups,
           matching Ereshkigal. socket_mode is now validated at load, and

@@ -14,6 +14,7 @@ BEGIN {
 }
 
 use App::Baphomet::App ();
+use JSON::MaybeXS      ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/syslog' );
@@ -58,7 +59,7 @@ close($fh);
 
 my $result = App::Cmd::Tester->test_app( 'App::Baphomet::App', ['commands'] );
 is( $result->exit_code, 0, 'commands exits 0' );
-foreach my $command ( 'start', 'stop', 'status', 'check_rules', 'test_line' ) {
+foreach my $command ( 'start', 'stop', 'status', 'check_rules', 'test_line', 'accused', 'consigned', 'ledger' ) {
 	like( $result->stdout, qr/$command/, 'commands lists ' . $command );
 }
 
@@ -104,5 +105,50 @@ like( $result->stdout, qr/"found"\s*:\s*0/, 'test_line reports not found' );
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
 	[ 'test_line', '--rules-dir', $dir . '/rules', '--rule', 'syslog/good', 'complete garbage' ] );
 isnt( $result->exit_code, 0, 'test_line on a unparsable line exits non-zero' );
+
+#
+# ledger... read straight from the file, no manager needed
+#
+
+make_path( $dir . '/tablets' );
+open( $fh, '>', $dir . '/config.toml' ) || die($!);
+print $fh <<"EOC";
+tablet_base_dir = "$dir/tablets"
+rules_dir = "$dir/rules"
+EOC
+close($fh);
+
+my $now = time;
+open( $fh, '>', $dir . '/tablets/consignments.csv' ) || die($!);
+print $fh "epoch,kur,ip,rule,watcher\n";
+print $fh ( $now - 172800 ) . ",sshd,1.2.3.4,syslog/good,authlog\n";
+print $fh ( $now - 60 ) . ",sshd,1.2.3.4,syslog/good,authlog\n";
+print $fh ( $now - 30 ) . ",smtp,5.6.7.8,syslog/good,maillog\n";
+close($fh);
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App', [ 'ledger', '--config', $dir . '/config.toml' ] );
+is( $result->exit_code, 0, 'ledger exits 0' );
+like( $result->stdout, qr/"1\.2\.3\.4"/, 'ledger carries the first IP' );
+like( $result->stdout, qr/"5\.6\.7\.8"/, 'ledger carries the second IP' );
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'ledger', '--config', $dir . '/config.toml', '--ip', '5.6.7.8' ] );
+unlike( $result->stdout, qr/"1\.2\.3\.4"/, '--ip drops the other IP' );
+like( $result->stdout, qr/"5\.6\.7\.8"/, 'and keeps the named one' );
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'ledger', '--config', $dir . '/config.toml', 'smtp' ] );
+unlike( $result->stdout, qr/"sshd"/, 'a kur arg drops the other kurs' );
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'ledger', '--config', $dir . '/config.toml', '--since', '1d' ] );
+my $decoded = JSON::MaybeXS::decode_json( $result->stdout );
+is( scalar( @{ $decoded->{entries} } ), 2, '--since drops the old entry and keeps the fresh' );
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'ledger', '--config', $dir . '/config.toml', '--tail', '1' ] );
+$decoded = JSON::MaybeXS::decode_json( $result->stdout );
+is( scalar( @{ $decoded->{entries} } ), 1,         '--tail keeps just the last' );
+is( $decoded->{entries}[0]{ip},         '5.6.7.8', 'and it is the newest' );
 
 done_testing;

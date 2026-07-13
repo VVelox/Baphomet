@@ -73,6 +73,12 @@ Top level keys are as below.
           still happens.
         Default :: 60
 
+    - ledger_keep :: How long rows are kept in the shared consignment
+          ledger, in seconds, read by the recidive gate and the ledger
+          command. 0 means keep forever. Rows still inside the recidive
+          find_time are always kept, whatever this says.
+        Default :: 2592000
+
     - rules_dir :: The dir holding the matching rules. A rule of
           C<syslog/sshd> is the file C<syslog/sshd.yaml> under here.
         Default :: /usr/local/etc/baphomet/rules
@@ -254,6 +260,7 @@ sub load_config {
 		'journalctl_bin'    => 'journalctl',
 		'timeout'           => 30,
 		'checkpoint'        => 60,
+		'ledger_keep'       => 2592000,
 		'max_retrys'        => 5,
 		'find_time'         => 600,
 		'ban_time'          => undef,
@@ -295,6 +302,10 @@ sub load_config {
 
 	if ( $config->{checkpoint} !~ /^[0-9]+$/ ) {
 		die( 'checkpoint, "' . $config->{checkpoint} . '", is not a non-negative int of seconds' );
+	}
+
+	if ( $config->{ledger_keep} !~ /^[0-9]+$/ ) {
+		die( 'ledger_keep, "' . $config->{ledger_keep} . '", is not a non-negative int of seconds' );
 	}
 
 	if ( ref( $config->{socket_mode} ) ne '' || $config->{socket_mode} !~ /^[0-7]{3,4}$/ ) {

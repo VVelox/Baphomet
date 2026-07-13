@@ -128,6 +128,9 @@ rule = [ "http/badbots", "http/botsearch" ]
 ```
 
 This needs a kur named `www` on the Ereshkigal side covering ports 80/443.
+The `www` over there may also be a gate... a `fan_out` kur relaying to
+several real kurs, say separate nginx and apache ones, so one galla feeds
+them all through the one name.
 
 The error log rides along in the same kur, sharing its offense counter,
 with the parser matching the server...

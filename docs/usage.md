@@ -41,11 +41,45 @@ baphomet status sshd
 
 A galla's status block includes its watchers with their effective settings,
 its stats (lines seen, lines that did not parse, matches, bans, ban
-errors), how many IPs it is currently counting, and any bans pending retry
-because Ereshkigal could not be reached.
+errors... galla-wide totals plus `per_watcher` and `per_rule` breakdowns),
+how many IPs it is currently counting, and any bans pending retry because
+Ereshkigal could not be reached. The stats survive a restart via the stats
+tablet, so the totals mean since first loosing.
 
 Everything also logs to syslog under the daemon facility... the manager as
 `baphomet`, each worker as `galla-<kur>`.
+
+## The accused, the consigned, and the ledger
+
+```shell
+# the IPs being counted but not yet consigned... per IP the live hit
+# count and the first and last hit epochs
+baphomet accused
+
+# just one galla's, or one IP wherever it is being counted
+baphomet accused sshd
+baphomet accused --ip 1.2.3.4
+
+# who Kur holds right now, per kur this Baphomet feeds... asks
+# Ereshkigal, expands fan_out gates to their members, and marks bans
+# still pending delivery
+baphomet consigned
+baphomet consigned sshd
+
+# which kurs hold a IP
+baphomet consigned --ip 1.2.3.4
+
+# the consignment history... every consignment any galla made, when,
+# which kur, which IP, by which rule and watcher
+baphomet ledger
+baphomet ledger sshd --since 7d
+baphomet ledger --ip 1.2.3.4 --tail 20
+```
+
+`accused` and `consigned` want the manager and Ereshkigal up
+respectively... `ledger` reads the shared ledger file straight from the
+tablet dir, so it works with everything down. How far back the ledger
+reaches is bounded by the `ledger_keep` setting, 30 days by default.
 
 ## Working on rules
 

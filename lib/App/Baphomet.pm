@@ -287,6 +287,10 @@ The JSON commands handled are as below.
 
     - status_galla :: Full status of the galla args.name.
 
+    - accused :: The IPs each galla is counting but has not yet
+          consigned... every galla, or just args.name if given. Per IP
+          the live hit count and the epochs of the first and last hit.
+
     - stop :: Stop all the gallas and then the manager.
 
 =cut
@@ -335,6 +339,11 @@ sub start_server {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
 				return $self->_cmd_status_galla($request);
+			},
+			'accused' => sub {
+				my ( undef, $request, $ctx ) = @_;
+				$self->_authorize($ctx);
+				return $self->_cmd_accused($request);
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -670,6 +679,39 @@ sub _cmd_status_galla {
 
 	return $status;
 } ## end sub _cmd_status_galla
+
+sub _cmd_accused {
+	my ( $self, $request ) = @_;
+
+	my $args = defined( $request->{args} ) ? $request->{args} : {};
+
+	my @names;
+	if ( defined( $args->{name} ) ) {
+		if ( !defined( $self->{gallas}{ $args->{name} } ) ) {
+			die( 'No such galla, "' . $args->{name} . '"' );
+		}
+		@names = ( $args->{name} );
+	} else {
+		@names = sort( keys( %{ $self->{gallas} } ) );
+	}
+
+	my $gallas = {};
+	foreach my $name (@names) {
+		if ( !defined( $self->{gallas}{$name}{pid} ) ) {
+			$gallas->{$name} = { 'error' => 'not running' };
+			next;
+		}
+		my $result;
+		eval { $result = $self->_galla_client($name)->call_ok('accused'); };
+		if ($@) {
+			$gallas->{$name} = { 'error' => $@ };
+		} else {
+			$gallas->{$name} = $result;
+		}
+	} ## end foreach my $name (@names)
+
+	return { 'gallas' => $gallas };
+} ## end sub _cmd_accused
 
 =head1 ERRORS CODES / ERROR FLAGS
 

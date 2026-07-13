@@ -88,12 +88,18 @@ $rule->check( App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen
 # a log position... pretend we followed to a byte offset
 $galla->{positions}{ $dir . '/thelog' } = { inode => ( stat( $dir . '/thelog' ) )[1], offset => 18 };
 
+# some stats, galla-wide and broken down, to survive the respawn
+$galla->_tick( 'lines',   'authlog' );
+$galla->_tick( 'lines',   'authlog' );
+$galla->_tick( 'matched', 'authlog', 'syslog/sshd' );
+
 $galla->checkpoint;
 
 ok( -f $dir . '/cache/galla.sshd.counters.csv',  'counters tablet written' );
 ok( -f $dir . '/cache/galla.sshd.pending.csv',   'pending tablet written' );
 ok( -f $dir . '/cache/galla.sshd.positions.csv', 'positions tablet written' );
 ok( -f $dir . '/cache/galla.sshd.context.jsonl', 'context tablet written' );
+ok( -f $dir . '/cache/galla.sshd.stats.jsonl',   'stats tablet written' );
 
 #
 # a fresh galla restores it all
@@ -105,6 +111,15 @@ is( scalar( @{ $reborn->{counters}{'9.9.9.9'} } ), 2, 'counter for 9.9.9.9 resto
 is( scalar( @{ $reborn->{counters}{'8.8.8.8'} } ), 1, 'counter for 8.8.8.8 restored' );
 is( $reborn->{pending_bans}{'7.7.7.7'}, 300, 'pending ban restored' );
 is( $reborn->{positions}{ $dir . '/thelog' }{offset}, 18, 'log position restored' );
+is( $reborn->{stats}{lines}, 2, 'stats totals restored' );
+is( $reborn->{stats}{per_watcher}{authlog}{lines},      2, 'per watcher stats restored' );
+is( $reborn->{stats}{per_rule}{'syslog/sshd'}{matched}, 1, 'per rule stats restored' );
+
+# the accused command sees the restored counters
+my $accused = $reborn->_cmd_accused;
+is( $accused->{accused}{'9.9.9.9'}{hits}, 2, 'accused shows the counted hits' );
+is( $accused->{accused}{'8.8.8.8'}{hits}, 1, 'accused shows the other defendant' );
+ok( defined( $accused->{accused}{'9.9.9.9'}{first} ), 'accused carries the first hit epoch' );
 
 # the restored deferred offense completes when its capture line arrives
 my $reborn_rule = $reborn->{watchers}{authlog}{rule_objs}[0];

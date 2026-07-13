@@ -13,7 +13,10 @@ docs/rules.md
 docs/usage.md
 lib/App/Baphomet.pm
 lib/App/Baphomet/App.pm
+lib/App/Baphomet/App/Command/accused.pm
 lib/App/Baphomet/App/Command/check_rules.pm
+lib/App/Baphomet/App/Command/consigned.pm
+lib/App/Baphomet/App/Command/ledger.pm
 lib/App/Baphomet/App/Command/start.pm
 lib/App/Baphomet/App/Command/status.pm
 lib/App/Baphomet/App/Command/stop.pm
@@ -184,6 +187,7 @@ src_bin/galla
 t/00-load.t
 t/ban-not-internal.t
 t/cli.t
+t/commands.t
 t/eve-log.t
 t/galla-journal.t
 t/galla.t

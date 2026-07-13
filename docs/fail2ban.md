@@ -5,7 +5,9 @@ fail2ban is one daemon that reads logs, decides, and bans; here the
 accuser and the punisher are separate. Baphomet reads the logs and counts
 offenses, Ereshkigal rules Kur and touches the firewall. They meet at the
 kur names... a `[kur.sshd]` in Baphomet's config sends its consignments to
-the kur named `sshd` on the Ereshkigal side.
+the kur named `sshd` on the Ereshkigal side. That kur may be a real one or
+a gate... a `fan_out` kur relaying each consignment to its members, which
+is how a jail with several actions maps over (see below).
 
 ## The concept map
 
@@ -23,12 +25,17 @@ the kur named `sshd` on the Ereshkigal side.
 | `backend = auto/polling` | POE::Wheel::FollowTail, always |
 | `backend = systemd` / `journalmatch` | a watcher's `journal` key, matches and all... native, via journalctl |
 | action (`action.d/*.conf`) | Ereshkigal's kur backends... pf, ipfw, iptables, shell, dummy |
+| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side... the Baphomet kur targets the gate, whose members each do their own thing, say a pf kur plus a shell kur running a reporter |
 | `ignoreip` | `ignore_ips`, global or per kur |
 | `fail2ban-client status/set` | `baphomet status`, `ereshkigal status/ban/unban/banned` |
+| `fail2ban-client status <jail>`, currently failed | `baphomet accused`... and with the per-IP detail fail2ban never shows |
+| `fail2ban-client status <jail>`, banned IP list | `baphomet consigned`, asking Ereshkigal and marking bans still pending delivery |
+| `fail2ban-client banned <ip>` | `baphomet consigned --ip <ip>` |
+| `fail2ban-client get <jail> banip --with-time` | `baphomet ledger`, filterable by kur, IP, and time |
 | `fail2ban-regex` | `baphomet check_rules` and `baphomet test_line` |
 | `recidive` jail | the `[recidive]` table, escalating across all kurs |
 | `bantime.increment` | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban |
-| sqlite persistence | the state tablets under `tablet_base_dir` |
+| sqlite persistence | the state tablets under `tablet_base_dir`, the ban history in the shared consignment ledger |
 
 ## What is better over here
 
@@ -57,12 +64,13 @@ the kur named `sshd` on the Ereshkigal side.
 
 Honesty section, roughly in order of how much it matters...
 
-- **Action fan-out.** One offense sends one ban to one kur... no
-  ban-plus-email-plus-AbuseIPDB per jail. Ereshkigal's shell backend
-  covers run-anything-on-ban, and the EVE event log
-  ([eve.md](eve.md)) gives you a stream to drive AbuseIPDB reports, a
-  SIEM, or notifications yourself... but there is no built-in per-jail
-  action list.
+- **Rich action context.** A fan_out gate covers the several-actions-
+  per-jail shape (see the concept map), but a member kur only hears the
+  IP... fail2ban interpolates the matched log lines into a action via
+  `<matches>`, where here a shell member gets `%%%BAN%%%` and nothing
+  else. The EVE event log ([eve.md](eve.md)) is the stream carrying the
+  raw line, the rule, and the count for driving AbuseIPDB reports, a
+  SIEM, or notifications with full context.
 - **Keyless multiline.** Correlation needs a shared key. fail2ban's
   F-MLFID session tracking, mostly feeding its aggressive/ddos filter
   modes, has no equivalent... shipped rules port the normal modes.
@@ -100,6 +108,25 @@ bantime  = 1h
 backend   = "pf"
 ports     = [ "22" ]
 protocols = [ "tcp" ]
+```
+
+A jail carrying several actions, `action = %(action_mwl)s` style, the
+ban plus a mailer or a AbuseIPDB reporter, becomes a gate instead... keep
+the name the Baphomet side targets on the gate, and give each action its
+own member kur...
+
+```toml
+[kur.sshd]
+fan_out = [ "sshd-pf", "reporter" ]
+
+[kur.sshd-pf]
+backend   = "pf"
+ports     = [ "22" ]
+protocols = [ "tcp" ]
+
+[kur.reporter]
+backend = "shell"
+# see the shell backend POD for the ban/unban command options
 ```
 
 ...and on the Baphomet side (`/usr/local/etc/baphomet/config.toml`)...

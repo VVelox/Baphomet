@@ -11,6 +11,7 @@ The config file is TOML, by default
 | `run_base_dir` | `/var/run/baphomet` | Base dir for the sockets and PID files. |
 | `tablet_base_dir` | `/var/db/baphomet` | Base dir for the state tablets, the CSVs and JSONL a galla writes so its counters, pending bans, correlation context, and log positions survive a restart. |
 | `checkpoint` | `60` | Seconds between periodic rewrites of the tablets (rounded up to the ten second sweeper cadence). 0 disables the periodic rewrite; a checkpoint on stop still happens. |
+| `ledger_keep` | `2592000` | How long rows are kept in the shared consignment ledger, 30 days by default. 0 means forever. Rows still inside the recidive `find_time` are always kept. |
 | `rules_dir` | `/usr/local/etc/baphomet/rules` | The dir holding the rules. |
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
 | `galla_bin` | `galla` | The galla bin to spawn workers with. |
@@ -34,7 +35,11 @@ The config file is TOML, by default
 
 Hashes under `kur` define kurs, one galla each. The name is the hash name
 and is also what ban requests are targeted at on the Ereshkigal side, so it
-should match a kur over there.
+should match a kur over there. The kur over there may be a real one or a
+gate (a `fan_out` kur)... a gate has no firewall of its own and relays
+each consignment to its members, so one Baphomet kur can feed a whole set
+of Ereshkigal kurs through a single name. With Ereshkigal's `enable_auth`
+on, the baphomet user need only be granted the gate, not any member.
 
 Scalar keys inside a kur hash are settings for that kur
 (`max_retrys`/`find_time`/`ban_time`, plus a `ignore_ips` array extending
@@ -94,11 +99,12 @@ and spoken to only by the manager.
 
 ## Recidivists
 
-The `[recidive]` table turns on repeat offender escalation. With it set,
-every consignment any galla makes is recorded to a shared ledger under the
-tablet dir, and a IP consigned `max_retrys` times across all kurs with in
-`find_time` is dragged through a further gate... consigned to the
-`recidive` kur, which should hold them long.
+Every consignment any galla makes is chiseled into a shared ledger under
+the tablet dir, readable via `baphomet ledger`. The `[recidive]` table
+turns on repeat offender escalation against that ledger... a IP consigned
+`max_retrys` times across all kurs with in `find_time` is dragged through
+a further gate... consigned to the `recidive` kur, which should hold them
+long.
 
 ```toml
 [recidive]
@@ -110,7 +116,7 @@ ban_time   = 0            # eternal
 
 | key | default | what |
 | --- | --- | --- |
-| `kur` | required | The kur recidivists are consigned to. There must be a matching kur on the Ereshkigal side, covering everything worth protecting. |
+| `kur` | required | The kur recidivists are consigned to. There must be a matching kur on the Ereshkigal side, covering everything worth protecting... a fan_out gate over every real kur suits it well. |
 | `max_retrys` | `5` | Consignments before a IP is a recidivist. |
 | `find_time` | `604800` | The window, a week by default, the consignments are counted over. |
 | `ban_time` | `0` | How long a recidivist is held, 0 being eternal. |
