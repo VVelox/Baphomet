@@ -39,7 +39,7 @@ close($fh);
 open( $fh, '>', $dir . '/config.toml' ) || die($!);
 print $fh <<"EOC";
 run_base_dir = "$dir/run"
-cache_base_dir = "$dir/cache"
+tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 
@@ -124,7 +124,7 @@ is( scalar( grep { $_->{kur} eq 'recidive' && $_->{ip} eq '7.7.7.7' } @sent ),
 open( $fh, '>', $dir . '/config-plain.toml' ) || die($!);
 print $fh <<"EOC";
 run_base_dir = "$dir/run"
-cache_base_dir = "$dir/cache2"
+tablet_base_dir = "$dir/cache2"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 

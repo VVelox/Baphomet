@@ -9,7 +9,7 @@ The config file is TOML, by default
 | setting | default | what |
 | --- | --- | --- |
 | `run_base_dir` | `/var/run/baphomet` | Base dir for the sockets and PID files. |
-| `cache_base_dir` | `/var/cache/baphomet` | Base dir for the state tablets, the CSVs and JSONL a galla writes so its counters, pending bans, correlation context, and log positions survive a restart. |
+| `tablet_base_dir` | `/var/db/baphomet` | Base dir for the state tablets, the CSVs and JSONL a galla writes so its counters, pending bans, correlation context, and log positions survive a restart. |
 | `checkpoint` | `60` | Seconds between periodic rewrites of the tablets (rounded up to the ten second sweeper cadence). 0 disables the periodic rewrite; a checkpoint on stop still happens. |
 | `rules_dir` | `/usr/local/etc/baphomet/rules` | The dir holding the rules. |
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
@@ -96,7 +96,7 @@ and spoken to only by the manager.
 
 The `[recidive]` table turns on repeat offender escalation. With it set,
 every consignment any galla makes is recorded to a shared ledger under the
-cache dir, and a IP consigned `max_retrys` times across all kurs with in
+tablet dir, and a IP consigned `max_retrys` times across all kurs with in
 `find_time` is dragged through a further gate... consigned to the
 `recidive` kur, which should hold them long.
 

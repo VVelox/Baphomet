@@ -63,10 +63,10 @@ Top level keys are as below.
     - run_base_dir :: Base dir for run files.
         Default :: /var/run/baphomet
 
-    - cache_base_dir :: Base dir for the state tablets a galla writes so
+    - tablet_base_dir :: Base dir for the state tablets a galla writes so
           its counters, pending bans, correlation context, and log
           positions survive a restart.
-        Default :: /var/cache/baphomet
+        Default :: /var/db/baphomet
 
     - checkpoint :: Seconds between periodic rewrites of the state
           tablets. 0 disables the periodic rewrite... a checkpoint on stop
@@ -247,7 +247,7 @@ sub load_config {
 
 	my $config = {
 		'run_base_dir'      => '/var/run/baphomet',
-		'cache_base_dir'    => '/var/cache/baphomet',
+		'tablet_base_dir'   => '/var/db/baphomet',
 		'rules_dir'         => '/usr/local/etc/baphomet/rules',
 		'ereshkigal_socket' => '/var/run/ereshkigal/socket',
 		'galla_bin'         => 'galla',

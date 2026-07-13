@@ -84,11 +84,11 @@ Everything logs to syslog under the daemon facility, the manager as
 
 ## The tablets
 
-Each galla writes its state to clay tablets under `cache_base_dir`, so a
+Each galla writes its state to clay tablets under `tablet_base_dir`, so a
 restart or a crash does not forget what it was in the middle of...
 
 ```
-/var/cache/baphomet/
+/var/db/baphomet/
 ├── galla.<kur>.counters.csv    per-IP offense counts, still-live hits
 ├── galla.<kur>.pending.csv     bans Ereshkigal could not be reached for
 ├── galla.<kur>.positions.csv   file, inode, and byte offset per followed log

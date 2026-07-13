@@ -28,7 +28,7 @@ the kur named `sshd` on the Ereshkigal side.
 | `fail2ban-regex` | `baphomet check_rules` and `baphomet test_line` |
 | `recidive` jail | the `[recidive]` table, escalating across all kurs |
 | `bantime.increment` | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban |
-| sqlite persistence | the state tablets under `cache_base_dir` |
+| sqlite persistence | the state tablets under `tablet_base_dir` |
 
 ## What is better over here
 

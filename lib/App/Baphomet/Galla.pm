@@ -7,6 +7,7 @@ use base 'Error::Helper';
 use POE                              qw( Wheel::FollowTail Wheel::Run );
 use POE::Component::Server::JSONUnix ();
 use File::Glob                       qw( bsd_glob );
+use File::Path                       qw( make_path );
 use JSON::MaybeXS                    qw( encode_json decode_json );
 use POSIX                            qw( strftime );
 use Sys::Hostname                    ();
@@ -85,7 +86,7 @@ sub new {
 				4 => 'NErunBaseDir',
 				5 => 'nonRWrunBaseDir',
 				6 => 'rulesLoadFailed',
-				7 => 'cacheBaseDirError',
+				7 => 'tabletBaseDirError',
 			},
 			fatal_flags      => {},
 			perror_not_fatal => 0,
@@ -127,7 +128,7 @@ sub new {
 		$self->warn;
 	}
 	$self->{run_base_dir}      = $config->{run_base_dir};
-	$self->{cache_base_dir}    = $config->{cache_base_dir};
+	$self->{tablet_base_dir}   = $config->{tablet_base_dir};
 	$self->{ereshkigal_socket} = $config->{ereshkigal_socket};
 	$self->{recidive}          = $config->{recidive};
 	$self->{timeout}           = $config->{timeout};
@@ -205,15 +206,16 @@ sub new {
 		}
 	} ## end foreach my $dir ( $self->{run_base_dir}, $self->...)
 
-	if ( !-e $self->{cache_base_dir} ) {
-		# the next check handles a failure here
-		eval { mkdir( $self->{cache_base_dir} ); };
+	if ( !-e $self->{tablet_base_dir} ) {
+		# make_path, as /var/db does not exist on every system... the
+		# next check handles a failure here
+		eval { make_path( $self->{tablet_base_dir} ); };
 	}
-	if ( !-d $self->{cache_base_dir} || !-r $self->{cache_base_dir} || !-w $self->{cache_base_dir} ) {
+	if ( !-d $self->{tablet_base_dir} || !-r $self->{tablet_base_dir} || !-w $self->{tablet_base_dir} ) {
 		$self->{perror}      = 1;
 		$self->{error}       = 7;
 		$self->{errorString}
-			= 'cache_base_dir,"' . $self->{cache_base_dir} . '", is not a directory or is not read/writable';
+			= 'tablet_base_dir,"' . $self->{tablet_base_dir} . '", is not a directory or is not read/writable';
 		$self->warn;
 	}
 
@@ -322,7 +324,7 @@ sub state_path {
 
 	my $suffix = $kind eq 'context' ? 'jsonl' : 'csv';
 
-	return $self->{cache_base_dir} . '/galla.' . $self->{name} . '.' . $kind . '.' . $suffix;
+	return $self->{tablet_base_dir} . '/galla.' . $self->{name} . '.' . $kind . '.' . $suffix;
 }
 
 # writes a tablet atomically via a temp file and rename, calling $writer
@@ -1343,12 +1345,12 @@ sub _send_ban {
 	return;
 } ## end sub _send_ban
 
-# returns the path of the shared consignment ledger, under the cache dir,
+# returns the path of the shared consignment ledger, under the tablet dir,
 # not per galla as every galla writes to the one ledger
 sub recidive_ledger_path {
 	my ($self) = @_;
 
-	return $self->{cache_base_dir} . '/consignments.csv';
+	return $self->{tablet_base_dir} . '/consignments.csv';
 }
 
 # records a consignment to the shared ledger and escalates to the recidive
@@ -1592,9 +1594,9 @@ the current user.
 Failed to load a rule referenced by a watcher... no such rule, unparsable,
 uncompilable, or its embedded tests failing.
 
-=head2 7, cacheBaseDirError
+=head2 7, tabletBaseDirError
 
-The cache base dir could not be created or is not read/writable.
+The tablet base dir could not be created or is not read/writable.
 
 =head1 AUTHOR
 

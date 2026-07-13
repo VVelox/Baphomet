@@ -32,10 +32,11 @@ Revision history for App-Baphomet
           eve_enable is on. See docs/eve.md.
         - A ignore_ips list, global and per kur, of addresses and CIDRs
           never consigned no matter what the rules say.
-        - Each galla persists its state to tablets under cache_base_dir...
-          counters, pending bans, correlation context, and log positions,
-          checkpointed and restored, so a restart or crash does not forget
-          an attacker mid-way and lines written while down are still read.
+        - Each galla persists its state to tablets under tablet_base_dir,
+          /var/db/baphomet by default... counters, pending bans,
+          correlation context, and log positions, checkpointed and
+          restored, so a restart or crash does not forget an attacker
+          mid-way and lines written while down are still read.
         - Native systemd journal support... a watcher takes a journal of
           journalctl matches instead of a log, followed via journalctl -o
           json, cursor persisted across restarts. The syslog rules apply

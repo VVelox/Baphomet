@@ -193,7 +193,7 @@ ban_time   = 0
 
 Now any IP consigned five times across sshd, the mail kurs, the web kurs,
 whatever, inside a week is consigned to the recidive kur eternally. The
-shared ledger under `/var/cache/baphomet/consignments.csv` is what the
+shared ledger under `/var/db/baphomet/consignments.csv` is what the
 gallas count against, so it works across every kur at once.
 
 ## A custom rule for a custom daemon

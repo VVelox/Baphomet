@@ -56,7 +56,7 @@ sub write_config {
 	open( my $cfg, '>', $dir . '/config.toml' ) || die($!);
 	print $cfg <<"EOC";
 run_base_dir = "$dir/run"
-cache_base_dir = "$dir/cache"
+tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 eve_log = "$dir/eve/eve.json"

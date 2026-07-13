@@ -40,7 +40,7 @@ close($fh);
 open( $fh, '>', $dir . '/config.toml' ) || die($!);
 print $fh <<"EOC";
 run_base_dir = "$dir/run"
-cache_base_dir = "$dir/cache"
+tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 journalctl_bin = "$dir/fake-journalctl"
