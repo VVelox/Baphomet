@@ -1,0 +1,30 @@
+---
+# Matches failed logins to HAProxy HTTP-authentication protected servers,
+# recognised by the 401 with a <NOSRV> backend. Based on the fail2ban
+# haproxy-http-auth filter, translated to Baphomet and simplified. Note
+# that even a successful login logs one such 401 first, so tune findtime
+# and maxretry accordingly.
+daemons:
+  - haproxy
+message_regexp:
+  - '^(?:::f{4,6}:)?%%%%SRC%%%%(?::\d+)?\s+.*<NOSRV> -1/-1/-1/-1/\+*\d* 401'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Nov 14 22:45:11 test haproxy[760]: 192.168.33.1:58430 [14/Nov/2015:22:45:11.608] main main/<NOSRV> -1/-1/-1/-1/0 401 248 - - PR-- 0/0/0/0/0 0/0 "GET / HTTP/1.1"'
+      found: 1
+      data:
+        SRC: "192.168.33.1"
+    - message: 'Nov 14 22:45:11 test haproxy[760]: 2001:db8::1234:58430 [14/Nov/2015:22:45:11.608] main main/<NOSRV> -1/-1/-1/-1/0 401 248 - - PR-- 0/0/0/0/0 0/0 "GET / HTTP/1.1"'
+      found: 1
+      data:
+        SRC: "2001:db8::1234"
+    - message: 'Nov 14 22:45:11 test haproxy[760]: ::ffff:192.168.33.1:58430 [14/Nov/2015:22:45:11.608] main main/<NOSRV> -1/-1/-1/-1/0 401 248 - - PR-- 0/0/0/0/0 0/0 "GET / HTTP/1.1"'
+      found: 1
+      data:
+        SRC: "192.168.33.1"
+  negative:
+    - message: 'Nov 14 22:45:27 test haproxy[760]: 192.168.33.1:58444 [14/Nov/2015:22:45:25.439] main app/app1 1939/0/1/0/1940 403 5168 - - ---- 3/3/0/0/0 0/0 "GET / HTTP/1.1"'
+      found: 0
+      undefed: ["SRC"]

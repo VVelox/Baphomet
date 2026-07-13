@@ -71,11 +71,13 @@ Honesty section, roughly in order of how much it matters...
 - **Per-IP escalating bans (`bantime.increment`).** A repeat offender is
   escalated by consigning it to a longer-held recidive kur, not by growing
   its own individual ban time.
-- **Library breadth.** 44 fail2ban-derived rules against ~90 filters,
-  plus a rule per Suricata classtype for eve.json. The
-  remainder is a long tail of obscure daemons that translate the same
-  way everything else did... see [rules-catalog.md](rules-catalog.md)
-  for what exists and what was deliberately skipped.
+- **apache-fakegooglebot.** The one filter deliberately not ported... its
+  trick is a reverse DNS check (the `usedns` point above), not a regexp.
+
+The filter library is otherwise essentially complete... every fail2ban
+filter that is a regexp over a log line is ported, across the syslog, raw,
+http, http_error, and multiline families, plus the JSON and Suricata
+rules. See [rules-catalog.md](rules-catalog.md) for the full list.
 
 ## Migrating a jail
 

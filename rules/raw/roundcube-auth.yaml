@@ -1,0 +1,58 @@
+---
+# Matches Roundcube webmail login failures. Based on the fail2ban
+# roundcube-auth filter, translated to Baphomet. Roundcube logs to its own
+# errors/userlogins files with a bracketed "[DD-Mon-YYYY HH:MM:SS +TZ]:"
+# prefix, and also to syslog as "roundcube[pid]:", so this is a raw rule
+# covering both leading shapes. The IMAP response after the host comes
+# straight from the server, so, as in the fail2ban filter, the greedy user
+# swallows any injected "from ..." and the tail forbids a stray " from "
+# ahead of the "... in X.php on line N (...)" epilogue, keeping an attacker
+# from injecting a false offender. The offender may be a hostname, so
+# %%%%HOST%%%% and its ban_var carry whatever was logged.
+message_regexp:
+  - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?(?:IMAP Error: )?(?:FAILED login|Login failed) for .* from %%%%HOST%%%%(?:(?:\([^)]*\))?\. (?:(?! from ).)*(?: user=.* from [\d.]+)? in \S+\.php on line \d+ \(\S+ \S+\))?$'
+  - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?Failed login for .* from %%%%HOST%%%% in session \w+(?: \(error: \d\))?$'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: "[22-Jan-2013 22:28:21 +0200]: FAILED login for user1 from 192.0.43.10"
+      found: 1
+      data:
+        HOST: "192.0.43.10"
+    - message: "May 26 07:12:40 hamster roundcube: IMAP Error: Login failed for sales@example.com from 10.1.1.47"
+      found: 1
+      data:
+        HOST: "10.1.1.47"
+    - message: "Jul 11 03:06:37 myhostname roundcube: IMAP Error: Login failed for admin from 1.2.3.4. AUTHENTICATE PLAIN: A0002 NO Login failed. in /usr/share/roundcube/program/include/rcube_imap.php on line 205 (POST /wmail/?_task=login&_action=login)"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "Jul 11 03:06:37 myhostname roundcube: IMAP Error: Login failed for admin from 127.0.0.1 from 1.2.3.4. AUTHENTICATE PLAIN: A0002 NO Login failed. user=admin from 127.0.0.1 in /usr/share/roundcube/program/include/rcube_imap.php on line 205 (POST /wmail/?_task=login&_action=login)"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "Jul 11 03:06:37 myhostname roundcube: IMAP Error: Login failed for admin from 127.0.0.1 from 1.2.3.4"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "[17-Jan-2016 11:09:06 +0200]: <j2pncet8> IMAP Error: Login failed for user@example.com from 192.0.2.2(X-Real-IP: 192.0.2.3,X-Forwarded-For: 192.0.2.4). AUTHENTICATE PLAIN: Authentication failed. in /usr/share/roundcubemail/program/lib/Roundcube/rcube_imap.php on line 197 (POST /?_task=login?_task=login&_action=login)"
+      found: 1
+      data:
+        HOST: "192.0.2.2"
+    - message: "May 19 06:07:48 server roundcube[21296]: <crk9n97i> IMAP Error: Login failed for test from 192.0.2.1. AUTHENTICATE PLAIN: Authentication failed. in /usr/share/php5/Roundcube/rcube_imap.php on line 193 (POST /mail/?_task=login&_action=login)"
+      found: 1
+      data:
+        HOST: "192.0.2.1"
+    - message: "[10-May-2015 13:02:52 -0400]: Failed login for sampleuser from 1.2.3.4 in session 1z506z6rvddstv6k7jz08hxo27 (error: 0)"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "[10-May-2015 13:02:52 -0400]: <4z506z6r> Failed login for admin@example.com from 1.2.3.4 in session 4z506z6rvddstv6k7jz08hxo27 (error: 0)"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+  negative:
+    - message: "May 26 07:13:00 hamster roundcube: IMAP Error: Login succeeded for sales@example.com from 10.1.1.47"
+      found: 0
+      undefed: ["HOST"]

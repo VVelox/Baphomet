@@ -1,0 +1,23 @@
+---
+# Matches PortSentry blocked port scans. Based on the fail2ban portsentry
+# filter, translated to Baphomet and simplified. PortSentry leads each
+# line with an epoch and its own date/time, so this is a raw rule anchored
+# on that shape.
+message_regexp:
+  - '^\d+ - \d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2} Host: \S+/%%%%SRC%%%% Port: \d+ (?:TCP|UDP) Blocked$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "1403884279 - 06/27/2014 17:51:19 Host: 192.168.56.1/192.168.56.1 Port: 1 TCP Blocked"
+      found: 1
+      data:
+        SRC: "192.168.56.1"
+    - message: "1403884279 - 06/27/2014 17:51:19 Host: 192.168.56.1/192.168.56.1 Port: 1 UDP Blocked"
+      found: 1
+      data:
+        SRC: "192.168.56.1"
+  negative:
+    - message: "1403884279 - 06/27/2014 17:51:19 Host: 192.168.56.1/192.168.56.1 Port: 1 TCP Allowed"
+      found: 0
+      undefed: ["SRC"]

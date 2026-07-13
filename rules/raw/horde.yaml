@@ -1,0 +1,24 @@
+---
+# Matches Horde webmail failed logins. Based on the fail2ban horde filter,
+# translated to Baphomet. Horde logs a "Mon DD HH:MM:SS HORDE" line with no
+# syslog daemon colon, so this is a raw rule anchored on that timestamp and
+# the fixed HORDE tag. The offender is bracketed and may be a hostname, so
+# %%%%HOST%%%% and its ban_var carry whatever was logged.
+message_regexp:
+  - '^\w{3} +\d+ \d{2}:\d{2}:\d{2} HORDE \[error\] \[(?:horde|imp)\] FAILED LOGIN for \S+ \[%%%%HOST%%%%\](?:\(forwarded for \[\S+\]\))? to (?:Horde|\{[^}]+\}) \[(?:pid \d+ )?on line \d+ of \S+\]$'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: 'Nov 11 18:57:57 HORDE [error] [horde] FAILED LOGIN for graham [203.16.208.190] to Horde [on line 116 of "/home/ace-hosting/public_html/horde/login.php"]'
+      found: 1
+      data:
+        HOST: "203.16.208.190"
+    - message: 'Dec 15 08:59:59 HORDE [error] [imp] FAILED LOGIN for emai.user@somedomain.com [1.2.3.4] to {mx.somedomain.com:993 [imap/ssl/novalidate-cert]} [pid 68394 on line 139 of /usr/local/www/www.somedomain.com/public_html/horde/imp/lib/Auth/imp.php"]'
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+  negative:
+    - message: 'Nov 11 18:58:00 HORDE [error] [horde] SUCCESSFUL LOGIN for graham [203.16.208.190] to Horde [on line 116 of "/x.php"]'
+      found: 0
+      undefed: ["HOST"]

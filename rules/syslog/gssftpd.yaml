@@ -1,0 +1,19 @@
+---
+# Matches gssftp repeated login failures. Based on the fail2ban gssftpd
+# filter, translated to Baphomet and simplified.
+daemons:
+  - ftpd
+message_regexp:
+  - '^repeated login failures from %%%%SRC%%%% \(\S+\)$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jan 22 18:09:46 host ftpd[132]: repeated login failures from 198.51.100.23 (example.com)"
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+  negative:
+    - message: "Jan 22 18:09:46 host ftpd[133]: successful login from 198.51.100.24 (example.com)"
+      found: 0
+      undefed: ["SRC"]

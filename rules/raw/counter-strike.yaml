@@ -1,0 +1,23 @@
+---
+# Matches Counter-Strike 1.6 bad RCON attempts. Based on the fail2ban
+# counter-strike filter, translated to Baphomet and simplified. The
+# HLDS log leads each line with its own "L DD/MM/YYYY - HH:MM:SS"
+# timestamp, so this is a raw rule anchored on that shape.
+message_regexp:
+  - '^L \d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}: Bad Rcon: "rcon \d+ "\S+"  sv_contact ".*?"" from "%%%%SRC%%%%:\d+"$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'L 01/01/2014 - 01:25:17: Bad Rcon: "rcon 1146003691 "284"  sv_contact "HLBrute 1.10"" from "31.29.29.89:57370"'
+      found: 1
+      data:
+        SRC: "31.29.29.89"
+    - message: 'L 01/01/2014 - 04:17:01: Bad Rcon: "rcon 260639614 "admin"  sv_contact "HLBrute 1.10"" from "105.158.241.147:53772"'
+      found: 1
+      data:
+        SRC: "105.158.241.147"
+  negative:
+    - message: 'L 01/01/2014 - 01:25:17: Rcon: "rcon 1146003691 "284"  sv_contact "admin"" from "31.29.29.89:57370"'
+      found: 0
+      undefed: ["SRC"]

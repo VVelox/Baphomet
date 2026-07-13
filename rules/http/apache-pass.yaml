@@ -1,0 +1,32 @@
+---
+# Matches the "pass" (port-knocking) request of fail2ban's apache-pass
+# filter, translated to Baphomet. This reads the access log, not the
+# error log: a successful (200) GET of the knocking URL that carried a
+# referer and a real user agent. fail2ban uses this to WHITELIST the
+# knocker; Baphomet has no such gesture, so the rule is shipped as the
+# offense-shaped match it is and is meant to be repurposed locally (point
+# the path at a honeypot URL and it bans the knocker instead).
+#
+# Source: fail2ban config/filter.d/apache-pass.conf
+status:
+  - 200
+method:
+  - GET
+match:
+  - field: path
+    regexp: '^/knocking/'
+tests:
+  positive:
+    - message: '192.0.2.12 - user1 [27/Jun/2013:11:55:44] "GET /knocking/ HTTP/1.1" 200 266 "http://domain.net/hello-world/" "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:40.0) Gecko/20100101 Firefox/40.0"'
+      found: 1
+      data:
+        host: "192.0.2.12"
+  negative:
+    # the knocking URL served as a 404 is not the pass
+    - message: '198.51.100.7 - - [12/Jul/2026:08:15:50 -0500] "GET /knocking/ HTTP/1.1" 404 196 "http://domain.net/" "Mozilla/5.0"'
+      found: 0
+      undefed: ["host"]
+    # a different path served 200 is not the knock
+    - message: '198.51.100.8 - - [12/Jul/2026:08:15:51 -0500] "GET /index.html HTTP/1.1" 200 5120 "http://domain.net/" "Mozilla/5.0"'
+      found: 0
+      undefed: ["host"]

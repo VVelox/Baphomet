@@ -1,0 +1,29 @@
+---
+# Matches failed macOS Screen Sharing authentications. Based on the
+# fail2ban screensharingd filter, translated to Baphomet and simplified.
+# The corpus lines carry a year in their timestamp, which the syslog
+# parser does not read, so the tests wear a standard syslog timestamp.
+daemons:
+  - screensharingd
+message_regexp:
+  - '^Authentication: FAILED :: User Name: .+ :: Viewer Address: %%%%SRC%%%% :: Type: DH$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 screensharingd[1170]: Authentication: FAILED :: User Name: sdfsdfs () mro :: Viewer Address: 192.168.5.247 :: Type: DH"
+      found: 1
+      data:
+        SRC: "192.168.5.247"
+    - message: "Jul 12 08:15:51 vixen42 screensharingd[1170]: Authentication: FAILED :: User Name: brown_s :: :: Viewer Address: 192.168.5.247 :: Type: DH"
+      found: 1
+      data:
+        SRC: "192.168.5.247"
+    - message: "Jul 12 08:15:52 vixen42 screensharingd[1170]: Authentication: FAILED :: User Name: brown @! s:: :: Viewer Address: 192.168.5.247 :: Type: DH"
+      found: 1
+      data:
+        SRC: "192.168.5.247"
+  negative:
+    - message: "Jul 12 08:15:53 vixen42 screensharingd[1170]: Authentication: SUCCEEDED :: User Name: simon :: Viewer Address: 192.168.5.247 :: Type: DH"
+      found: 0
+      undefed: ["SRC"]

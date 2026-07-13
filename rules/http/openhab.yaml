@@ -1,0 +1,29 @@
+---
+# Matches brute-force auth attempts against openHAB's web UI and REST
+# API in the access log: any request that came back 401. Based on
+# fail2ban's openhab filter, translated to Baphomet.
+#
+# Source: fail2ban config/filter.d/openhab.conf
+status:
+  - 401
+match:
+  - field: request
+    regexp: '^[A-Z]+ '
+tests:
+  positive:
+    - message: '175.18.15.10 -  -  [02/sept./2015:00:11:31 +0200] "GET /openhab.app HTTP/1.1" 401 1382'
+      found: 1
+      data:
+        host: "175.18.15.10"
+    - message: '175.18.15.10 -  -  [02/sept./2015:00:11:31 +0200] "GET /rest/bindings HTTP/1.1" 401 1384'
+      found: 1
+      data:
+        host: "175.18.15.10"
+  negative:
+    # served 200, a real logged-in poll... not an offense
+    - message: '175.18.15.11 -  -  [17/oct./2015:00:35:12 +0200] "GET /openhab.app?sitemap=default&poll=true&__async=true&__source=waHome HTTP/1.1" 200 92'
+      found: 0
+      undefed: ["host"]
+    - message: '175.18.15.11 -  -  [16/oct./2015:20:29:38 +0200] "GET /rest/sitemaps/default/maison HTTP/1.1" 200 2837'
+      found: 0
+      undefed: ["host"]

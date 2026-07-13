@@ -1,0 +1,38 @@
+---
+# Matches uw-imap (imapd/ipop3d) failed logins and override attempts.
+# Based on the fail2ban uwimap-auth filter, translated to Baphomet and
+# simplified.
+daemons:
+  - ipop3d
+  - imapd
+message_regexp:
+  - '^Login (?:failed|excessive login failures|disabled|SYSTEM BREAK-IN ATTEMPT) user=\S* auth=\S* host=.*\[%%%%SRC%%%%\]\s*$'
+  - '^Failed .* override of user=.* host=.*\[%%%%SRC%%%%\]\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 3 20:56:53 Linux2 imapd[666]: Login failed user=lizdy auth=lizdy host=h2066373.stratoserver.net [81.169.154.112]"
+      found: 1
+      data:
+        SRC: "81.169.154.112"
+    - message: "Jul 29 18:30:19 Linux2 ipop3d[25745]: Login failed user=info auth=info host=74-115-52-198-dedicated.multacom.com [198.52.115.74]"
+      found: 1
+      data:
+        SRC: "198.52.115.74"
+    - message: "Jan 14 20:28:07 grog imapd[19343]: Login excessive login failures user=user auth=user host=74-115-52-198-dedicated.multacom.com [198.52.115.74]"
+      found: 1
+      data:
+        SRC: "198.52.115.74"
+    - message: "Apr 8 16:32:01 abdon imapd[21172]: Login disabled user=test auth=test host=localhost.localdomain [127.0.0.1]"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+    - message: "Feb 23 12:36:01 r2 imapd[3473]: Failed uwmaster override of user=pro1  host=r22.j.de [127.0.55.22]"
+      found: 1
+      data:
+        SRC: "127.0.55.22"
+  negative:
+    - message: "Jul 3 20:57:00 Linux2 imapd[667]: Login user=lizdy auth=lizdy host=h2066373.stratoserver.net [81.169.154.112]"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,40 @@
+---
+# Matches Apache Guacamole failed authentication attempts. Based on the
+# fail2ban guacamole filter. Although that filter uses maxlines=2 for the
+# catalina format, the buffered first line is only a logger banner with no
+# address... the source is on the "Authentication attempt from" line
+# itself, so no correlation is needed and this is a plain single-line rule
+# covering both the catalina (WARNING:) and webapp logback formats.
+message_regexp:
+  - '^WARNING: Authentication attempt from %%%%SRC%%%% for user "[^"]*" failed\.$'
+  - '^\d{2}:\d{2}:\d{2}\.\d+ \[\S+\] WARN\s+\S+ - Authentication attempt from %%%%SRC%%%% for user "[^"]+" failed\.$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'WARNING: Authentication attempt from 192.0.2.0 for user "null" failed.'
+      parser: raw
+      found: 1
+      data:
+        SRC: "192.0.2.0"
+    - message: 'WARNING: Authentication attempt from 192.0.2.0 for user "pippo" failed.'
+      parser: raw
+      found: 1
+      data:
+        SRC: "192.0.2.0"
+    - message: '12:57:32.907 [http-nio-8080-exec-10] WARN  o.a.g.r.auth.AuthenticationService - Authentication attempt from 182.23.72.36 for user "guacadmin" failed.'
+      parser: raw
+      found: 1
+      data:
+        SRC: "182.23.72.36"
+  negative:
+    # the logger banner that precedes a catalina failure carries no address
+    - message: "apr 15, 2013 8:34:08 PM org.slf4j.impl.JCLLoggerAdapter warn"
+      parser: raw
+      found: 0
+      undefed: ["SRC"]
+    # a successful authentication is not a offense
+    - message: 'WARNING: Authentication attempt from 192.0.2.0 for user "null" succeeded.'
+      parser: raw
+      found: 0
+      undefed: ["SRC"]

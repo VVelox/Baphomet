@@ -1,0 +1,30 @@
+---
+# Matches OpenWebMail authentication errors in /var/log/openwebmail.log.
+# Based on the fail2ban openwebmail filter, translated to Baphomet.
+# OpenWebMail writes its own ctime-style timestamp rather than a syslog
+# prefix, so this is a raw rule anchored on that timestamp shape. The
+# offender is logged in parentheses and may be a hostname, so %%%%HOST%%%%
+# and its ban_var carry whatever was logged.
+message_regexp:
+  - '^\w{3} \w{3} +\d+ \d{2}:\d{2}:\d{2} \d{4} - \[\d+\] \(%%%%HOST%%%%\) \S+ - login error - (?:no such user - loginname=\S+|auth_unix\.pl, ret -4, Password incorrect)$'
+  - '^\w{3} \w{3} +\d+ \d{2}:\d{2}:\d{2} \d{4} - \[\d+\] \(%%%%HOST%%%%\) \S+ - userinfo error - auth_unix\.pl, ret -4, User \S+ doesn''t exist$'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: "Sat Dec 28 19:04:03 2013 - [72926] (178.123.108.196) gsdfg - login error - no such user - loginname=gsdfg"
+      found: 1
+      data:
+        HOST: "178.123.108.196"
+    - message: "Sat Dec 28 19:05:38 2013 - [73540] (178.123.108.196) myname - login error - auth_unix.pl, ret -4, Password incorrect"
+      found: 1
+      data:
+        HOST: "178.123.108.196"
+    - message: "Sat Dec 28 19:03:53 2013 - [72926] (178.123.108.196) gsdfg - userinfo error - auth_unix.pl, ret -4, User gsdfg doesn't exist"
+      found: 1
+      data:
+        HOST: "178.123.108.196"
+  negative:
+    - message: "Sat Dec 28 19:06:00 2013 - [72926] (178.123.108.196) gsdfg - login ok"
+      found: 0
+      undefed: ["HOST"]

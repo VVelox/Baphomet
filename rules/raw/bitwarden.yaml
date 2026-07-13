@@ -1,0 +1,32 @@
+---
+# Matches Bitwarden Identity failed login attempts. Based on the fail2ban
+# bitwarden filter, translated to Baphomet and simplified. Bitwarden logs
+# its own ISO timestamp rather than a standard syslog prefix, so this is a
+# raw rule anchored on that timestamp; the optional daemon/host prefix that
+# appears when routed through syslog is tolerated.
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{2}:\d{2})?(?: \S+ Bitwarden-Identity\[\d+\]:)?\s*\[(?:W(?:RN|arning)|Bit\.Core\.[^\]]+)\]\s+Failed login attempt(?:, 2FA invalid)?\. %%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2019-11-26 01:04:49.008 +08:00 [WRN] Failed login attempt. 192.168.0.16"
+      found: 1
+      data:
+        SRC: "192.168.0.16"
+    - message: "2019-11-25 21:39:58.464 +01:00 [WRN] Failed login attempt, 2FA invalid. 192.168.0.21"
+      found: 1
+      data:
+        SRC: "192.168.0.21"
+    - message: "2019-11-25 21:39:58.464 +01:00 [Warning] Failed login attempt, 2FA invalid. 192.168.0.21"
+      found: 1
+      data:
+        SRC: "192.168.0.21"
+    - message: "2019-09-24T13:16:50 e5a81dbf7fd1 Bitwarden-Identity[1]: [Bit.Core.IdentityServer.ResourceOwnerPasswordValidator] Failed login attempt. 192.168.0.23"
+      found: 1
+      data:
+        SRC: "192.168.0.23"
+  negative:
+    - message: "2019-11-26 01:05:00.008 +08:00 [INF] Successful login. 192.168.0.16"
+      found: 0
+      undefed: ["SRC"]

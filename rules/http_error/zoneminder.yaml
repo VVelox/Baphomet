@@ -1,0 +1,33 @@
+---
+# Matches ZoneMinder login failures in the Apache error log: the WAR/ERR
+# "Login denied" and "Could not retrieve user" messages ZoneMinder logs
+# for a bad login or a non-existent user. Based on fail2ban's zoneminder
+# filter, translated to Baphomet. ZoneMinder > 1.3x logs ERR, < 1.3x
+# logs WAR, so both are kept.
+#
+# Source: fail2ban config/filter.d/zoneminder.conf (includes apache-common.conf)
+message_regexp:
+  - '^(?:ERR|WAR) \[(?:Login denied|Could not retrieve)\b'
+tests:
+  positive:
+    - message: '[Mon Mar 28 16:50:49.522240 2016] [:error] [pid 1795] [client 10.1.1.1:50700] WAR [Login denied for user "username1"], referer: https://zoneminder/'
+      found: 1
+      data:
+        client: "10.1.1.1"
+    - message: '[Sun Mar 28 16:53:00.472693 2021] [php7:notice] [pid 11328] [client 10.1.1.1:39568] ERR [Could not retrieve user username1 details], referer: https://zm/zm/?view=logout'
+      found: 1
+      data:
+        client: "10.1.1.1"
+    - message: '[Sun Mar 28 16:59:14.150625 2021] [php7:notice] [pid 11336] [client 10.1.1.1:39654] ERR [Login denied for user "username1"], referer: https://zm/zm/?'
+      found: 1
+      data:
+        client: "10.1.1.1"
+  negative:
+    # a different ZoneMinder message, not a login failure
+    - message: '[Sun Mar 28 17:00:00.000000 2021] [php7:notice] [pid 11336] [client 10.1.1.1:39655] ERR [Database connection lost], referer: https://zm/zm/?'
+      found: 0
+      undefed: ["client"]
+    # startup notice, no client
+    - message: '[Sat Jun 01 02:17:43 2013] [notice] Apache/2.4.57 (FreeBSD) configured -- resuming normal operations'
+      found: 0
+      undefed: ["client"]

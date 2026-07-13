@@ -1,0 +1,28 @@
+---
+# Matches wu-ftpd failed logins and PAM authentication failures. Based on
+# the fail2ban wuftpd filter, translated to Baphomet and simplified.
+daemons:
+  - wu-ftpd
+message_regexp:
+  - '^failed login from \S+ \[%%%%SRC%%%%\]\s*$'
+  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Oct  6 09:59:26 myserver wu-ftpd[18760]: failed login from hj-145-173-a8.bta.net.cn [202.108.145.173]"
+      found: 1
+      data:
+        SRC: "202.108.145.173"
+    - message: "Oct 11 16:45:07 ubuntu wu-ftpd[2360]: failed login from example.com [198.51.100.71]"
+      found: 1
+      data:
+        SRC: "198.51.100.71"
+    - message: "Mar 22 09:35:02 SiD wu-ftpd[31278]: pam_unix(wu-ftpd:auth): authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=198.51.100.71  user=root"
+      found: 1
+      data:
+        SRC: "198.51.100.71"
+  negative:
+    - message: "Oct  6 09:59:30 myserver wu-ftpd[18761]: successful login from example.com [202.108.145.173]"
+      found: 0
+      undefed: ["SRC"]

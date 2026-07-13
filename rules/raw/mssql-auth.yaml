@@ -1,0 +1,29 @@
+---
+# Matches Microsoft SQL Server authentication failures. Based on the
+# fail2ban mssql-auth filter, translated to Baphomet. SQL Server writes its
+# own timestamp (YYYY-MM-DD HH:MM:SS.ss) rather than a syslog prefix, so
+# this is a raw rule anchored on that timestamp followed immediately by the
+# Logon tag, which keeps unescaped foreign input from injecting a false
+# Logon line further along.
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? Logon\s+Login failed for user ''(?:[^'']*|.*)''\. [^''\[]+\[CLIENT: %%%%SRC%%%%\]$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2020-02-24 16:05:21.00 Logon       Login failed for user 'Backend'. Reason: Could not find a login matching the name provided. [CLIENT: 192.0.2.1]"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+    - message: "2020-02-24 16:31:12.20 Logon       Login failed for user ''. Reason: An attempt to login using SQL authentication failed. Server is configured for Integrated authentication only. [CLIENT: 192.0.2.3]"
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+    - message: "2020-02-24 16:31:26.01 Logon       Login failed for user 'O'Leary'. Reason: Could not find a login matching the name provided. [CLIENT: 192.0.2.4]"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+  negative:
+    - message: "2020-02-24 16:31:26.02 Wrong data received: Logon       Login failed for user 'test'. Reason: Could not find a login matching the name provided. [CLIENT: 192.0.2.5]"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,21 @@
+---
+# Matches SquirrelMail login failures. Based on the fail2ban squirrelmail
+# filter, translated to Baphomet and simplified. SquirrelMail writes its
+# own MM/DD/YYYY timestamp, so this is a raw rule leading with that shape.
+message_regexp:
+  - '^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2} \[LOGIN_ERROR\].*from %%%%SRC%%%%: Unknown user or password incorrect\.$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "10/06/2013 15:50:41 [LOGIN_ERROR] dadas (mydomain.org) from 151.64.44.11: Unknown user or password incorrect."
+      found: 1
+      data:
+        SRC: "151.64.44.11"
+  negative:
+    - message: "10/06/2013 15:50:41 [LOGIN] dadas (mydomain.org) from 151.64.44.11: login successful"
+      found: 0
+      undefed: ["SRC"]
+    - message: "10/06/2013 15:50:41 [LOGIN_ERROR] dadas (mydomain.org) from 151.64.44.11: some other error"
+      found: 0
+      undefed: ["SRC"]

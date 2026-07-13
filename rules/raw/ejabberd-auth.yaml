@@ -1,0 +1,46 @@
+---
+# Matches ejabberd failed c2s authentications. Based on the fail2ban
+# ejabberd-auth filter. That filter uses maxlines=2 only to skip the
+# "=INFO REPORT====" banner that precedes the offense in the oldest Erlang
+# format... the address always sits on the "Failed authentication" line
+# itself, so no correlation is needed and this is a plain single-line rule
+# covering the old =INFO/I(...) format and the newer lager [info] formats.
+message_regexp:
+  # old format... the I(...) line that the =INFO REPORT banner precedes
+  - '^I\(<0\.\d+\.0>:ejabberd_c2s:\d+\) : \([^)]+\) Failed authentication for \S+ from (?:IP )?%%%%SRC%%%%(?: \(\{\{(?:\d+,){3}\d+\},\d+\}\))?$'
+  # lager format, with or without the leading timestamp
+  - '^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? )?\[info\] <0\.\d+\.\d+>@ejabberd_c2s:\w+:\d+ \([^\)]+\) Failed (?:c2s \w+ )?authentication for \S+ from (?:IP )?(?:::FFFF:)?%%%%SRC%%%%(?:: |$)'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "I(<0.1440.0>:ejabberd_c2s:813) : ({socket_state,tls,{tlssock,#Port<0.6910>,#Port<0.6912>},<0.1439.0>}) Failed authentication for user@example.com from IP 192.0.2.4 ({{192,0,2,4},12716})"
+      parser: raw
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    - message: "2014-01-07 18:09:08.512 [info] <0.22741.1>@ejabberd_c2s:wait_for_feature_request:662 ({socket_state,p1_tls,{tlssock,#Port<0.24718>,#Port<0.24720>},<0.22740.1>}) Failed authentication for test@example.com from IP 1.2.3.4"
+      parser: raw
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "2015-03-19 13:57:35.805 [info] <0.585.0>@ejabberd_c2s:wait_for_sasl_response:965 ({socket_state,p1_tls,{tlssock,#Port<0.6434>,#Port<0.6436>},<0.584.0>}) Failed authentication for robin@example.com from 192.0.2.6"
+      parser: raw
+      found: 1
+      data:
+        SRC: "192.0.2.6"
+    - message: "2017-07-29 08:24:04.773 [info] <0.6668.0>@ejabberd_c2s:handle_auth_failure:433 (http_bind|ejabberd_bosh) Failed c2s PLAIN authentication for test@example.ch from ::FFFF:192.0.2.3: Invalid username or password"
+      parser: raw
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+  negative:
+    # the =INFO REPORT banner and an Accepted connection carry no offense
+    - message: "=INFO REPORT==== 2013-07-14 17:53:40 ==="
+      parser: raw
+      found: 0
+      undefed: ["SRC"]
+    - message: "I(<0.370.0>:ejabberd_listener:281) : (#Port<0.6910>) Accepted connection {{192,0,2,4},12716} -> {{198,51,100,2},5222}"
+      parser: raw
+      found: 0
+      undefed: ["SRC"]

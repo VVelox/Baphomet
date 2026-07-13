@@ -1,0 +1,60 @@
+---
+# Matches Kerio Connect mail abuse... spam attacks, blacklist hits, relay
+# attempts, unknown recipients, failed SMTP logins, and rejected admin
+# logins. Based on the fail2ban kerio filter, translated to Baphomet and
+# simplified. Kerio leads each line with its own [DD/Mon/YYYY HH:MM:SS]
+# timestamp, so this is a raw rule anchored on that shape.
+message_regexp:
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] SMTP Spam attack detected from %%%%SRC%%%%,'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] IP address %%%%SRC%%%% found in DNS blacklist'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Relay attempt from IP address %%%%SRC%%%%'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Attempt to deliver to unknown recipient \S+, from \S+, IP address %%%%SRC%%%%$'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Failed SMTP login from %%%%SRC%%%%'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] SMTP: User \S+ doesn''t exist\. Attempt from IP address %%%%SRC%%%%'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Client with IP address %%%%SRC%%%% has no reverse DNS entry, connection rejected before SMTP greeting$'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Administration login into Web Administration from %%%%SRC%%%% failed: IP address not allowed$'
+  - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Message from IP address %%%%SRC%%%%, sender \S+ rejected: sender domain does not exist$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "[18/Jan/2014 06:41:25] SMTP Spam attack detected from 202.169.236.195, client closed connection before SMTP greeting"
+      found: 1
+      data:
+        SRC: "202.169.236.195"
+    - message: "[18/Jan/2014 05:47:17] IP address 112.140.49.130 found in DNS blacklist UCEProtect1, mail from <infootransac@yahoo.com.hk> to <advertise@aplawrence.com>"
+      found: 1
+      data:
+        SRC: "112.140.49.130"
+    - message: "[30/Dec/2013 05:27:59] Relay attempt from IP address 64.31.59.75, mail from <smtp2001soho@yahoo.com> to <reply-abuse@bol.com.br> rejected"
+      found: 1
+      data:
+        SRC: "64.31.59.75"
+    - message: "[17/Jun/2011 17:00:45] Attempt to deliver to unknown recipient <advertise@aplawrence.com>, from <bekytnabvnvyx@aapug.org>, IP address 200.90.149.178"
+      found: 1
+      data:
+        SRC: "200.90.149.178"
+    - message: "[18/May/2017 07:25:15] Failed SMTP login from 212.92.127.112 with SASL method CRAM-MD5."
+      found: 1
+      data:
+        SRC: "212.92.127.112"
+    - message: "[17/May/2017 19:43:42] SMTP: User printer@verinion.com doesn't exist. Attempt from IP address 185.140.108.26."
+      found: 1
+      data:
+        SRC: "185.140.108.26"
+    - message: "[17/May/2017 19:44:25] Client with IP address 184.171.168.211 has no reverse DNS entry, connection rejected before SMTP greeting"
+      found: 1
+      data:
+        SRC: "184.171.168.211"
+    - message: "[17/May/2017 19:45:27] Administration login into Web Administration from 170.178.167.136 failed: IP address not allowed"
+      found: 1
+      data:
+        SRC: "170.178.167.136"
+    - message: "[17/May/2017 22:14:57] Message from IP address 67.211.219.82, sender <promo123@goodresponse.site> rejected: sender domain does not exist"
+      found: 1
+      data:
+        SRC: "67.211.219.82"
+  negative:
+    - message: "[18/Jan/2014 06:41:25] SMTP connection from 202.169.236.195 accepted"
+      found: 0
+      undefed: ["SRC"]

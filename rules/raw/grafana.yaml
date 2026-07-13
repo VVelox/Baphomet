@@ -1,0 +1,23 @@
+---
+# Matches Grafana invalid login attempts in grafana.log. Based on the
+# fail2ban grafana filter, translated to Baphomet and simplified. Grafana
+# leads each line with its own t=ISO8601 timestamp, so this is a raw rule
+# anchored on that shape.
+message_regexp:
+  - '^t=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}(?: lvl=err?or)? msg="Invalid username or password"(?: \S+=(?:\S*|"[^"]*"))* remote_addr=%%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 't=2020-10-19T17:44:33+0200 lvl=eror msg="Invalid username or password" logger=context userId=0 orgId=0 uname= error="Invalid Username or Password" remote_addr=182.56.23.12'
+      found: 1
+      data:
+        SRC: "182.56.23.12"
+    - message: 't=2020-10-19T18:44:33+0200 lvl=eror msg="Invalid username or password" logger=context userId=0 orgId=0 uname= error="User not found" remote_addr=182.56.23.13'
+      found: 1
+      data:
+        SRC: "182.56.23.13"
+  negative:
+    - message: 't=2020-10-19T18:44:33+0200 lvl=info msg="Successful Login" logger=context userId=1 orgId=1 uname=admin remote_addr=182.56.23.13'
+      found: 0
+      undefed: ["SRC"]

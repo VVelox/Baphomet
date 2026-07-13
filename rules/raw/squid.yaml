@@ -1,0 +1,24 @@
+---
+# Matches Squid denied proxy attempts (DENIED/403 and NONE/405). Based on
+# the fail2ban squid filter, translated to Baphomet and simplified. Squid
+# access.log leads with an epoch timestamp, so this is a raw rule anchored
+# on that shape.
+message_regexp:
+  - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+[A-Z_]+_DENIED/403 .*$'
+  - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+NONE/405 .*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "1386543323.000      4 91.188.124.227 TCP_DENIED/403 4099 GET http://www.proxy-listen.de/azenv.php - HIER_NONE/- text/html"
+      found: 1
+      data:
+        SRC: "91.188.124.227"
+    - message: "1386543500.000      5 175.44.0.184 NONE/405 3364 CONNECT error:method-not-allowed - HIER_NONE/- text/html"
+      found: 1
+      data:
+        SRC: "175.44.0.184"
+  negative:
+    - message: "1386543323.000      4 91.188.124.227 TCP_MISS/200 4099 GET http://www.example.com/ - HIER_DIRECT/- text/html"
+      found: 0
+      undefed: ["SRC"]

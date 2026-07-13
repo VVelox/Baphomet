@@ -1,0 +1,23 @@
+---
+# Matches GitLab web portal login failures. Based on the fail2ban gitlab
+# filter, translated to Baphomet. GitLab writes its own log format to
+# gitlab-rails/application.log with a leading ISO timestamp rather than a
+# syslog prefix, so this is a raw rule anchored on that timestamp shape.
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?: Failed Login: username=.+ ip=%%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2020-04-09T14:04:00.667Z: Failed Login: username=admin ip=80.10.11.12"
+      found: 1
+      data:
+        SRC: "80.10.11.12"
+    - message: "2020-04-09T14:15:09.344Z: Failed Login: username=user name ip=80.10.11.12"
+      found: 1
+      data:
+        SRC: "80.10.11.12"
+  negative:
+    - message: "2020-04-09T14:20:00.000Z: Successful Login: username=admin ip=80.10.11.12"
+      found: 0
+      undefed: ["SRC"]

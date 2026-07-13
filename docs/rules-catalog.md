@@ -36,6 +36,17 @@ what got ported... the aggressive/ddos mode machinery is dropped.
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
 | `syslog/xinetd-fail` | xinetd connection failures | `xinetd` |
+| `syslog/gssftpd`, `syslog/wuftpd` | GSS and wu-ftpd login failures | `ftpd`, `wu-ftpd` |
+| `syslog/haproxy-http-auth` | haproxy 401s | `haproxy` |
+| `syslog/nagios` | NRPE bad command / access denied | `nrpe` |
+| `syslog/scanlogd` | port scans detected | `scanlogd` |
+| `syslog/screensharingd` | macOS screen sharing auth failures | `screensharingd` |
+| `syslog/uwimap-auth` | UW IMAP/POP login failures | `ipop3d`, `imapd` |
+| `syslog/suhosin` | suhosin script attack alerts | `lighttpd`, `suhosin` |
+| `syslog/froxlor-auth` | Froxlor login failures | `Froxlor` |
+| `syslog/phpmyadmin-syslog` | phpMyAdmin login failures | `phpMyAdmin` |
+| `syslog/drupal-auth` | Drupal login failures (syslog format) | any (site-named) |
+| `syslog/slapd` | OpenLDAP bind failures, correlated by conn id | `slapd` |
 
 ## http rules
 
@@ -46,6 +57,9 @@ field, and the daemon gate column does not apply.
 | --- | --- |
 | `http/badbots` | requests from known bad bots by user agent... from fail2ban apache-badbots, list trimmed to the still recognizable plus modern scanners, meant to be extended locally |
 | `http/botsearch` | probes for admin panels and login pages that 40x... adapted from fail2ban's botsearch-common path vocabulary into access log form |
+| `http/apache-pass` | from fail2ban apache-pass... note fail2ban uses it to allowlist a knocker, so point its path at a honeypot to repurpose it as an offense |
+| `http/openhab` | 401s against the openHAB UI and REST API |
+| `http/php-url-fopen` | requests handing a `http://` URL to a script param |
 
 ## http_error rules
 
@@ -64,6 +78,7 @@ parsers... these ban the parsed client field.
 | `http_error/nginx-http-auth` | nginx basic auth failures |
 | `http_error/nginx-limit-req` | ngx_http_limit_req rejections |
 | `http_error/nginx-botsearch` | missing-path probes, per the error log |
+| `http_error/zoneminder` | ZoneMinder login-denied messages in the apache error log |
 
 ## json rules
 
@@ -135,26 +150,37 @@ offenders, like syslog rules but with no daemon gate.
 | --- | --- |
 | `raw/mongodb-auth-legacy` | MongoDB auth failures in the pre-4.4 text log, correlated by conn id... 4.4 and later use `json/mongodb-auth` |
 | `raw/mysqld-auth` | MySQL/MariaDB auth failures in the server error log (HOST token... may be a hostname) |
-| `raw/exim` | exim mainlog auth failures, rejects, and SMTP protocol abuse |
-| `raw/3proxy` | 3proxy denied connections |
+| `raw/exim` / `raw/exim-spam` | exim mainlog auth failures, rejects, SMTP protocol abuse, and spam/virus rejects |
+| `raw/3proxy`, `raw/squid` | proxy denied connections |
+| `raw/gitlab`, `raw/grafana`, `raw/directadmin`, `raw/centreon`, `raw/tine20`, `raw/groupoffice`, `raw/oracleims` | web app / panel login failures in their own log formats |
+| `raw/roundcube-auth`, `raw/sogo-auth`, `raw/squirrelmail`, `raw/openwebmail`, `raw/horde` | webmail login failures (HOST token where the offender can be a hostname) |
+| `raw/mssql-auth`, `raw/lighttpd-auth`, `raw/stunnel`, `raw/kerio`, `raw/domino-smtp`, `raw/assp` | assorted server auth/reject logs |
+| `raw/softethervpn`, `raw/portsentry`, `raw/counter-strike`, `raw/znc-adminlog`, `raw/monitorix`, `raw/bitwarden`, `raw/selinux-ssh` | VPN, scan detectors, game/IRC/monitor servers, SELinux audit |
+| `raw/ejabberd-auth`, `raw/guacamole` | XMPP and Guacamole auth failures (single line despite fail2ban buffering a banner) |
+| `raw/traefik-auth`, `raw/nginx-bad-request` | web access logs whose own extra fields the http_access parser rejects |
+
+## Coverage
+
+The shipped set covers essentially every fail2ban filter that is a
+regexp over a log line... the syslog, raw, http, http_error, and multiline
+families above, plus the JSON and Suricata rules. `baphomet check_rules`
+lists them all with their test results.
 
 ## Not ported, and why
 
 - **apache-fakegooglebot**... its trick is a reverse DNS check, not a
-  regexp.
-- **apache-pass**... despite the name it is an access log filter for a
-  port-knocking-ish setup, thin enough to write locally as a http rule if
-  wanted.
+  regexp, and Baphomet does not resolve at match time.
+- **recidive**... fail2ban watching its own log to escalate repeat
+  offenders. Baphomet does this natively instead, via the `[recidive]`
+  config table, across all kurs at once.
+- **The common include files** (common.conf, apache-common.conf,
+  botsearch-common.conf, selinux-common.conf, exim-common.conf)... shared
+  fragments, not standalone jails. Their content is folded into the rules
+  that used them.
 - **fail2ban's buffer-join multiline model** (maxlines, SKIPLINES,
-  cross-line backreferences)... Baphomet correlates by key instead, via
-  capture_regexp, which covers the cases that mattered... mongodb-auth is
-  now `raw/mongodb-auth-legacy` and sendmail-reject carries its
-  "No such user here" pair.
-- **exim-spam** and other own-format stragglers... portable as raw rules
-  the same way exim was, just not shipped yet.
-- **recidive**... fail2ban watching its own log. The Baphomet equivalent
-  would be a rule watching Ereshkigal's own syslog output for repeat
-  consignments and re-banning long. A future idea.
+  cross-line backreferences) as a general mechanism... Baphomet correlates
+  by key instead, via capture_regexp, which covered every case that
+  actually needed it (slapd, mongodb-auth-legacy, sendmail-reject).
 
 ## Caveats worth knowing
 

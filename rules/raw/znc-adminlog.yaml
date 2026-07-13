@@ -1,0 +1,26 @@
+---
+# Matches ZNC failed logins from the adminlog module. Based on the
+# fail2ban znc-adminlog filter, translated to Baphomet and simplified.
+# The adminlog writes its own bracketed timestamp rather than a syslog
+# prefix, so this is a raw rule anchored on that timestamp.
+message_regexp:
+  - '^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[[^]]+\] failed to login from %%%%SRC%%%%(?::\d+)?\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "[2018-10-27 01:40:55] [girst] failed to login from 1.2.3.4"
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "[2019-09-08 15:53:19] [admin] failed to login from 192.0.2.1:65001"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+  negative:
+    - message: "[2018-10-27 01:40:17] [girst] connected to ZNC from 1.2.3.4"
+      found: 0
+      undefed: ["SRC"]
+    - message: "[2018-10-27 01:40:21] [girst] disconnected from ZNC from 1.2.3.4"
+      found: 0
+      undefed: ["SRC"]

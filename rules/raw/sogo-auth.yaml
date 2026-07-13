@@ -1,0 +1,27 @@
+---
+# Matches SOGo web login failures in sogo.log. Based on the fail2ban
+# sogo-auth filter, translated to Baphomet and simplified. SOGo prefixes
+# its own syslog-style timestamp, so this is a raw rule leading with that
+# shape. Where the line lists several addresses the first is the client
+# and the rest are proxies, so only the first is captured.
+message_regexp:
+  - '^\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} sogod \[\d+\]: SOGoRootPage Login from ''%%%%SRC%%%%(?:,[^'']*)?'' for user ''[^'']*'' might not have worked(?: - password policy: -?\d*  grace: -?\d*  expire: -?\d*  bound: -?\d*)?\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Mar 24 08:58:32 sogod [26818]: SOGoRootPage Login from '173.194.44.31' for user 'hack0r' might not have worked - password policy: 65535  grace: -1  expire: -1  bound: 0"
+      found: 1
+      data:
+        SRC: "173.194.44.31"
+    - message: "Mar 24 19:29:32 sogod [1526]: SOGoRootPage Login from '192.0.2.16, 10.0.0.1' for user 'admin' might not have worked - password policy: 65535  grace: -1  expire: -1  bound: 0"
+      found: 1
+      data:
+        SRC: "192.0.2.16"
+  negative:
+    - message: 'Mar 24 08:58:32 sogod [26818]: <0x0xb8537990[LDAPSource]> <NSException: 0xb87c3008> NAME:LDAPException REASON:operation bind failed: Invalid credentials (0x31) INFO:{login = "uid=hack0r,ou=users,dc=mail,dc=example,dc=org"; }'
+      found: 0
+      undefed: ["SRC"]
+    - message: '173.194.44.31 - - [24/Mar/2013:08:58:32 GMT] "POST /SOGo/connect HTTP/1.1" 403 34/38 0.311 - - 2M'
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,40 @@
+---
+# Matches IBM Domino SMTP server authentication failures and policy
+# rejections. Based on the fail2ban domino-smtp filter, translated to
+# Baphomet. Domino writes its own console-log timestamp (DD-MM-YYYY or
+# YYYY-MM-DD) rather than a syslog prefix, optionally preceded by a
+# [pid:thread] tag, so this is a raw rule anchored on those shapes. The
+# host may be bracketed or bare and can be a hostname, so %%%%HOST%%%% and
+# its ban_var carry whatever was logged.
+message_regexp:
+  - '^(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(?:\[[^\]]+\]\s*)?SMTP Server(?::|\s+\[[^\]]+\]) Authentication failed for user .*? ; connecting host \[?%%%%HOST%%%%\]?$'
+  - '^(?:\[[^\]]+\]\s*)?(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+smtp: (?:[^\[]+ )*\[?%%%%HOST%%%%\]? authentication failure using internet password\s*$'
+  - '^(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(?:\[[^\]]+\]\s*)?SMTP Server(?::|\s+\[[^\]]+\]) Connection from \[?%%%%HOST%%%%\]? rejected for policy reasons\.'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: "03-07-2005 23:07:20   SMTP Server: Authentication failed for user postmaster ; connecting host 1.2.3.4"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "[28325:00010-3735542592] 22-06-2014 09:56:12   smtp: postmaster [1.2.3.4] authentication failure using internet password"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "2016-11-07 22:21:20   smtp: postmaster [1.2.3.4] authentication failure using internet password"
+      found: 1
+      data:
+        HOST: "1.2.3.4"
+    - message: "2018-09-19 17:25:50   SMTP Server [0D14:0027-1334] Authentication failed for user Bad Hacker ; connecting host [192.0.2.1]"
+      found: 1
+      data:
+        HOST: "192.0.2.1"
+    - message: "2018-09-19 17:25:52   SMTP Server [000527:000013-0000001227564800] Connection from [192.0.2.2] rejected for policy reasons. IP address of connecting host not found in reverse DNS lookup."
+      found: 1
+      data:
+        HOST: "192.0.2.2"
+  negative:
+    - message: "03-07-2005 23:08:00   SMTP Server: Authentication succeeded for user postmaster ; connecting host 1.2.3.4"
+      found: 0
+      undefed: ["HOST"]

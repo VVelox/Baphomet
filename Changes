@@ -4,6 +4,11 @@ Revision history for App-Baphomet
         - Initial release. Log watcher for Ereshkigal... tails logs, parses
           syslog lines, matches them against YAML rules, and consigns
           offending IPs to Kur via the Ereshkigal manager socket.
+        - 47 more rules ported from fail2ban, closing the filter library to
+          essentially everything that is a regexp over a log line... more
+          syslog daemons, a large raw batch of own-format app and webmail
+          logs, more web rules, and slapd via keyed correlation. 135 rules
+          shipped now.
         - A optional Neti gate on the manager socket, the enable_auth unix
           ownership auth challenge gated by authed_users and authed_groups,
           matching Ereshkigal. socket_mode is now validated at load, and

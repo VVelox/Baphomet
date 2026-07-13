@@ -1,0 +1,23 @@
+---
+# Matches DirectAdmin failed login attempts. Based on the fail2ban
+# directadmin filter, translated to Baphomet and simplified. DirectAdmin
+# leads each line with its own YYYY:MM:DD-HH:MM:SS timestamp, so this is a
+# raw rule anchored on that shape.
+message_regexp:
+  - '^\d{4}:\d{2}:\d{2}-\d{2}:\d{2}:\d{2}: ''%%%%SRC%%%%'' \d{1,3} failed login attempts?\.\s'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2014:07:02-00:17:45: '3.2.1.4' 2 failed login attempts. Account 'test'"
+      found: 1
+      data:
+        SRC: "3.2.1.4"
+    - message: "2014:07:02-13:07:50: '40.40.123.231' 5 failed login attempt. Invalid account 'user%2Ename'"
+      found: 1
+      data:
+        SRC: "40.40.123.231"
+  negative:
+    - message: "2014:07:02-13:28:39: '12.12.123.231' successful login to 'nobody' after 1 attempts"
+      found: 0
+      undefed: ["SRC"]

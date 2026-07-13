@@ -1,0 +1,48 @@
+---
+# Matches slapd invalid-credentials binds (LDAP result err=49), correlating
+# the err=49 RESULT line (which carries no address) with the earlier ACCEPT
+# line that does, by their shared conn id. Based on the fail2ban slapd
+# filter, its maxlines/<SKIPLINES> multiline recast as a capture_regexp...
+# the ACCEPT harvests the source under the conn key, the RESULT defers on it.
+daemons:
+  - slapd
+capture_regexp:
+  - regexp: '^conn=(?<CONN>\d+) fd=\d+ ACCEPT from IP=%%%%SRC%%%%:\d{1,5} \(IP=\S+\)\s*$'
+    key: CONN
+    ttl: 600
+message_regexp:
+  - regexp: '^conn=(?<CONN>\d+) op=\d+ RESULT(?:\s(?!err)\S+=\S*)* err=49 text=[\w\s]*$'
+    key: CONN
+    defer: 600
+ban_var:
+  - SRC
+tests:
+  positive:
+    # the err=49 result resolves through the conn id back to the ACCEPT host
+    - messages:
+        - "Jul  8 01:47:19 ldap-server slapd[1183]: conn=1022 fd=21 ACCEPT from IP=8.8.8.8:45011 (IP=0.0.0.0:636)"
+        - "Jul  8 01:47:20 ldap-server slapd[1183]: conn=1022 op=1 RESULT tag=97 err=49 text="
+      found: 1
+      data:
+        SRC: "8.8.8.8"
+    - messages:
+        - "Jul  8 02:10:03 ldap-server slapd[1183]: conn=2048 fd=30 ACCEPT from IP=203.0.113.7:52001 (IP=0.0.0.0:636)"
+        - "Jul  8 02:10:04 ldap-server slapd[1183]: conn=2048 op=1 RESULT tag=97 err=49 text="
+      found: 1
+      data:
+        SRC: "203.0.113.7"
+  negative:
+    # a successful bind (err=0) resolves to no one
+    - messages:
+        - "Jul  8 03:00:00 ldap-server slapd[1183]: conn=3000 fd=40 ACCEPT from IP=192.0.2.10:40000 (IP=0.0.0.0:636)"
+        - "Jul  8 03:00:01 ldap-server slapd[1183]: conn=3000 op=1 RESULT tag=97 err=0 text="
+      found: 0
+      undefed: ["SRC"]
+    # a err=49 result whose conn never ACCEPTs resolves to no one
+    - message: "Jul  8 03:10:00 ldap-server slapd[1183]: conn=9999 op=1 RESULT tag=97 err=49 text="
+      found: 0
+      undefed: ["SRC"]
+    # an ACCEPT alone is context, not a offense
+    - message: "Jul  8 03:20:00 ldap-server slapd[1183]: conn=4000 fd=50 ACCEPT from IP=192.0.2.20:41000 (IP=0.0.0.0:636)"
+      found: 0
+      undefed: ["SRC"]

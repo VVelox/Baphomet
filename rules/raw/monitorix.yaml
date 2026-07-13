@@ -1,0 +1,28 @@
+---
+# Matches Monitorix built-in HTTP server access errors (nonexistent files,
+# disallowed access, authentication errors). Based on the fail2ban
+# monitorix filter, translated to Baphomet and simplified. Monitorix
+# writes its own ctime-style timestamp rather than a syslog prefix, so
+# this is a raw rule anchored on that timestamp.
+message_regexp:
+  - '^\w{3} \w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} \d{4} - (?:NOTEXIST|AUTHERR|NOTALLOWED) - \[%%%%SRC%%%%\]'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Wed Apr 14 08:54:22 2021 - NOTEXIST - [127.0.0.1] File does not exist: /manager/html"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+    - message: "Wed Apr 14 11:24:31 2021 - NOTALLOWED - [127.0.0.1] Access not allowed: /monitorix/"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+    - message: "Wed Apr 14 11:26:08 2021 - AUTHERR - [127.0.0.1] Authentication error: /monitorix/"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+  negative:
+    - message: 'Wed Apr 14 08:11:01 2021 - OK - [127.0.0.1] "GET /monitorix-cgi/monitorix.cgi - Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:87.0) Gecko/20100101 Firefox/87.0"'
+      found: 0
+      undefed: ["SRC"]

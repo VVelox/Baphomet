@@ -1,0 +1,19 @@
+---
+# Matches phpMyAdmin denied logins logged to syslog. Based on the fail2ban
+# phpmyadmin-syslog filter, translated to Baphomet and simplified.
+daemons:
+  - phpMyAdmin
+message_regexp:
+  - '^user denied: (?:\S+|.*?) \(mysql-denied\) from %%%%SRC%%%%\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Aug 22 14:50:22 eurostream phpMyAdmin[16358]: user denied: root (mysql-denied) from 192.0.2.1"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+  negative:
+    - message: "Aug 22 14:50:25 eurostream phpMyAdmin[16359]: user allowed: root from 192.0.2.1"
+      found: 0
+      undefed: ["SRC"]

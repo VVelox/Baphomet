@@ -1,0 +1,19 @@
+---
+# Matches Nagios NRPE unauthorized access attempts. Based on the fail2ban
+# nagios filter, translated to Baphomet and simplified.
+daemons:
+  - nrpe
+message_regexp:
+  - '^Host %%%%SRC%%%% is not allowed to talk to us!\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Feb  3 11:22:44 valhalla nrpe[63284]: Host 50.97.225.132 is not allowed to talk to us!"
+      found: 1
+      data:
+        SRC: "50.97.225.132"
+  negative:
+    - message: "Feb  3 11:22:45 valhalla nrpe[63285]: Host 50.97.225.132 is allowed"
+      found: 0
+      undefed: ["SRC"]

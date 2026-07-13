@@ -1,0 +1,33 @@
+---
+# Matches SELinux audit records for failed sshd authentication. Based on
+# the fail2ban selinux-ssh filter (built on selinux-common), translated to
+# Baphomet. SELinux audit lines carry no syslog prefix and lead with
+# "type=", so this is a raw rule anchored on the type and audit id. Only
+# USER_ERR and USER_AUTH records are offenses... USER_LOGIN is the
+# duplicate ssh logs after three USER_AUTH failures and is not matched. The
+# acct quote back-reference is dropped in favor of an optional quote.
+message_regexp:
+  - '^type=USER_(?:ERR|AUTH) msg=audit\([\d.]+:\d+\): (?:user )?pid=\d+ uid=0 auid=\d+ ses=\d+ subj=(?:unconfined_u|system_u):system_r:sshd_t:s0-s0:c0\.c1023 msg=''op=\S+ acct="?\S+"? exe="/usr/sbin/sshd" hostname=(?:\?|(?:\d+\.){3}\d+) addr=%%%%SRC%%%% terminal=ssh res=failed''$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "type=USER_ERR msg=audit(1373330717.000:4070): user pid=12000 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:sshd_t:s0-s0:c0.c1023 msg='op=PAM:bad_ident acct=\"?\" exe=\"/usr/sbin/sshd\" hostname=173.242.116.187 addr=173.242.116.187 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "173.242.116.187"
+    - message: "type=USER_AUTH msg=audit(1373129280.000:9): user pid=1277 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:sshd_t:s0-s0:c0.c1023 msg='op=pubkey acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=194.228.20.113 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "194.228.20.113"
+    - message: "type=USER_AUTH msg=audit(1383116263.000:603): pid=12887 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:sshd_t:s0-s0:c0.c1023 msg='op=password acct=\"dan\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.168.3.100 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "192.168.3.100"
+  negative:
+    - message: "type=USER_LOGIN msg=audit(1373330716.415:4063): user pid=11998 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:sshd_t:s0-s0:c0.c1023 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=173.242.116.187 terminal=ssh res=failed'"
+      found: 0
+      undefed: ["SRC"]
+    - message: "type=USER_LOGIN msg=audit(1383116048.000:595): pid=12354 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:sshd_t:s0-s0:c0.c1023 msg='op=login acct=\"dan\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.168.3.100 terminal=ssh res=failed'"
+      found: 0
+      undefed: ["SRC"]

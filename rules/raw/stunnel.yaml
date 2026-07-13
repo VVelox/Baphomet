@@ -1,0 +1,21 @@
+---
+# Matches stunnel clients that fail the SSL handshake by not returning a
+# certificate. Based on the fail2ban stunnel filter, translated to
+# Baphomet. stunnel writes its own dotted timestamp (YYYY.MM.DD HH:MM:SS)
+# rather than a syslog prefix, so this is a raw rule anchored on that
+# shape. The error code back-reference is dropped in favor of a plain hex
+# pattern.
+message_regexp:
+  - '^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} LOG\d\[\d+:\d+\]: SSL_accept from %%%%SRC%%%%:\d+ : [\dA-F]+: error:[\dA-F]+:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2011.11.21 14:29:16 LOG3[28228:140093368055552]: SSL_accept from 10.7.41.61:33454 : 140890C7: error:140890C7:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate"
+      found: 1
+      data:
+        SRC: "10.7.41.61"
+  negative:
+    - message: "2011.11.21 14:30:00 LOG5[28228:140093368055552]: Service accepted connection from 10.7.41.61:33454"
+      found: 0
+      undefed: ["SRC"]

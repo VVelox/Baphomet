@@ -1,0 +1,19 @@
+---
+# Matches Group-Office failed logins in its info.log. Based on the fail2ban
+# groupoffice filter, translated to Baphomet. Group-Office writes its own
+# bracketed timestamp ([YYYY-MM-DD HH:MM:SS]) rather than a syslog prefix,
+# so this is a raw rule anchored on that shape.
+message_regexp:
+  - '^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]LOGIN FAILED for user: "\S+" from IP: %%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '[2014-01-06 10:59:38]LOGIN FAILED for user: "asdsad" from IP: 127.0.0.1'
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+  negative:
+    - message: '[2014-01-06 10:59:49]LOGIN SUCCESS for user: "admin" from IP: 127.0.0.1'
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,55 @@
+---
+# Matches malformed requests to nginx: a request that came back 400. The
+# request line is often empty or encoded garbage with no method, which is
+# exactly what a 400 marks. Based on fail2ban's nginx-bad-request filter,
+# translated to Baphomet.
+#
+# This is a raw rule rather than an http one because the nginx log this
+# filter targets carries a third trailing quoted field beyond the
+# combined referer and user-agent, which the http_access parser does not
+# accept. The whole line is matched here instead.
+#
+# Source: fail2ban config/filter.d/nginx-bad-request.conf
+message_regexp:
+  - '^%%%%SRC%%%% - \S+ \[[^\]]*\] "[^"]*" 400\b'
+ban_var:
+  - SRC
+tests:
+  positive:
+    # empty request, dashed user
+    - message: '12.34.56.78 - - [20/Jan/2015:19:53:28 +0100] "" 400 47 "-" "-" "-"'
+      found: 1
+      data:
+        SRC: "12.34.56.78"
+    # empty request, named user
+    - message: '12.34.56.78 - root [20/Jan/2015:19:53:28 +0100] "" 400 47 "-" "-" "-"'
+      found: 1
+      data:
+        SRC: "12.34.56.78"
+    # encoded garbage in place of a request line
+    - message: '12.34.56.78 - - [20/Jan/2015:19:53:28 +0100] "\x03\x00\x00/*\xE0\x00\x00\x00\x00\x00Cookie: mstshash=Administr" 400 47 "-" "-" "-"'
+      found: 1
+      data:
+        SRC: "12.34.56.78"
+    # a bare word with no method
+    - message: '12.34.56.78 - - [20/Jan/2015:19:55:28 +0100] "batman" 400 47 "-" "-" "-"'
+      found: 1
+      data:
+        SRC: "12.34.56.78"
+    - message: '7.8.9.10 - root [20/Jan/2015:01:17:07 +0100] "CONNECT 123.123.123.123 HTTP/1.1" 400 162 "-" "-" "-"'
+      found: 1
+      data:
+        SRC: "7.8.9.10"
+    - message: '2.5.2.5 - tomcat [12/Dec/2014:22:59:02 +0100] "GET /cgi-bin/tools/tools.pl HTTP/1.1" 400 162 "-" "-" "-"'
+      found: 1
+      data:
+        SRC: "2.5.2.5"
+  negative:
+    # a well-formed request that succeeded is not a bad request
+    - message: '198.51.100.7 - - [20/Jan/2015:19:53:28 +0100] "GET /index.html HTTP/1.1" 200 512 "-" "-" "-"'
+      found: 0
+      undefed: ["SRC"]
+    # a 404 is not the bad-request signal
+    - message: '198.51.100.8 - - [20/Jan/2015:19:53:28 +0100] "GET /missing HTTP/1.1" 404 47 "-" "-" "-"'
+      found: 0
+      undefed: ["SRC"]

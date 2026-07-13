@@ -1,0 +1,26 @@
+---
+# Matches SoftEther VPN user authentication failures. Based on the fail2ban
+# softethervpn filter, translated to Baphomet. SoftEther writes its own
+# timestamp to sec.log (and a syslog-style line when routed through syslog,
+# whose daemon token is a "[host/VPN/hub]" tag rather than a plain daemon
+# name), so this is a raw rule anchored on either the bare sec.log
+# timestamp or the syslogged form's leading timestamp and hub tag.
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ Connection "[^"]+": User authentication failed\. The user name that has been provided was "(?:[^"]+|.+)", from %%%%SRC%%%%\.$'
+  - '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} \S+\s+\[[^\]]+\] \(\d{4}-\d{2}-\d{2} [\d:.]+\) <SECURITY_LOG>: Connection "[^"]+": User authentication failed\. The user name that has been provided was "(?:[^"]+|.+)", from %%%%SRC%%%%\.$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '2020-05-12 10:53:19.781 Connection "CID-72": User authentication failed. The user name that has been provided was "bob", from 80.10.11.12.'
+      found: 1
+      data:
+        SRC: "80.10.11.12"
+    - message: '2020-05-13T10:53:19 localhost  [myserver.com/VPN/defaultvpn] (2020-05-13 10:53:19.591) <SECURITY_LOG>: Connection "CID-594": User authentication failed. The user name that has been provided was "alice", from 80.10.11.13.'
+      found: 1
+      data:
+        SRC: "80.10.11.13"
+  negative:
+    - message: '2020-05-12 10:54:00.100 Connection "CID-73": User authentication succeeded. The user name that has been provided was "bob", from 80.10.11.12.'
+      found: 0
+      undefed: ["SRC"]

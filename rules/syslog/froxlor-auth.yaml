@@ -1,0 +1,24 @@
+---
+# Matches Froxlor failed login attempts. Based on the fail2ban froxlor-auth
+# filter, translated to Baphomet and simplified.
+daemons:
+  - Froxlor
+message_regexp:
+  - '^\[Login Action %%%%SRC%%%%\] Unknown user \S* tried to login\.$'
+  - '^\[Login Action %%%%SRC%%%%\] User \S* tried to login with wrong password\.$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "May 21 00:56:27 jomu Froxlor: [Login Action 1.2.3.4] Unknown user 'user' tried to login."
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+    - message: "May 21 00:57:38 jomu Froxlor: [Login Action 1.2.3.4] User 'admin' tried to login with wrong password."
+      found: 1
+      data:
+        SRC: "1.2.3.4"
+  negative:
+    - message: "May 21 00:58:00 jomu Froxlor: [Login Action 1.2.3.4] User 'admin' logged in."
+      found: 0
+      undefed: ["SRC"]

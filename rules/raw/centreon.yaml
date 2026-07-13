@@ -1,0 +1,20 @@
+---
+# Matches Centreon Web authentication failures in login.log. Based on the
+# fail2ban centreon filter, translated to Baphomet and simplified.
+# Centreon leads each line with its own YYYY-MM-DD HH:MM:SS timestamp
+# followed by pipe-delimited fields, so this is a raw rule anchored on
+# that shape.
+message_regexp:
+  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\|-?\d+){3}\|\[[^\]]*\] \[%%%%SRC%%%%\] Authentication failed for ''[^'']+'''
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "2019-10-21 18:55:15|-1|0|0|[WEB] [50.97.225.132] Authentication failed for 'admin' : password mismatch"
+      found: 1
+      data:
+        SRC: "50.97.225.132"
+  negative:
+    - message: "2019-10-21 18:55:15|-1|0|0|[WEB] [50.97.225.132] Authentication succeeded for 'admin'"
+      found: 0
+      undefed: ["SRC"]
