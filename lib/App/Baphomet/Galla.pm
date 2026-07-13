@@ -976,6 +976,8 @@ sub _poe_journal_stdout {
 		return;
 	}
 
+	chomp($line);
+
 	# grab the cursor for a clean resume before handing the line off... a
 	# cheap targeted pull rather than a full decode
 	if ( $line =~ /"__CURSOR"\s*:\s*"((?:[^"\\]|\\.)*)"/ ) {
@@ -998,6 +1000,7 @@ sub _poe_journal_stderr {
 
 	my $watcher_name = $self->{wheelid_to_journal}{$wheel_id};
 	$watcher_name = 'unknown' if !defined($watcher_name);
+	chomp($line);
 	log_drek( 'err', 'journalctl for the watcher "' . $watcher_name . '" said... ' . $line,
 		undef, 'galla-' . $self->{name} );
 
