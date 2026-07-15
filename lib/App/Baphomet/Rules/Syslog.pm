@@ -133,14 +133,27 @@ The named regexp matches to use for bans. For each name here that a
 matching line captured, the captured value is what gets handed to
 Ereshkigal.
 
-=head2 max_retrys / find_time / ban_time
+=head2 max_score / find_time / ban_time / weight / eve_only
 
-Optional. The rule's own thresholds, honored only when the watcher's
-C<allow_per_rule_thresholds> config setting is on, at which point the
-layering is rule over watcher over kur over global. A rule overriding
-C<max_retrys> or C<find_time> is counted in its own bucket, apart from
-the shared per-IP count, while a C<ban_time>-only override counts in the
-shared bucket and just bans with its own duration.
+Optional. The rule's own thresholds and knobs, the first four honored only
+when the watcher's C<allow_per_rule_thresholds> config setting is on, at
+which point the layering is rule over watcher over kur over global. A rule
+overriding C<max_score> or C<find_time> is counted in its own bucket, apart
+from the shared per-IP count, while a C<ban_time>-only override counts in
+the shared bucket and just bans with its own duration.
+
+C<max_score> is the accumulated score at which an offender is banished, not
+a plain retry count... each match deposits the rule's C<weight> (a positive
+number, default 1), so a heavy signature bans faster and several rules
+against one IP sum toward the one judgment. With every weight 1 the score
+is just the hit count, as before.
+
+C<eve_only>, unlike the others, is honored whatever the consent setting and
+layers over the watcher's own C<eve_only>... a boolean putting the rule in
+observe mode. Its matches are written to EVE but never counted toward a real
+ban, a would-be banish surfacing as an C<alert> event and each match as
+C<noted> rather than C<found>. Set it false to opt one rule back in to real
+banning under a watcher or kur that is observing.
 
 =head2 mark / unmark / marked / not_marked / mark_only
 
@@ -201,20 +214,23 @@ gated rules and no database says so loudly at start.
 
 =head2 namtar_list
 
-Optional. A gate that only lets a match count when a IP is on a named
-blocklist, the inverse of ignore_ips. The lists are CIDR files named in
-the config's C<namtar_lists>, layered per watcher and reloaded on mtime
-change. A array of entries, each:
+Optional. A gate that only lets a match count when a value is on a named
+blocklist, the inverse of ignore_ips. The lists are named in the config's
+C<namtar_lists>, layered per watcher and reloaded on mtime change. Each
+list is a cidr list matched by address containment, or a string list
+matched by exact (optionally case-folded) equality, so the gate reaches
+beyond the offender IP to any captured field. The flavor is set on the list
+in the config, not the rule. A array of entries, each:
 
     - list / lists :: One or more named lists to check against. A value on
-          any of them (union) satisfies the entry.
+          any of them (union) satisfies the entry, even across flavors.
 
     - var :: Optional. The found var to check, resolved like ban_var. With
           it the entry is data-keyed and vets the whole result, without it
           the entry is offender-keyed and filters candidates... so a rule
-          can gate on a captured address it is not banning.
+          can gate on a captured field it is not banning.
 
-Every entry must hold. The gate fails closed: a IP on no list, or a list
+Every entry must hold. The gate fails closed: a value on no list, or a list
 whose file is unreadable, blocks the count. ignore_ips still wins, so a
 ignored IP is never banished even when blocklisted.
 
@@ -298,7 +314,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );

@@ -61,7 +61,7 @@ rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 eve_log = "$dir/eve/eve.json"
 eve_enable = $enable
-max_retrys = 3
+max_score = 3
 find_time = 600
 
 [kur.sshd]
@@ -138,8 +138,8 @@ is( $f->{path}, $dir . '/log', 'path is the source file' );
 is( $f->{raw},  'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'raw line' );
 is( $f->{found}{SRC}, '9.9.9.9', 'found carries the check data' );
 is( $f->{parsed}{daemon}, 'sshd', 'parsed carries the parser output' );
-is( $f->{count}, 1, 'count on the first found is 1' );
-is( $found[2]{count}, 3, 'count on the third found is 3' );
+is( $f->{score}, 1, 'score on the first found is 1' );
+is( $found[2]{score}, 3, 'score on the third found is 3' );
 
 # rule info present but without the tests
 is( $f->{rule}{name}, 'syslog/sshd', 'rule name' );
@@ -151,7 +151,7 @@ my $c = $banish[0];
 is( $c->{event_type}, 'banish', 'banish event_type' );
 is( $c->{ip},         '9.9.9.9', 'banish ip' );
 is( $c->{ban_time},   300,       'banish ban_time' );
-is( $c->{count},      3,         'banish count' );
+is( $c->{score},      3,         'banish score' );
 is( $c->{found}{SRC}, '9.9.9.9', 'banish carries the triggering found' );
 
 #

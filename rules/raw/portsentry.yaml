@@ -9,7 +9,7 @@ ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
-max_retrys: 1
+max_score: 1
 tests:
   positive:
     - message: "1403884279 - 06/27/2014 17:51:19 Host: 192.168.56.1/192.168.56.1 Port: 1 TCP Blocked"

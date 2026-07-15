@@ -1,0 +1,37 @@
+---
+# Matches Samba (smbd) connection denials. No fail2ban filter exists for
+# this, so it is modelled on Sagan's samba.rules. Requires smbd to log
+# through syslog (`logging = syslog` in smb.conf); the native log.smbd is a
+# two-line indented format we do not parse. Only the connection-denied
+# signal is ported... Sagan's bare `Permission denied` rule has no source
+# IP and would fire on local share ACL rejections, so it is dropped. The
+# offender is in the trailing parens when a hostname leads, a bare address
+# otherwise.
+daemons:
+  - smbd
+message_regexp:
+  - '(?:[dD]enied connection|[cC]onnection denied) from \S+ \(%%%%SRC%%%%\)'
+  - '(?:[dD]enied connection|[cC]onnection denied) from %%%%SRC%%%%(?:\s|$)'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 14 08:15:50 fileserver smbd[4321]: Denied connection from 203.0.113.10 (203.0.113.10)"
+      found: 1
+      data:
+        SRC: "203.0.113.10"
+    - message: "Jul 14 08:15:50 fileserver smbd[4321]: Denied connection from badhost.example.com (198.51.100.5)"
+      found: 1
+      data:
+        SRC: "198.51.100.5"
+    - message: "Jul 14 08:15:50 fileserver smbd[4321]: Connection denied from 192.0.2.7"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+  negative:
+    - message: "Jul 14 08:16:00 fileserver smbd[4321]: Permission denied"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 14 08:16:00 fileserver smbd[4321]: 203.0.113.10 (ipv4:203.0.113.10:445) connect to service data initially as user bob"
+      found: 0
+      undefed: ["SRC"]

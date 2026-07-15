@@ -80,9 +80,9 @@ is_deeply( $rule->country->{vars},    ['dest_ip'], 'a scalar vars normalizes to 
 #
 
 my %rules = (
-	'iso-block'  => "country:\n  isnot:\n    - \"%%%country_codes{allowed}%%%\"\nmax_retrys: 1\n",
-	'iso-hunt'   => "country:\n  is: [ CN, RU ]\nmax_retrys: 1\n",
-	'dest-guard' => "country:\n  is: [ US ]\n  vars: [ dest_ip ]\nmax_retrys: 1\n",
+	'iso-block'  => "country:\n  isnot:\n    - \"%%%country_codes{allowed}%%%\"\nmax_score: 1\n",
+	'iso-hunt'   => "country:\n  is: [ CN, RU ]\nmax_score: 1\n",
+	'dest-guard' => "country:\n  is: [ US ]\n  vars: [ dest_ip ]\nmax_score: 1\n",
 );
 # dest-guard bans the src, not the geo-checked dest
 my %ban_var = ( 'dest-guard' => 'src_ip' );
@@ -132,7 +132,7 @@ geoip_db = "$fixture"
 allowed = [ "US" ]
 
 [kur.georeal]
-max_retrys = 5
+max_score = 5
 allow_per_rule_thresholds = true
 
 [kur.georeal.rw]
@@ -188,7 +188,7 @@ ereshkigal_socket = "$dir/nonexistent.sock"
 allowed = [ "US", "CA" ]
 
 [kur.geo]
-max_retrys = 5
+max_score = 5
 allow_per_rule_thresholds = true
 
 [kur.geo.blockw]

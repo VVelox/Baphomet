@@ -16,10 +16,12 @@ The config file is TOML, by default
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
 | `galla_bin` | `galla` | The galla bin to spawn workers with. |
 | `timeout` | `30` | Timeout in seconds for socket calls, both to gallas and to Ereshkigal. |
-| `max_retrys` | `5` | Offenses with in `find_time` before a IP is banned. |
+| `max_score` | `5` | The accumulated score with in `find_time` at which a IP is banned. Each match adds its rule's `weight` (default 1), so with unweighted rules this is just an offense count. |
 | `find_time` | `600` | The window in seconds offenses are counted across. |
 | `ban_time` | unset | Ban time in seconds forwarded with ban requests, 0 meaning eternal. Unset means it is left out and the Ereshkigal side default applies. |
-| `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_retrys`/`find_time`/`ban_time` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
+| `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_score`/`find_time`/`ban_time`/`weight` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
+| `eve_only` | `false` | Observe mode... the rules under this scope match and write to EVE but never banish, a would-be ban surfacing as an `alert` and each match as `noted`. A rule's own `eve_only` layers over this. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
+| `observe_ignored` | `false` | When observing, also process IPs `ignore_ips` would otherwise drop, so they too are scored and can `alert`. Only meaningful with `eve_only`. Global, per kur, and per watcher. |
 | `ignore_ips` | `[]` | IPv4/IPv6 addresses and CIDRs never banished, no matter what the rules say. A kur's own `ignore_ips` extends this list for that kur. Hostnames are not accepted. |
 | `socket_group` | root's default group | Group ownership of the manager socket. |
 | `socket_mode` | `"0660"` | Perms for the manager socket, an octal string, processed via oct. Galla sockets are always 0600. |
@@ -62,27 +64,44 @@ A rule imports a list with the `%%%country_codes{name}%%%` token in its
 
 ## Namtar lists
 
-`namtar_lists` names lists of CIDR files a `namtar_list` gate checks
-offenders against... the inverse of `ignore_ips`, so a rule can banish
-only addresses that appear on a threat feed. Named so a rule stays
-policy-neutral and imports a feed the operator supplies. Each name is a
-file path, or an array of paths, to files of one CIDR or IP per line (`#`
-comments and blank lines skipped). Layered watcher over kur over global,
-merged per name, and every file is reloaded when its mtime changes, so a
-feed that updates on disk takes effect with in a sweep... no restart.
+`namtar_lists` names lists a `namtar_list` gate checks a value against...
+the inverse of `ignore_ips`, so a rule can banish only what appears on a
+feed. Named so a rule stays policy-neutral and imports a feed the operator
+supplies. Layered watcher over kur over global, merged per name, and every
+file is reloaded when its mtime changes, so a feed that updates on disk
+takes effect with in a sweep... no restart.
+
+A list comes in two flavors. The bare form, a file path or an array of
+paths, is a **CIDR list** of one CIDR or IP per line, matched by address
+containment... for gating on the offender IP or a captured address. The
+typed table form may instead be a **string list**, one literal string per
+line, matched by exact equality... for gating on a captured username, URI,
+user-agent, or any other field a rule harvests through the gate's `var`.
+Both skip `#` comments and blank lines.
 
 ```toml
 [namtar_lists]
-threatfeed = "/var/db/baphomet/threatfeed.cidr"
+threatfeed = "/var/db/baphomet/threatfeed.cidr"   # a CIDR list (the default)
 torexits   = [ "/var/db/baphomet/tor.cidr", "/var/db/baphomet/tor6.cidr" ]
+
+[namtar_lists.bait_users]      # a string list of honeypot account names
+type  = "string"
+files = "/var/db/baphomet/bait-accounts.list"
+
+[namtar_lists.bad_agents]      # a string list matched case-insensitively
+type   = "string"
+files  = [ "/var/db/baphomet/bad-agents.list" ]
+nocase = true
 
 [kur.web.namtar_lists]         # override or add for this kur
 threatfeed = "/var/db/baphomet/web-threats.cidr"
 ```
 
-A file that is unreadable or empty matches nobody, so its gate banishes
-nobody from it, and the galla says so loudly at start. A rule names a list
-with the `namtar_list` gate. See [rules](rules).
+`type` defaults to `cidr`, so every existing bare-path list stays a CIDR
+list unchanged. `nocase` folds case at load and lookup and is meaningful
+only for a string list. A file that is unreadable or empty matches nobody,
+so its gate banishes nobody from it, and the galla says so loudly at start.
+A rule names a list with the `namtar_list` gate. See [rules](rules).
 
 ## Active time windows
 
@@ -125,7 +144,7 @@ of Ereshkigal kurs through a single name. With Ereshkigal's `enable_auth`
 on, the baphomet user need only be granted the gate, not any member.
 
 Scalar keys inside a kur hash are settings for that kur
-(`max_retrys`/`find_time`/`ban_time`, plus a `ignore_ips` array extending
+(`max_score`/`find_time`/`ban_time`, plus a `ignore_ips` array extending
 the global one). Hash keys inside it are watchers, each binding one log
 file to a parser and a rule. The key name of a watcher is just a freeform
 name used in logs and status output.
@@ -133,7 +152,7 @@ name used in logs and status output.
 ```toml
 # the base kur config for sshd
 [kur.sshd]
-max_retrys=5
+max_score=5
 ban_time=300
 # read authlog
 # the key for the hash under sshd is just a freeform name
@@ -152,16 +171,19 @@ Watcher keys...
 | `parser` | The parser for lines of that log. Defaults to `syslog`. |
 | `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. With an array, rules are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `parser` (journal) | A journal watcher's parser defaults to `journal`. |
-| `max_retrys` / `find_time` / `ban_time` | Optional overrides for this watcher. |
-| `allow_per_rule_thresholds` | Whether this watcher honors thresholds a rule carries. |
+| `max_score` / `find_time` / `ban_time` | Optional overrides for this watcher. |
+| `allow_per_rule_thresholds` | Whether this watcher honors thresholds and weights a rule carries. |
+| `eve_only` | Put this watcher in observe mode... match and write to EVE but never banish. |
+| `observe_ignored` | When observing, also process what `ignore_ips` would drop. |
 | `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
-| `namtar_lists` | Named CIDR file lists overriding the kur's and global's for this watcher's rules. A hash. |
+| `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
 | `active_time` | Named time windows overriding the kur's and global's for this watcher's rules. A hash. |
 
-`max_retrys`, `find_time`, `ban_time`, and `allow_per_rule_thresholds`
-layer watcher over kur over global over default.
+`max_score`, `find_time`, `ban_time`, `allow_per_rule_thresholds`,
+`eve_only`, and `observe_ignored` layer watcher over kur over global over
+default.
 
-With `allow_per_rule_thresholds` on, a rule carrying its own `max_retrys`,
+With `allow_per_rule_thresholds` on, a rule carrying its own `max_score`,
 `find_time`, or `ban_time` speaks over the watcher... the layering becomes
 rule over watcher over kur over global. The flag is the consent, and it is
 off by default, so the aggressive numbers some shipped rules carry (one
@@ -199,14 +221,14 @@ and spoken to only by the manager.
 Every banishment any galla makes is chiseled into a shared ledger under
 the tablet dir, readable via `baphomet ledger`. The `[recidive]` table
 turns on repeat offender escalation against that ledger... a IP banished
-`max_retrys` times across all kurs with in `find_time` is dragged through
+`max_score` times across all kurs with in `find_time` is dragged through
 a further gate... banished to the `recidive` kur, which should hold them
 long.
 
 ```toml
 [recidive]
 kur        = "recidive"   # the deeper kur, over on the Ereshkigal side
-max_retrys = 5            # banishments before a IP is a recidivist
+max_score = 5            # banishments before a IP is a recidivist
 find_time  = 604800       # counted over a week
 ban_time   = 0            # eternal
 ```
@@ -214,7 +236,7 @@ ban_time   = 0            # eternal
 | key | default | what |
 | --- | --- | --- |
 | `kur` | required | The kur recidivists are banished to. There must be a matching kur on the Ereshkigal side, covering everything worth protecting... a fan_out gate over every real kur suits it well. |
-| `max_retrys` | `5` | Banishments before a IP is a recidivist. |
+| `max_score` | `5` | Banishments before a IP is a recidivist. |
 | `find_time` | `604800` | The window, a week by default, the banishments are counted over. |
 | `ban_time` | `0` | How long a recidivist is held, 0 being eternal. |
 
@@ -249,7 +271,7 @@ nothing.
 ```toml
 ereshkigal_socket = "/var/run/ereshkigal/socket"
 socket_group = "wheel"
-max_retrys = 5
+max_score = 5
 find_time = 600
 ban_time = 3600
 
@@ -266,7 +288,7 @@ log = "/jails/shell/var/log/auth.log"
 parser = "bsd_syslog"
 rule = "syslog/sshd"
 # the jail is more sensitive
-max_retrys = 3
+max_score = 3
 ```
 
 Two watchers of the same kur share one offense counter, so an IP failing in

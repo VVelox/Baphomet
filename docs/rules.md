@@ -81,7 +81,7 @@ The captures to use for bans. For each name here that a matching line
 captured, the captured value is an IP that gets a hit registered against
 it. Usually just `SRC`.
 
-### max_retrys / find_time / ban_time
+### max_score / find_time / ban_time / weight
 
 Optional, on every rule type. The rule's own word on how it is counted
 and how long the ban runs, for rules where the watcher's numbers are the
@@ -89,16 +89,40 @@ wrong fit... one shellshock probe is a verdict, five mistyped passwords
 are not. These are inert unless the watcher's
 `allow_per_rule_thresholds` config setting is on... the flag is the
 consent, and with it given the layering becomes rule over watcher over
-kur over global. A rule overriding `max_retrys` or `find_time` counts
+kur over global. A rule overriding `max_score` or `find_time` counts
 into its own bucket, so its window does not touch the shared count other
 rules build against the same IP, while a `ban_time`-only override counts
 in the shared bucket and only bans differently.
 
+`max_score` is a **score** to reach, not a plain retry count. Each match
+deposits the rule's `weight`, a positive number defaulting to 1, and an
+offender is banished once the surviving weights in the window sum to
+`max_score`. So a dangerous signature can weigh 10 and banish on one hit,
+a noisy one weigh 1, and several different rules against one IP accrue
+together toward the one threshold, sshguard-style, instead of racing
+separate counters. With every weight 1 the score is just the hit count,
+exactly as before, so nothing changes for unweighted rules. `weight`,
+like the thresholds, is honored only under `allow_per_rule_thresholds`.
+
 ```yaml
-# one hit is enough, hold the door eternally
-max_retrys: 1
+# one heavy hit is enough, hold the door eternally
+weight: 10
+max_score: 10
 ban_time: 0
 ```
+
+### eve_only
+
+Optional, on every rule type, and also settable at the global, kur, and
+watcher level (see [configuration](configuration)). Puts the rule in
+**observe mode**: its matches are written to EVE but never count toward a
+real ban. A would-be banish surfaces as an `alert` event and each match as
+`noted` rather than `found`, so a new rule can be stood up and watched
+before it is trusted to act... CrowdSec's simulation, on a rule. The rule's
+own `eve_only` layers over the watcher-resolved one, so a deployment can be
+set observe at any level and a trusted rule opt back in with
+`eve_only: false`. The gates all still run; observe mode changes the
+consequence, not the matching. See [eve](eve) for the event shapes.
 
 ### tests
 
@@ -197,13 +221,13 @@ marked:
   - name: sshd-account-src
     var: USER
     value_not: SRC
-max_retrys: 1
+max_score: 1
 ```
 
 Order matters: list the reading rule (`sshd-spray`) before the branding
 one (`sshd-mark-users`) in the watcher, so the gate sees the source that
 established the account rather than the one the same line would re-brand
-it with. Since `sshd-spray` carries `max_retrys: 1`, it only fires where
+it with. Since `sshd-spray` carries `max_score: 1`, it only fires where
 the kur sets `allow_per_rule_thresholds`.
 
 Marks are galla state, so a rule's own embedded tests can not exercise
@@ -225,7 +249,7 @@ country:
   isnot:                              # count only if NOT in these
     - "%%%country_codes{allowed}%%%"  # import a named list from the config
     - "MX"                            # literal 2-letter codes compose too
-max_retrys: 1
+max_score: 1
 ```
 
 `is` or `isnot`, at most one. Each list entry is either a literal ISO 3166
@@ -262,28 +286,33 @@ compose one from an offense rule plus a `country` gate and your own
 
 ## Namtar list gate... only the already-condemned
 
-A `namtar_list` gate only lets a match count when a IP appears on a named
-blocklist, the inverse of `ignore_ips`. The lists are CIDR files named in
-the config's `namtar_lists`, layered per watcher and reloaded on mtime
-change, so a rule can banish only addresses on a threat feed you supply.
+A `namtar_list` gate only lets a match count when a value appears on a named
+blocklist, the inverse of `ignore_ips`. The lists are named in the config's
+`namtar_lists`, layered per watcher and reloaded on mtime change, so a rule
+can count only what a feed you supply condemns. A list is either a **CIDR
+list** matched by address containment, or a **string list** matched by exact
+(optionally case-folded) equality... so the gate reaches beyond IPs to any
+field a rule captures, a username, a URI, a user-agent. The flavor is set on
+the list in the config, not here, so a rule stays a pure matcher.
 
 ```yaml
 namtar_list:
   - lists: [ threatfeed, torexits ]   # SRC on ANY of these (union)
     var: SRC
-  - list: corpnets                    # scalar shorthand
-    var: dest_ip                      # check the dest, still ban the src
-max_retrys: 1
+  - list: bait_users                  # a string list of honeypot accounts
+    var: USER                         # check the user, still ban the offender
+max_score: 1
 ```
 
 The gate is a array of entries. Each names one or more lists (`lists`, or
 `list` for one) and, optionally, the found var to check (resolved like
 `ban_var`, so JSON dotted paths work); without a var it checks the offender
 IP. A value on **any** of an entry's lists satisfies it (union), and
-**every** entry must hold. Like the country gate, a var entry is data-keyed
-and vets the whole result while a var-less one filters offenders, so a rule
-can gate on a captured address it is not banning. Paired with `max_retrys:
-1`, one hit from a listed address is enough.
+**every** entry must hold. An entry may even union lists of different
+flavors, each value tested against each list its own way. Like the country
+gate, a var entry is data-keyed and vets the whole result while a var-less
+one filters offenders, so a rule can gate on a captured field it is not
+banning. Paired with `max_score: 1`, one hit on a listed value is enough.
 
 The gate **fails closed**: an address on no list, or a list whose file is
 unreadable or empty, blocks the count... an absent feed banishes nobody,
@@ -304,7 +333,7 @@ active_time:
   is: [ business, mixed ]     # count only when the time is in ANY of these (union)
   # xor  isnot: [ overnight ] # count only when in NONE of them
   vars: [ ts ]                # optional: which found value holds the time; default = now
-max_retrys: 1
+max_score: 1
 ```
 
 `is` or `isnot`, at most one, each a list of window names resolved against

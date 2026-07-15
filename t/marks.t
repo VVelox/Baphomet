@@ -67,10 +67,10 @@ is( $rule->mark_gates->{marked}[0]{value_not}, 'ip', 'mark_gates accessor' );
 my %rules = (
 	'mark' => "mark_only: true\nmark:\n  - name: acct\n    ttl: 3600\n    var: user\n    value_var: ip\n",
 	'spray' =>
-		"marked:\n  - name: acct\n    var: user\n    value_not: ip\nmax_retrys: 1\n",
+		"marked:\n  - name: acct\n    var: user\n    value_not: ip\nmax_score: 1\n",
 	'count'     => '',
 	'markgood'  => "gate2: login\nmark_only: true\nmark:\n  - name: known\n    ttl: 3600\n",
-	'blockbad'  => "not_marked:\n  - name: known\nmax_retrys: 1\n",
+	'blockbad'  => "not_marked:\n  - name: known\nmax_score: 1\n",
 	'mark2'     => "gate2: bad\nmark_only: true\nmark:\n  - name: flag\n    ttl: 3600\n",
 	'clear'     => "gate2: good\nmark_only: true\nunmark:\n  - name: flag\n",
 	'ipmark'    => "gate2: hit\nmark_only: true\nmark:\n  - name: seen\n    ttl: 3600\n",
@@ -95,7 +95,7 @@ ereshkigal_socket = "$dir/nonexistent.sock"
 ignore_ips = [ "127.0.0.0/8" ]
 
 [kur.marks]
-max_retrys = 5
+max_score = 5
 allow_per_rule_thresholds = true
 
 [kur.marks.spray]

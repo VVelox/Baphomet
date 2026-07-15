@@ -161,14 +161,18 @@ rules/syslog/monit.yaml
 rules/syslog/murmur.yaml
 rules/syslog/nagios.yaml
 rules/syslog/named-refused.yaml
+rules/syslog/openvpn.yaml
 rules/syslog/pam-generic.yaml
 rules/syslog/perdition.yaml
 rules/syslog/phpmyadmin-syslog.yaml
 rules/syslog/postfix-sasl.yaml
 rules/syslog/postfix.yaml
+rules/syslog/postgresql.yaml
 rules/syslog/proftpd.yaml
 rules/syslog/pure-ftpd.yaml
 rules/syslog/qmail.yaml
+rules/syslog/rsyncd.yaml
+rules/syslog/samba.yaml
 rules/syslog/scanlogd.yaml
 rules/syslog/screensharingd.yaml
 rules/syslog/sendmail-auth.yaml
@@ -194,6 +198,7 @@ t/cli.t
 t/commands.t
 t/country.t
 t/eve-log.t
+t/eve-only.t
 t/galla-journal.t
 t/galla.t
 t/ignore-ips.t
@@ -226,3 +231,4 @@ t/rules-shipped.t
 t/rules.t
 t/state-tablets.t
 t/stop-wait.t
+t/weighted.t

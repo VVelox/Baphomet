@@ -45,7 +45,7 @@ ereshkigal_socket = "$dir/nonexistent.sock"
 
 [recidive]
 kur = "recidive"
-max_retrys = 3
+max_score = 3
 find_time = 604800
 ban_time = 0
 

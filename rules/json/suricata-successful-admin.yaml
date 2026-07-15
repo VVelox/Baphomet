@@ -18,7 +18,7 @@ ban_var:
 ban_not_internal: true
 # a priority 1 signal... one alert is enough, when the kur allows
 # per-rule thresholds
-max_retrys: 1
+max_score: 1
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST successful-admin","category":"Successful Administrator Privilege Gain","severity":1}}'

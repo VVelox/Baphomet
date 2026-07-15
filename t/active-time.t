@@ -152,7 +152,7 @@ ban_var:
 active_time:
   is: [ business ]
   vars: [ ts ]
-max_retrys: 1
+max_score: 1
 EOR
 close($rf);
 
@@ -168,7 +168,7 @@ days = [ 1, 2, 3, 4, 5 ]
 hours = "0900-1700"
 
 [kur.at]
-max_retrys = 1
+max_score = 1
 allow_per_rule_thresholds = true
 
 [kur.at.w]

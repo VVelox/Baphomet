@@ -1,6 +1,48 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - BREAKING: max_retrys is renamed max_score, everywhere it appeared...
+          the config setting (global, kur, watcher), the per-rule override,
+          the recidive table, and every shipped rule. Rename it in your
+          config and any local rules. It now reads as a score to reach, not
+          a retry count.
+        - Weighted scoring. A rule may carry a weight, a positive number
+          defaulting to 1, and max_score is the accumulated score at which an
+          offender is banished. Each match deposits its rule's weight, so a
+          dangerous signature can weigh 10 and banish on one hit while a noisy
+          one weighs 1, and several rules against one IP sum toward the one
+          threshold (sshguard's model) instead of racing separate counters.
+          With every weight 1 the score is the old count exactly. Weight is
+          honored under the same allow_per_rule_thresholds consent as the
+          thresholds. The counters tablet grew a weight column, old rows
+          restoring at 1; baphomet accused now shows hits and score both; the
+          EVE count field is renamed score.
+        - Observe mode, eve_only. A rule, watcher, kur, or the whole
+          deployment can be set eve_only (a rule's own layering over the
+          watcher-resolved value, most-specific winning, so a deployment can
+          observe globally and trusted rules opt back in with eve_only:
+          false). An eve_only rule matches and writes to EVE but never
+          banishes... a would-be ban becomes an alert event and each match a
+          noted event, into a shadow counter kept wholly apart from the real
+          ones. CrowdSec's simulation, per rule. observe_ignored (global, kur,
+          watcher) widens observe mode to also score what ignore_ips would
+          drop. Tested in t/weighted.t and t/eve-only.t.
+        - The namtar_list gate reaches beyond IPs. A namtar_lists entry may
+          now be a typed table, {type = "string", files = ..., nocase = ...},
+          declaring a string list matched by exact (optionally case-folded)
+          equality instead of a CIDR list matched by address. Paired with a
+          gate entry's var, a rule can count only when a captured username,
+          URI, user-agent, or any other field is on a named roll... a
+          honeypot-account or known-bad-path list, not just a threat feed of
+          addresses. The bare path/array form stays a CIDR list, so existing
+          config is unchanged. One entry may union lists of both flavors.
+        - Four new syslog rules for daemons fail2ban does not cover, ported
+          from Sagan: syslog/openvpn (auth/TLS handshake failures),
+          syslog/postgresql (password auth failures... needs `%h` in
+          log_line_prefix), syslog/samba (smbd connection denials), and
+          syslog/rsyncd (rsync daemon module auth failures). Each needs the
+          daemon logging through syslog. No engine changes... daemon gating,
+          ban_var, and per-rule thresholds already carry them.
         - Renamed the consign vocabulary to banish, on theme for the
           underworld... the baphomet consigned command is now baphomet
           banished, the EVE event_type consign is now banish, and the shared
@@ -64,7 +106,7 @@ Revision history for App-Baphomet
           force per-IP counting can not see.
         - Per-rule thresholds, gated by the new allow_per_rule_thresholds
           setting (global, per kur, per watcher... off by default). With
-          the flag on, a rule carrying its own max_retrys, find_time, or
+          the flag on, a rule carrying its own max_score, find_time, or
           ban_time speaks over the watcher, the layering becoming rule
           over watcher over kur over global. A rule overriding how
           counting works gets its own counter bucket so its window does

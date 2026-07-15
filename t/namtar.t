@@ -30,13 +30,44 @@ my $resolved = resolve_namtar_lists(
 	{ namtar_lists => { bad => [ '/k/bad1', '/k/bad2' ] } },
 	{ namtar_lists => { tor => '/w/tor' } }
 );
-is_deeply( $resolved->{bad}, [ '/k/bad1', '/k/bad2' ], 'kur overrides a same-named list' );
-is_deeply( $resolved->{tor}, ['/w/tor'], 'watcher overrides and a scalar normalizes to a array' );
+is_deeply(
+	$resolved->{bad},
+	{ type => 'cidr', nocase => 0, paths => [ '/k/bad1', '/k/bad2' ] },
+	'kur overrides a same-named list, resolving to a cidr spec'
+);
+is_deeply(
+	$resolved->{tor},
+	{ type => 'cidr', nocase => 0, paths => ['/w/tor'] },
+	'watcher overrides and a scalar normalizes to a array'
+);
+
+# the typed table form resolves its type, nocase, and files
+my $typed = resolve_namtar_lists(
+	{ namtar_lists => { users => { type => 'string', files => '/g/users', nocase => JSON::MaybeXS::true() } } },
+	undef, undef
+);
+is_deeply(
+	$typed->{users},
+	{ type => 'string', nocase => 1, paths => ['/g/users'] },
+	'a typed string list resolves its type, nocase, and files'
+);
 
 is( App::Baphomet::Config::_namtar_lists_error( { x => '/p' },        'w' ), undef, 'a path passes' );
 is( App::Baphomet::Config::_namtar_lists_error( { x => [ '/a', '/b' ] }, 'w' ), undef, 'a array of paths passes' );
+is( App::Baphomet::Config::_namtar_lists_error( { x => { type => 'string', files => '/p' } }, 'w' ),
+	undef, 'a typed string list passes' );
+is( App::Baphomet::Config::_namtar_lists_error( { x => { files => [ '/a', '/b' ] } }, 'w' ),
+	undef, 'a typed table without a type defaults to cidr and passes' );
 like( App::Baphomet::Config::_namtar_lists_error( { x => [] }, 'w' ), qr/empty array/, 'a empty array fails' );
 like( App::Baphomet::Config::_namtar_lists_error( { x => [''] }, 'w' ), qr/non-empty path/, 'a empty path fails' );
+like( App::Baphomet::Config::_namtar_lists_error( { x => { type => 'glob', files => '/p' } }, 'w' ),
+	qr/type that is not/, 'a unknown type fails' );
+like( App::Baphomet::Config::_namtar_lists_error( { x => { type => 'string' } }, 'w' ),
+	qr/missing files/, 'a typed table without files fails' );
+like( App::Baphomet::Config::_namtar_lists_error( { x => { type => 'cidr', files => '/p', nocase => JSON::MaybeXS::true() } }, 'w' ),
+	qr/nocase on a non-string/, 'nocase on a cidr list fails' );
+like( App::Baphomet::Config::_namtar_lists_error( { x => { type => 'string', files => '/p', huh => 1 } }, 'w' ),
+	qr/unknown key/, 'a unknown key in a typed table fails' );
 
 my ( $settings, $watchers ) = kur_split( { namtar_lists => { a => '/p' }, w => { log => 'x' } } );
 ok( defined( $settings->{namtar_lists} ),  'kur_split keeps namtar_lists a setting' );
@@ -85,15 +116,28 @@ close($fh);
 open( $fh, '>', $dir . '/override-bad.cidr' ) || die($!);
 print $fh "198.51.100.0/24\n";
 close($fh);
+# string list files... one exact-case, one meant for a nocase gate
+open( $fh, '>', $dir . '/users.list' ) || die($!);
+print $fh "# bait accounts\nroot\nadmin\noracle\n";
+close($fh);
+open( $fh, '>', $dir . '/badbots.list' ) || die($!);
+print $fh "EvilBot\nScanner\n";
+close($fh);
 # note: $dir/missing.cidr is deliberately never created
 
+# the galla keys its namtar cache by (type, nocase, path)
+sub slotkey { return join( "\0", @_ ); }
+
 my %rules = (
-	'block'       => "namtar_list:\n  - list: bad\nmax_retrys: 1\n",
-	'block-union' => "namtar_list:\n  - lists: [ bad, tor ]\nmax_retrys: 1\n",
-	'guard'       => "namtar_list:\n  - list: bad\n    var: peer\nmax_retrys: 1\n",
-	'empty'       => "namtar_list:\n  - list: missing\nmax_retrys: 1\n",
+	'block'       => "namtar_list:\n  - list: bad\nmax_score: 1\n",
+	'block-union' => "namtar_list:\n  - lists: [ bad, tor ]\nmax_score: 1\n",
+	'guard'       => "namtar_list:\n  - list: bad\n    var: peer\nmax_score: 1\n",
+	'empty'       => "namtar_list:\n  - list: missing\nmax_score: 1\n",
+	'bait'        => "namtar_list:\n  - list: users\n    var: user\nmax_score: 1\n",
+	'bait-ci'     => "namtar_list:\n  - list: bots\n    var: agent\nmax_score: 1\n",
+	'mixed'       => "namtar_list:\n  - lists: [ tor, users ]\n    var: token\nmax_score: 1\n",
 );
-my %ban_var = ( 'guard' => 'src_ip' );
+my %ban_var = ( 'guard' => 'src_ip', 'bait' => 'src_ip', 'bait-ci' => 'src_ip', 'mixed' => 'src_ip' );
 foreach my $name ( keys(%rules) ) {
 	open( my $rf, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
 	my $bv = defined( $ban_var{$name} ) ? $ban_var{$name} : 'ip';
@@ -113,8 +157,17 @@ bad = "$dir/bad.cidr"
 tor = "$dir/tor.cidr"
 missing = "$dir/missing.cidr"
 
+[namtar_lists.users]
+type = "string"
+files = "$dir/users.list"
+
+[namtar_lists.bots]
+type = "string"
+files = "$dir/badbots.list"
+nocase = true
+
 [kur.nam]
-max_retrys = 5
+max_score = 5
 allow_per_rule_thresholds = true
 
 [kur.nam.blockw]
@@ -144,6 +197,21 @@ rule = [ "json/block" ]
 
 [kur.nam.overridew.namtar_lists]
 bad = "$dir/override-bad.cidr"
+
+[kur.nam.baitw]
+log = "$dir/l6"
+parser = "json"
+rule = [ "json/bait" ]
+
+[kur.nam.baitciw]
+log = "$dir/l7"
+parser = "json"
+rule = [ "json/bait-ci" ]
+
+[kur.nam.mixedw]
+log = "$dir/l8"
+parser = "json"
+rule = [ "json/mixed" ]
 EOC
 close($cfg);
 
@@ -198,10 +266,45 @@ feed( $galla, 'overridew', event => 'fail', ip => '198.51.100.7' );
 is_deeply( \@sent, ['198.51.100.7'], 'and banishes one the overridden list does hold' );
 
 # a missing file loaded empty, so its gate matches nobody
-is_deeply( $galla->{namtar_files}{ $dir . '/missing.cidr' }{set}, [], 'a missing feed loads as a empty set' );
+is_deeply( $galla->{namtar_files}{ slotkey( 'cidr', 0, $dir . '/missing.cidr' ) }{set},
+	[], 'a missing feed loads as a empty set' );
 @sent = ();
 feed( $galla, 'emptyw', event => 'fail', ip => '10.1.2.3' );
 is_deeply( \@sent, [], 'a gate over a missing feed fails closed' );
+
+#
+# string list gates... exact and nocase, and a mixed-type union
+#
+
+# a var gate over a string list bans the src when the checked field is listed
+@sent = ();
+feed( $galla, 'baitw', event => 'fail', user => 'root', src_ip => '8.8.8.8' );
+is_deeply( \@sent, ['8.8.8.8'], 'a string gate bans the src when the checked field is a listed name' );
+@sent = ();
+feed( $galla, 'baitw', event => 'fail', user => 'kitsune', src_ip => '1.2.3.4' );
+is_deeply( \@sent, [], 'a string gate vetoes when the field is not a listed name' );
+@sent = ();
+feed( $galla, 'baitw', event => 'fail', user => 'ROOT', src_ip => '1.2.3.4' );
+is_deeply( \@sent, [], 'an exact string gate is case sensitive' );
+
+# a nocase string gate folds case both ways
+@sent = ();
+feed( $galla, 'baitciw', event => 'fail', agent => 'evilbot', src_ip => '9.9.9.9' );
+is_deeply( \@sent, ['9.9.9.9'], 'a nocase string gate matches a case-folded value' );
+@sent = ();
+feed( $galla, 'baitciw', event => 'fail', agent => 'Firefox', src_ip => '1.2.3.4' );
+is_deeply( \@sent, [], 'a nocase string gate still vetoes an unlisted value' );
+
+# one entry unioning a cidr list and a string list dispatches per slot
+@sent = ();
+feed( $galla, 'mixedw', event => 'fail', token => '203.0.113.9', src_ip => '5.5.5.5' );
+is_deeply( \@sent, ['5.5.5.5'], 'a mixed union matches a value on the cidr slot' );
+@sent = ();
+feed( $galla, 'mixedw', event => 'fail', token => 'admin', src_ip => '6.6.6.6' );
+is_deeply( \@sent, ['6.6.6.6'], 'a mixed union matches a value on the string slot' );
+@sent = ();
+feed( $galla, 'mixedw', event => 'fail', token => 'nobody', src_ip => '7.7.7.7' );
+is_deeply( \@sent, [], 'a mixed union vetoes a value on neither slot' );
 
 #
 # a feed reloads on mtime change... the missing file appears, the sweeper
@@ -217,7 +320,7 @@ feed( $galla, 'emptyw', event => 'fail', ip => '172.16.5.5' );
 is_deeply( \@sent, ['172.16.5.5'], 'the sweeper picks up a feed that appeared' );
 
 # an existing feed gaining an entry, with a bumped mtime so the sweep sees it
-my $cached = $galla->{namtar_files}{ $dir . '/bad.cidr' }{mtime};
+my $cached = $galla->{namtar_files}{ slotkey( 'cidr', 0, $dir . '/bad.cidr' ) }{mtime};
 open( $fh, '>', $dir . '/bad.cidr' ) || die($!);
 print $fh "10.0.0.0/8\n192.0.2.5\n8.8.8.8\n";
 close($fh);
@@ -235,9 +338,21 @@ my $ref_rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/z',
 	def  => { %{$base}, namtar_list => [ { list => 'nope' } ] }
 );
-eval { $galla->_resolve_namtar_gate( $ref_rule, { bad => ['/x'] }, 'where' ); };
+eval {
+	$galla->_resolve_namtar_gate( $ref_rule, { bad => { type => 'cidr', nocase => 0, paths => ['/x'] } }, 'where' );
+};
 like( $@, qr/nope.*not a defined list/, 'referencing a undefined namtar list dies' );
-my $ok = $galla->_resolve_namtar_gate( $ref_rule, { nope => [ '/a', '/b' ] }, 'where' );
-is_deeply( $ok->[0]{paths}, [ '/a', '/b' ], 'a defined reference resolves to its file paths' );
+my $ok = $galla->_resolve_namtar_gate(
+	$ref_rule,
+	{ nope => { type => 'string', nocase => 1, paths => [ '/a', '/b' ] } }, 'where'
+);
+is_deeply(
+	$ok->[0]{slots},
+	[
+		{ type => 'string', nocase => 1, path => '/a' },
+		{ type => 'string', nocase => 1, path => '/b' },
+	],
+	'a defined reference resolves to its typed slots'
+);
 
 done_testing;

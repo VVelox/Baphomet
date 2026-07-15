@@ -25,18 +25,18 @@ make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
 # resolve_settings layering and normalization
 #
 
-my $resolved = resolve_settings( { max_retrys => 5, find_time => 600, allow_per_rule_thresholds => 0 }, {}, {} );
+my $resolved = resolve_settings( { max_score => 5, find_time => 600, allow_per_rule_thresholds => 0 }, {}, {} );
 is( $resolved->{allow_per_rule_thresholds}, 0, 'flag defaults off via the global' );
 
 $resolved = resolve_settings(
-	{ max_retrys => 5, find_time => 600, allow_per_rule_thresholds => 0 },
+	{ max_score => 5, find_time => 600, allow_per_rule_thresholds => 0 },
 	{ allow_per_rule_thresholds => JSON::PP::true },
 	{}
 );
 is( $resolved->{allow_per_rule_thresholds}, 1, 'kur-level flag wins over the global and normalizes to 1' );
 
 $resolved = resolve_settings(
-	{ max_retrys => 5, find_time => 600, allow_per_rule_thresholds => 1 },
+	{ max_score => 5, find_time => 600, allow_per_rule_thresholds => 1 },
 	{ allow_per_rule_thresholds => 1 },
 	{ allow_per_rule_thresholds => JSON::PP::false }
 );
@@ -56,11 +56,11 @@ is_deeply( $rule->thresholds, {}, 'a rule without overrides has empty thresholds
 
 $rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/x',
-	def  => { %{$base_def}, max_retrys => 1, ban_time => 0 }
+	def  => { %{$base_def}, max_score => 1, ban_time => 0 }
 );
-is_deeply( $rule->thresholds, { max_retrys => 1, ban_time => 0 }, 'thresholds holds only the keys the def sets' );
+is_deeply( $rule->thresholds, { max_score => 1, ban_time => 0 }, 'thresholds holds only the keys the def sets' );
 
-foreach my $bad ( { max_retrys => 0 }, { find_time => 'soon' }, { ban_time => -1 } ) {
+foreach my $bad ( { max_score => 0 }, { find_time => 'soon' }, { ban_time => -1 } ) {
 	my $err;
 	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, %{$bad} } ); };
 	$err = $@;
@@ -78,8 +78,8 @@ foreach my $bad ( { max_retrys => 0 }, { find_time => 'soon' }, { ban_time => -1
 # fast bans on the first hit, two on the second, bt only overrides the ban
 # duration, slow carries nothing of its own
 my %rules = (
-	fast => "max_retrys: 1\nban_time: 9999\n",
-	two  => "max_retrys: 2\n",
+	fast => "max_score: 1\nban_time: 9999\n",
+	two  => "max_score: 2\n",
 	bt   => "ban_time: 777\n",
 	slow => '',
 );
@@ -99,7 +99,7 @@ rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
 
 [kur.ids]
-max_retrys = 3
+max_score = 3
 allow_per_rule_thresholds = $allow
 
 [kur.ids.eve]
@@ -132,7 +132,7 @@ my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 
 
 @sent = ();
 feed( $galla, 'fast', '203.0.113.1' );
-is_deeply( \@sent, [], 'flag off, a max_retrys 1 rule does not ban on the first hit' );
+is_deeply( \@sent, [], 'flag off, a max_score 1 rule does not ban on the first hit' );
 is( scalar( @{ $galla->{counters}{'203.0.113.1'} } ), 1, 'flag off, the hit lands in the shared bucket' );
 is_deeply( $galla->{rule_counters}, {}, 'flag off, no per-rule buckets form' );
 
@@ -147,16 +147,16 @@ delete( $galla->{counters}{'203.0.113.1'} );
 
 @sent = ();
 feed( $galla, 'fast', '203.0.113.2' );
-is_deeply( \@sent, [ [ '203.0.113.2', 9999 ] ], 'flag on, a max_retrys 1 rule bans on the first hit, its ban_time' );
+is_deeply( \@sent, [ [ '203.0.113.2', 9999 ] ], 'flag on, a max_score 1 rule bans on the first hit, its ban_time' );
 ok( !defined( $galla->{rule_counters}{'json/fast'}{'203.0.113.2'} ), 'the bucket is dropped on the ban' );
 
 # the shared bucket and a per-rule bucket do not cross-contaminate
 @sent = ();
 feed( $galla, 'slow', '203.0.113.3' );
 feed( $galla, 'slow', '203.0.113.3' );
-is_deeply( \@sent, [], 'two slow hits are under the watcher max_retrys of 3' );
+is_deeply( \@sent, [], 'two slow hits are under the watcher max_score of 3' );
 feed( $galla, 'two', '203.0.113.3' );
-is_deeply( \@sent, [], 'a first hit on a max_retrys 2 rule does not borrow the shared count' );
+is_deeply( \@sent, [], 'a first hit on a max_score 2 rule does not borrow the shared count' );
 is( scalar( @{ $galla->{counters}{'203.0.113.3'} } ),                       2, 'the shared bucket still holds 2' );
 is( scalar( @{ $galla->{rule_counters}{'json/two'}{'203.0.113.3'} } ),      1, 'the rule bucket holds its own 1' );
 

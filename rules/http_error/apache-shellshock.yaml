@@ -10,7 +10,7 @@ message_regexp:
   - '^/bin/(?:[bd]a)?sh: error importing function definition for `HTTP_[^'']+''(?:, referer: \S+)?\s*$'
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
-max_retrys: 1
+max_score: 1
 tests:
   positive:
     - message: '[Thu Sep 25 09:27:18.813902 2014] [cgi:error] [pid 16860] [client 89.207.132.76:59635] AH01215: /bin/bash: warning: HTTP_TEST: ignoring function definition attempt'

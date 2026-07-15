@@ -1,0 +1,36 @@
+---
+# Matches rsync daemon module authentication failures. No fail2ban filter
+# exists for this, so it is modelled on Sagan's rsync.rules. Requires the
+# rsync daemon (`rsync --daemon`, or run from inetd/xinetd) to log through
+# syslog. The offender address rides in the trailing parens after the
+# connecting name. Only the auth-failure signal is ported... Sagan's
+# stat/permission and transfer-stats rules are informational and carry no
+# offender.
+daemons:
+  - rsyncd
+  - rsync
+message_regexp:
+  - '^auth failed on module \S+ from \S+ \(%%%%SRC%%%%\)'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 14 08:15:50 backuphost rsyncd[9876]: auth failed on module backups from unknown (203.0.113.10)"
+      found: 1
+      data:
+        SRC: "203.0.113.10"
+    - message: "Jul 14 08:15:50 backuphost rsyncd[9876]: auth failed on module data from client.example.com (198.51.100.5): password mismatch"
+      found: 1
+      data:
+        SRC: "198.51.100.5"
+    - message: "Jul 14 08:15:50 backuphost rsyncd[9876]: auth failed on module vault from unknown (2001:db8::1)"
+      found: 1
+      data:
+        SRC: "2001:db8::1"
+  negative:
+    - message: "Jul 14 08:16:00 backuphost rsyncd[9876]: rsync to data/ from bob@client.example.com (203.0.113.10)"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 14 08:16:00 backuphost rsyncd[9876]: connection unexpectedly closed (0 bytes received so far) [receiver]"
+      found: 0
+      undefed: ["SRC"]

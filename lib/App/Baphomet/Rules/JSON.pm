@@ -84,7 +84,7 @@ entry. So a ban_var may name a token capture, like C<SRC> when the address
 had to be dug out of a string, or a field path directly, like
 C<request.client_ip> when the log hands the address over bare.
 
-=head2 max_retrys / find_time / ban_time
+=head2 max_score / find_time / ban_time / weight / eve_only
 
 Optional. The rule's own thresholds, honored only when the watcher's
 C<allow_per_rule_thresholds> config setting is on. See
@@ -157,7 +157,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:gate|match|ignore|ban_var|ban_not_internal|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:gate|match|ignore|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );

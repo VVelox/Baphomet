@@ -16,24 +16,31 @@ land in one stream filterable by `.kur`.
 
 ## The events
 
-One JSON object per line. Two kinds, in `.event_type`...
+One JSON object per line. Four kinds, in `.event_type`... a real pair and an
+observe-mode pair:
 
 - **found** ... a rule matched a line. Written on every match, whether or
   not it tips the offender over the threshold, so it is the full audit of
   what tripped what.
 - **banish** ... an IP was successfully sent below to Kur.
+- **noted** ... the observe-mode twin of `found`, a match under an
+  `eve_only` rule or watcher, which is recorded but never counted toward a
+  real ban. See [rules](rules).
+- **alert** ... the observe-mode twin of `banish`, an offender whose score
+  reached the threshold under observe mode. It reads just like the banish it
+  stands in for, minus the fact of the ban... nothing was sent to Kur.
 
 Every record carries these fields...
 
 | field | what |
 | --- | --- |
 | `eve_type` | `baphomet`, always... marks the producer for downstream tooling. |
-| `event_type` | `found` or `banish`. |
+| `event_type` | `found`, `banish`, `noted`, or `alert`. |
 | `timestamp` | ISO 8601 with zone. |
 | `hostname` | the system hostname. |
 | `kur` | the kur. |
 | `path` | the source... the log file, or `journal:<matches>` for a journal watcher. |
-| `count` | how many times the offender has been seen... its live counter after this hit. |
+| `score` | the offender's accumulated weighted score after this hit... equal to the raw hit count when no weights are in play. |
 | `raw` | the line as received. |
 | `parsed` | the parser's output, or the parsed JSON itself for a JSON log. |
 | `found` | all the found hash keys, what the rule captured. |
@@ -44,8 +51,10 @@ when it is a seventh-gate escalation to the recidive kur. A banish
 triggered by a specific line crossing the threshold carries that line's
 `raw`/`parsed`/`found`/`rule`; one from a pending retry or a recidive
 escalation is the bare banishment. With a `geoip_db` loaded, the
-banished IP's `.country` rides along too. A **found** event carries
-`.marks_set` and `.unmarked` when the rule branded or lifted marks.
+banished IP's `.country` rides along too. An **alert** carries the same
+`.ip`, `.ban_time`, `.score`, and envelope a banish would, being its
+observe-mode stand-in. A **found** or **noted** event carries `.marks_set`
+and `.unmarked` when the rule branded or lifted marks.
 
 ## Reading it
 
@@ -59,13 +68,17 @@ jq -r 'select(.event_type=="found") | .found.SRC // .found.HOST' /var/log/baphom
 
 # what a given IP did, in full
 jq 'select(.found.SRC=="1.2.3.4" or .ip=="1.2.3.4")' /var/log/baphomet/eve.json
+
+# what observe mode WOULD have banished
+jq -r 'select(.event_type=="alert") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.json
 ```
 
 ## Notes
 
 - `found` fires on every match, not every line read, so the volume tracks
   how much abuse is landing, not how chatty the logs are... still, a site
-  under heavy attack writes a lot, so mind the disk.
+  under heavy attack writes a lot, so mind the disk. `noted` and `alert`
+  are the same, for rules running in observe mode.
 - The file is reopened per event, so a logrotate that moves it aside is
   picked up on the next write with no signal needed.
 - It is telemetry, never load bearing... a write failure is logged and

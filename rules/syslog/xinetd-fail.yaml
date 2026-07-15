@@ -12,7 +12,7 @@ ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
-max_retrys: 2
+max_score: 2
 tests:
   positive:
     - message: "May 15 17:38:49 boo xinetd[16256]: FAIL: telnet address from=198.51.100.169"

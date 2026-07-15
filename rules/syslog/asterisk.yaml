@@ -19,7 +19,7 @@ ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
-max_retrys: 10
+max_score: 10
 tests:
   positive:
     - message: "Nov 4 18:30:40 localhost asterisk[32229]: NOTICE[32257]: chan_sip.c:23417 in handle_request_register: Registration from '<sip:301@example.com>' failed for '192.168.200.100:36998' - Wrong password"

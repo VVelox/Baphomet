@@ -14,7 +14,7 @@ ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
-max_retrys: 10
+max_score: 10
 tests:
   positive:
     - message: "Jul 12 08:15:50 vixen42 freeswitch[123]: [WARNING] sofia_reg.c:1533 SIP auth challenge (INVITE) on sofia profile 'internal' for [011448708752617@192.168.2.51] from ip 81.94.202.251"

@@ -118,7 +118,7 @@ sub ban_not_internal {
 
 =head2 thresholds
 
-Returns a hash of the rule's own threshold overrides, max_retrys,
+Returns a hash of the rule's own threshold overrides, max_score,
 find_time, and ban_time, holding only the keys the def actually sets...
 a empty hash for a rule carrying none. The galla is what has the watcher
 settings and decides if these are honored, per its
@@ -135,7 +135,7 @@ sub thresholds {
 
 	if ( !defined( $self->{thresholds} ) ) {
 		my $thresholds = {};
-		foreach my $item ( 'max_retrys', 'find_time', 'ban_time' ) {
+		foreach my $item ( 'max_score', 'find_time', 'ban_time' ) {
 			if ( defined( $self->{def}{$item} ) ) {
 				$thresholds->{$item} = $self->{def}{$item};
 			}
@@ -145,6 +145,45 @@ sub thresholds {
 
 	return $self->{thresholds};
 } ## end sub thresholds
+
+=head2 weight
+
+Returns the rule's weight, a positive number defaulting to 1... what a match
+contributes to the offender's accumulated score toward a ban, so a dangerous
+signature can weigh more and a noisy one less. Honored by the galla only when
+the watcher's C<allow_per_rule_thresholds> is on, like the thresholds, so a
+shipped rule can not quietly reshape an operator's tuning.
+
+    my $weight = $rule->weight;
+
+=cut
+
+sub weight {
+	my ($self) = @_;
+
+	return defined( $self->{def}{weight} ) ? $self->{def}{weight} + 0 : 1;
+}
+
+=head2 eve_only
+
+Returns the rule's own C<eve_only> as 0 or 1, or undef when the rule does not
+set it... undef meaning inherit the watcher-resolved setting. When in force
+the rule is in observe mode: its matches are written to EVE but never count
+toward a real ban, and a would-be banish surfaces as an alert instead.
+
+    my $eve_only = $rule->eve_only;   # undef, 0, or 1
+
+=cut
+
+sub eve_only {
+	my ($self) = @_;
+
+	if ( !exists( $self->{def}{eve_only} ) ) {
+		return undef;
+	}
+
+	return $self->{def}{eve_only} ? 1 : 0;
+}
 
 =head2 marks
 
@@ -583,16 +622,17 @@ my %tokens = (
 	'DEST'   => qr/(?:$IPv4_re|$IPv6_re)/,
 );
 
-# dies if the def's threshold overrides, max_retrys, find_time, and
-# ban_time, hold unusable values... same rules as the config's, positive
-# ints for the first two, non-negative for ban_time as 0 means eternal...
-# called by every handler's new, as the keys are legal on every type
+# dies if the def's threshold overrides, max_score, find_time, and
+# ban_time, or its weight or eve_only, hold unusable values... positive ints
+# for the thresholds (non-negative ban_time, 0 meaning eternal), a positive
+# number for weight, a boolean for eve_only... called by every handler's new,
+# as the keys are legal on every type
 sub _check_thresholds {
 	my ( $self, $def ) = @_;
 
 	my $name = $self->{name};
 
-	foreach my $item ( 'max_retrys', 'find_time' ) {
+	foreach my $item ( 'max_score', 'find_time' ) {
 		if ( defined( $def->{$item} ) && ( ref( $def->{$item} ) ne '' || $def->{$item} !~ /^[0-9]+$/ || !$def->{$item} ) )
 		{
 			die( 'The rule "' . $name . '" has a ' . $item . ', "' . $def->{$item} . '", that is not a positive int' );
@@ -604,6 +644,18 @@ sub _check_thresholds {
 				. '" has a ban_time, "'
 				. $def->{ban_time}
 				. '", that is not a non-negative int of seconds' );
+	}
+	if (
+		defined( $def->{weight} )
+		&& (   ref( $def->{weight} ) ne ''
+			|| $def->{weight} !~ /^[0-9]+(?:\.[0-9]+)?$/
+			|| $def->{weight} + 0 <= 0 )
+		)
+	{
+		die( 'The rule "' . $name . '" has a weight, "' . $def->{weight} . '", that is not a positive number' );
+	}
+	if ( defined( $def->{eve_only} ) && ref( $def->{eve_only} ) ne '' ) {
+		die( 'The rule "' . $name . '" has a eve_only that is not a boolean' );
 	}
 
 	return;

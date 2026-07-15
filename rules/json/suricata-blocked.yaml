@@ -27,7 +27,7 @@ ban_var:
 ban_not_internal: true
 # Suricata already ruled on this flow... one blocked alert is enough, when
 # the kur allows per-rule thresholds
-max_retrys: 1
+max_score: 1
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"10.0.0.5","dest_port":443,"proto":"TCP","alert":{"action":"blocked","gid":1,"signature_id":2402000,"rev":1,"signature":"ET DROP Dshield Block Listed Source group 1","category":"Misc Attack","severity":2}}'

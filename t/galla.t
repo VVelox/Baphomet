@@ -73,7 +73,7 @@ run_base_dir = "$dir/run"
 tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
-max_retrys = 3
+max_score = 3
 find_time = 600
 ignore_ips = [ "127.0.0.0/8" ]
 
@@ -90,12 +90,12 @@ rule = "syslog/sshd"
 log = "$dir/log"
 parser = "bsd_syslog"
 rule = "syslog/sshd"
-max_retrys = 7
+max_score = 7
 
 [kur.sshd.multilog]
 log = "$dir/log"
 rule = [ "syslog/sshd", "syslog/other" ]
-max_retrys = 2
+max_score = 2
 
 [kur.sshd.globlog]
 log = [ "$dir/log", "$dir/glob/*.log", "$dir/notyet.log" ]
@@ -113,11 +113,11 @@ is( $galla->socket_path, $dir . '/run/galla/sshd.sock', 'socket_path' );
 is( $galla->pid_path,    $dir . '/run/galla/sshd.pid',  'pid_path' );
 ok( -d $dir . '/run/galla', 'run galla dir created' );
 
-# settings layering... global max_retrys, kur ban_time, watcher max_retrys
-is( $galla->{watchers}{authlog}{settings}{max_retrys},  3,   'watcher inherits global max_retrys' );
+# settings layering... global max_score, kur ban_time, watcher max_score
+is( $galla->{watchers}{authlog}{settings}{max_score},  3,   'watcher inherits global max_score' );
 is( $galla->{watchers}{authlog}{settings}{ban_time},    300, 'watcher inherits kur ban_time' );
 is( $galla->{watchers}{authlog}{settings}{find_time},   600, 'watcher inherits global find_time' );
-is( $galla->{watchers}{otherlog}{settings}{max_retrys}, 7,   'watcher override of max_retrys' );
+is( $galla->{watchers}{otherlog}{settings}{max_score}, 7,   'watcher override of max_score' );
 
 ok( !eval { App::Baphomet::Galla->new( 'config' => $dir . '/config.toml', 'name' => 'nope' ); 1 },
 	'new dies on a unknown kur' );
@@ -180,11 +180,11 @@ sub feed {
 
 feed('bad thing from 1.2.3.4');
 feed('bad thing from 1.2.3.4');
-is( scalar(@sent),                            0, 'no ban below max_retrys' );
+is( scalar(@sent),                            0, 'no ban below max_score' );
 is( scalar( @{ $galla->{counters}{'1.2.3.4'} } ), 2, 'counter counting' );
 
 feed('bad thing from 1.2.3.4');
-is( scalar(@sent),          1,         'ban at max_retrys' );
+is( scalar(@sent),          1,         'ban at max_score' );
 is( $sent[0]{ip},           '1.2.3.4', 'banned the right IP' );
 is( $sent[0]{ban_time},     300,       'ban_time forwarded' );
 ok( !defined( $galla->{counters}{'1.2.3.4'} ), 'counter reset after the ban' );
@@ -205,7 +205,7 @@ is( $galla->{stats}{unparsed}, 1, 'unparsable line counted' );
 is( scalar(@sent),             1, 'neither banned anything' );
 
 # find_time expiry... age the existing hits out and hit again
-$galla->{counters}{'5.6.7.8'} = [ time - 700, time - 650 ];
+$galla->{counters}{'5.6.7.8'} = [ [ time - 700, 1 ], [ time - 650, 1 ] ];
 feed('bad thing from 5.6.7.8');
 is( scalar( @{ $galla->{counters}{'5.6.7.8'} } ), 1, 'aged out hits no longer count' );
 is( scalar(@sent), 1, 'no ban after aging out' );
@@ -248,7 +248,7 @@ ok( !( grep { $_->{ip} =~ /^(?:127\.|198\.51\.100\.99)/ } @sent ), 'no ignored I
 
 my $sent_before = scalar(@sent);
 $send_error = "no answer from below\n";
-$galla->{counters}{'9.9.9.9'} = [ time, time ];
+$galla->{counters}{'9.9.9.9'} = [ [ time, 1 ], [ time, 1 ] ];
 feed('bad thing from 9.9.9.9');
 is( scalar(@sent),                     $sent_before, 'failed ban not recorded as sent' );
 is( $galla->{stats}{ban_errors},       1,            'ban_errors stat' );

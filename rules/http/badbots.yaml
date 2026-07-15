@@ -17,7 +17,7 @@ match:
     regexp: '(?i:masscan|zgrab|sqlmap|nikto|nuclei|gobuster|feroxbuster|wpscan)'
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
-max_retrys: 1
+max_score: 1
 tests:
   positive:
     - message: '1.2.3.4 - - [05/Mar/2007:14:39:21 +0100] "POST /123.html/trackback/ HTTP/1.0" 301 459 "http://www.mydomain.tld/123.html/trackback" "TrackBack/1.02"'

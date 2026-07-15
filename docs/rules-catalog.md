@@ -10,7 +10,7 @@ Unless said otherwise, the default/normal mode of the fail2ban filter is
 what got ported... the aggressive/ddos mode machinery is dropped.
 
 Rules whose fail2ban jail.conf sets a non-default `maxretry` carry that
-number as their own `max_retrys` (shellshock, badbots, nagios, and
+number as their own `max_score` (shellshock, badbots, nagios, and
 portsentry at 1, the overflow/botsearch family at 2, asterisk and
 freeswitch at 10), as do the priority 1 Suricata classes and
 `json/suricata-blocked` (one alert is enough). These numbers are inert
@@ -42,7 +42,7 @@ see [configuration](configuration) and [rules](rules).
 | `syslog/solid-pop3d` | Solid POP3 auth failures | `solid-pop3d` |
 | `syslog/sshd` | OpenSSH auth failures | `sshd`, `sshd-session` |
 | `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
-| `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_retrys 1`) | `sshd`, `sshd-session` |
+| `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_score 1`) | `sshd`, `sshd-session` |
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
 | `syslog/xinetd-fail` | xinetd connection failures | `xinetd` |
@@ -57,6 +57,10 @@ see [configuration](configuration) and [rules](rules).
 | `syslog/phpmyadmin-syslog` | phpMyAdmin login failures | `phpMyAdmin` |
 | `syslog/drupal-auth` | Drupal login failures (syslog format) | any (site-named) |
 | `syslog/slapd` | OpenLDAP bind failures, correlated by conn id | `slapd` |
+| `syslog/openvpn` | OpenVPN auth/TLS handshake failures | `openvpn` (needs `--syslog`) |
+| `syslog/postgresql` | PostgreSQL password auth failures | `postgres` (needs `log_line_prefix` with `%h`) |
+| `syslog/samba` | Samba connection denials | `smbd` (needs `logging = syslog`) |
+| `syslog/rsyncd` | rsync daemon module auth failures | `rsyncd`, `rsync` |
 
 ## http rules
 
@@ -175,6 +179,12 @@ The shipped set covers essentially every fail2ban filter that is a
 regexp over a log line... the syslog, raw, http, http_error, and multiline
 families above, plus the JSON and Suricata rules. `baphomet check_rules`
 lists them all with their test results.
+
+Four syslog rules go beyond fail2ban's set, drawn from Sagan's rules for
+daemons fail2ban leaves uncovered... `syslog/openvpn`, `syslog/postgresql`,
+`syslog/samba`, and `syslog/rsyncd`. Each needs the daemon to log through
+syslog, and postgresql additionally needs `%h` in its `log_line_prefix` for
+the client address to reach the failure line (see its header comment).
 
 ## Not ported, and why
 

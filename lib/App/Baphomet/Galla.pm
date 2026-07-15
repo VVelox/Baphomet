@@ -43,7 +43,7 @@ our $VERSION = '0.0.1';
 
 Each galla handles a single kur from the config... it follows the log of
 each watcher of that kur, parses the lines, checks them against the rules,
-counts matches per IP, and once a IP racks up max_retrys matches with in
+counts matches per IP, and once a IP racks up max_score matches with in
 find_time seconds, banishes it to Kur via the Ereshkigal manager socket.
 
 Normally spawned and supervised by C<baphomet>, but usable standalone via
@@ -98,6 +98,8 @@ sub new {
 		rules        => undef,
 		counters     => {},
 		rule_counters => {},
+		shadow_counters => {},
+		shadow_rule_counters => {},
 		marks        => {},
 		namtar_files => {},
 		pending_bans => {},
@@ -374,32 +376,37 @@ sub new {
 		);
 	} ## end if ( $country_gated && !defined...)
 
-	# load every namtar list file the gates reference once, up front... the
-	# sweeper refreshes them on mtime change from here on. a file that loads
+	# load every namtar list slot the gates reference once, up front... the
+	# sweeper refreshes them on mtime change from here on. a slot that loads
 	# empty or unreadable matches nobody, so those gates banish nobody from
 	# it... a silent hole, so name them loudly
-	my %namtar_paths;
+	my %namtar_slots;
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
 		foreach my $gate ( @{ $self->{watchers}{$watcher_name}{namtar_gates} } ) {
 			if ( !defined($gate) ) {
 				next;
 			}
 			foreach my $entry ( @{$gate} ) {
-				foreach my $path ( @{ $entry->{paths} } ) {
-					$namtar_paths{$path} = 1;
+				foreach my $slot ( @{ $entry->{slots} } ) {
+					$namtar_slots{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) } = $slot;
 				}
 			}
 		} ## end foreach my $gate ( @{ $self...})
 	} ## end foreach my $watcher_name ( keys...)
-	foreach my $path ( sort( keys(%namtar_paths) ) ) {
-		$self->_load_namtar_file($path);
+	foreach my $key ( sort( keys(%namtar_slots) ) ) {
+		my $slot = $namtar_slots{$key};
+		$self->_load_namtar_file( $slot->{type}, $slot->{nocase}, $slot->{path} );
 	}
-	my @empty = grep { !@{ $self->{namtar_files}{$_}{set} } } sort( keys(%namtar_paths) );
+	my @empty = grep {
+		my $set = $self->{namtar_files}{$_}{set};
+		ref($set) eq 'HASH' ? !%{$set} : !@{$set};
+	} sort( keys(%namtar_slots) );
 	if (@empty) {
+		my @paths = map { $self->{namtar_files}{$_}{path} } @empty;
 		log_drek( 'err', 'these namtar list files loaded empty or unreadable, gates matching them banish nobody... '
-				. join( ', ', @empty ),
+				. join( ', ', @paths ),
 			undef, 'galla-' . $self->{name} );
-	}
+	} ## end if (@empty)
 
 	# bring back the tablets... counters, pending bans, stats, correlation
 	# context, and log positions from the last run
@@ -515,23 +522,25 @@ sub checkpoint {
 
 	my $now = time;
 
-	# counters... ip,hit_epoch,rule one row per live hit, rule empty for
-	# the shared bucket and the rule name for a per-rule bucket... rule
-	# names can not hold a comma, so no quoting is needed
+	# counters... ip,hit_epoch,weight,rule one row per live hit, rule empty
+	# for the shared bucket and the rule name for a per-rule bucket... rule
+	# names can not hold a comma, so no quoting is needed. the shadow buckets
+	# of observe mode are ephemeral and never chiseled. old three-column rows
+	# without a weight restore fine, weighing 1
 	$self->_write_tablet(
 		'counters',
 		sub {
 			my ($fh) = @_;
-			print $fh "ip,hit,rule\n";
+			print $fh "ip,hit,weight,rule\n";
 			foreach my $ip ( sort( keys( %{ $self->{counters} } ) ) ) {
-				foreach my $hit ( @{ $self->{counters}{$ip} } ) {
-					print $fh $ip . ',' . $hit . ",\n";
+				foreach my $entry ( @{ $self->{counters}{$ip} } ) {
+					print $fh $ip . ',' . $entry->[0] . ',' . $entry->[1] . ",\n";
 				}
 			}
 			foreach my $rule_name ( sort( keys( %{ $self->{rule_counters} } ) ) ) {
 				foreach my $ip ( sort( keys( %{ $self->{rule_counters}{$rule_name} } ) ) ) {
-					foreach my $hit ( @{ $self->{rule_counters}{$rule_name}{$ip} } ) {
-						print $fh $ip . ',' . $hit . ',' . $rule_name . "\n";
+					foreach my $entry ( @{ $self->{rule_counters}{$rule_name}{$ip} } ) {
+						print $fh $ip . ',' . $entry->[0] . ',' . $entry->[1] . ',' . $rule_name . "\n";
 					}
 				}
 			}
@@ -673,31 +682,43 @@ sub _load_state {
 
 	my $now = time;
 
-	# counters... a third field names the per-rule bucket a row belongs
-	# to, absent on rows chiseled before per-rule thresholds existed, which
-	# land in the shared bucket like they always did
+	# counters... a weight column then the per-rule bucket name, both added
+	# later. a four-field row is the current ip,hit,weight,rule form; a
+	# three-field row is the older ip,hit,rule, its hit weighing 1; rows from
+	# before per-rule thresholds land in the shared bucket like they always
+	# did. split with a limit so a trailing empty rule field is kept
 	my $line_int = 0;
 	foreach my $line ( $self->_read_tablet('counters') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^ip,/ ) || $line eq '' ) {
 			next;
 		}
-		my ( $ip, $hit, $rule_name ) = split( /,/, $line );
+		my @field = split( /,/, $line, 4 );
+		my ( $ip, $hit ) = @field[ 0, 1 ];
+		my ( $weight, $rule_name );
+		if ( scalar(@field) >= 4 ) {
+			( $weight, $rule_name ) = @field[ 2, 3 ];
+		} else {
+			( $weight, $rule_name ) = ( 1, $field[2] );
+		}
 		if ( !defined($ip) || !defined($hit) || $hit !~ /^[0-9]+$/ ) {
 			next;
 		}
+		if ( !defined($weight) || $weight !~ /^[0-9]+(?:\.[0-9]+)?$/ || $weight + 0 <= 0 ) {
+			$weight = 1;
+		}
 		if ( defined($rule_name) && $rule_name ne '' ) {
-			push( @{ $self->{rule_counters}{$rule_name}{$ip} }, $hit + 0 );
+			push( @{ $self->{rule_counters}{$rule_name}{$ip} }, [ $hit + 0, $weight + 0 ] );
 		} else {
-			push( @{ $self->{counters}{$ip} }, $hit + 0 );
+			push( @{ $self->{counters}{$ip} }, [ $hit + 0, $weight + 0 ] );
 		}
 	} ## end foreach my $line ( $self->_read_tablet...)
-	# sort each and drop entries with nothing recent... the register path
-	# re-prunes per the effective find_time on the next hit
+	# sort each by epoch and drop entries with nothing recent... the register
+	# path re-prunes per the effective find_time on the next hit
 	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
 		foreach my $ip ( keys( %{$bucket} ) ) {
-			my @sorted = sort { $a <=> $b } @{ $bucket->{$ip} };
-			if ( !@sorted || ( $now - $sorted[-1] ) > 86400 ) {
+			my @sorted = sort { $a->[0] <=> $b->[0] } @{ $bucket->{$ip} };
+			if ( !@sorted || ( $now - $sorted[-1][0] ) > 86400 ) {
 				delete( $bucket->{$ip} );
 			} else {
 				$bucket->{$ip} = \@sorted;
@@ -1458,6 +1479,14 @@ sub _handle_line {
 		my $namtar_gate  = $watcher->{namtar_gates}[$rule_int];
 		my $active_gate  = $watcher->{active_gates}[$rule_int];
 
+		# observe mode... the rule's own eve_only wins over the watcher-resolved
+		# one, so a deployment can be set observe at any level and trusted rules
+		# opt back in. observe_ignored, a watcher setting, lets observe mode
+		# also watch what ignore_ips would drop
+		my $rule_eve_only = $rule_obj->eve_only;
+		my $eve_only        = defined($rule_eve_only) ? $rule_eve_only : $watcher->{settings}{eve_only};
+		my $observe_ignored = $watcher->{settings}{observe_ignored};
+
 		# a capture line may have completed several deferred offenses
 		my @all_found = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
 		my $consumed  = 0;
@@ -1517,7 +1546,7 @@ sub _handle_line {
 
 			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
 
-			my $count;
+			my $score;
 			if ( !$mark_only ) {
 				# a firing non-mark_only rule consumes the line, same as
 				# before marks, whichever offenders the gates then let count
@@ -1532,14 +1561,15 @@ sub _handle_line {
 					if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
 						next;
 					}
-					my $registered = $self->_register_hit( $watcher_name, $ip, $context );
-					if ( !defined($count) && defined($registered) ) {
-						$count = $registered;
+					my $registered = $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
+					if ( !defined($score) && defined($registered) ) {
+						$score = $registered;
 					}
 				}
 			} ## end if ( !$mark_only )
 
-			$self->_eve_emit( 'found', $self->_eve_fields( $context, $count, $set, $lifted ) );
+			# observe mode colors the match event noted, not found
+			$self->_eve_emit( $eve_only ? 'noted' : 'found', $self->_eve_fields( $context, $score, $set, $lifted ) );
 		} ## end foreach my $one (@all_found)
 
 		if ($consumed) {
@@ -1550,10 +1580,12 @@ sub _handle_line {
 	return;
 } ## end sub _handle_line
 
-# builds the raw/parsed/found/rule/path/count fields of a EVE event from a
-# match context... only assembled when the EVE log is on
+# builds the raw/parsed/found/rule/path/score fields of a EVE event from a
+# match context... only assembled when the EVE log is on. score is the
+# offender's accumulated weighted score, equal to the raw hit tally when no
+# weights are in play
 sub _eve_fields {
-	my ( $self, $context, $count, $set, $lifted ) = @_;
+	my ( $self, $context, $score, $set, $lifted ) = @_;
 
 	if ( !$self->{eve_enable} ) {
 		return {};
@@ -1565,7 +1597,7 @@ sub _eve_fields {
 		'parsed' => $self->_eve_parsed( $context->{parsed} ),
 		'found'  => $context->{found},
 		'rule'   => $context->{rule}->info,
-		defined($count) ? ( 'count' => $count ) : (),
+		defined($score) ? ( 'score' => $score ) : (),
 		( defined($set)    && @{$set} )    ? ( 'marks_set' => $set )    : (),
 		( defined($lifted) && @{$lifted} ) ? ( 'unmarked'  => $lifted ) : (),
 	};
@@ -1693,16 +1725,20 @@ sub _country_gate_pass {
 	return 1;
 } ## end sub _country_gate_pass
 
-# loads a namtar list file into the galla's cache, a compiled CIDR set and
-# the file's mtime... one CIDR or IP per line, # comments and blanks
-# skipped. a unreadable file or a bad entry becomes a empty set, matching
-# nobody, rather than taking the galla down... a feed is not config
+# loads one namtar list slot into the galla's cache, keyed by (type, nocase,
+# path) so a file read as cidr and as strings stay independent... one entry
+# per line, # comments and blanks skipped. a cidr slot compiles to a bitmask
+# set matched by ip_ignored, a string slot to a hash set matched by lookup,
+# nocase folding its keys to lower. a unreadable file or a bad cidr entry
+# becomes a empty set matching nobody, rather than taking the galla down... a
+# feed is not config
 sub _load_namtar_file {
-	my ( $self, $path ) = @_;
+	my ( $self, $type, $nocase, $path ) = @_;
 
+	my $key   = join( "\0", $type, $nocase, $path );
 	my $mtime = ( stat($path) )[9];
 
-	my @cidrs;
+	my @lines;
 	my $fh;
 	if ( defined($mtime) && open( $fh, '<', $path ) ) {
 		while ( my $line = <$fh> ) {
@@ -1711,29 +1747,43 @@ sub _load_namtar_file {
 			$line =~ s/^\s+//;
 			$line =~ s/\s+$//;
 			if ( $line ne '' ) {
-				push( @cidrs, $line );
+				push( @lines, $line );
 			}
 		}
 		close($fh);
 	} ## end if ( defined($mtime) &&...)
 
 	my $set;
-	eval { $set = compile_ignore_ips( \@cidrs, 'namtar list "' . $path . '"' ); };
-	if ($@) {
-		log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $@,
-			undef, 'galla-' . $self->{name} );
-		$set = [];
-	}
+	if ( $type eq 'string' ) {
+		$set = {};
+		foreach my $line (@lines) {
+			$set->{ $nocase ? lc($line) : $line } = 1;
+		}
+	} else {
+		eval { $set = compile_ignore_ips( \@lines, 'namtar list "' . $path . '"' ); };
+		if ($@) {
+			log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $@,
+				undef, 'galla-' . $self->{name} );
+			$set = [];
+		}
+	} ## end else [ if ( $type eq 'string' )]
 
-	$self->{namtar_files}{$path} = { 'mtime' => $mtime, 'set' => $set };
+	$self->{namtar_files}{$key} = {
+		'mtime'  => $mtime,
+		'set'    => $set,
+		'type'   => $type,
+		'nocase' => $nocase,
+		'path'   => $path,
+	};
 
 	return;
 } ## end sub _load_namtar_file
 
 # resolves a rule's namtar_list gate against a watcher's named lists into a
-# array of entries, each a set of file paths and a var... or undef when the
-# rule has no gate. a reference to a list this watcher does not define is
-# fatal, like a country import
+# array of entries, each a set of slots and a var... or undef when the rule
+# has no gate. a slot is a {type, nocase, path}, so one entry may union lists
+# of different flavors, each matched its own way. a reference to a list this
+# watcher does not define is fatal, like a country import
 sub _resolve_namtar_gate {
 	my ( $self, $rule_obj, $lists, $where ) = @_;
 
@@ -1744,36 +1794,45 @@ sub _resolve_namtar_gate {
 
 	my @entries;
 	foreach my $entry ( @{$gate} ) {
-		my %paths;
+		my %slots;
 		foreach my $name ( @{ $entry->{lists} } ) {
 			my $list = $lists->{$name};
-			if ( ref($list) ne 'ARRAY' ) {
+			if ( ref($list) ne 'HASH' ) {
 				die( $where . ' references namtar_lists{' . $name . '}, which is not a defined list for it' );
 			}
-			foreach my $path ( @{$list} ) {
-				$paths{$path} = 1;
+			foreach my $path ( @{ $list->{paths} } ) {
+				my $key = join( "\0", $list->{type}, $list->{nocase}, $path );
+				$slots{$key} = { 'type' => $list->{type}, 'nocase' => $list->{nocase}, 'path' => $path };
 			}
 		} ## end foreach my $name ( @{ $entry...})
-		push( @entries, { 'paths' => [ sort( keys(%paths) ) ], 'var' => $entry->{var} } );
+		push( @entries, { 'slots' => [ map { $slots{$_} } sort( keys(%slots) ) ], 'var' => $entry->{var} } );
 	} ## end foreach my $entry ( @{$gate} )
 
 	return \@entries;
 } ## end sub _resolve_namtar_gate
 
-# true if the value is on any of the passed namtar list files' sets... a
-# undef value is on none, so the gate fails closed
+# true if the value is on any of the passed slots' sets... a undef value is
+# on none, so the gate fails closed. each slot dispatches on its type, a cidr
+# set walked by ip_ignored, a string set by a lookup with the slot's fold
 sub _namtar_on_any {
-	my ( $self, $paths, $value ) = @_;
+	my ( $self, $slots, $value ) = @_;
 
 	if ( !defined($value) ) {
 		return 0;
 	}
-	foreach my $path ( @{$paths} ) {
-		my $file = $self->{namtar_files}{$path};
-		if ( defined($file) && ip_ignored( $file->{set}, $value ) ) {
+	foreach my $slot ( @{$slots} ) {
+		my $file = $self->{namtar_files}{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) };
+		if ( !defined($file) ) {
+			next;
+		}
+		if ( $slot->{type} eq 'string' ) {
+			if ( exists( $file->{set}{ $slot->{nocase} ? lc($value) : $value } ) ) {
+				return 1;
+			}
+		} elsif ( ip_ignored( $file->{set}, $value ) ) {
 			return 1;
 		}
-	}
+	} ## end foreach my $slot ( @{$slots} )
 
 	return 0;
 } ## end sub _namtar_on_any
@@ -1796,7 +1855,7 @@ sub _namtar_gate_pass {
 			if ( defined($ip) ) {
 				next;
 			}
-			if ( !$self->_namtar_on_any( $entry->{paths}, $data->{ $entry->{var} } ) ) {
+			if ( !$self->_namtar_on_any( $entry->{slots}, $data->{ $entry->{var} } ) ) {
 				return 0;
 			}
 		} else {
@@ -1804,7 +1863,7 @@ sub _namtar_gate_pass {
 			if ( !defined($ip) ) {
 				next;
 			}
-			if ( !$self->_namtar_on_any( $entry->{paths}, $ip ) ) {
+			if ( !$self->_namtar_on_any( $entry->{slots}, $ip ) ) {
 				return 0;
 			}
 		} ## end else [ if ( defined( $entry->{var...}))]
@@ -2075,63 +2134,85 @@ sub _apply_marks {
 	return ( \@set, \@lifted );
 } ## end sub _apply_marks
 
-# registers a match of a IP, banning it once it has racked up max_retrys
-# matches with in find_time seconds... returns the IP's live count, or
-# undef when the IP is ignored
+# registers a match of a IP, banning it once its accumulated score reaches
+# max_score with in find_time seconds... each match deposits the rule's
+# weight, so a heavy signature bans faster and several different rules against
+# one IP sum toward the one judgment. returns the IP's live score, or undef
+# when the IP is ignored and not being observed. in eve_only observe mode it
+# counts into a shadow bucket kept wholly apart from the real ones and raises
+# a alert instead of banishing, so nothing is sent to Kur
 sub _register_hit {
-	my ( $self, $watcher_name, $ip, $context ) = @_;
+	my ( $self, $watcher_name, $ip, $context, $eve_only, $observe_ignored ) = @_;
 
-	# the ignored never accumulate so much as a counter
+	# the ignored never accumulate so much as a counter... unless observe mode
+	# is told to watch what ignore_ips would otherwise drop
 	if ( ip_ignored( $self->{ignore_ips}, $ip ) ) {
-		$self->_tick( 'ignored', $watcher_name );
-		return undef;
+		if ( !( $eve_only && $observe_ignored ) ) {
+			$self->_tick( 'ignored', $watcher_name );
+			return undef;
+		}
 	}
 
 	my $settings = $self->{watchers}{$watcher_name}{settings};
 	my $now      = time;
 
-	# when the watcher allows it, the rule's own thresholds speak over the
-	# watcher's... a rule overriding how counting works gets its own bucket,
-	# so its window does not cross-contaminate the shared one, while a
+	# when the watcher allows it, the rule's own thresholds and weight speak
+	# over the watcher's... a rule overriding how counting works gets its own
+	# bucket, so its window does not cross-contaminate the shared one, while a
 	# ban_time-only override counts in the shared bucket and only bans
-	# differently
-	my $overrides  = $settings->{allow_per_rule_thresholds} ? $context->{rule}->thresholds : {};
-	my $max_retrys = defined( $overrides->{max_retrys} ) ? $overrides->{max_retrys} : $settings->{max_retrys};
+	# differently. without the consent every weight is 1, so a shipped rule
+	# can not reshape the tuning
+	my $allow      = $settings->{allow_per_rule_thresholds};
+	my $overrides  = $allow ? $context->{rule}->thresholds : {};
+	my $max_score  = defined( $overrides->{max_score} ) ? $overrides->{max_score} : $settings->{max_score};
 	my $find_time  = defined( $overrides->{find_time} )  ? $overrides->{find_time}  : $settings->{find_time};
 	my $ban_time   = defined( $overrides->{ban_time} )   ? $overrides->{ban_time}   : $settings->{ban_time};
+	my $weight     = $allow ? $context->{rule}->weight : 1;
+
+	# observe mode counts into the shadow families, kept apart so a watched
+	# rule neither causes nor delays a real ban, nor is polluted by one
+	my $counters      = $eve_only ? $self->{shadow_counters}      : $self->{counters};
+	my $rule_counters = $eve_only ? $self->{shadow_rule_counters} : $self->{rule_counters};
 
 	my $bucket;
-	if ( defined( $overrides->{max_retrys} ) || defined( $overrides->{find_time} ) ) {
-		if ( !defined( $self->{rule_counters}{ $context->{rule_name} } ) ) {
-			$self->{rule_counters}{ $context->{rule_name} } = {};
+	if ( defined( $overrides->{max_score} ) || defined( $overrides->{find_time} ) ) {
+		if ( !defined( $rule_counters->{ $context->{rule_name} } ) ) {
+			$rule_counters->{ $context->{rule_name} } = {};
 		}
-		$bucket = $self->{rule_counters}{ $context->{rule_name} };
+		$bucket = $rule_counters->{ $context->{rule_name} };
 	} else {
-		$bucket = $self->{counters};
+		$bucket = $counters;
 	}
 
 	if ( !defined( $bucket->{$ip} ) ) {
 		$bucket->{$ip} = [];
 	}
-	push( @{ $bucket->{$ip} }, $now );
+	push( @{ $bucket->{$ip} }, [ $now, $weight ] );
 
 	# matches older than find_time no longer count
-	@{ $bucket->{$ip} } = grep { ( $now - $_ ) < $find_time } @{ $bucket->{$ip} };
+	@{ $bucket->{$ip} } = grep { ( $now - $_->[0] ) < $find_time } @{ $bucket->{$ip} };
 
-	my $count = scalar( @{ $bucket->{$ip} } );
-
-	if ( $count >= $max_retrys ) {
-		delete( $bucket->{$ip} );
-		$self->_ban_ip( $ip, $ban_time, $context, $count );
+	my $score = 0;
+	foreach my $entry ( @{ $bucket->{$ip} } ) {
+		$score += $entry->[1];
 	}
 
-	return $count;
+	if ( $score >= $max_score ) {
+		delete( $bucket->{$ip} );
+		if ($eve_only) {
+			$self->_alert_ip( $ip, $ban_time, $context, $score );
+		} else {
+			$self->_ban_ip( $ip, $ban_time, $context, $score );
+		}
+	}
+
+	return $score;
 } ## end sub _register_hit
 
 # banishes a IP to Kur, queueing it for retry by the sweeper if the
 # Ereshkigal manager could not be reached
 sub _ban_ip {
-	my ( $self, $ip, $ban_time, $context, $count ) = @_;
+	my ( $self, $ip, $ban_time, $context, $score ) = @_;
 
 	my $ident = 'galla-' . $self->{name};
 
@@ -2162,7 +2243,7 @@ sub _ban_ip {
 			'ip' => $ip,
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 			defined($country)  ? ( 'country'  => $country )  : (),
-			defined($context) ? %{ $self->_eve_fields( $context, $count ) } : (),
+			defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (),
 		}
 	);
 
@@ -2174,6 +2255,36 @@ sub _ban_ip {
 
 	return;
 } ## end sub _ban_ip
+
+# the observe-mode twin of _ban_ip... an eve_only rule whose shadow score
+# reached max_score raises a alert instead of banishing. it writes the EVE
+# event a banish would, envelope and country and all, but sends nothing to
+# Kur, chisels no ledger, escalates no recidive, and ticks alerts not bans.
+# the shadow bucket was already cleared by the caller, so it re-arms
+sub _alert_ip {
+	my ( $self, $ip, $ban_time, $context, $score ) = @_;
+
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
+
+	$self->_tick( 'alerts', $watcher_name, $rule_name );
+	log_drek( 'info',
+		'would banish ' . $ip . ' to Kur (observe mode)' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+		undef, 'galla-' . $self->{name} );
+
+	my $country = ( $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($ip) : undef;
+	$self->_eve_emit(
+		'alert',
+		{
+			'ip' => $ip,
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+			defined($country)  ? ( 'country'  => $country )  : (),
+			defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (),
+		}
+	);
+
+	return;
+} ## end sub _alert_ip
 
 # the actual ban request to the Ereshkigal manager, to this galla's kur by
 # default or the passed one for a recidive escalation
@@ -2206,7 +2317,7 @@ sub ledger_path {
 }
 
 # escalates to the recidive kur if the IP has now been banished
-# max_retrys times with in find_time across all kurs, per the ledger count
+# max_score times with in find_time across all kurs, per the ledger count
 # from _ledger_append_and_count... a no-op when recidive is off, and never
 # re-counts a recidive escalation it's self
 sub _recidive_check {
@@ -2220,10 +2331,10 @@ sub _recidive_check {
 		return;
 	}
 
-	my $max_retrys = defined( $self->{recidive}{max_retrys} ) ? $self->{recidive}{max_retrys} : 5;
+	my $max_score = defined( $self->{recidive}{max_score} ) ? $self->{recidive}{max_score} : 5;
 	my $ban_time   = defined( $self->{recidive}{ban_time} ) ? $self->{recidive}{ban_time} : 0;
 
-	if ( !defined($count) || $count < $max_retrys ) {
+	if ( !defined($count) || $count < $max_score ) {
 		return;
 	}
 
@@ -2350,32 +2461,41 @@ sub _sweep {
 	}
 
 	# so counters for IPs never seen again don't linger forever... any
-	# still-relevant entry gets re-pruned properly on its next hit
+	# still-relevant entry gets re-pruned properly on its next hit. the
+	# shadow families of observe mode are swept the same way
 	my $now = time;
-	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
+	foreach my $bucket (
+		$self->{counters},        values( %{ $self->{rule_counters} } ),
+		$self->{shadow_counters}, values( %{ $self->{shadow_rule_counters} } )
+		)
+	{
 		foreach my $ip ( keys( %{$bucket} ) ) {
 			my $newest = $bucket->{$ip}[-1];
 			# a day is comfortably past any sane find_time
-			if ( !defined($newest) || ( $now - $newest ) > 86400 ) {
+			if ( !defined($newest) || ( $now - $newest->[0] ) > 86400 ) {
 				delete( $bucket->{$ip} );
 			}
 		}
-	}
-	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
-		if ( !%{ $self->{rule_counters}{$rule_name} } ) {
-			delete( $self->{rule_counters}{$rule_name} );
+	} ## end foreach my $bucket ( $self->...)
+	foreach my $rule_counters ( $self->{rule_counters}, $self->{shadow_rule_counters} ) {
+		foreach my $rule_name ( keys( %{$rule_counters} ) ) {
+			if ( !%{ $rule_counters->{$rule_name} } ) {
+				delete( $rule_counters->{$rule_name} );
+			}
 		}
 	}
 
-	# reload any namtar list file whose mtime changed, appeared, or
-	# vanished, so a updated feed takes effect with in a sweep
-	foreach my $path ( keys( %{ $self->{namtar_files} } ) ) {
-		my $mtime  = ( stat($path) )[9];
-		my $cached = $self->{namtar_files}{$path}{mtime};
+	# reload any namtar list slot whose file mtime changed, appeared, or
+	# vanished, so a updated feed takes effect with in a sweep... _load keys
+	# by the same slot, so it overwrites in place
+	foreach my $key ( keys( %{ $self->{namtar_files} } ) ) {
+		my $rec    = $self->{namtar_files}{$key};
+		my $mtime  = ( stat( $rec->{path} ) )[9];
+		my $cached = $rec->{mtime};
 		if ( ( defined($mtime) ? $mtime : -1 ) != ( defined($cached) ? $cached : -1 ) ) {
-			$self->_load_namtar_file($path);
+			$self->_load_namtar_file( $rec->{type}, $rec->{nocase}, $rec->{path} );
 		}
-	}
+	} ## end foreach my $key ( keys( %{ ...}))
 
 	# expire marks whose ttl has run out, so a ttl elapses on time rather
 	# than waiting on the next line that would key it
@@ -2453,12 +2573,26 @@ sub _cmd_status {
 	};
 } ## end sub _cmd_status
 
+# sums the weights of a bucket's [epoch, weight] entries into its score
+sub _score_of {
+	my ($entries) = @_;
+
+	my $score = 0;
+	foreach my $entry ( @{$entries} ) {
+		$score += $entry->[1];
+	}
+
+	return $score;
+}
+
 sub _cmd_accused {
 	my ($self) = @_;
 
 	# every live hit per IP, the shared bucket and any per-rule buckets
 	# together... the per-rule buckets also broken out under rules, as each
-	# is racing its own thresholds
+	# is racing its own thresholds. each hit is a [epoch, weight] pair, so a
+	# defendant carries both a raw hit count and the weighted score that is
+	# what actually races max_score
 	my %all;
 	my %by_rule;
 	foreach my $ip ( keys( %{ $self->{counters} } ) ) {
@@ -2473,22 +2607,24 @@ sub _cmd_accused {
 			push( @{ $all{$ip} }, @{$hits} );
 			$by_rule{$ip}{$rule_name} = {
 				'hits'  => scalar( @{$hits} ),
-				'first' => $hits->[0],
-				'last'  => $hits->[-1],
+				'score' => _score_of($hits),
+				'first' => $hits->[0][0],
+				'last'  => $hits->[-1][0],
 			};
 		} ## end foreach my $ip ( keys( %{ $self->{rule_counters...}}))
 	} ## end foreach my $rule_name ( keys( %{ $self->{rule_counters...}}))
 
 	my $accused = {};
 	foreach my $ip ( keys(%all) ) {
-		my @hits = sort { $a <=> $b } @{ $all{$ip} };
+		my @hits = sort { $a->[0] <=> $b->[0] } @{ $all{$ip} };
 		if ( !@hits ) {
 			next;
 		}
 		$accused->{$ip} = {
 			'hits'  => scalar(@hits),
-			'first' => $hits[0],
-			'last'  => $hits[-1],
+			'score' => _score_of( \@hits ),
+			'first' => $hits[0][0],
+			'last'  => $hits[-1][0],
 			defined( $by_rule{$ip} ) ? ( 'rules' => $by_rule{$ip} ) : (),
 		};
 	} ## end foreach my $ip ( keys(%all) )

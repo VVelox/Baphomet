@@ -5,7 +5,7 @@
 # It matches the same failures as syslog/sshd-mark-users and gates on that
 # rule's marks: the account is branded (marked) and the source stored on
 # it differs from this line's source (value_not SRC), meaning a second,
-# different address is working the same account. max_retrys 1 banishes it
+# different address is working the same account. max_score 1 banishes it
 # at once, so this only fires when the kur allows per-rule thresholds.
 #
 # Requires syslog/sshd-mark-users to run in the same watcher, listed AFTER
@@ -26,7 +26,7 @@ marked:
   - name: sshd-account-src
     var: USER
     value_not: SRC
-max_retrys: 1
+max_score: 1
 tests:
   positive:
     - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"

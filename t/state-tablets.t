@@ -53,7 +53,7 @@ run_base_dir = "$dir/run"
 tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
-max_retrys = 5
+max_score = 5
 find_time = 600
 
 [kur.sshd]

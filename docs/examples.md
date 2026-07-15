@@ -19,7 +19,7 @@ Baphomet side, `/usr/local/etc/baphomet/config.toml`...
 ```toml
 # the base kur config for sshd
 [kur.sshd]
-max_retrys=5
+max_score=5
 ban_time=300
 # read authlog
 # the key for the hash under sshd is just a freeform name
@@ -45,7 +45,7 @@ across the logs...
 
 ```toml
 [kur.sshd]
-max_retrys = 5
+max_score = 5
 
 [kur.sshd.host]
 log = "/var/log/auth.log"
@@ -73,7 +73,7 @@ Per watcher overrides layer over the kur and global settings...
 
 ```toml
 [kur.sshd]
-max_retrys = 5
+max_score = 5
 ban_time = 300
 
 [kur.sshd.authlog]
@@ -86,7 +86,7 @@ log = "/var/log/honeypot-auth.log"
 parser = "bsd_syslog"
 rule = "syslog/sshd"
 # anything poking the honeypot goes below on the first offense, eternally
-max_retrys = 1
+max_score = 1
 ban_time = 0
 ```
 
@@ -98,7 +98,7 @@ match a line wins, with each rule's own daemon gate keeping things cheap.
 
 ```toml
 [kur.mail]
-max_retrys = 5
+max_score = 5
 ban_time = 3600
 
 [kur.mail.maillog]
@@ -118,7 +118,7 @@ mismatch is a start error.
 
 ```toml
 [kur.www]
-max_retrys = 3
+max_score = 3
 ban_time = 3600
 
 [kur.www.accesslog]
@@ -189,7 +189,7 @@ Baphomet side...
 ```toml
 [recidive]
 kur        = "recidive"
-max_retrys = 5
+max_score = 5
 find_time  = 604800
 ban_time   = 0
 ```
@@ -225,7 +225,7 @@ tests:
 
 ```toml
 [kur.toaster]
-max_retrys = 3
+max_score = 3
 
 [kur.toaster.log]
 log = "/var/log/toaster.log"

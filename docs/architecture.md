@@ -54,7 +54,7 @@ Inside a galla, each new line of a watcher's log runs the gauntlet...
 4. **Extraction.** The named captures the rule's tokens compiled to are
    pulled out, and each capture named in `ban_var` yields an IP.
 5. **Counting.** Each IP gets a hit recorded. Hits older than `find_time`
-   seconds no longer count. When an IP reaches `max_retrys` hits, it is
+   seconds no longer count. When an IP reaches `max_score` hits, it is
    seized.
 6. **Banishment.** The galla sends
    `{"command":"ban","args":{"ips":["..."],"kur":"<name>","ban_time":...}}`

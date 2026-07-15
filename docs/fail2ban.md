@@ -18,7 +18,7 @@ is how a jail with several actions maps over (see below).
 | `failregex` | `message_regexp` (syslog/raw/http_error types) or `match` entries (http/json types) |
 | `ignoreregex` | `ignore_regexp` / `ignore` |
 | `<HOST>` | the `%%%%SRC%%%%` and friends tokens... or nothing at all for the http/http_error/json types, where the parser already extracted the client |
-| `maxretry` | `max_retrys` |
+| `maxretry` | `max_score` |
 | `findtime` | `find_time` |
 | `bantime` | `ban_time`... 0 means eternal, and unset defers to the Ereshkigal side default |
 | `logpath` | the watcher `log`, which may also be a array and may glob, re-expanded live |
@@ -59,6 +59,72 @@ is how a jail with several actions maps over (see below).
   key with TTLs, instead of fail2ban's maxlines buffer rematching.
 - **The split itself.** The thing reading hostile input holds no firewall
   privileges, and several Baphomet hosts can accuse to one Ereshkigal.
+
+## Beyond fail2ban, adapted from Sagan
+
+fail2ban counts a regexp per jail and bans. Sagan's rule language reaches
+further, and the gates it has that fail2ban lacks were read end to end and
+folded in... they run in the galla between a rule matching and the offense
+being counted, so rules stay pure matchers. None of these has a fail2ban
+equivalent.
+
+- **Per-rule thresholds (Sagan's own count/seconds).** A rule may carry its
+  own `max_score` / `find_time` / `ban_time`, so one noisy signature can
+  demand more hits, or fewer, than its neighbours in the same kur. fail2ban's
+  thresholds are per-jail only, one number for every failregex at once.
+  Inert unless the config opts in with `allow_per_rule_thresholds`.
+- **Marks... cross-rule state (Sagan xbits/flexbits).** A galla-wide store of
+  expiring named marks, keyed by the offender IP or by any capture or field
+  (`var`), optionally harvesting and gating on a value (`value_var`,
+  `value_is`/`value_not`). Rule keys `mark`/`unmark`/`marked`/`not_marked`/
+  `mark_only` let one rule brand a line and a later rule fire only on the
+  branded. This is how distributed brute force is caught... `syslog/sshd-mark-users`
+  brands each account with the source that hit it, `syslog/sshd-spray` fires
+  when a second source hits the same account. `baphomet marked` reads the
+  store. fail2ban has no shared state between filters.
+- **A country gate (Sagan country_code).** A rule key
+  `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
+  offender (or a harvested var) geolocates inside, or outside, a named set of
+  country codes. Lists come from the config `country_codes` and a
+  `%%%country_codes{name}%%%` token; resolution is via the optional
+  `IP::Geolocation::MMDB` and a `geoip_db`. Fails closed on a unlocatable IP.
+- **A blocklist gate (Sagan blacklist), the namtar_list.** The inverse of
+  `ignore_ips`... a rule key `namtar_list: [{list|lists, var?}, ...]` counts
+  an offense only when a value is already on a named list, drawn from the
+  config `namtar_lists` and reloaded on file mtime. A list is a CIDR list
+  matched by address, or a string list matched by exact (optionally
+  case-folded) name, so the gate reaches beyond the offender IP to any
+  captured field via `var`... a honeypot username, a known-bad URI or
+  user-agent. For acting only on the already-known-bad.
+- **A time-of-day gate (Sagan alert_time), active_time.** A rule key
+  `active_time: {is|isnot: [window names], vars?: [...]}` counts a match only
+  inside, or outside, named `{days, hours}` windows (hours may wrap midnight),
+  so the same log line can be ignored at midday and banished at 03:00.
+
+Sagan's remaining vocabulary needs no borrowing... its content/pcre match
+chains are subsumed by Perl regexps, its json_content by the json rule type's
+dotted paths, its program/facility/level gates by `daemons`, and its
+actions are Ereshkigal's domain, since Baphomet accuses and does not act.
+
+## Beyond fail2ban, from sshguard and CrowdSec
+
+Two more turns fail2ban has no equivalent for, from the wider field...
+
+- **Weighted scoring (sshguard, CrowdSec).** fail2ban counts every match as
+  one and bans at `maxretry`. Here a rule carries a `weight`, and `max_score`
+  is a score to reach, not a retry count... so a dangerous signature can weigh
+  10 and banish on one hit, and several different rules against one IP accrue
+  together toward the one judgment instead of racing separate counters.
+  sshguard scores attacks by dangerousness; this is that, per rule. Honored
+  under the same `allow_per_rule_thresholds` consent, and with every weight 1
+  it is exactly the old count. See [rules](rules).
+- **Observe mode (CrowdSec simulation).** A rule, watcher, kur, or the whole
+  deployment can be set `eve_only`... it matches and writes to EVE but never
+  banishes, a would-be ban surfacing as an `alert` and each match as `noted`.
+  Stand a new rule up, watch what it would have done, then trust it to act by
+  setting `eve_only: false`. `observe_ignored` widens it to also score what
+  `ignore_ips` would drop. fail2ban has no dry run. See [rules](rules) and
+  [eve](eve).
 
 ## What fail2ban still does that this does not
 
@@ -138,7 +204,7 @@ comment    = "ssh brute force"
 
 ```toml
 [kur.sshd]
-max_retrys = 5
+max_score = 5
 find_time  = 600
 ban_time   = 3600
 

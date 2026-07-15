@@ -10,7 +10,7 @@ fail2ban, and the accuser half of a pair whose punisher half is
 daemon spawns one `galla` worker per kur configured. Each galla follows the
 log files of its kur, parses the lines, reads them against its rules like
 omen tablets, and counts the offenses of each IP. An IP that racks up
-`max_retrys` offenses with in `find_time` seconds is seized and banished
+`max_score` offenses with in `find_time` seconds is seized and banished
 to Kur... a ban request sent to the Ereshkigal manager socket, targeted at
 the kur of the same name over there, a real kur or a fan_out gate relaying
 to several. Ereshkigal does the actual firewalling. Baphomet never touches
@@ -21,7 +21,7 @@ Watching sshd looks like this in `/usr/local/etc/baphomet/config.toml`...
 ```toml
 # the base kur config for sshd
 [kur.sshd]
-max_retrys=5
+max_score=5
 ban_time=300
 # read authlog
 # the key for the hash under sshd is just a freeform name

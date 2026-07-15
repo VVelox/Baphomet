@@ -49,7 +49,7 @@ watchers, each binding a log file to a parser and a rule.
 
     # the base kur config for sshd
     [kur.sshd]
-    max_retrys=5
+    max_score=5
     ban_time=300
     # read authlog
     # the key for the hash under sshd is just a freeform name
@@ -96,12 +96,12 @@ Top level keys are as below.
           galla ones and the Ereshkigal one.
         Default :: 30
 
-    - max_retrys :: How many matches with in find_time seconds it takes
+    - max_score :: How many matches with in find_time seconds it takes
           for a IP to be banned. May be overridden per kur and per watcher.
         Default :: 5
 
     - find_time :: The window in seconds matches are counted across.
-          Matches older than this no longer count towards max_retrys.
+          Matches older than this no longer count towards max_score.
           May be overridden per kur and per watcher.
         Default :: 600
 
@@ -158,7 +158,7 @@ Top level keys are as below.
 
     - recidive :: A table turning on repeat offender escalation. When set,
           every banishment is recorded to a shared ledger, and a IP
-          banished across any kurs max_retrys times with in find_time is
+          banished across any kurs max_score times with in find_time is
           dragged through a further gate... banished to the recidive
           C<kur> for ban_time seconds, which should be long. Keys...
 
@@ -166,7 +166,7 @@ Top level keys are as below.
                   There must be a matching kur on the Ereshkigal side
                   covering everything worth protecting.
 
-              max_retrys :: Banishments before a IP is a recidivist.
+              max_score :: Banishments before a IP is a recidivist.
                   Default :: 5
 
               find_time :: The window the banishments are counted over.
@@ -196,8 +196,9 @@ Top level keys are as below.
           merged per name.
         Default :: {}
 
-    - namtar_lists :: A hash of named CIDR file lists a rule's namtar_list
-          gate can check against, each a path or a array of paths. Global,
+    - namtar_lists :: A hash of named lists a rule's namtar_list gate can
+          check against, each a path or array of paths (a cidr list) or a
+          {type, files, nocase} table (cidr, or a string list). Global,
           per kur, and per watcher, merged per name.
         Default :: {}
 
@@ -228,7 +229,7 @@ Watcher hashes take the keys below.
           wins, which suits logs carrying several daemons, like a maillog.
           See L<App::Baphomet::Rules>.
 
-    - max_retrys / find_time / ban_time :: Optional per watcher overrides.
+    - max_score / find_time / ban_time :: Optional per watcher overrides.
 
     - allow_per_rule_thresholds :: Whether this watcher honors thresholds a
           rule carries. Per watcher, kur, and global.
@@ -236,7 +237,7 @@ Watcher hashes take the keys below.
     - country_codes :: Named country-code lists overriding the kur's and
           global's for this watcher's rules.
 
-    - namtar_lists :: Named CIDR file lists overriding the kur's and
+    - namtar_lists :: Named lists (cidr or string) overriding the kur's and
           global's for this watcher's rules.
 
     - active_time :: Named time windows overriding the kur's and global's
@@ -294,10 +295,12 @@ sub load_config {
 		'timeout'           => 30,
 		'checkpoint'        => 60,
 		'ledger_keep'       => 2592000,
-		'max_retrys'        => 5,
+		'max_score'        => 5,
 		'find_time'         => 600,
 		'ban_time'          => undef,
 		'allow_per_rule_thresholds' => 0,
+		'eve_only'          => 0,
+		'observe_ignored'   => 0,
 		'ignore_ips'        => [],
 		'internal'          => undef,
 		'socket_group'      => undef,
@@ -380,6 +383,8 @@ sub load_config {
 	# normalize the booleans to a plain 0 or 1
 	$config->{eve_enable}                = $config->{eve_enable}                ? 1 : 0;
 	$config->{allow_per_rule_thresholds} = $config->{allow_per_rule_thresholds} ? 1 : 0;
+	$config->{eve_only}                  = $config->{eve_only}                  ? 1 : 0;
+	$config->{observe_ignored}           = $config->{observe_ignored}           ? 1 : 0;
 	if ( !defined( $config->{eve_log} ) || ref( $config->{eve_log} ) ne '' || $config->{eve_log} eq '' ) {
 		die('eve_log is not a path');
 	}
@@ -411,16 +416,16 @@ sub _check_recidive {
 		die('recidive is not a table');
 	}
 	foreach my $key ( keys( %{$recidive} ) ) {
-		if ( $key !~ /^(?:kur|max_retrys|find_time|ban_time)$/ ) {
+		if ( $key !~ /^(?:kur|max_score|find_time|ban_time)$/ ) {
 			die( 'recidive has the unknown key "' . $key . '"' );
 		}
 	}
 	if ( !defined( $recidive->{kur} ) || ref( $recidive->{kur} ) ne '' || $recidive->{kur} !~ /^[a-zA-Z0-9\-]+$/ ) {
 		die('recidive lacks a kur naming where recidivists are banished, matching /^[a-zA-Z0-9\-]+$/');
 	}
-	if ( defined( $recidive->{max_retrys} ) && ( $recidive->{max_retrys} !~ /^[0-9]+$/ || !$recidive->{max_retrys} ) )
+	if ( defined( $recidive->{max_score} ) && ( $recidive->{max_score} !~ /^[0-9]+$/ || !$recidive->{max_score} ) )
 	{
-		die('recidive max_retrys is not a positive int');
+		die('recidive max_score is not a positive int');
 	}
 	if ( defined( $recidive->{find_time} ) && ( $recidive->{find_time} !~ /^[0-9]+$/ || !$recidive->{find_time} ) ) {
 		die('recidive find_time is not a positive int of seconds');
@@ -509,7 +514,7 @@ sub check_kur_def {
 
 		foreach my $key ( keys( %{$watcher} ) ) {
 			if ( $key
-				!~ /^(?:log|journal|parser|rule|max_retrys|find_time|ban_time|allow_per_rule_thresholds|country_codes|namtar_lists|active_time)$/
+				!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|country_codes|namtar_lists|active_time)$/
 				)
 			{
 				die( $where . 'has the unknown key "' . $key . '"' );
@@ -518,9 +523,10 @@ sub check_kur_def {
 			# namtar_lists, and active_time hashes, TOML booleans are
 			# blessed... else a scalar
 			if ( ref( $watcher->{$key} ) ne ''
-				&& !( $key =~ /^(?:rule|log|journal)$/                          && ref( $watcher->{$key} ) eq 'ARRAY' )
-				&& !( $key =~ /^(?:country_codes|namtar_lists|active_time)$/     && ref( $watcher->{$key} ) eq 'HASH' )
-				&& !( $key eq 'allow_per_rule_thresholds'                       && ref( $watcher->{$key} ) eq 'JSON::PP::Boolean' ) )
+				&& !( $key =~ /^(?:rule|log|journal)$/                      && ref( $watcher->{$key} ) eq 'ARRAY' )
+				&& !( $key =~ /^(?:country_codes|namtar_lists|active_time)$/ && ref( $watcher->{$key} ) eq 'HASH' )
+				&& !( $key =~ /^(?:allow_per_rule_thresholds|eve_only|observe_ignored)$/
+					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean' ) )
 			{
 				die( $where . 'key "' . $key . '" is not a scalar' );
 			}
@@ -604,9 +610,12 @@ sub check_kur_def {
 
 =head2 resolve_settings
 
-Resolves the effective max_retrys, find_time, ban_time, and
-allow_per_rule_thresholds for a watcher... watcher over kur over global.
-allow_per_rule_thresholds is normalized to a plain 0 or 1.
+Resolves the effective max_score, find_time, ban_time,
+allow_per_rule_thresholds, eve_only, and observe_ignored for a watcher...
+watcher over kur over global. The three booleans are normalized to a plain 0
+or 1. eve_only puts the watcher's rules in observe mode (matches to EVE, no
+real ban); observe_ignored lets that observe mode also process IPs ignore_ips
+would otherwise drop. A rule's own eve_only, when set, layers over this.
 
     my $settings = resolve_settings( $config, $kur_settings, $watcher );
 
@@ -616,7 +625,8 @@ sub resolve_settings {
 	my ( $config, $kur_settings, $watcher ) = @_;
 
 	my $resolved = {};
-	foreach my $item ( 'max_retrys', 'find_time', 'ban_time', 'allow_per_rule_thresholds' ) {
+	foreach my $item ( 'max_score', 'find_time', 'ban_time', 'allow_per_rule_thresholds', 'eve_only', 'observe_ignored' )
+	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
 			$resolved->{$item} = $watcher->{$item};
 		} elsif ( defined($kur_settings) && defined( $kur_settings->{$item} ) ) {
@@ -625,7 +635,9 @@ sub resolve_settings {
 			$resolved->{$item} = $config->{$item};
 		}
 	}
-	$resolved->{allow_per_rule_thresholds} = $resolved->{allow_per_rule_thresholds} ? 1 : 0;
+	foreach my $flag ( 'allow_per_rule_thresholds', 'eve_only', 'observe_ignored' ) {
+		$resolved->{$flag} = $resolved->{$flag} ? 1 : 0;
+	}
 
 	return $resolved;
 } ## end sub resolve_settings
@@ -818,14 +830,14 @@ sub _authed_list_error {
 	return undef;
 } ## end sub _authed_list_error
 
-# returns a error string if any of max_retrys/find_time/ban_time present in
+# returns a error string if any of max_score/find_time/ban_time present in
 # the passed hash is invalid, undef otherwise
 sub _settings_error {
 	my ($settings) = @_;
 
 	foreach my $key ( keys( %{$settings} ) ) {
 		if ( $key
-			!~ /^(?:log|journal|parser|rule|max_retrys|find_time|ban_time|allow_per_rule_thresholds|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
+			!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
 			)
 		{
 			return 'the unknown setting "' . $key . '"';
@@ -907,8 +919,10 @@ sub _country_codes_error {
 
 Resolves the effective named namtar lists for a watcher... the global
 namtar_lists overlaid by the kur's, then the watcher's, merged per name so
-a deeper level replaces a same-named list. Each name resolves to a array
-of file paths, scalars normalized to a one element array.
+a deeper level replaces a same-named list. Each name resolves to a
+C<{type, nocase, paths}> spec, the paths a array with scalars normalized to
+one element. The bare path or array form is a cidr list, the typed table
+form C<{type, files, nocase}> may also be a string list.
 
     my $lists = resolve_namtar_lists( $config, $kur_settings, $watcher );
 
@@ -921,8 +935,7 @@ sub resolve_namtar_lists {
 	foreach my $level ( $config, $kur_settings, $watcher ) {
 		if ( defined($level) && ref( $level->{namtar_lists} ) eq 'HASH' ) {
 			foreach my $name ( keys( %{ $level->{namtar_lists} } ) ) {
-				my $paths = $level->{namtar_lists}{$name};
-				$resolved->{$name} = [ ref($paths) eq 'ARRAY' ? @{$paths} : ($paths) ];
+				$resolved->{$name} = _namtar_list_spec( $level->{namtar_lists}{$name} );
 			}
 		}
 	}
@@ -930,20 +943,70 @@ sub resolve_namtar_lists {
 	return $resolved;
 } ## end sub resolve_namtar_lists
 
-# returns a error string if the passed namtar_lists is not a hash of file
-# paths, a path or a non-empty array of paths per name, undef otherwise...
-# $where leads the message
+# normalizes one named namtar list, in either the bare cidr form (a path or
+# array of paths) or the typed table form ({type, files, nocase}), into a
+# {type, nocase, paths} spec. defaults type to cidr and nocase off, the
+# shape already vetted by _namtar_lists_error
+sub _namtar_list_spec {
+	my ($value) = @_;
+
+	if ( ref($value) eq 'HASH' ) {
+		my $type  = defined( $value->{type} ) ? $value->{type} : 'cidr';
+		my $files = $value->{files};
+		return {
+			'type'   => $type,
+			'nocase' => ( $type eq 'string' && $value->{nocase} ) ? 1 : 0,
+			'paths'  => [ ref($files) eq 'ARRAY' ? @{$files} : ($files) ],
+		};
+	}
+
+	return {
+		'type'   => 'cidr',
+		'nocase' => 0,
+		'paths'  => [ ref($value) eq 'ARRAY' ? @{$value} : ($value) ],
+	};
+} ## end sub _namtar_list_spec
+
+# returns a error string if the passed namtar_lists is not a hash of named
+# lists, each a path, a non-empty array of paths, or a typed table
+# ({type: cidr|string, files: path or array, nocase: bool, string only}),
+# undef otherwise... $where leads the message
 sub _namtar_lists_error {
 	my ( $lists, $where ) = @_;
 
 	if ( ref($lists) ne 'HASH' ) {
-		return $where . ' is not a hash of named path lists';
+		return $where . ' is not a hash of named lists';
 	}
 	foreach my $name ( keys( %{$lists} ) ) {
-		my $paths = $lists->{$name};
-		if ( ref($paths) ne '' && ref($paths) ne 'ARRAY' ) {
-			return $where . ' list "' . $name . '" is not a path or a array of paths';
-		}
+		my $value = $lists->{$name};
+		my $paths;
+		if ( ref($value) eq 'HASH' ) {
+			foreach my $key ( keys( %{$value} ) ) {
+				if ( $key !~ /^(?:type|files|nocase)$/ ) {
+					return $where . ' list "' . $name . '" has the unknown key "' . $key . '"';
+				}
+			}
+			if ( defined( $value->{type} ) && $value->{type} ne 'cidr' && $value->{type} ne 'string' ) {
+				return $where . ' list "' . $name . '" has a type that is not "cidr" or "string"';
+			}
+			if ( defined( $value->{nocase} ) ) {
+				if ( ref( $value->{nocase} ) ne '' && ref( $value->{nocase} ) ne 'JSON::PP::Boolean' ) {
+					return $where . ' list "' . $name . '" has a nocase that is not a boolean';
+				}
+				if ( !defined( $value->{type} ) || $value->{type} ne 'string' ) {
+					return $where . ' list "' . $name . '" sets nocase on a non-string list';
+				}
+			} ## end if ( defined( $value->{nocase...}))
+			$paths = $value->{files};
+			if ( !defined($paths) ) {
+				return $where . ' list "' . $name . '" is missing files';
+			}
+		} elsif ( ref($value) ne '' && ref($value) ne 'ARRAY' ) {
+			return $where . ' list "' . $name . '" is not a path, a array of paths, or a typed table';
+		} else {
+			$paths = $value;
+		} ## end else [ if ( ref($value) eq 'HASH')]
+
 		my @paths = ref($paths) eq 'ARRAY' ? @{$paths} : ($paths);
 		if ( !@paths ) {
 			return $where . ' list "' . $name . '" is a empty array';
@@ -1067,9 +1130,9 @@ sub _active_time_spec_error {
 sub _times_error {
 	my ($settings) = @_;
 
-	if ( defined( $settings->{max_retrys} ) && ( $settings->{max_retrys} !~ /^[0-9]+$/ || !$settings->{max_retrys} ) )
+	if ( defined( $settings->{max_score} ) && ( $settings->{max_score} !~ /^[0-9]+$/ || !$settings->{max_score} ) )
 	{
-		return 'a max_retrys, "' . $settings->{max_retrys} . '", that is not a positive int';
+		return 'a max_score, "' . $settings->{max_score} . '", that is not a positive int';
 	}
 	if ( defined( $settings->{find_time} ) && ( $settings->{find_time} !~ /^[0-9]+$/ || !$settings->{find_time} ) ) {
 		return 'a find_time, "' . $settings->{find_time} . '", that is not a positive int of seconds';

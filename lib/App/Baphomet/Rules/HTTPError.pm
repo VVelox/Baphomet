@@ -81,7 +81,7 @@ line.
 Optional. Same, but a hit vetoes the line entirely. Checked before the
 matches.
 
-=head2 max_retrys / find_time / ban_time
+=head2 max_score / find_time / ban_time / weight / eve_only
 
 Optional. The rule's own thresholds, honored only when the watcher's
 C<allow_per_rule_thresholds> config setting is on. See
@@ -151,7 +151,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:level|module|message_regexp|ignore_regexp|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:level|module|message_regexp|ignore_regexp|max_score|find_time|ban_time|weight|eve_only|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );

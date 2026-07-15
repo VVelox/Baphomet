@@ -57,7 +57,7 @@ ignore_ips = [ "127.0.0.0/8" ]
 $extra
 
 [kur.ids]
-max_retrys = 1
+max_score = 1
 
 [kur.ids.eve]
 log = "$dir/eve.json"

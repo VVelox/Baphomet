@@ -20,7 +20,7 @@ the config file is /usr/local/etc/baphomet/config.toml
 ```
 # the base kur config for sshd
 [kur.sshd]
-max_retrys=5
+max_score=5
 ban_time=300
 # read authlog
 # the key for the hash under sshd is just a freeform name
