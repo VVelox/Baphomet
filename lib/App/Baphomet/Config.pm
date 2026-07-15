@@ -22,7 +22,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
 
 =head1 SYNOPSIS
 
@@ -73,7 +73,7 @@ Top level keys are as below.
           still happens.
         Default :: 60
 
-    - ledger_keep :: How long rows are kept in the shared consignment
+    - ledger_keep :: How long rows are kept in the shared banishment
           ledger, in seconds, read by the recidive gate and the ledger
           command. 0 means keep forever. Rows still inside the recidive
           find_time are always kept, whatever this says.
@@ -112,20 +112,20 @@ Top level keys are as below.
         Default :: undef
 
     - ignore_ips :: A array of IPv4/IPv6 addresses and CIDRs that are
-          never consigned, no matter what the rules say. A kur may carry
+          never banished, no matter what the rules say. A kur may carry
           its own ignore_ips, which extends this list for that kur rather
           than replacing it. Hostnames are not accepted... resolving
           config at load time is a trust decision this declines to make.
         Default :: []
 
     - internal :: A array of IPv4/IPv6 addresses and CIDRs that are your
-          own hosts. Rules with the C<ban_not_internal> option consign the
+          own hosts. Rules with the C<ban_not_internal> option banish the
           end of a flow that is not internal, for cases like Suricata
           alerts where the offender may be the src or the dest depending
           on where in the stream it fired. A kur may carry its own
           internal, extending this. Where not set it defaults to the
           ignore_ips, so what you ignore is also treated as yours... and
-          since a ignored IP is never consigned anyway, the consigned end
+          since a ignored IP is never banished anyway, the banished end
           is by extension not ignored either.
         Default :: undef, meaning the same as ignore_ips
 
@@ -157,19 +157,19 @@ Top level keys are as below.
         Default :: undef
 
     - recidive :: A table turning on repeat offender escalation. When set,
-          every consignment is recorded to a shared ledger, and a IP
-          consigned across any kurs max_retrys times with in find_time is
-          dragged through a further gate... consigned to the recidive
+          every banishment is recorded to a shared ledger, and a IP
+          banished across any kurs max_retrys times with in find_time is
+          dragged through a further gate... banished to the recidive
           C<kur> for ban_time seconds, which should be long. Keys...
 
-              kur :: The kur recidivists are consigned to. Required.
+              kur :: The kur recidivists are banished to. Required.
                   There must be a matching kur on the Ereshkigal side
                   covering everything worth protecting.
 
-              max_retrys :: Consignments before a IP is a recidivist.
+              max_retrys :: Banishments before a IP is a recidivist.
                   Default :: 5
 
-              find_time :: The window the consignments are counted over.
+              find_time :: The window the banishments are counted over.
                   Default :: 604800, a week
 
               ban_time :: How long a recidivist is held, 0 being eternal.
@@ -177,13 +177,34 @@ Top level keys are as below.
         Default :: undef, off
 
     - eve_log :: Path of the EVE event log, the NDJSON record of what the
-          gallas do... found and consign events, in the Suricata eve.json
+          gallas do... found and banish events, in the Suricata eve.json
           shape. Shared by all the gallas.
         Default :: /var/log/baphomet/eve.json
 
     - eve_enable :: Whether to actually write the EVE log. The path is set
           by default but nothing is written unless this is turned on.
         Default :: 0
+
+    - geoip_db :: Path to a MaxMind GeoIP2/GeoLite2 country database, for
+          rules with a country gate. Read via the optional
+          IP::Geolocation::MMDB module. Unset or unloadable, and every
+          country gate fails closed.
+        Default :: undef
+
+    - country_codes :: A hash of named ISO 3166 code lists a rule's country
+          gate can import. Global here, and also per kur and per watcher,
+          merged per name.
+        Default :: {}
+
+    - namtar_lists :: A hash of named CIDR file lists a rule's namtar_list
+          gate can check against, each a path or a array of paths. Global,
+          per kur, and per watcher, merged per name.
+        Default :: {}
+
+    - active_time :: A hash of named time windows a rule's active_time gate
+          can reference, each a {days, hours} spec or a array of them.
+          Global, per kur, and per watcher, merged per name.
+        Default :: {}
 
 Watcher hashes take the keys below.
 
@@ -208,6 +229,18 @@ Watcher hashes take the keys below.
           See L<App::Baphomet::Rules>.
 
     - max_retrys / find_time / ban_time :: Optional per watcher overrides.
+
+    - allow_per_rule_thresholds :: Whether this watcher honors thresholds a
+          rule carries. Per watcher, kur, and global.
+
+    - country_codes :: Named country-code lists overriding the kur's and
+          global's for this watcher's rules.
+
+    - namtar_lists :: Named CIDR file lists overriding the kur's and
+          global's for this watcher's rules.
+
+    - active_time :: Named time windows overriding the kur's and global's
+          for this watcher's rules.
 
 The effective settings for a watcher are watcher over kur over global over
 default.
@@ -264,6 +297,7 @@ sub load_config {
 		'max_retrys'        => 5,
 		'find_time'         => 600,
 		'ban_time'          => undef,
+		'allow_per_rule_thresholds' => 0,
 		'ignore_ips'        => [],
 		'internal'          => undef,
 		'socket_group'      => undef,
@@ -275,6 +309,10 @@ sub load_config {
 		'recidive'          => undef,
 		'eve_log'           => '/var/log/baphomet/eve.json',
 		'eve_enable'        => 0,
+		'geoip_db'          => undef,
+		'country_codes'     => {},
+		'namtar_lists'      => {},
+		'active_time'       => {},
 		'kur'               => {},
 	};
 
@@ -339,10 +377,27 @@ sub load_config {
 		_check_recidive( $config->{recidive} );
 	}
 
-	# normalize eve_enable to a plain 0 or 1
-	$config->{eve_enable} = $config->{eve_enable} ? 1 : 0;
+	# normalize the booleans to a plain 0 or 1
+	$config->{eve_enable}                = $config->{eve_enable}                ? 1 : 0;
+	$config->{allow_per_rule_thresholds} = $config->{allow_per_rule_thresholds} ? 1 : 0;
 	if ( !defined( $config->{eve_log} ) || ref( $config->{eve_log} ) ne '' || $config->{eve_log} eq '' ) {
 		die('eve_log is not a path');
+	}
+
+	if ( defined( $config->{geoip_db} ) && ( ref( $config->{geoip_db} ) ne '' || $config->{geoip_db} eq '' ) ) {
+		die('geoip_db is not a path');
+	}
+	my $codes_error = _country_codes_error( $config->{country_codes}, 'The top level country_codes' );
+	if ( defined($codes_error) ) {
+		die($codes_error);
+	}
+	my $namtar_error = _namtar_lists_error( $config->{namtar_lists}, 'The top level namtar_lists' );
+	if ( defined($namtar_error) ) {
+		die($namtar_error);
+	}
+	my $active_error = _active_time_error( $config->{active_time}, 'The top level active_time' );
+	if ( defined($active_error) ) {
+		die($active_error);
 	}
 
 	return $config;
@@ -361,7 +416,7 @@ sub _check_recidive {
 		}
 	}
 	if ( !defined( $recidive->{kur} ) || ref( $recidive->{kur} ) ne '' || $recidive->{kur} !~ /^[a-zA-Z0-9\-]+$/ ) {
-		die('recidive lacks a kur naming where recidivists are consigned, matching /^[a-zA-Z0-9\-]+$/');
+		die('recidive lacks a kur naming where recidivists are banished, matching /^[a-zA-Z0-9\-]+$/');
 	}
 	if ( defined( $recidive->{max_retrys} ) && ( $recidive->{max_retrys} !~ /^[0-9]+$/ || !$recidive->{max_retrys} ) )
 	{
@@ -386,13 +441,18 @@ watchers, everything else is a setting.
 
 =cut
 
+# settings that are hashes rather than scalars, so kur_split does not
+# mistake them for watchers... country_codes, namtar_lists, and active_time
+# are hashes of named things
+my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' => 1 );
+
 sub kur_split {
 	my ($def) = @_;
 
 	my $settings = {};
 	my $watchers = {};
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( ref( $def->{$key} ) eq 'HASH' ) {
+		if ( ref( $def->{$key} ) eq 'HASH' && !$hash_settings{$key} ) {
 			$watchers->{$key} = $def->{$key};
 		} else {
 			$settings->{$key} = $def->{$key};
@@ -448,16 +508,23 @@ sub check_kur_def {
 		my $where   = 'The watcher "' . $watcher_name . '" of the kur "' . $name . '" ';
 
 		foreach my $key ( keys( %{$watcher} ) ) {
-			if ( $key !~ /^(?:log|journal|parser|rule|max_retrys|find_time|ban_time)$/ ) {
+			if ( $key
+				!~ /^(?:log|journal|parser|rule|max_retrys|find_time|ban_time|allow_per_rule_thresholds|country_codes|namtar_lists|active_time)$/
+				)
+			{
 				die( $where . 'has the unknown key "' . $key . '"' );
 			}
-			# rule, log, and journal may be arrays... everything else is a scalar
+			# rule, log, and journal may be arrays, country_codes,
+			# namtar_lists, and active_time hashes, TOML booleans are
+			# blessed... else a scalar
 			if ( ref( $watcher->{$key} ) ne ''
-				&& !( $key =~ /^(?:rule|log|journal)$/ && ref( $watcher->{$key} ) eq 'ARRAY' ) )
+				&& !( $key =~ /^(?:rule|log|journal)$/                          && ref( $watcher->{$key} ) eq 'ARRAY' )
+				&& !( $key =~ /^(?:country_codes|namtar_lists|active_time)$/     && ref( $watcher->{$key} ) eq 'HASH' )
+				&& !( $key eq 'allow_per_rule_thresholds'                       && ref( $watcher->{$key} ) eq 'JSON::PP::Boolean' ) )
 			{
 				die( $where . 'key "' . $key . '" is not a scalar' );
 			}
-		}
+		} ## end foreach my $key ( keys( %{$watcher} ) )
 
 		my $watcher_settings_error = _settings_error($watcher);
 		if ( defined($watcher_settings_error) ) {
@@ -537,8 +604,9 @@ sub check_kur_def {
 
 =head2 resolve_settings
 
-Resolves the effective max_retrys, find_time, and ban_time for a watcher...
-watcher over kur over global.
+Resolves the effective max_retrys, find_time, ban_time, and
+allow_per_rule_thresholds for a watcher... watcher over kur over global.
+allow_per_rule_thresholds is normalized to a plain 0 or 1.
 
     my $settings = resolve_settings( $config, $kur_settings, $watcher );
 
@@ -548,7 +616,7 @@ sub resolve_settings {
 	my ( $config, $kur_settings, $watcher ) = @_;
 
 	my $resolved = {};
-	foreach my $item ( 'max_retrys', 'find_time', 'ban_time' ) {
+	foreach my $item ( 'max_retrys', 'find_time', 'ban_time', 'allow_per_rule_thresholds' ) {
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
 			$resolved->{$item} = $watcher->{$item};
 		} elsif ( defined($kur_settings) && defined( $kur_settings->{$item} ) ) {
@@ -557,6 +625,7 @@ sub resolve_settings {
 			$resolved->{$item} = $config->{$item};
 		}
 	}
+	$resolved->{allow_per_rule_thresholds} = $resolved->{allow_per_rule_thresholds} ? 1 : 0;
 
 	return $resolved;
 } ## end sub resolve_settings
@@ -755,13 +824,243 @@ sub _settings_error {
 	my ($settings) = @_;
 
 	foreach my $key ( keys( %{$settings} ) ) {
-		if ( $key !~ /^(?:log|journal|parser|rule|max_retrys|find_time|ban_time|ignore_ips|internal)$/ ) {
+		if ( $key
+			!~ /^(?:log|journal|parser|rule|max_retrys|find_time|ban_time|allow_per_rule_thresholds|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
+			)
+		{
 			return 'the unknown setting "' . $key . '"';
+		}
+	}
+
+	if ( defined( $settings->{country_codes} ) ) {
+		my $codes_error = _country_codes_error( $settings->{country_codes}, 'country_codes' );
+		if ( defined($codes_error) ) {
+			return $codes_error;
+		}
+	}
+	if ( defined( $settings->{namtar_lists} ) ) {
+		my $namtar_error = _namtar_lists_error( $settings->{namtar_lists}, 'namtar_lists' );
+		if ( defined($namtar_error) ) {
+			return $namtar_error;
+		}
+	}
+	if ( defined( $settings->{active_time} ) ) {
+		my $active_error = _active_time_error( $settings->{active_time}, 'active_time' );
+		if ( defined($active_error) ) {
+			return $active_error;
 		}
 	}
 
 	return _times_error($settings);
 } ## end sub _settings_error
+
+=head2 resolve_country_codes
+
+Resolves the effective named country-code lists for a watcher... the global
+country_codes overlaid by the kur's, then the watcher's, merged per name so
+a deeper level replaces a same-named list while names it does not mention
+stay inherited. Codes are uppercased.
+
+    my $lists = resolve_country_codes( $config, $kur_settings, $watcher );
+
+=cut
+
+sub resolve_country_codes {
+	my ( $config, $kur_settings, $watcher ) = @_;
+
+	my $resolved = {};
+	foreach my $level ( $config, $kur_settings, $watcher ) {
+		if ( defined($level) && ref( $level->{country_codes} ) eq 'HASH' ) {
+			foreach my $name ( keys( %{ $level->{country_codes} } ) ) {
+				$resolved->{$name} = [ map { uc($_) } @{ $level->{country_codes}{$name} } ];
+			}
+		}
+	}
+
+	return $resolved;
+} ## end sub resolve_country_codes
+
+# returns a error string if the passed country_codes is not a hash of
+# non-empty arrays of 2-letter codes, undef otherwise... $where leads the
+# message
+sub _country_codes_error {
+	my ( $codes, $where ) = @_;
+
+	if ( ref($codes) ne 'HASH' ) {
+		return $where . ' is not a hash of named code lists';
+	}
+	foreach my $name ( keys( %{$codes} ) ) {
+		if ( ref( $codes->{$name} ) ne 'ARRAY' || !@{ $codes->{$name} } ) {
+			return $where . ' list "' . $name . '" is not a non-empty array';
+		}
+		foreach my $code ( @{ $codes->{$name} } ) {
+			if ( !defined($code) || ref($code) ne '' || $code !~ /^[A-Za-z]{2}$/ ) {
+				return $where . ' list "' . $name . '" has a entry that is not a 2-letter country code';
+			}
+		}
+	} ## end foreach my $name ( keys( %{$codes} ) )
+
+	return undef;
+} ## end sub _country_codes_error
+
+=head2 resolve_namtar_lists
+
+Resolves the effective named namtar lists for a watcher... the global
+namtar_lists overlaid by the kur's, then the watcher's, merged per name so
+a deeper level replaces a same-named list. Each name resolves to a array
+of file paths, scalars normalized to a one element array.
+
+    my $lists = resolve_namtar_lists( $config, $kur_settings, $watcher );
+
+=cut
+
+sub resolve_namtar_lists {
+	my ( $config, $kur_settings, $watcher ) = @_;
+
+	my $resolved = {};
+	foreach my $level ( $config, $kur_settings, $watcher ) {
+		if ( defined($level) && ref( $level->{namtar_lists} ) eq 'HASH' ) {
+			foreach my $name ( keys( %{ $level->{namtar_lists} } ) ) {
+				my $paths = $level->{namtar_lists}{$name};
+				$resolved->{$name} = [ ref($paths) eq 'ARRAY' ? @{$paths} : ($paths) ];
+			}
+		}
+	}
+
+	return $resolved;
+} ## end sub resolve_namtar_lists
+
+# returns a error string if the passed namtar_lists is not a hash of file
+# paths, a path or a non-empty array of paths per name, undef otherwise...
+# $where leads the message
+sub _namtar_lists_error {
+	my ( $lists, $where ) = @_;
+
+	if ( ref($lists) ne 'HASH' ) {
+		return $where . ' is not a hash of named path lists';
+	}
+	foreach my $name ( keys( %{$lists} ) ) {
+		my $paths = $lists->{$name};
+		if ( ref($paths) ne '' && ref($paths) ne 'ARRAY' ) {
+			return $where . ' list "' . $name . '" is not a path or a array of paths';
+		}
+		my @paths = ref($paths) eq 'ARRAY' ? @{$paths} : ($paths);
+		if ( !@paths ) {
+			return $where . ' list "' . $name . '" is a empty array';
+		}
+		foreach my $path (@paths) {
+			if ( !defined($path) || ref($path) ne '' || $path eq '' ) {
+				return $where . ' list "' . $name . '" has a entry that is not a non-empty path';
+			}
+		}
+	} ## end foreach my $name ( keys( %{$lists} ) )
+
+	return undef;
+} ## end sub _namtar_lists_error
+
+=head2 resolve_active_time
+
+Resolves the effective named time windows for a watcher... the global
+active_time overlaid by the kur's, then the watcher's, merged per name so a
+deeper level replaces a same-named window. Each name resolves to a array of
+specs, a single spec normalized to a one element array.
+
+    my $windows = resolve_active_time( $config, $kur_settings, $watcher );
+
+=cut
+
+sub resolve_active_time {
+	my ( $config, $kur_settings, $watcher ) = @_;
+
+	my $resolved = {};
+	foreach my $level ( $config, $kur_settings, $watcher ) {
+		if ( defined($level) && ref( $level->{active_time} ) eq 'HASH' ) {
+			foreach my $name ( keys( %{ $level->{active_time} } ) ) {
+				my $window = $level->{active_time}{$name};
+				$resolved->{$name} = [ ref($window) eq 'ARRAY' ? @{$window} : ($window) ];
+			}
+		}
+	}
+
+	return $resolved;
+} ## end sub resolve_active_time
+
+# returns a error string if the passed active_time is not a hash of named
+# windows, each a spec or a array of specs of {days?, hours?}, undef
+# otherwise... $where leads the message
+sub _active_time_error {
+	my ( $windows, $where ) = @_;
+
+	if ( ref($windows) ne 'HASH' ) {
+		return $where . ' is not a hash of named windows';
+	}
+	foreach my $name ( keys( %{$windows} ) ) {
+		my $window = $windows->{$name};
+		if ( ref($window) ne 'HASH' && ref($window) ne 'ARRAY' ) {
+			return $where . ' window "' . $name . '" is not a spec or a array of specs';
+		}
+		my @specs = ref($window) eq 'ARRAY' ? @{$window} : ($window);
+		if ( !@specs ) {
+			return $where . ' window "' . $name . '" is a empty array';
+		}
+		foreach my $spec (@specs) {
+			my $spec_error = _active_time_spec_error( $spec, $where . ' window "' . $name . '"' );
+			if ( defined($spec_error) ) {
+				return $spec_error;
+			}
+		}
+	} ## end foreach my $name ( keys( %{$windows...}))
+
+	return undef;
+} ## end sub _active_time_error
+
+# returns a error string if a single active_time spec is malformed, undef
+# otherwise... a hash of optional days (0..6) and hours ("HHMM-HHMM" or a
+# array of them), at least one of the two present
+sub _active_time_spec_error {
+	my ( $spec, $where ) = @_;
+
+	if ( ref($spec) ne 'HASH' ) {
+		return $where . ' has a spec that is not a hash';
+	}
+	foreach my $key ( keys( %{$spec} ) ) {
+		if ( $key !~ /^(?:days|hours)$/ ) {
+			return $where . ' has a spec with the unknown key "' . $key . '"';
+		}
+	}
+	if ( !defined( $spec->{days} ) && !defined( $spec->{hours} ) ) {
+		return $where . ' has a spec setting neither days nor hours';
+	}
+
+	if ( defined( $spec->{days} ) ) {
+		if ( ref( $spec->{days} ) ne 'ARRAY' || !@{ $spec->{days} } ) {
+			return $where . ' has a days that is not a non-empty array';
+		}
+		foreach my $day ( @{ $spec->{days} } ) {
+			if ( !defined($day) || ref($day) ne '' || $day !~ /^[0-6]$/ ) {
+				return $where . ' has a day that is not 0..6';
+			}
+		}
+	} ## end if ( defined( $spec->{days...}))
+
+	if ( defined( $spec->{hours} ) ) {
+		if ( ref( $spec->{hours} ) ne '' && ref( $spec->{hours} ) ne 'ARRAY' ) {
+			return $where . ' has a hours that is not a range or a array of ranges';
+		}
+		my @ranges = ref( $spec->{hours} ) eq 'ARRAY' ? @{ $spec->{hours} } : ( $spec->{hours} );
+		if ( !@ranges ) {
+			return $where . ' has a empty hours array';
+		}
+		foreach my $range (@ranges) {
+			if ( !defined($range) || ref($range) ne '' || $range !~ /^(?:[01][0-9]|2[0-3])[0-5][0-9]-(?:[01][0-9]|2[0-3])[0-5][0-9]$/ )
+			{
+				return $where . ' has a hours range that is not HHMM-HHMM';
+			}
+		}
+	} ## end if ( defined( $spec->{hours...}))
+
+	return undef;
+} ## end sub _active_time_spec_error
 
 # returns a error string if any time-ish setting in the passed hash is
 # invalid, undef otherwise

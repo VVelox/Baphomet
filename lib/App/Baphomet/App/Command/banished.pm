@@ -1,4 +1,4 @@
-package App::Baphomet::App::Command::consigned;
+package App::Baphomet::App::Command::banished;
 
 use 5.006;
 use strict;
@@ -10,7 +10,7 @@ use JSON::MaybeXS         ();
 
 =head1 NAME
 
-App::Baphomet::App::Command::consigned - Show who Kur holds, seen from the watcher's seat.
+App::Baphomet::App::Command::banished - Show who Kur holds, seen from the watcher's seat.
 
 =head1 VERSION
 
@@ -22,19 +22,19 @@ our $VERSION = '0.0.1';
 
 =head1 SYNOPSIS
 
-    baphomet consigned
-    baphomet consigned sshd
-    baphomet consigned --ip 1.2.3.4
+    baphomet banished
+    baphomet banished sshd
+    baphomet banished --ip 1.2.3.4
 
 =head1 DESCRIPTION
 
 Asks the Ereshkigal manager, the source of truth for who Kur holds, for
 its banned lists via the C<banned> command, pares them down to the kurs
 this Baphomet feeds, and merges in each galla's pending bans...
-consignments spoken but not yet heard, marked C<pending>.
+banishments spoken but not yet heard, marked C<pending>.
 
 A kur this Baphomet targets that is a fan_out kur on the Ereshkigal side
-has no ban list of it's own... the consignments land on it's members, so
+has no ban list of it's own... the banishments land on it's members, so
 such a kur is shown with it's member list and each member's holdings.
 
 The recidive kur, when configured, is included alongside the watched kurs.
@@ -59,7 +59,7 @@ sub description {
 		. 'holding that IP are shown.';
 }
 
-sub usage_desc { return '%c consigned %o [kur]'; }
+sub usage_desc { return '%c banished %o [kur]'; }
 
 sub opt_spec {
 	return (
@@ -72,7 +72,7 @@ sub validate_args {
 	my ( $self, $opt, $args ) = @_;
 
 	if ( @{$args} > 1 ) {
-		$self->usage_error('consigned takes at most one arg, a kur name');
+		$self->usage_error('banished takes at most one arg, a kur name');
 	}
 
 	return;
@@ -84,7 +84,7 @@ sub execute {
 	my $config = load_config( $opt->config );
 
 	# the kurs this Baphomet feeds... the watched ones plus the recidive
-	# kur, which consignments are escalated to
+	# kur, which banishments are escalated to
 	my @kurs = sort( keys( %{ $config->{kur} } ) );
 	if ( defined( $config->{recidive} ) && !grep { $_ eq $config->{recidive}{kur} } @kurs ) {
 		push( @kurs, $config->{recidive}{kur} );
@@ -115,7 +115,7 @@ sub execute {
 		}
 
 		# not among the real kurs... a fan_out kur has no list of it's own,
-		# the consignments land on it's members
+		# the banishments land on it's members
 		my $kur_status;
 		eval { $kur_status = $ereshkigal->call_ok( 'status_kur', { 'name' => $kur } ); };
 		if ($@) {
@@ -139,7 +139,7 @@ sub execute {
 		}
 	} ## end foreach my $kur (@kurs)
 
-	# pending bans from the gallas... consignments spoken but not yet heard
+	# pending bans from the gallas... banishments spoken but not yet heard
 	my $status_all;
 	eval {
 		my $manager = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );

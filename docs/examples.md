@@ -35,7 +35,7 @@ baphomet start
 baphomet status --all
 ```
 
-Five failures from one IP inside ten minutes and it is consigned to the
+Five failures from one IP inside ten minutes and it is banished to the
 sshd kur for 300 seconds.
 
 ## Several logs, one kur
@@ -194,9 +194,9 @@ find_time  = 604800
 ban_time   = 0
 ```
 
-Now any IP consigned five times across sshd, the mail kurs, the web kurs,
-whatever, inside a week is consigned to the recidive kur eternally. The
-shared ledger under `/var/db/baphomet/consignments.csv` is what the
+Now any IP banished five times across sshd, the mail kurs, the web kurs,
+whatever, inside a week is banished to the recidive kur eternally. The
+shared ledger under `/var/db/baphomet/banishments.csv` is what the
 gallas count against, so it works across every kur at once.
 
 ## A custom rule for a custom daemon

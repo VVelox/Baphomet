@@ -34,8 +34,11 @@ Normally not used directly but via L<App::Baphomet::Rules>.
 A raw rule works on lines from the C<raw> parser, where the whole line is
 the message. It is a syslog rule with out the daemon gate... the same
 C<message_regexp> with the same C<%%%%TOKEN%%%%> tokens, the same
-C<ignore_regexp>, and the same C<ban_var> naming which captures to ban.
-See L<App::Baphomet::Rules::Syslog> for those. Tests default to the C<raw>
+C<ignore_regexp>, the same C<ban_var> naming which captures to ban, the
+same per-rule C<max_retrys>/C<find_time>/C<ban_time>, the same cross-rule
+marks (C<mark>/C<unmark>/C<marked>/C<not_marked>/C<mark_only>), and the
+same C<country>, C<namtar_list>, and C<active_time> gates. See
+L<App::Baphomet::Rules::Syslog> for those. Tests default to the C<raw>
 parser.
 
     ---
@@ -87,10 +90,18 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|test_parser|tests)$/ ) {
+		if ( $key
+			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			)
+		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
+	$self->_check_thresholds($def);
+	$self->_check_marks($def);
+	$self->_check_country($def);
+	$self->_check_namtar($def);
+	$self->_check_active_time($def);
 
 	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
 		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );

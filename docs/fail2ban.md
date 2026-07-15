@@ -4,9 +4,9 @@ Baphomet and Ereshkigal together do fail2ban's job, split in two...
 fail2ban is one daemon that reads logs, decides, and bans; here the
 accuser and the punisher are separate. Baphomet reads the logs and counts
 offenses, Ereshkigal rules Kur and touches the firewall. They meet at the
-kur names... a `[kur.sshd]` in Baphomet's config sends its consignments to
+kur names... a `[kur.sshd]` in Baphomet's config sends its banishments to
 the kur named `sshd` on the Ereshkigal side. That kur may be a real one or
-a gate... a `fan_out` kur relaying each consignment to its members, which
+a gate... a `fan_out` kur relaying each banishment to its members, which
 is how a jail with several actions maps over (see below).
 
 ## The concept map
@@ -24,18 +24,18 @@ is how a jail with several actions maps over (see below).
 | `logpath` | the watcher `log`, which may also be a array and may glob, re-expanded live |
 | `backend = auto/polling` | POE::Wheel::FollowTail, always |
 | `backend = systemd` / `journalmatch` | a watcher's `journal` key, matches and all... native, via journalctl |
-| action (`action.d/*.conf`) | Ereshkigal's kur backends... pf, ipfw, iptables, shell, dummy |
-| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side... the Baphomet kur targets the gate, whose members each do their own thing, say a pf kur plus a shell kur running a reporter |
+| action (`action.d/*.conf`) | Ereshkigal's kur backends... some thirty underworlds, from pf, ipfw, iptables, and nftables through network gear and cloud edges to abuseipdb, shell, and dummy... see its kurs docs |
+| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side... the Baphomet kur targets the gate, whose members each do their own thing, say a pf kur plus an abuseipdb kur reporting upstream |
 | `ignoreip` | `ignore_ips`, global or per kur |
 | `fail2ban-client status/set` | `baphomet status`, `ereshkigal status/ban/unban/banned` |
 | `fail2ban-client status <jail>`, currently failed | `baphomet accused`... and with the per-IP detail fail2ban never shows |
-| `fail2ban-client status <jail>`, banned IP list | `baphomet consigned`, asking Ereshkigal and marking bans still pending delivery |
-| `fail2ban-client banned <ip>` | `baphomet consigned --ip <ip>` |
+| `fail2ban-client status <jail>`, banned IP list | `baphomet banished`, asking Ereshkigal and marking bans still pending delivery |
+| `fail2ban-client banned <ip>` | `baphomet banished --ip <ip>` |
 | `fail2ban-client get <jail> banip --with-time` | `baphomet ledger`, filterable by kur, IP, and time |
 | `fail2ban-regex` | `baphomet check_rules` and `baphomet test_line` |
 | `recidive` jail | the `[recidive]` table, escalating across all kurs |
 | `bantime.increment` | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban |
-| sqlite persistence | the state tablets under `tablet_base_dir`, the ban history in the shared consignment ledger |
+| sqlite persistence | the state tablets under `tablet_base_dir`, the ban history in the shared banishment ledger |
 
 ## What is better over here
 
@@ -68,16 +68,17 @@ Honesty section, roughly in order of how much it matters...
   per-jail shape (see the concept map), but a member kur only hears the
   IP... fail2ban interpolates the matched log lines into a action via
   `<matches>`, where here a shell member gets `%%%BAN%%%` and nothing
-  else. The EVE event log ([eve.md](eve.md)) is the stream carrying the
-  raw line, the rule, and the count for driving AbuseIPDB reports, a
-  SIEM, or notifications with full context.
+  else, and Ereshkigal's abuseipdb kur reports with a fixed comment.
+  The EVE event log ([eve](eve)) is the stream carrying the raw line,
+  the rule, and the count for driving a SIEM or notifications with
+  full context.
 - **Keyless multiline.** Correlation needs a shared key. fail2ban's
   F-MLFID session tracking, mostly feeding its aggressive/ddos filter
   modes, has no equivalent... shipped rules port the normal modes.
 - **`usedns`.** Hostname offenders (pam-generic, mysqld) are handed to
   Ereshkigal verbatim, neither resolved nor refused.
 - **Per-IP escalating bans (`bantime.increment`).** A repeat offender is
-  escalated by consigning it to a longer-held recidive kur, not by growing
+  escalated by banishing it to a longer-held recidive kur, not by growing
   its own individual ban time.
 - **apache-fakegooglebot.** The one filter deliberately not ported... its
   trick is a reverse DNS check (the `usedns` point above), not a regexp.
@@ -85,7 +86,7 @@ Honesty section, roughly in order of how much it matters...
 The filter library is otherwise essentially complete... every fail2ban
 filter that is a regexp over a log line is ported, across the syslog, raw,
 http, http_error, and multiline families, plus the JSON and Suricata
-rules. See [rules-catalog.md](rules-catalog.md) for the full list.
+rules. See [rules-catalog](rules-catalog) for the full list.
 
 ## Migrating a jail
 
@@ -125,8 +126,12 @@ ports     = [ "22" ]
 protocols = [ "tcp" ]
 
 [kur.reporter]
-backend = "shell"
-# see the shell backend POD for the ban/unban command options
+backend = "abuseipdb"
+
+[kur.reporter.options]
+key        = "your-abuseipdb-api-key"
+categories = [ "18", "22" ]
+comment    = "ssh brute force"
 ```
 
 ...and on the Baphomet side (`/usr/local/etc/baphomet/config.toml`)...
@@ -152,7 +157,7 @@ baphomet status --all
 ereshkigal banned
 ```
 
-A filter with no shipped rule ports by hand... [rules.md](rules.md) walks
+A filter with no shipped rule ports by hand... [rules](rules) walks
 the format, `test_line` pokes single lines at a draft, and the fail2ban
 test log corpus (`fail2ban/tests/files/logs/` in its source) is a fine
 vein of test lines, as every shipped rule here demonstrates.

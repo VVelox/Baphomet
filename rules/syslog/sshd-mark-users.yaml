@@ -1,0 +1,51 @@
+---
+# Brands each sshd auth failure with the account it targeted, keyed by the
+# username and storing the source address that hit it. Sets nothing loose
+# on its own... mark_only means it only brands and never counts toward a
+# ban, and does not consume the line, so matching falls through to the
+# spray rule and the plain sshd rule after it. Pair it with
+# syslog/sshd-spray, which reads these marks. List sshd-spray BEFORE this
+# in the watcher so the gate sees the source that established the account,
+# not the one this line would re-brand it with.
+daemons:
+  - sshd
+  - sshd-session
+message_regexp:
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?<USER>\S+) from %%%%SRC%%%%'
+ban_var:
+  - SRC
+mark_only: true
+mark:
+  - name: sshd-account-src
+    ttl: 3600
+    var: USER
+    value_var: SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 1
+      data:
+        USER: "moth3r"
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 1
+      data:
+        USER: "admin"
+        SRC: "192.0.2.7"
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[2279]: Failed password for root from 2001:db8::badc:0ffe port 62022 ssh2"
+      found: 1
+      data:
+        USER: "root"
+        SRC: "2001:db8::badc:0ffe"
+    - message: "Jul 12 08:15:50 vixen42 sshd[1094]: error: PAM: Authentication failure for root from 192.0.2.11"
+      found: 1
+      data:
+        USER: "root"
+        SRC: "192.0.2.11"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
+      found: 0
+      undefed: ["SRC", "USER"]

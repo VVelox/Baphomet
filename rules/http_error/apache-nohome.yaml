@@ -5,6 +5,9 @@
 # logs this at core:info while 2.2 logs it at error.
 message_regexp:
   - '^File does not exist: .*/~'
+# fail2ban jail.conf's word for this filter, honored when the kur allows
+# per-rule thresholds
+max_retrys: 2
 tests:
   positive:
     - message: '[Sat Jun 01 11:23:08 2013] [error] [client 1.2.3.4] File does not exist: /xxx/~'

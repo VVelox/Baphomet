@@ -9,7 +9,7 @@ use JSON::MaybeXS      ();
 
 =head1 NAME
 
-App::Baphomet::App::Command::accused - Show the IPs being counted but not yet consigned.
+App::Baphomet::App::Command::accused - Show the IPs being counted but not yet banished.
 
 =head1 VERSION
 
@@ -32,12 +32,13 @@ and execute.
 
 =cut
 
-sub abstract { return 'show the IPs being counted but not yet consigned' }
+sub abstract { return 'show the IPs being counted but not yet banished' }
 
 sub description {
 	return
-		  'The accused are IPs accumulating offenses but not yet consigned to Kur... '
-		. 'per IP the live hit count and the epochs of the first and last hit. '
+		  'The accused are IPs accumulating offenses but not yet banished to Kur... '
+		. 'per IP the live hit count and the epochs of the first and last hit, '
+		. 'with a rules breakdown when a rule carrying its own thresholds is counting it. '
 		. 'With no args, every galla is asked. With a galla name, just that one. '
 		. 'With --ip, only that IP is shown, in whichever gallas are counting it.';
 }

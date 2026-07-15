@@ -1,8 +1,72 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - A active_time gate on rules... only count a match when the time is
+          in, or not in, named time windows, so an offense routine at midday
+          can be an alarm at 03:00. The windows are defined in the config's
+          active_time (a {days, hours} spec or array of them per name),
+          layered global/kur/watcher merged per name; days are 0..6, hours a
+          HHMM-HHMM range that may wrap midnight. The gate is is/isnot over
+          one or more window names (unioned), and optionally checks a found
+          value's timestamp (epoch or ISO 8601) instead of the current time,
+          failing closed on anything unparseable. Unlike the other gates it
+          is whole-result, time being a property of the line not the
+          offender. Local time. No shipped rule, as which hours matter is
+          operator policy.
+        - A namtar_list gate on rules... only count a match when a IP is on
+          a named blocklist, the inverse of ignore_ips. The lists are CIDR
+          files named in the config's namtar_lists (a path or array of
+          paths per name), layered global/kur/watcher and reloaded on mtime
+          change, so a threat feed that updates on disk takes effect with in
+          a sweep. A gate entry names one or more lists (unioned) and an
+          optional var to check instead of the offender, the same two-mode
+          split as the country and mark gates. Fails closed on an address
+          on no list or an unreadable feed, and ignore_ips still wins. No
+          shipped rule, as which addresses are condemned is operator policy.
+        - A country gate on rules... only count a match when the offender,
+          or a named found var, is in (is) or not in (isnot) a set of
+          countries, via a MaxMind GeoIP database (geoip_db, read through
+          the optional IP::Geolocation::MMDB). Rules stay geography-neutral
+          by importing named country-code lists with the
+          %%%country_codes{name}%%% token; those lists live in the config
+          (country_codes) at global, kur, and watcher level, merged per
+          name. Without vars the gate filters offenders; with vars it
+          checks the geography of other captured addresses and vetoes the
+          whole result, so a rule can ban a flow's src only when its dest
+          is one of yours. Fails closed on an unlocatable IP or a missing
+          database, warning loudly at start. A loaded database also stamps
+          the banished IP's country onto EVE banish events.
+        - Marks... a galla wide, expiring, named store one rule brands and
+          another gates on, so rules carry state across each other the way
+          correlation carries it across lines (Sagan's xbits/flexbits).
+          New rule keys on every type: mark and unmark set and lift brands,
+          marked and not_marked gate on them, mark_only brands without
+          counting or consuming the line. The key defaults to the offender
+          IP but any capture or field can be it (var), and a value can be
+          harvested from the line onto the brand (value_var), which a gate
+          can then require to equal or differ from a capture (value_is/
+          value_not). Marks live per galla, cross watchers and rules but
+          not kurs, survive a restart via a new marks tablet, and are shown
+          by the new baphomet marked command. Shipped with a demo pair,
+          syslog/sshd-mark-users and syslog/sshd-spray, catching one
+          account hit from more than one source... the distributed brute
+          force per-IP counting can not see.
+        - Per-rule thresholds, gated by the new allow_per_rule_thresholds
+          setting (global, per kur, per watcher... off by default). With
+          the flag on, a rule carrying its own max_retrys, find_time, or
+          ban_time speaks over the watcher, the layering becoming rule
+          over watcher over kur over global. A rule overriding how
+          counting works gets its own counter bucket so its window does
+          not touch the shared per-IP count, rides the counters tablet in
+          a new third column (old tablets restore fine), and is broken
+          out per rule by baphomet accused. Shipped rules now carry the
+          numbers fail2ban's jail.conf gives their filters (shellshock,
+          badbots, nagios, and portsentry at 1, the overflow/botsearch
+          family at 2, asterisk and freeswitch at 10) and the priority 1
+          Suricata classes plus suricata-blocked sit at 1... all inert
+          until the flag consents.
         - Initial release. Log watcher for Ereshkigal... tails logs, parses
-          syslog lines, matches them against YAML rules, and consigns
+          syslog lines, matches them against YAML rules, and banishes
           offending IPs to Kur via the Ereshkigal manager socket.
         - 47 more rules ported from fail2ban, closing the filter library to
           essentially everything that is a regexp over a log line... more
@@ -10,17 +74,17 @@ Revision history for App-Baphomet
           logs, more web rules, and slapd via keyed correlation. 135 rules
           shipped now.
         - Visibility commands matching what fail2ban shows... baphomet
-          accused lists the IPs being counted but not yet consigned, per
+          accused lists the IPs being counted but not yet banished, per
           IP the live hit count and first/last hit epochs, via a new
           accused action on the galla and manager sockets. baphomet
-          consigned asks Ereshkigal who Kur holds for the kurs this
+          banished asks Ereshkigal who Kur holds for the kurs this
           Baphomet feeds, expanding fan_out gates to their members and
           marking bans still pending delivery, with --ip answering which
-          kurs hold a address. baphomet ledger reads the consignment
+          kurs hold a address. baphomet ledger reads the banishment
           history... when, which kur, which IP, by which rule and watcher,
           filterable by kur, IP, --since, and --tail.
-        - The shared consignment ledger is now chiseled on every
-          consignment, recidive or no, and carries rule and watcher
+        - The shared banishment ledger is now chiseled on every
+          banishment, recidive or no, and carries rule and watcher
           columns. Retention is bounded by the new ledger_keep setting,
           30 days by default, 0 meaning forever, never pruning inside the
           recidive window.
@@ -33,24 +97,24 @@ Revision history for App-Baphomet
           matching Ereshkigal. socket_mode is now validated at load, and
           socket_group/socket_mode gate the manager socket as before.
         - A internal config field, global and per kur, marking your own
-          hosts, and a ban_not_internal rule option consigning the end of
+          hosts, and a ban_not_internal rule option banishing the end of
           a flow that is not internal. internal defaults to the ignore
           IPs. All the Suricata rules use it, so the offender is picked as
           the external end whether it is the src or the dest... the flow
           direction depends on where the alert fired.
-        - json/suricata-blocked, consigning sources Suricata itself chose
+        - json/suricata-blocked, banishing sources Suricata itself chose
           to block, per eve.json alert.action == "blocked".
         - A rule per Suricata classification class,
           json/suricata-<classtype>, gating on alert.category and
-          consigning src_ip, so eve.json can be acted on class by class.
+          banishing src_ip, so eve.json can be acted on class by class.
           43 of them, from Suricata's own classification.config.
         - An EVE event log, a Suricata-shaped NDJSON record of what the
-          gallas do... found and consign events with eve_type baphomet,
+          gallas do... found and banish events with eve_type baphomet,
           the raw and parsed line, the found data, a count, and the rule
           minus its tests. Path set by default, written only when
           eve_enable is on. See docs/eve.md.
         - A ignore_ips list, global and per kur, of addresses and CIDRs
-          never consigned no matter what the rules say.
+          never banished no matter what the rules say.
         - Each galla persists its state to tablets under tablet_base_dir,
           /var/db/baphomet by default... counters, pending bans,
           correlation context, and log positions, checkpointed and
@@ -61,7 +125,7 @@ Revision history for App-Baphomet
           json, cursor persisted across restarts. The syslog rules apply
           to it unchanged.
         - Repeat offender escalation via the recidive table... every
-          consignment is recorded to a shared ledger and a IP consigned
+          banishment is recorded to a shared ledger and a IP banished
           too many times across all kurs is dragged through a further gate
           to the recidive kur.
         - A migration guide for people coming from fail2ban, docs/fail2ban.md.

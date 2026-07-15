@@ -133,6 +133,109 @@ The named regexp matches to use for bans. For each name here that a
 matching line captured, the captured value is what gets handed to
 Ereshkigal.
 
+=head2 max_retrys / find_time / ban_time
+
+Optional. The rule's own thresholds, honored only when the watcher's
+C<allow_per_rule_thresholds> config setting is on, at which point the
+layering is rule over watcher over kur over global. A rule overriding
+C<max_retrys> or C<find_time> is counted in its own bucket, apart from
+the shared per-IP count, while a C<ban_time>-only override counts in the
+shared bucket and just bans with its own duration.
+
+=head2 mark / unmark / marked / not_marked / mark_only
+
+Optional. Marks are a galla wide, expiring, named store one rule brands and
+another gates on, so rules can carry state across each other the way
+correlation carries it across lines. The key defaults to the offender IP
+but any capture or field can be it, and a value can be harvested from the
+line too.
+
+    - mark :: Array of brands to set on match, each a hash of C<name> and
+          C<ttl>, and optionally C<var> (key by this capture instead of the
+          offender IP) and C<value_var> (store this capture on the brand).
+
+    - unmark :: Array of brands to lift on match, each C<name> and
+          optionally C<var>.
+
+    - marked :: Gate array, ANDed... the result only counts if every named
+          brand is set. Each a hash of C<name>, optionally C<var>, and at
+          most one of C<value_is> or C<value_not> naming a capture the
+          stored value must equal or differ from. A var entry is checked
+          against the line's captures, a var-less one against each offender.
+
+    - not_marked :: The inverse gate... the result only counts if none of
+          the named brands is set.
+
+    - mark_only :: When true the rule only brands and gates, never counting
+          toward a ban, and does not consume the line, so matching falls
+          through to the later rules.
+
+A rule whose mark gates veto, like a mark_only rule, falls through rather
+than consuming the line, so the brander and the gater can both fire on it.
+Marks live per galla, cross watchers and rules but not kurs, survive a
+restart, and are visible with C<baphomet marked>. The ignored are never
+branded. See C<syslog/sshd-mark-users> and C<syslog/sshd-spray> for a
+shipped pair.
+
+=head2 country
+
+Optional. A gate that only lets a match count when a IP is in, or not in, a
+set of countries, needing the C<geoip_db> config setting and the optional
+IP::Geolocation::MMDB module. A hash of:
+
+    - is / isnot :: At most one. A list of ISO 3166 2-letter codes and
+          C<%%%country_codes{name}%%%> imports of named lists from the
+          config (resolved per watcher). A bare string is a one-element
+          list. is counts only IPs in the set, isnot only those not in it.
+
+    - vars :: Optional. Found vars to check the country of instead of the
+          offender. Without it the gate is offender-keyed, checked per
+          ban_var candidate in the ban loop. With it the gate is data-keyed,
+          checked once per result against those vars (resolved like ban_var)
+          and vetoing the whole result on a failure... so a rule can gate on
+          the geography of a value it is not banning.
+
+The gate fails closed: a IP that does not locate, or a missing database,
+blocks the count rather than risking a wrong ban. A galla with country
+gated rules and no database says so loudly at start.
+
+=head2 namtar_list
+
+Optional. A gate that only lets a match count when a IP is on a named
+blocklist, the inverse of ignore_ips. The lists are CIDR files named in
+the config's C<namtar_lists>, layered per watcher and reloaded on mtime
+change. A array of entries, each:
+
+    - list / lists :: One or more named lists to check against. A value on
+          any of them (union) satisfies the entry.
+
+    - var :: Optional. The found var to check, resolved like ban_var. With
+          it the entry is data-keyed and vets the whole result, without it
+          the entry is offender-keyed and filters candidates... so a rule
+          can gate on a captured address it is not banning.
+
+Every entry must hold. The gate fails closed: a IP on no list, or a list
+whose file is unreadable, blocks the count. ignore_ips still wins, so a
+ignored IP is never banished even when blocklisted.
+
+=head2 active_time
+
+Optional. A gate that only lets a match count when a time is in, or not in,
+named windows from the config's C<active_time>, resolved per watcher. A
+hash of:
+
+    - is / isnot :: At most one. A window name or a list of them. Multiple
+          are unioned. is counts only when the time is in a window, isnot
+          only when in none.
+
+    - vars :: Optional. Found vars holding the time to check, read as a
+          epoch or a ISO 8601 datetime. Without it the gate checks the
+          current time. A value that does not parse fails closed.
+
+Unlike the other gates active_time is never per-offender... time is a
+property of the line, so it is checked once per result and vetoes the whole
+result. Times are local.
+
 =head2 tests
 
 Positive and negative tests for verifying the rule works. These are ran at
@@ -194,11 +297,18 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|test_parser|tests)$/ )
+		if ( $key
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
+	$self->_check_thresholds($def);
+	$self->_check_marks($def);
+	$self->_check_country($def);
+	$self->_check_namtar($def);
+	$self->_check_active_time($def);
 
 	foreach my $key ( 'daemons', 'ban_var' ) {
 		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {

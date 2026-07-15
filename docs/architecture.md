@@ -16,7 +16,7 @@ The two meet at the kur names. A `[kur.sshd]` in Baphomet's config sends
 its bans targeted at the kur named `sshd` on the Ereshkigal side, so the
 names should line up across the two configs. The target over there may be
 a real kur or a gate... a `fan_out` kur with no firewall of its own that
-relays each consignment to its members, letting one galla feed a whole
+relays each banishment to its members, letting one galla feed a whole
 set of kurs through a single name.
 
 ## The processes
@@ -56,7 +56,7 @@ Inside a galla, each new line of a watcher's log runs the gauntlet...
 5. **Counting.** Each IP gets a hit recorded. Hits older than `find_time`
    seconds no longer count. When an IP reaches `max_retrys` hits, it is
    seized.
-6. **Consignment.** The galla sends
+6. **Banishment.** The galla sends
    `{"command":"ban","args":{"ips":["..."],"kur":"<name>","ban_time":...}}`
    to the Ereshkigal manager socket. If Ereshkigal can not be reached, the
    ban is queued and retried every ten seconds rather than dropped.
@@ -76,7 +76,8 @@ accumulates in one counter, while kurs count independently.
 ```
 
 Both speak the newline delimited JSON protocol of
-POE::Component::Server::JSONUnix, same as Ereshkigal. The manager socket
+[POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix),
+same as Ereshkigal. The manager socket
 answers `status`, `status_all`, `status_galla`, `accused`, and `stop`,
 with the status and accused fan-out proxied to the galla sockets. The
 manager socket's group and mode are configurable via `socket_group` and
@@ -99,7 +100,7 @@ restart or a crash does not forget what it was in the middle of...
 ├── galla.<kur>.cursors.csv     journal cursors, one per journal watcher
 ├── galla.<kur>.stats.jsonl     running stats, so totals survive a respawn
 ├── galla.<kur>.context.jsonl   correlation context and deferred offenses
-└── consignments.csv            the shared ledger... every consignment, by all
+└── banishments.csv            the shared ledger... every banishment, by all
 ```
 
 Checkpointed on the `checkpoint` cadence from the sweeper and again on
@@ -112,6 +113,6 @@ was rotated or truncated. The tablets are the counting-side echo of
 Ereshkigal's own ban tablets... the bans themselves live over there.
 
 The ledger is the one tablet shared by every galla rather than per kur...
-each consignment is chiseled in as `epoch,kur,ip,rule,watcher` under a
+each banishment is chiseled in as `epoch,kur,ip,rule,watcher` under a
 exclusive lock, pruned to `ledger_keep`, read by the recidive gate for
 its counting and by `baphomet ledger` for history.

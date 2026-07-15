@@ -84,6 +84,36 @@ entry. So a ban_var may name a token capture, like C<SRC> when the address
 had to be dug out of a string, or a field path directly, like
 C<request.client_ip> when the log hands the address over bare.
 
+=head2 max_retrys / find_time / ban_time
+
+Optional. The rule's own thresholds, honored only when the watcher's
+C<allow_per_rule_thresholds> config setting is on. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
+=head2 mark / unmark / marked / not_marked / mark_only
+
+Optional. Cross-rule marks, keyed by the offender or any capture. A json
+rule's C<var>/C<value_var> may name a token capture or a field path. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
+=head2 country
+
+Optional. A GeoIP gate on the offender or named found vars, its C<vars>
+naming token captures or field paths. See L<App::Baphomet::Rules::Syslog>
+for the semantics.
+
+=head2 namtar_list
+
+Optional. A blocklist gate on the offender or named found vars, its C<var>
+naming a token capture or field path. See L<App::Baphomet::Rules::Syslog>
+for the semantics.
+
+=head2 active_time
+
+Optional. A time-of-day gate on the current time or named found vars, its
+C<vars> naming token captures or field paths holding a epoch or ISO time.
+See L<App::Baphomet::Rules::Syslog> for the semantics.
+
 =head2 test_parser / tests
 
 Positive and negative tests, same shape as everywhere else, with each
@@ -126,10 +156,18 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:gate|match|ignore|ban_var|ban_not_internal|test_parser|tests)$/ ) {
+		if ( $key
+			!~ /^(?:gate|match|ignore|ban_var|ban_not_internal|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			)
+		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
+	$self->_check_thresholds($def);
+	$self->_check_marks($def);
+	$self->_check_country($def);
+	$self->_check_namtar($def);
+	$self->_check_active_time($def);
 
 	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
 		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );

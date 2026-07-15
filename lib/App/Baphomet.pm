@@ -13,7 +13,7 @@ use App::Baphomet::LogDrek           qw( log_drek );
 
 =head1 NAME
 
-App::Baphomet - Log watcher that consigns misbehaving IPs to Kur via Ereshkigal.
+App::Baphomet - Log watcher that banishes misbehaving IPs to Kur via Ereshkigal.
 
 =head1 VERSION
 
@@ -288,8 +288,12 @@ The JSON commands handled are as below.
     - status_galla :: Full status of the galla args.name.
 
     - accused :: The IPs each galla is counting but has not yet
-          consigned... every galla, or just args.name if given. Per IP
+          banished... every galla, or just args.name if given. Per IP
           the live hit count and the epochs of the first and last hit.
+
+    - marked :: The live marks each galla holds... every galla, or just
+          args.name if given. Per mark name a hash of the branded keys
+          with their expiries and stored values.
 
     - stop :: Stop all the gallas and then the manager.
 
@@ -344,6 +348,11 @@ sub start_server {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
 				return $self->_cmd_accused($request);
+			},
+			'marked' => sub {
+				my ( undef, $request, $ctx ) = @_;
+				$self->_authorize($ctx);
+				return $self->_cmd_marked($request);
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -712,6 +721,39 @@ sub _cmd_accused {
 
 	return { 'gallas' => $gallas };
 } ## end sub _cmd_accused
+
+sub _cmd_marked {
+	my ( $self, $request ) = @_;
+
+	my $args = defined( $request->{args} ) ? $request->{args} : {};
+
+	my @names;
+	if ( defined( $args->{name} ) ) {
+		if ( !defined( $self->{gallas}{ $args->{name} } ) ) {
+			die( 'No such galla, "' . $args->{name} . '"' );
+		}
+		@names = ( $args->{name} );
+	} else {
+		@names = sort( keys( %{ $self->{gallas} } ) );
+	}
+
+	my $gallas = {};
+	foreach my $name (@names) {
+		if ( !defined( $self->{gallas}{$name}{pid} ) ) {
+			$gallas->{$name} = { 'error' => 'not running' };
+			next;
+		}
+		my $result;
+		eval { $result = $self->_galla_client($name)->call_ok('marked'); };
+		if ($@) {
+			$gallas->{$name} = { 'error' => $@ };
+		} else {
+			$gallas->{$name} = $result;
+		}
+	} ## end foreach my $name (@names)
+
+	return { 'gallas' => $gallas };
+} ## end sub _cmd_marked
 
 =head1 ERRORS CODES / ERROR FLAGS
 

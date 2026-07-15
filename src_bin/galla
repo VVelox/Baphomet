@@ -16,7 +16,7 @@ galla -h|--help
 
 Runs a single L<App::Baphomet::Galla> instance, handling one kur from the
 config... following the logs of its watchers, matching lines against the
-rules, and consigning IPs that rack up too many matches to Kur via the
+rules, and banishing IPs that rack up too many matches to Kur via the
 Ereshkigal manager socket.
 
 The socket and PID file go under C<$run_base_dir/galla/>, named for the

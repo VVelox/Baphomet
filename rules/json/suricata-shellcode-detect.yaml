@@ -4,7 +4,7 @@
 # classes you want to hit on. See rules-catalog.md.
 #
 # The offender may be the src or the dest of the flow depending on where
-# the alert fired, so both are candidates and ban_not_internal consigns
+# the alert fired, so both are candidates and ban_not_internal banishes
 # whichever is not one of your own hosts... set the internal config field,
 # which defaults to the ignore IPs.
 gate:
@@ -16,6 +16,9 @@ ban_var:
   - src_ip
   - dest_ip
 ban_not_internal: true
+# a priority 1 signal... one alert is enough, when the kur allows
+# per-rule thresholds
+max_retrys: 1
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST shellcode-detect","category":"Executable code was detected","severity":1}}'

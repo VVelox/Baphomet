@@ -9,6 +9,14 @@ positive and negative tests, ran at load time and by
 Unless said otherwise, the default/normal mode of the fail2ban filter is
 what got ported... the aggressive/ddos mode machinery is dropped.
 
+Rules whose fail2ban jail.conf sets a non-default `maxretry` carry that
+number as their own `max_retrys` (shellshock, badbots, nagios, and
+portsentry at 1, the overflow/botsearch family at 2, asterisk and
+freeswitch at 10), as do the priority 1 Suricata classes and
+`json/suricata-blocked` (one alert is enough). These numbers are inert
+unless the `allow_per_rule_thresholds` config setting says otherwise...
+see [configuration](configuration) and [rules](rules).
+
 | rule | watches for | daemon gate |
 | --- | --- | --- |
 | `syslog/asterisk` | Asterisk auth/registration failures | `asterisk` |
@@ -33,6 +41,8 @@ what got ported... the aggressive/ddos mode machinery is dropped.
 | `syslog/sieve` | Sieve (timsieved) login failures | `sieved`/`timsieved` |
 | `syslog/solid-pop3d` | Solid POP3 auth failures | `solid-pop3d` |
 | `syslog/sshd` | OpenSSH auth failures | `sshd`, `sshd-session` |
+| `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
+| `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_retrys 1`) | `sshd`, `sshd-session` |
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
 | `syslog/xinetd-fail` | xinetd connection failures | `xinetd` |
@@ -97,7 +107,7 @@ output shapes.
 
 Beside the severity-gated `json/suricata`, there is a rule per Suricata
 classification class, `json/suricata-<classtype>`, each gating on that
-class's `alert.category` and consigning `src_ip`. Pick the classes you
+class's `alert.category` and banishing `src_ip`. Pick the classes you
 actually want to act on rather than banning on everything Suricata
 alerts... a watcher's rule array is how you choose.
 
@@ -132,14 +142,14 @@ The full set, from Suricata's own classification.config, one rule each...
 
 The benign and informational classes (`not-suspicious`, `unknown`,
 `tcp-connection`, `icmp-event`, `misc-activity`) are shipped for
-completeness but are rarely ones you want to consign on.
+completeness but are rarely ones you want to banish on.
 
 Every Suricata rule lists both `src_ip` and `dest_ip` as ban_vars and sets
 `ban_not_internal`, so the offender is picked as whichever end of the flow
 is not one of your own hosts... an inbound attack bans the external src, a
 C2 callout from an inside host bans the external dest. Set the `internal`
 config field to your networks; it defaults to the ignore IPs. See the
-"Banning the external end of a flow" section of [rules.md](rules.md).
+"Banning the external end of a flow" section of [rules](rules).
 
 ## raw rules
 

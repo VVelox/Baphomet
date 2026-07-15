@@ -81,6 +81,32 @@ line.
 Optional. Same, but a hit vetoes the line entirely. Checked before the
 matches.
 
+=head2 max_retrys / find_time / ban_time
+
+Optional. The rule's own thresholds, honored only when the watcher's
+C<allow_per_rule_thresholds> config setting is on. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
+=head2 mark / unmark / marked / not_marked / mark_only
+
+Optional. Cross-rule marks, keyed by the offender or any capture. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
+=head2 country
+
+Optional. A GeoIP gate on the offender or named found vars. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
+=head2 namtar_list
+
+Optional. A blocklist gate on the offender or named found vars. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
+=head2 active_time
+
+Optional. A time-of-day gate on the current time or named found vars. See
+L<App::Baphomet::Rules::Syslog> for the semantics.
+
 =head2 test_parser / tests
 
 Positive and negative tests, same shape as everywhere else. Tests parse
@@ -124,10 +150,18 @@ sub new {
 	}
 
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key !~ /^(?:level|module|message_regexp|ignore_regexp|test_parser|tests)$/ ) {
+		if ( $key
+			!~ /^(?:level|module|message_regexp|ignore_regexp|max_retrys|find_time|ban_time|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			)
+		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
+	$self->_check_thresholds($def);
+	$self->_check_marks($def);
+	$self->_check_country($def);
+	$self->_check_namtar($def);
+	$self->_check_active_time($def);
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );

@@ -42,6 +42,14 @@ my %WriteMakefileArgs = (
 				web  => 'https://github.com/LilithSec/Baphomet',
 			},
 		},
+		# only needed by the optional country gate, a soft require at runtime
+		prereqs => {
+			runtime => {
+				recommends => {
+					'IP::Geolocation::MMDB' => '0',
+				},
+			},
+		},
 	}
 );
 

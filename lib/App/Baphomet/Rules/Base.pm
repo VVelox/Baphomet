@@ -100,7 +100,7 @@ sub sweep_state {
 =head2 ban_not_internal
 
 Returns true if the rule wants only the found IPs that are not internal
-consigned, for rules like the Suricata ones where the offender may be the
+banished, for rules like the Suricata ones where the offender may be the
 src or the dest of a flow. The galla is what has the internal list and
 does the filtering... this just exposes the rule's C<ban_not_internal>
 def key. A rule type that does not allow the key never sees it set, so
@@ -115,6 +115,217 @@ sub ban_not_internal {
 
 	return $self->{def}{ban_not_internal} ? 1 : 0;
 }
+
+=head2 thresholds
+
+Returns a hash of the rule's own threshold overrides, max_retrys,
+find_time, and ban_time, holding only the keys the def actually sets...
+a empty hash for a rule carrying none. The galla is what has the watcher
+settings and decides if these are honored, per its
+C<allow_per_rule_thresholds>... this just exposes the def keys. Cached,
+as the def does not change.
+
+    my $thresholds = $rule->thresholds;
+    if ( %{$thresholds} ) { ... }
+
+=cut
+
+sub thresholds {
+	my ($self) = @_;
+
+	if ( !defined( $self->{thresholds} ) ) {
+		my $thresholds = {};
+		foreach my $item ( 'max_retrys', 'find_time', 'ban_time' ) {
+			if ( defined( $self->{def}{$item} ) ) {
+				$thresholds->{$item} = $self->{def}{$item};
+			}
+		}
+		$self->{thresholds} = $thresholds;
+	}
+
+	return $self->{thresholds};
+} ## end sub thresholds
+
+=head2 marks
+
+Returns the array of marks the rule sets on match, each a hash of C<name>,
+C<ttl>, and optionally C<var> (key by this capture instead of the offender
+IP) and C<value_var> (store this capture as the mark's value)... a empty
+array for a rule setting none. The galla is what has the marks store and
+does the branding, this just exposes the def key.
+
+    foreach my $mark ( @{ $rule->marks } ) { ... }
+
+=cut
+
+sub marks {
+	my ($self) = @_;
+
+	return ref( $self->{def}{mark} ) eq 'ARRAY' ? $self->{def}{mark} : [];
+}
+
+=head2 unmarks
+
+Returns the array of marks the rule lifts on match, each a hash of C<name>
+and optionally C<var>... a empty array for a rule lifting none.
+
+    foreach my $unmark ( @{ $rule->unmarks } ) { ... }
+
+=cut
+
+sub unmarks {
+	my ($self) = @_;
+
+	return ref( $self->{def}{unmark} ) eq 'ARRAY' ? $self->{def}{unmark} : [];
+}
+
+=head2 mark_gates
+
+Returns the rule's mark gates as a hash of two arrays, C<marked> and
+C<not_marked>, either possibly empty. Each entry is a hash of C<name> and
+optionally C<var>, and marked entries may also carry one of C<value_is> or
+C<value_not>, naming a capture the stored value must equal or differ from.
+The galla evaluates these against its marks store... a found result only
+counts if every gate holds.
+
+    my $gates = $rule->mark_gates;
+    foreach my $gate ( @{ $gates->{marked} } ) { ... }
+
+=cut
+
+sub mark_gates {
+	my ($self) = @_;
+
+	return {
+		'marked'     => ref( $self->{def}{marked} ) eq 'ARRAY'     ? $self->{def}{marked}     : [],
+		'not_marked' => ref( $self->{def}{not_marked} ) eq 'ARRAY' ? $self->{def}{not_marked} : [],
+	};
+}
+
+=head2 mark_only
+
+Returns true if the rule only brands and gates, never counting toward a
+ban... and a mark_only rule does not consume the line either, so matching
+falls through to the watcher's later rules.
+
+    if ( $rule->mark_only ) { ... }
+
+=cut
+
+sub mark_only {
+	my ($self) = @_;
+
+	return $self->{def}{mark_only} ? 1 : 0;
+}
+
+=head2 country
+
+Returns the rule's country gate normalized, or undef when it has none. The
+gate is a hash of C<mode> (C<is> or C<isnot>), C<entries> (the raw list, 2-
+letter codes and C<%%%country_codes{name}%%%> imports still unexpanded, as
+the config to expand against is the galla's per watcher), and C<vars> (the
+found vars to check the country of, or undef to check the offender IP). The
+galla resolves the imports and does the lookups. Cached.
+
+    my $country = $rule->country;
+
+=cut
+
+sub country {
+	my ($self) = @_;
+
+	if ( !exists( $self->{country_parsed} ) ) {
+		my $def = $self->{def}{country};
+		if ( ref($def) ne 'HASH' ) {
+			$self->{country_parsed} = undef;
+		} else {
+			my $mode = defined( $def->{is} ) ? 'is' : 'isnot';
+			$self->{country_parsed} = {
+				'mode'    => $mode,
+				'entries' => [ ref( $def->{$mode} ) eq 'ARRAY' ? @{ $def->{$mode} } : ( $def->{$mode} ) ],
+				'vars' => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
+				: defined( $def->{vars} ) ? [ $def->{vars} ]
+				:                           undef,
+			};
+		} ## end else [ if ( ref($def) ne 'HASH')]
+	} ## end if ( !exists( $self->{country_parsed...}))
+
+	return $self->{country_parsed};
+} ## end sub country
+
+=head2 namtar_list
+
+Returns the rule's namtar_list gate normalized, or undef when it has none.
+The gate is a array of entries, each a hash of C<lists> (the named list
+references, still unresolved as the config to resolve against is the
+galla's per watcher) and C<var> (the found var to check, or undef for the
+offender IP). The galla resolves the list names to files and does the
+membership tests. Cached.
+
+    foreach my $entry ( @{ $rule->namtar_list } ) { ... }
+
+=cut
+
+sub namtar_list {
+	my ($self) = @_;
+
+	if ( !exists( $self->{namtar_parsed} ) ) {
+		my $def = $self->{def}{namtar_list};
+		if ( ref($def) ne 'ARRAY' ) {
+			$self->{namtar_parsed} = undef;
+		} else {
+			my @entries;
+			foreach my $entry ( @{$def} ) {
+				my $lists = defined( $entry->{lists} ) ? $entry->{lists} : $entry->{list};
+				push(
+					@entries,
+					{
+						'lists' => [ ref($lists) eq 'ARRAY' ? @{$lists} : ($lists) ],
+						'var'   => $entry->{var},
+					}
+				);
+			} ## end foreach my $entry ( @{$def} )
+			$self->{namtar_parsed} = \@entries;
+		} ## end else [ if ( ref($def) ne 'ARRAY')]
+	} ## end if ( !exists( $self->{namtar_parsed...}))
+
+	return $self->{namtar_parsed};
+} ## end sub namtar_list
+
+=head2 active_time
+
+Returns the rule's active_time gate normalized, or undef when it has none.
+The gate is a hash of C<mode> (C<is> or C<isnot>), C<windows> (the named
+window references, still unresolved as the config to resolve against is the
+galla's per watcher), and C<vars> (the found vars holding the times to
+check, or undef to check the current time). The galla resolves the window
+names to specs and does the time tests. Cached.
+
+    my $active = $rule->active_time;
+
+=cut
+
+sub active_time {
+	my ($self) = @_;
+
+	if ( !exists( $self->{active_parsed} ) ) {
+		my $def = $self->{def}{active_time};
+		if ( ref($def) ne 'HASH' ) {
+			$self->{active_parsed} = undef;
+		} else {
+			my $mode = defined( $def->{is} ) ? 'is' : 'isnot';
+			$self->{active_parsed} = {
+				'mode'    => $mode,
+				'windows' => [ ref( $def->{$mode} ) eq 'ARRAY' ? @{ $def->{$mode} } : ( $def->{$mode} ) ],
+				'vars' => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
+				: defined( $def->{vars} ) ? [ $def->{vars} ]
+				:                           undef,
+			};
+		} ## end else [ if ( ref($def) ne 'HASH')]
+	} ## end if ( !exists( $self->{active_parsed...}))
+
+	return $self->{active_parsed};
+} ## end sub active_time
 
 =head2 info
 
@@ -371,6 +582,256 @@ my %tokens = (
 	'SRC'    => qr/(?:$IPv4_re|$IPv6_re)/,
 	'DEST'   => qr/(?:$IPv4_re|$IPv6_re)/,
 );
+
+# dies if the def's threshold overrides, max_retrys, find_time, and
+# ban_time, hold unusable values... same rules as the config's, positive
+# ints for the first two, non-negative for ban_time as 0 means eternal...
+# called by every handler's new, as the keys are legal on every type
+sub _check_thresholds {
+	my ( $self, $def ) = @_;
+
+	my $name = $self->{name};
+
+	foreach my $item ( 'max_retrys', 'find_time' ) {
+		if ( defined( $def->{$item} ) && ( ref( $def->{$item} ) ne '' || $def->{$item} !~ /^[0-9]+$/ || !$def->{$item} ) )
+		{
+			die( 'The rule "' . $name . '" has a ' . $item . ', "' . $def->{$item} . '", that is not a positive int' );
+		}
+	}
+	if ( defined( $def->{ban_time} ) && ( ref( $def->{ban_time} ) ne '' || $def->{ban_time} !~ /^[0-9]+$/ ) ) {
+		die(      'The rule "'
+				. $name
+				. '" has a ban_time, "'
+				. $def->{ban_time}
+				. '", that is not a non-negative int of seconds' );
+	}
+
+	return;
+} ## end sub _check_thresholds
+
+# dies if the def's mark keys, mark, unmark, marked, not_marked, and
+# mark_only, hold unusable values... called by every handler's new, as the
+# keys are legal on every type. Names are constrained like rule names so
+# they ride tablets and commands cleanly.
+sub _check_marks {
+	my ( $self, $def ) = @_;
+
+	my $name = $self->{name};
+
+	my %shapes = (
+		'mark'       => { 'name' => 'required', 'ttl' => 'ttl', 'var' => 'string', 'value_var' => 'string' },
+		'unmark'     => { 'name' => 'required', 'var' => 'string' },
+		'marked'     => { 'name' => 'required', 'var' => 'string', 'value_is' => 'string', 'value_not' => 'string' },
+		'not_marked' => { 'name' => 'required', 'var' => 'string' },
+	);
+
+	foreach my $key ( keys(%shapes) ) {
+		if ( !defined( $def->{$key} ) ) {
+			next;
+		}
+		my $where = 'The ' . $key . ' of the rule "' . $name . '"';
+		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
+			die( $where . ' is not a non-empty array' );
+		}
+		foreach my $entry ( @{ $def->{$key} } ) {
+			if ( ref($entry) ne 'HASH' ) {
+				die( $where . ' contains a entry that is not a hash' );
+			}
+			foreach my $entry_key ( keys( %{$entry} ) ) {
+				if ( !defined( $shapes{$key}{$entry_key} ) ) {
+					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
+				}
+			}
+			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ )
+			{
+				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
+			}
+			if ( defined( $shapes{$key}{ttl} )
+				&& ( !defined( $entry->{ttl} ) || ref( $entry->{ttl} ) ne '' || $entry->{ttl} !~ /^[0-9]+$/ || !$entry->{ttl} ) )
+			{
+				die( $where . ' entry "' . $entry->{name} . '" lacks a ttl that is a positive int of seconds' );
+			}
+			foreach my $string_key ( grep { defined( $shapes{$key}{$_} ) && $shapes{$key}{$_} eq 'string' }
+				keys( %{$entry} ) )
+			{
+				if ( !defined( $entry->{$string_key} ) || ref( $entry->{$string_key} ) ne '' || $entry->{$string_key} eq '' )
+				{
+					die( $where . ' entry "' . $entry->{name} . '" has a ' . $string_key . ' that is not a non-empty string' );
+				}
+			}
+			if ( defined( $entry->{value_is} ) && defined( $entry->{value_not} ) ) {
+				die( $where . ' entry "' . $entry->{name} . '" carries both value_is and value_not' );
+			}
+		} ## end foreach my $entry ( @{ $def->{$key} } )
+	} ## end foreach my $key ( keys(%shapes) )
+
+	return;
+} ## end sub _check_marks
+
+# dies if the def's country gate is malformed... is xor isnot, each a 2-
+# letter code or a %%%country_codes{name}%%% import, vars an optional list
+# of found vars to check instead of the offender. the token names are
+# resolved against the config later, by the galla, per watcher
+sub _check_country {
+	my ( $self, $def ) = @_;
+
+	if ( !defined( $def->{country} ) ) {
+		return;
+	}
+
+	my $name  = $self->{name};
+	my $where = 'The country gate of the rule "' . $name . '"';
+	my $c     = $def->{country};
+
+	if ( ref($c) ne 'HASH' ) {
+		die( $where . ' is not a hash' );
+	}
+	foreach my $key ( keys( %{$c} ) ) {
+		if ( $key !~ /^(?:is|isnot|vars)$/ ) {
+			die( $where . ' has the unknown key "' . $key . '"' );
+		}
+	}
+	if ( defined( $c->{is} ) && defined( $c->{isnot} ) ) {
+		die( $where . ' carries both is and isnot' );
+	}
+	if ( !defined( $c->{is} ) && !defined( $c->{isnot} ) ) {
+		die( $where . ' has neither is nor isnot' );
+	}
+
+	my $mode = defined( $c->{is} ) ? 'is' : 'isnot';
+	my @entries = ref( $c->{$mode} ) eq 'ARRAY' ? @{ $c->{$mode} } : ( $c->{$mode} );
+	if ( !@entries ) {
+		die( $where . ' ' . $mode . ' is empty' );
+	}
+	foreach my $entry (@entries) {
+		if ( !defined($entry)
+			|| ref($entry) ne ''
+			|| $entry !~ /^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/ )
+		{
+			die( $where . ' ' . $mode . ' has a entry that is not a 2-letter code or a %%%country_codes{name}%%% import' );
+		}
+	} ## end foreach my $entry (@entries)
+
+	if ( defined( $c->{vars} ) ) {
+		my @vars = ref( $c->{vars} ) eq 'ARRAY' ? @{ $c->{vars} } : ( $c->{vars} );
+		if ( !@vars ) {
+			die( $where . ' vars is empty' );
+		}
+		foreach my $var (@vars) {
+			if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
+				die( $where . ' vars has a entry that is not a non-empty string' );
+			}
+		}
+	} ## end if ( defined( $c->{vars...}))
+
+	return;
+} ## end sub _check_country
+
+# dies if the def's namtar_list gate is malformed... a array of entries,
+# each naming one or more lists (list or lists) and a optional var to check
+# instead of the offender. the list names are resolved against the config
+# later, by the galla, per watcher
+sub _check_namtar {
+	my ( $self, $def ) = @_;
+
+	if ( !defined( $def->{namtar_list} ) ) {
+		return;
+	}
+
+	my $name  = $self->{name};
+	my $where = 'The namtar_list gate of the rule "' . $name . '"';
+
+	if ( ref( $def->{namtar_list} ) ne 'ARRAY' || !@{ $def->{namtar_list} } ) {
+		die( $where . ' is not a non-empty array' );
+	}
+	foreach my $entry ( @{ $def->{namtar_list} } ) {
+		if ( ref($entry) ne 'HASH' ) {
+			die( $where . ' has a entry that is not a hash' );
+		}
+		foreach my $key ( keys( %{$entry} ) ) {
+			if ( $key !~ /^(?:list|lists|var)$/ ) {
+				die( $where . ' has a entry with the unknown key "' . $key . '"' );
+			}
+		}
+		if ( defined( $entry->{list} ) && defined( $entry->{lists} ) ) {
+			die( $where . ' has a entry carrying both list and lists' );
+		}
+		my $lists = defined( $entry->{lists} ) ? $entry->{lists} : $entry->{list};
+		if ( !defined($lists) ) {
+			die( $where . ' has a entry lacking a list or lists' );
+		}
+		my @lists = ref($lists) eq 'ARRAY' ? @{$lists} : ($lists);
+		if ( !@lists ) {
+			die( $where . ' has a entry with a empty lists' );
+		}
+		foreach my $list (@lists) {
+			if ( !defined($list) || ref($list) ne '' || $list !~ /^[a-zA-Z0-9_\-]+$/ ) {
+				die( $where . ' has a list name that is not a /^[a-zA-Z0-9_\-]+$/ string' );
+			}
+		}
+		if ( defined( $entry->{var} ) && ( ref( $entry->{var} ) ne '' || $entry->{var} eq '' ) ) {
+			die( $where . ' has a var that is not a non-empty string' );
+		}
+	} ## end foreach my $entry ( @{ $def->...})
+
+	return;
+} ## end sub _check_namtar
+
+# dies if the def's active_time gate is malformed... is xor isnot, each a
+# window name or a array of them, vars an optional list of found vars whose
+# times to check instead of now. the window names are resolved against the
+# config later, by the galla, per watcher
+sub _check_active_time {
+	my ( $self, $def ) = @_;
+
+	if ( !defined( $def->{active_time} ) ) {
+		return;
+	}
+
+	my $name  = $self->{name};
+	my $where = 'The active_time gate of the rule "' . $name . '"';
+	my $a     = $def->{active_time};
+
+	if ( ref($a) ne 'HASH' ) {
+		die( $where . ' is not a hash' );
+	}
+	foreach my $key ( keys( %{$a} ) ) {
+		if ( $key !~ /^(?:is|isnot|vars)$/ ) {
+			die( $where . ' has the unknown key "' . $key . '"' );
+		}
+	}
+	if ( defined( $a->{is} ) && defined( $a->{isnot} ) ) {
+		die( $where . ' carries both is and isnot' );
+	}
+	if ( !defined( $a->{is} ) && !defined( $a->{isnot} ) ) {
+		die( $where . ' has neither is nor isnot' );
+	}
+
+	my $mode = defined( $a->{is} ) ? 'is' : 'isnot';
+	my @windows = ref( $a->{$mode} ) eq 'ARRAY' ? @{ $a->{$mode} } : ( $a->{$mode} );
+	if ( !@windows ) {
+		die( $where . ' ' . $mode . ' is empty' );
+	}
+	foreach my $window (@windows) {
+		if ( !defined($window) || ref($window) ne '' || $window !~ /^[a-zA-Z0-9_\-]+$/ ) {
+			die( $where . ' ' . $mode . ' has a window name that is not a /^[a-zA-Z0-9_\-]+$/ string' );
+		}
+	}
+
+	if ( defined( $a->{vars} ) ) {
+		my @vars = ref( $a->{vars} ) eq 'ARRAY' ? @{ $a->{vars} } : ( $a->{vars} );
+		if ( !@vars ) {
+			die( $where . ' vars is empty' );
+		}
+		foreach my $var (@vars) {
+			if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
+				die( $where . ' vars has a entry that is not a non-empty string' );
+			}
+		}
+	} ## end if ( defined( $a->{vars...}))
+
+	return;
+} ## end sub _check_active_time
 
 # compiles the message_regexp and ignore_regexp of the passed def,
 # expanding %%%%TOKEN%%%% tokens into named captures, and populates

@@ -13,7 +13,7 @@ use POSIX                            qw( strftime );
 use Sys::Hostname                    ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
 use App::Baphomet::Parser            ();
 use App::Baphomet::Rules             ();
 use App::Baphomet::LogDrek           qw( log_drek );
@@ -44,7 +44,7 @@ our $VERSION = '0.0.1';
 Each galla handles a single kur from the config... it follows the log of
 each watcher of that kur, parses the lines, checks them against the rules,
 counts matches per IP, and once a IP racks up max_retrys matches with in
-find_time seconds, consigns it to Kur via the Ereshkigal manager socket.
+find_time seconds, banishes it to Kur via the Ereshkigal manager socket.
 
 Normally spawned and supervised by C<baphomet>, but usable standalone via
 the C<galla> bin.
@@ -97,6 +97,9 @@ sub new {
 		watchers     => {},
 		rules        => undef,
 		counters     => {},
+		rule_counters => {},
+		marks        => {},
+		namtar_files => {},
 		pending_bans => {},
 		wheel_to_watcher => {},
 		started      => undef,
@@ -139,6 +142,7 @@ sub new {
 	$self->{journalctl_bin}    = $config->{journalctl_bin};
 	$self->{eve_log}           = $config->{eve_log};
 	$self->{eve_enable}        = $config->{eve_enable};
+	$self->_open_geoip( $config->{geoip_db} );
 	$self->{hostname}          = Sys::Hostname::hostname();
 	$self->{last_checkpoint}   = 0;
 	$self->{positions}         = {};
@@ -177,7 +181,7 @@ sub new {
 	);
 	$self->{ignore_ips} = compile_ignore_ips( \@ignore_entries, 'ignore_ips' );
 
-	# internal marks your own hosts, for ban_not_internal rules that consign
+	# internal marks your own hosts, for ban_not_internal rules that banish
 	# the other end of a flow... it defaults to the ignore list at each
 	# level, so what you ignore is treated as yours
 	my @internal_entries = (
@@ -263,6 +267,72 @@ sub new {
 			push( @rule_objs, $rule );
 		} ## end foreach my $rule_name (@rule_names)
 
+		# resolve each rule's country gate against this watcher's country
+		# code lists... rule objects are shared across watchers but the lists
+		# layer per watcher, so the resolved gate lives on the binding, not
+		# the rule. a import of a undefined list is fatal, like a bad rule
+		my $watcher_codes = resolve_country_codes( $config, $kur_settings, $watcher );
+		my @country_gates;
+		for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
+			my $gate;
+			if ( defined( $rule_objs[$i] ) ) {
+				eval {
+					$gate = $self->_resolve_country_gate( $rule_objs[$i], $watcher_codes,
+						'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
+				};
+				if ($@) {
+					$self->{perror}      = 1;
+					$self->{error}       = 6;
+					$self->{errorString} = $@;
+					$self->warn;
+				}
+			} ## end if ( defined( $rule_objs...))
+			push( @country_gates, $gate );
+		} ## end for ( my $i = 0; $i < scalar...)
+
+		# and the namtar_list gates the same way... the list names resolve to
+		# the watcher's file paths, the files themselves loaded and mtime
+		# refreshed on the galla, not frozen here
+		my $watcher_namtar = resolve_namtar_lists( $config, $kur_settings, $watcher );
+		my @namtar_gates;
+		for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
+			my $gate;
+			if ( defined( $rule_objs[$i] ) ) {
+				eval {
+					$gate = $self->_resolve_namtar_gate( $rule_objs[$i], $watcher_namtar,
+						'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
+				};
+				if ($@) {
+					$self->{perror}      = 1;
+					$self->{error}       = 6;
+					$self->{errorString} = $@;
+					$self->warn;
+				}
+			} ## end if ( defined( $rule_objs...))
+			push( @namtar_gates, $gate );
+		} ## end for ( my $i = 0; $i < scalar...)
+
+		# and the active_time gates... the window names resolve to the
+		# watcher's specs, compiled here as pure config that nothing reloads
+		my $watcher_active = resolve_active_time( $config, $kur_settings, $watcher );
+		my @active_gates;
+		for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
+			my $gate;
+			if ( defined( $rule_objs[$i] ) ) {
+				eval {
+					$gate = $self->_resolve_active_time_gate( $rule_objs[$i], $watcher_active,
+						'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
+				};
+				if ($@) {
+					$self->{perror}      = 1;
+					$self->{error}       = 6;
+					$self->{errorString} = $@;
+					$self->warn;
+				}
+			} ## end if ( defined( $rule_objs...))
+			push( @active_gates, $gate );
+		} ## end for ( my $i = 0; $i < scalar...)
+
 		my $is_journal = defined( $watcher->{journal} );
 		$self->{watchers}{$watcher_name} = {
 			'is_journal'      => $is_journal,
@@ -271,6 +341,9 @@ sub new {
 			'parser'          => defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' ),
 			'rules'           => \@rule_names,
 			'rule_objs'       => \@rule_objs,
+			'country_gates'   => \@country_gates,
+			'namtar_gates'    => \@namtar_gates,
+			'active_gates'    => \@active_gates,
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
 			'wheels'          => {},
 			'journal_wheel'   => undef,
@@ -278,6 +351,55 @@ sub new {
 			'journal_spawned' => undef,
 		};
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
+
+	# a country gate with no GeoIP database behind it fails closed, so those
+	# rules banish nobody... that is a silent hole, so say so loudly. not a
+	# perror, the galla runs fine, the gated rules just never fire
+	my $country_gated = 0;
+	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+		foreach my $gate ( @{ $self->{watchers}{$watcher_name}{country_gates} } ) {
+			if ( defined($gate) ) {
+				$country_gated = 1;
+			}
+		}
+	}
+	if ( $country_gated && !defined( $self->{geoip} ) ) {
+		log_drek(
+			'err',
+			'country-gated rules are configured but no GeoIP database is loaded'
+				. ( defined( $self->{geoip_error} ) ? '... ' . $self->{geoip_error} : '... geoip_db is unset' )
+				. '... those gates fail closed and will banish nobody',
+			undef,
+			'galla-' . $self->{name}
+		);
+	} ## end if ( $country_gated && !defined...)
+
+	# load every namtar list file the gates reference once, up front... the
+	# sweeper refreshes them on mtime change from here on. a file that loads
+	# empty or unreadable matches nobody, so those gates banish nobody from
+	# it... a silent hole, so name them loudly
+	my %namtar_paths;
+	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+		foreach my $gate ( @{ $self->{watchers}{$watcher_name}{namtar_gates} } ) {
+			if ( !defined($gate) ) {
+				next;
+			}
+			foreach my $entry ( @{$gate} ) {
+				foreach my $path ( @{ $entry->{paths} } ) {
+					$namtar_paths{$path} = 1;
+				}
+			}
+		} ## end foreach my $gate ( @{ $self...})
+	} ## end foreach my $watcher_name ( keys...)
+	foreach my $path ( sort( keys(%namtar_paths) ) ) {
+		$self->_load_namtar_file($path);
+	}
+	my @empty = grep { !@{ $self->{namtar_files}{$_}{set} } } sort( keys(%namtar_paths) );
+	if (@empty) {
+		log_drek( 'err', 'these namtar list files loaded empty or unreadable, gates matching them banish nobody... '
+				. join( ', ', @empty ),
+			undef, 'galla-' . $self->{name} );
+	}
 
 	# bring back the tablets... counters, pending bans, stats, correlation
 	# context, and log positions from the last run
@@ -381,8 +503,8 @@ sub _read_tablet {
 =head2 checkpoint
 
 Writes the state tablets out now... the counters, the pending bans, the
-running stats, the correlation context, and the log positions. Called
-periodically by the sweeper and on stop.
+running stats, the correlation context, the marks, and the log positions.
+Called periodically by the sweeper and on stop.
 
     $galla->checkpoint;
 
@@ -393,15 +515,24 @@ sub checkpoint {
 
 	my $now = time;
 
-	# counters... ip,hit_epoch one row per live hit
+	# counters... ip,hit_epoch,rule one row per live hit, rule empty for
+	# the shared bucket and the rule name for a per-rule bucket... rule
+	# names can not hold a comma, so no quoting is needed
 	$self->_write_tablet(
 		'counters',
 		sub {
 			my ($fh) = @_;
-			print $fh "ip,hit\n";
+			print $fh "ip,hit,rule\n";
 			foreach my $ip ( sort( keys( %{ $self->{counters} } ) ) ) {
 				foreach my $hit ( @{ $self->{counters}{$ip} } ) {
-					print $fh $ip . ',' . $hit . "\n";
+					print $fh $ip . ',' . $hit . ",\n";
+				}
+			}
+			foreach my $rule_name ( sort( keys( %{ $self->{rule_counters} } ) ) ) {
+				foreach my $ip ( sort( keys( %{ $self->{rule_counters}{$rule_name} } ) ) ) {
+					foreach my $hit ( @{ $self->{rule_counters}{$rule_name}{$ip} } ) {
+						print $fh $ip . ',' . $hit . ',' . $rule_name . "\n";
+					}
 				}
 			}
 		}
@@ -484,6 +615,29 @@ sub checkpoint {
 		}
 	);
 
+	# marks... one JSON line per branded key, name,key,expires and the
+	# stored value when there is one. unlike counters and correlation
+	# these survive a restart by design, as ttls of a week are legitimate
+	$self->_write_tablet(
+		'marks',
+		sub {
+			my ($fh) = @_;
+			foreach my $mark_name ( sort( keys( %{ $self->{marks} } ) ) ) {
+				my $store = $self->{marks}{$mark_name};
+				foreach my $key ( sort( keys( %{$store} ) ) ) {
+					print $fh encode_json(
+						{
+							'name'    => $mark_name,
+							'key'     => $key,
+							'expires' => $store->{$key}{expires},
+							exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
+						}
+					) . "\n";
+				} ## end foreach my $key ( sort( keys...))
+			} ## end foreach my $mark_name ( sort...)
+		}
+	);
+
 	$self->{last_checkpoint} = $now;
 
 	return;
@@ -512,36 +666,49 @@ sub _snapshot_positions {
 
 # loads the tablets back at start... counters and pending bans pruned to
 # what is still relevant, correlation context restored into the rules,
-# and log positions kept for start_server to seek to
+# marks restored and pruned of the expired, and log positions kept for
+# start_server to seek to
 sub _load_state {
 	my ($self) = @_;
 
 	my $now = time;
 
-	# counters
+	# counters... a third field names the per-rule bucket a row belongs
+	# to, absent on rows chiseled before per-rule thresholds existed, which
+	# land in the shared bucket like they always did
 	my $line_int = 0;
 	foreach my $line ( $self->_read_tablet('counters') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^ip,/ ) || $line eq '' ) {
 			next;
 		}
-		my ( $ip, $hit ) = split( /,/, $line );
+		my ( $ip, $hit, $rule_name ) = split( /,/, $line );
 		if ( !defined($ip) || !defined($hit) || $hit !~ /^[0-9]+$/ ) {
 			next;
 		}
-		# only keep hits still inside the widest find_time in play
-		push( @{ $self->{counters}{$ip} }, $hit + 0 );
+		if ( defined($rule_name) && $rule_name ne '' ) {
+			push( @{ $self->{rule_counters}{$rule_name}{$ip} }, $hit + 0 );
+		} else {
+			push( @{ $self->{counters}{$ip} }, $hit + 0 );
+		}
 	} ## end foreach my $line ( $self->_read_tablet...)
 	# sort each and drop entries with nothing recent... the register path
-	# re-prunes per watcher find_time on the next hit
-	foreach my $ip ( keys( %{ $self->{counters} } ) ) {
-		my @sorted = sort { $a <=> $b } @{ $self->{counters}{$ip} };
-		if ( !@sorted || ( $now - $sorted[-1] ) > 86400 ) {
-			delete( $self->{counters}{$ip} );
-		} else {
-			$self->{counters}{$ip} = \@sorted;
+	# re-prunes per the effective find_time on the next hit
+	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
+		foreach my $ip ( keys( %{$bucket} ) ) {
+			my @sorted = sort { $a <=> $b } @{ $bucket->{$ip} };
+			if ( !@sorted || ( $now - $sorted[-1] ) > 86400 ) {
+				delete( $bucket->{$ip} );
+			} else {
+				$bucket->{$ip} = \@sorted;
+			}
 		}
-	} ## end foreach my $ip ( keys( %{ $self->{counters} } ) )
+	} ## end foreach my $bucket ( $self->{counters}, values...)
+	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
+		if ( !%{ $self->{rule_counters}{$rule_name} } ) {
+			delete( $self->{rule_counters}{$rule_name} );
+		}
+	}
 
 	# pending bans
 	$line_int = 0;
@@ -640,6 +807,26 @@ sub _load_state {
 		}
 	} ## end foreach my $line ( $self->_read_tablet...)
 
+	# marks, restored whole and pruned of anything already expired
+	foreach my $line ( $self->_read_tablet('marks') ) {
+		if ( $line eq '' ) {
+			next;
+		}
+		my $decoded;
+		eval { $decoded = decode_json($line); };
+		if ( ref($decoded) ne 'HASH'
+			|| !defined( $decoded->{name} )
+			|| !defined( $decoded->{key} )
+			|| !defined( $decoded->{expires} )
+			|| $decoded->{expires} !~ /^[0-9]+$/
+			|| $decoded->{expires} <= $now )
+		{
+			next;
+		}
+		$self->{marks}{ $decoded->{name} }{ $decoded->{key} }
+			= { 'expires' => $decoded->{expires} + 0, exists( $decoded->{value} ) ? ( 'value' => $decoded->{value} ) : () };
+	} ## end foreach my $line ( $self->_read_tablet...)
+
 	return;
 } ## end sub _load_state
 
@@ -690,7 +877,7 @@ sub _csv_unescape {
 } ## end sub _csv_unescape
 
 # emits a event to the EVE log... a no-op unless eve_enable is on... the
-# passed fields are merged over the common envelope, and a consign or
+# passed fields are merged over the common envelope, and a banish or
 # found event_type carries eve_type baphomet for downstream tooling
 sub _eve_emit {
 	my ( $self, $event_type, $fields ) = @_;
@@ -767,8 +954,14 @@ The JSON commands handled are as below.
           how many IPs are being counted, and any bans pending retry.
 
     - accused :: The IPs currently accumulating offenses but not yet
-          consigned... per IP the live hit count and the epochs of the
-          first and last hit.
+          banished... per IP the live hit count and the epochs of the
+          first and last hit, across every bucket. A IP counted by a
+          rule carrying its own thresholds also gets a rules hash
+          breaking those buckets out.
+
+    - marked :: The live marks, per mark name a hash of the branded keys,
+          each with its expiry and, when the rule harvested one, the
+          stored value.
 
     - stop :: Stop following the logs and exit. Pending bans that could
           not be delivered are lost.
@@ -797,6 +990,9 @@ sub start_server {
 			},
 			'accused' => sub {
 				return $self->_cmd_accused;
+			},
+			'marked' => sub {
+				return $self->_cmd_marked;
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -1240,10 +1436,14 @@ sub _handle_line {
 		return;
 	}
 
+	my $now = time;
+
 	# rules are checked in order and the first to match wins, so a line
-	# matching more than one rule only counts once... the watcher name
-	# scopes any correlation state, as keys like conn ids are only unique
-	# with in one log
+	# matching more than one rule only counts once... except a rule whose
+	# mark gates veto and a mark_only rule that only brands do not consume
+	# the line, so matching falls through to the later rules. the watcher
+	# name scopes any correlation state, as keys like conn ids are only
+	# unique with in one log
 	for ( my $rule_int = 0; $rule_int < scalar( @{ $watcher->{rule_objs} } ); $rule_int++ ) {
 		my $rule_obj  = $watcher->{rule_objs}[$rule_int];
 		my $rule_name = $watcher->{rules}[$rule_int];
@@ -1252,13 +1452,36 @@ sub _handle_line {
 			next;
 		}
 
+		my $gates        = $rule_obj->mark_gates;
+		my $mark_only    = $rule_obj->mark_only;
+		my $country_gate = $watcher->{country_gates}[$rule_int];
+		my $namtar_gate  = $watcher->{namtar_gates}[$rule_int];
+		my $active_gate  = $watcher->{active_gates}[$rule_int];
+
 		# a capture line may have completed several deferred offenses
 		my @all_found = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
+		my $consumed  = 0;
 		foreach my $one (@all_found) {
+			# the var-keyed mark gates and a vars country gate are data-driven
+			# and vet the whole result... a veto means the rule did not really
+			# fire, so it neither counts nor consumes the line
+			if ( !$self->_mark_gates_pass( $gates, $one->{data}, undef, $now ) ) {
+				next;
+			}
+			if ( !$self->_country_gate_pass( $country_gate, $one->{data}, undef ) ) {
+				next;
+			}
+			if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef ) ) {
+				next;
+			}
+			if ( !$self->_active_time_pass( $active_gate, $one->{data}, $now ) ) {
+				next;
+			}
+
 			$self->_tick( 'matched', $watcher_name, $rule_name );
 
 			# the EVE context for this match, shared by the found event and
-			# any consign it triggers... watcher and rule_name ride along
+			# any banish it triggers... watcher and rule_name ride along
 			# for the stats and the ledger
 			my $context = {
 				'source'    => $source,
@@ -1270,12 +1493,15 @@ sub _handle_line {
 				'watcher'   => $watcher_name,
 			};
 
-			# a ban_not_internal rule consigns the end of the flow that is
+			# a ban_not_internal rule banishes the end of the flow that is
 			# not one of ours... the offender may be the src or the dest
 			# depending on where the alert fired
 			my $not_internal = $rule_obj->ban_not_internal;
 
-			my $count;
+			# the offenders this result would banish... the ban_vars that
+			# captured a IP that is not one of our own. also who the var-less
+			# marks brand and the var-less gates key by
+			my @offenders;
 			foreach my $ban_var ( $rule_obj->ban_var ) {
 				my $ip = $one->{data}{$ban_var};
 				if ( !defined($ip) ) {
@@ -1286,16 +1512,39 @@ sub _handle_line {
 					# the internal set, so this IP is ours, not the offender
 					next;
 				}
-				my $registered = $self->_register_hit( $watcher_name, $ip, $context );
-				if ( !defined($count) && defined($registered) ) {
-					$count = $registered;
-				}
+				push( @offenders, $ip );
 			} ## end foreach my $ban_var ( $rule_obj...)
 
-			$self->_eve_emit( 'found', $self->_eve_fields( $context, $count ) );
+			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
+
+			my $count;
+			if ( !$mark_only ) {
+				# a firing non-mark_only rule consumes the line, same as
+				# before marks, whichever offenders the gates then let count
+				$consumed = 1;
+				foreach my $ip (@offenders) {
+					if ( !$self->_mark_gates_pass( $gates, $one->{data}, $ip, $now ) ) {
+						next;
+					}
+					if ( !$self->_country_gate_pass( $country_gate, $one->{data}, $ip ) ) {
+						next;
+					}
+					if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
+						next;
+					}
+					my $registered = $self->_register_hit( $watcher_name, $ip, $context );
+					if ( !defined($count) && defined($registered) ) {
+						$count = $registered;
+					}
+				}
+			} ## end if ( !$mark_only )
+
+			$self->_eve_emit( 'found', $self->_eve_fields( $context, $count, $set, $lifted ) );
 		} ## end foreach my $one (@all_found)
 
-		last;
+		if ($consumed) {
+			last;
+		}
 	} ## end for ( my $rule_int = 0; $rule_int < scalar...)
 
 	return;
@@ -1304,7 +1553,7 @@ sub _handle_line {
 # builds the raw/parsed/found/rule/path/count fields of a EVE event from a
 # match context... only assembled when the EVE log is on
 sub _eve_fields {
-	my ( $self, $context, $count ) = @_;
+	my ( $self, $context, $count, $set, $lifted ) = @_;
 
 	if ( !$self->{eve_enable} ) {
 		return {};
@@ -1317,8 +1566,514 @@ sub _eve_fields {
 		'found'  => $context->{found},
 		'rule'   => $context->{rule}->info,
 		defined($count) ? ( 'count' => $count ) : (),
+		( defined($set)    && @{$set} )    ? ( 'marks_set' => $set )    : (),
+		( defined($lifted) && @{$lifted} ) ? ( 'unmarked'  => $lifted ) : (),
 	};
 } ## end sub _eve_fields
+
+# opens the GeoIP database for country gating, if one is configured...
+# stores the reader on success, a error string otherwise, both undef when
+# no path is set. a missing database is not fatal, the gates fail closed
+sub _open_geoip {
+	my ( $self, $path ) = @_;
+
+	$self->{geoip}       = undef;
+	$self->{geoip_error} = undef;
+	if ( !defined($path) ) {
+		return;
+	}
+
+	eval {
+		require IP::Geolocation::MMDB;
+		$self->{geoip} = IP::Geolocation::MMDB->new( 'file' => $path );
+	};
+	if ($@) {
+		$self->{geoip_error} = $@;
+		$self->{geoip_error} =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*$//;
+	}
+
+	return;
+} ## end sub _open_geoip
+
+# the uppercased ISO country code of a IP per the GeoIP database, or undef
+# when there is no database, the value is not a locatable address, or it
+# carries no country... a country lookup dies on a bad address, so eval it
+sub _country_of {
+	my ( $self, $ip ) = @_;
+
+	if ( !defined( $self->{geoip} ) || !defined($ip) ) {
+		return undef;
+	}
+
+	my $record;
+	eval { $record = $self->{geoip}->record_for_address($ip); };
+	if ( $@ || ref($record) ne 'HASH' || ref( $record->{country} ) ne 'HASH' ) {
+		return undef;
+	}
+
+	my $iso = $record->{country}{iso_code};
+
+	return defined($iso) ? uc($iso) : undef;
+} ## end sub _country_of
+
+# resolves a rule's country gate against a watcher's country code lists into
+# a concrete gate, a mode, a set of codes, and the vars... or undef when the
+# rule has no gate. a %%%country_codes{name}%%% import of a list this
+# watcher does not define is fatal
+sub _resolve_country_gate {
+	my ( $self, $rule_obj, $codes, $where ) = @_;
+
+	my $country = $rule_obj->country;
+	if ( !defined($country) ) {
+		return undef;
+	}
+
+	my %set;
+	foreach my $entry ( @{ $country->{entries} } ) {
+		if ( $entry =~ /^%%%country_codes\{([a-zA-Z0-9_\-]+)\}%%%$/ ) {
+			my $list = $codes->{$1};
+			if ( ref($list) ne 'ARRAY' ) {
+				die( $where . ' imports country_codes{' . $1 . '}, which is not a defined list for it' );
+			}
+			foreach my $code ( @{$list} ) {
+				$set{ uc($code) } = 1;
+			}
+		} else {
+			$set{ uc($entry) } = 1;
+		}
+	} ## end foreach my $entry ( @{ $country...})
+
+	return {
+		'mode'  => $country->{mode},
+		'codes' => \%set,
+		'vars'  => $country->{vars},
+	};
+} ## end sub _resolve_country_gate
+
+# evaluates a rule's country gate in one of two modes, mirroring the mark
+# gates... a vars gate is data-driven and ran once per found result (ip
+# undef), a var-less one is offender-keyed and ran per candidate (ip set).
+# every checked value's country must satisfy the gate, and a value that
+# does not locate fails closed... an unknown country can not be cleared
+sub _country_gate_pass {
+	my ( $self, $gate, $data, $ip ) = @_;
+
+	if ( !defined($gate) ) {
+		return 1;
+	}
+
+	my @check;
+	if ( defined( $gate->{vars} ) ) {
+		# a vars gate belongs to the data pass... let the offender pass by
+		if ( defined($ip) ) {
+			return 1;
+		}
+		foreach my $var ( @{ $gate->{vars} } ) {
+			push( @check, $data->{$var} );
+		}
+	} else {
+		# a var-less gate belongs to the offender pass... let the data pass by
+		if ( !defined($ip) ) {
+			return 1;
+		}
+		@check = ($ip);
+	}
+
+	foreach my $value (@check) {
+		my $country = $self->_country_of($value);
+		if ( !defined($country) ) {
+			return 0;
+		}
+		my $in = $gate->{codes}{$country} ? 1 : 0;
+		if ( $gate->{mode} eq 'is' ? !$in : $in ) {
+			return 0;
+		}
+	} ## end foreach my $value (@check)
+
+	return 1;
+} ## end sub _country_gate_pass
+
+# loads a namtar list file into the galla's cache, a compiled CIDR set and
+# the file's mtime... one CIDR or IP per line, # comments and blanks
+# skipped. a unreadable file or a bad entry becomes a empty set, matching
+# nobody, rather than taking the galla down... a feed is not config
+sub _load_namtar_file {
+	my ( $self, $path ) = @_;
+
+	my $mtime = ( stat($path) )[9];
+
+	my @cidrs;
+	my $fh;
+	if ( defined($mtime) && open( $fh, '<', $path ) ) {
+		while ( my $line = <$fh> ) {
+			chomp($line);
+			$line =~ s/#.*$//;
+			$line =~ s/^\s+//;
+			$line =~ s/\s+$//;
+			if ( $line ne '' ) {
+				push( @cidrs, $line );
+			}
+		}
+		close($fh);
+	} ## end if ( defined($mtime) &&...)
+
+	my $set;
+	eval { $set = compile_ignore_ips( \@cidrs, 'namtar list "' . $path . '"' ); };
+	if ($@) {
+		log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $@,
+			undef, 'galla-' . $self->{name} );
+		$set = [];
+	}
+
+	$self->{namtar_files}{$path} = { 'mtime' => $mtime, 'set' => $set };
+
+	return;
+} ## end sub _load_namtar_file
+
+# resolves a rule's namtar_list gate against a watcher's named lists into a
+# array of entries, each a set of file paths and a var... or undef when the
+# rule has no gate. a reference to a list this watcher does not define is
+# fatal, like a country import
+sub _resolve_namtar_gate {
+	my ( $self, $rule_obj, $lists, $where ) = @_;
+
+	my $gate = $rule_obj->namtar_list;
+	if ( !defined($gate) ) {
+		return undef;
+	}
+
+	my @entries;
+	foreach my $entry ( @{$gate} ) {
+		my %paths;
+		foreach my $name ( @{ $entry->{lists} } ) {
+			my $list = $lists->{$name};
+			if ( ref($list) ne 'ARRAY' ) {
+				die( $where . ' references namtar_lists{' . $name . '}, which is not a defined list for it' );
+			}
+			foreach my $path ( @{$list} ) {
+				$paths{$path} = 1;
+			}
+		} ## end foreach my $name ( @{ $entry...})
+		push( @entries, { 'paths' => [ sort( keys(%paths) ) ], 'var' => $entry->{var} } );
+	} ## end foreach my $entry ( @{$gate} )
+
+	return \@entries;
+} ## end sub _resolve_namtar_gate
+
+# true if the value is on any of the passed namtar list files' sets... a
+# undef value is on none, so the gate fails closed
+sub _namtar_on_any {
+	my ( $self, $paths, $value ) = @_;
+
+	if ( !defined($value) ) {
+		return 0;
+	}
+	foreach my $path ( @{$paths} ) {
+		my $file = $self->{namtar_files}{$path};
+		if ( defined($file) && ip_ignored( $file->{set}, $value ) ) {
+			return 1;
+		}
+	}
+
+	return 0;
+} ## end sub _namtar_on_any
+
+# evaluates a rule's namtar_list gate in one of two modes, mirroring the
+# country gate... a var entry is data-driven and ran once per result (ip
+# undef), a var-less one is offender-keyed and ran per candidate (ip set).
+# a entry holds when its value is on any of the entry's lists, and every
+# entry must hold... a value on no list fails closed
+sub _namtar_gate_pass {
+	my ( $self, $gate, $data, $ip ) = @_;
+
+	if ( !defined($gate) ) {
+		return 1;
+	}
+
+	foreach my $entry ( @{$gate} ) {
+		if ( defined( $entry->{var} ) ) {
+			# a var entry belongs to the data pass... let the offender pass by
+			if ( defined($ip) ) {
+				next;
+			}
+			if ( !$self->_namtar_on_any( $entry->{paths}, $data->{ $entry->{var} } ) ) {
+				return 0;
+			}
+		} else {
+			# a var-less entry belongs to the offender pass
+			if ( !defined($ip) ) {
+				next;
+			}
+			if ( !$self->_namtar_on_any( $entry->{paths}, $ip ) ) {
+				return 0;
+			}
+		} ## end else [ if ( defined( $entry->{var...}))]
+	} ## end foreach my $entry ( @{$gate} )
+
+	return 1;
+} ## end sub _namtar_gate_pass
+
+# resolves a rule's active_time gate against a watcher's named windows into
+# a mode, a set of compiled specs, and the vars... or undef when the rule
+# has no gate. a reference to a window this watcher does not define is
+# fatal, like a country import. windows are pure config, so this is frozen,
+# nothing reloads it
+sub _resolve_active_time_gate {
+	my ( $self, $rule_obj, $windows, $where ) = @_;
+
+	my $active = $rule_obj->active_time;
+	if ( !defined($active) ) {
+		return undef;
+	}
+
+	my @specs;
+	foreach my $name ( @{ $active->{windows} } ) {
+		my $window = $windows->{$name};
+		if ( ref($window) ne 'ARRAY' ) {
+			die( $where . ' references active_time{' . $name . '}, which is not a defined window for it' );
+		}
+		foreach my $spec ( @{$window} ) {
+			my $days;
+			if ( defined( $spec->{days} ) ) {
+				$days = {};
+				foreach my $day ( @{ $spec->{days} } ) {
+					$days->{$day} = 1;
+				}
+			}
+			my $ranges;
+			if ( defined( $spec->{hours} ) ) {
+				$ranges = [];
+				my @hours = ref( $spec->{hours} ) eq 'ARRAY' ? @{ $spec->{hours} } : ( $spec->{hours} );
+				foreach my $range (@hours) {
+					my ( $start, $end ) = split( /-/, $range );
+					push( @{$ranges}, [ $start + 0, $end + 0 ] );
+				}
+			} ## end if ( defined( $spec->{hours...}))
+			push( @specs, { 'days' => $days, 'ranges' => $ranges } );
+		} ## end foreach my $spec ( @{$window} )
+	} ## end foreach my $name ( @{ $active...})
+
+	return { 'mode' => $active->{mode}, 'specs' => \@specs, 'vars' => $active->{vars} };
+} ## end sub _resolve_active_time_gate
+
+# turns a time value into the (wday, hhmm) pair the windows are checked
+# against, or a empty list when it does not parse... a all-digits epoch
+# (journal micro or millis scaled down) read in local time, or a ISO 8601
+# datetime taken at its face-value components. hhmm is hour*100 + minute
+sub _time_fields {
+	my ( $self, $value ) = @_;
+
+	if ( $value =~ /^[0-9]+$/ ) {
+		my $epoch = $value + 0;
+		while ( $epoch > 99_999_999_999 ) {
+			$epoch = int( $epoch / 1000 );
+		}
+		my @lt = localtime($epoch);
+		return ( $lt[6], $lt[2] * 100 + $lt[1] );
+	}
+
+	my $tp;
+	eval {
+		require Time::Piece;
+		my $iso = $value;
+		$iso =~ s/[.,][0-9]+//;
+		$iso =~ s/(?:Z|[+-][0-9]{2}:?[0-9]{2})$//;
+		$iso =~ s/T/ /;
+		$tp = Time::Piece->strptime( $iso, '%Y-%m-%d %H:%M:%S' );
+	};
+	if ( !$@ && defined($tp) ) {
+		return ( $tp->day_of_week, $tp->hour * 100 + $tp->minute );
+	}
+
+	return ();
+} ## end sub _time_fields
+
+# true if the passed (wday, hhmm) falls in any of the compiled specs... a
+# spec holds when the day is in its days set (if it has one) and the time
+# is in one of its ranges (if it has any), a range with start > end
+# wrapping midnight
+sub _in_active_windows {
+	my ( $self, $specs, $wday, $hhmm ) = @_;
+
+	foreach my $spec ( @{$specs} ) {
+		if ( defined( $spec->{days} ) && !$spec->{days}{$wday} ) {
+			next;
+		}
+		if ( defined( $spec->{ranges} ) ) {
+			my $hit = 0;
+			foreach my $range ( @{ $spec->{ranges} } ) {
+				my ( $start, $end ) = @{$range};
+				if ( $start <= $end ? ( $hhmm >= $start && $hhmm <= $end ) : ( $hhmm >= $start || $hhmm <= $end ) ) {
+					$hit = 1;
+					last;
+				}
+			} ## end foreach my $range ( @{ $spec...})
+			if ( !$hit ) {
+				next;
+			}
+		} ## end if ( defined( $spec->{ranges...}))
+		return 1;
+	} ## end foreach my $spec ( @{$specs} )
+
+	return 0;
+} ## end sub _in_active_windows
+
+# evaluates a rule's active_time gate against the passed current epoch, or
+# the found vars when it names them... a whole-result gate, time being a
+# property of the line not the offender, so ran once per result in the data
+# pass. every checked time must satisfy, and a value that does not parse
+# fails closed
+sub _active_time_pass {
+	my ( $self, $gate, $data, $now ) = @_;
+
+	if ( !defined($gate) ) {
+		return 1;
+	}
+
+	my @sources;
+	if ( defined( $gate->{vars} ) ) {
+		foreach my $var ( @{ $gate->{vars} } ) {
+			push( @sources, $data->{$var} );
+		}
+	} else {
+		@sources = ($now);
+	}
+
+	foreach my $value (@sources) {
+		my @fields = defined($value) ? $self->_time_fields($value) : ();
+		if ( !@fields ) {
+			return 0;
+		}
+		my $in = $self->_in_active_windows( $gate->{specs}, $fields[0], $fields[1] );
+		if ( $gate->{mode} eq 'is' ? !$in : $in ) {
+			return 0;
+		}
+	} ## end foreach my $value (@sources)
+
+	return 1;
+} ## end sub _active_time_pass
+
+# evaluates a rule's marked/not_marked gates in one of two modes... with a
+# undef ip the var-keyed entries, data-driven and ran once per found
+# result, with a ip the var-less entries, offender-keyed and ran once per
+# candidate. returns true when every applicable gate holds. a marked gate
+# with nothing to look up fails, a not_marked one passes, and a value
+# compare with either side missing fails... conservative on both counts
+sub _mark_gates_pass {
+	my ( $self, $gates, $data, $ip, $now ) = @_;
+
+	foreach my $entry ( @{ $gates->{marked} } ) {
+		if ( defined( $entry->{var} ) ? defined($ip) : !defined($ip) ) {
+			next;
+		}
+		my $key = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
+		if ( !defined($key) ) {
+			return 0;
+		}
+		my $mark = $self->{marks}{ $entry->{name} }{$key};
+		if ( !defined($mark) || $mark->{expires} <= $now ) {
+			return 0;
+		}
+		foreach my $compare ( 'value_is', 'value_not' ) {
+			if ( !defined( $entry->{$compare} ) ) {
+				next;
+			}
+			my $against = $data->{ $entry->{$compare} };
+			if ( !defined( $mark->{value} ) || !defined($against) ) {
+				return 0;
+			}
+			if ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) {
+				return 0;
+			}
+		} ## end foreach my $compare ( 'value_is', 'value_not' )
+	} ## end foreach my $entry ( @{ $gates->{marked} } )
+
+	foreach my $entry ( @{ $gates->{not_marked} } ) {
+		if ( defined( $entry->{var} ) ? defined($ip) : !defined($ip) ) {
+			next;
+		}
+		my $key = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
+		if ( !defined($key) ) {
+			next;
+		}
+		my $mark = $self->{marks}{ $entry->{name} }{$key};
+		if ( defined($mark) && $mark->{expires} > $now ) {
+			return 0;
+		}
+	} ## end foreach my $entry ( @{ $gates->{not_marked} } )
+
+	return 1;
+} ## end sub _mark_gates_pass
+
+# brands a key into a mark name's store... setting refreshes the expiry,
+# and a full store first drops the expired, then the soonest-expiring,
+# same bounds as the rules' correlation stores
+sub _mark_set {
+	my ( $self, $name, $key, $value, $ttl, $now ) = @_;
+
+	my $store = $self->{marks}{$name};
+	if ( !defined($store) ) {
+		$store = $self->{marks}{$name} = {};
+	}
+
+	if ( !defined( $store->{$key} ) && scalar( keys( %{$store} ) ) >= 10000 ) {
+		foreach my $held ( keys( %{$store} ) ) {
+			if ( $store->{$held}{expires} <= $now ) {
+				delete( $store->{$held} );
+			}
+		}
+		if ( scalar( keys( %{$store} ) ) >= 10000 ) {
+			my ($soonest) = sort { $store->{$a}{expires} <=> $store->{$b}{expires} } keys( %{$store} );
+			delete( $store->{$soonest} );
+		}
+	} ## end if ( !defined( $store->{$key} ) && scalar...)
+
+	$store->{$key} = { 'expires' => $now + $ttl, defined($value) ? ( 'value' => $value ) : () };
+
+	return;
+} ## end sub _mark_set
+
+# applies a rule's mark and unmark entries for one found result... var
+# entries key by that capture, var-less ones by each passed offender IP,
+# with the ignored never branded. returns the set and lifted lists for
+# the EVE event
+sub _apply_marks {
+	my ( $self, $rule_obj, $data, $offenders, $now ) = @_;
+
+	my @brandable = grep { !ip_ignored( $self->{ignore_ips}, $_ ) } @{$offenders};
+
+	my @set;
+	foreach my $entry ( @{ $rule_obj->marks } ) {
+		my $value = defined( $entry->{value_var} ) ? $data->{ $entry->{value_var} } : undef;
+		my @keys
+			= defined( $entry->{var} )
+			? ( defined( $data->{ $entry->{var} } ) ? ( $data->{ $entry->{var} } ) : () )
+			: @brandable;
+		foreach my $key (@keys) {
+			$self->_mark_set( $entry->{name}, $key, $value, $entry->{ttl}, $now );
+			push( @set, { 'name' => $entry->{name}, 'key' => $key } );
+		}
+	} ## end foreach my $entry ( @{ $rule_obj->marks } )
+
+	my @lifted;
+	foreach my $entry ( @{ $rule_obj->unmarks } ) {
+		my @keys
+			= defined( $entry->{var} )
+			? ( defined( $data->{ $entry->{var} } ) ? ( $data->{ $entry->{var} } ) : () )
+			: @brandable;
+		foreach my $key (@keys) {
+			if ( defined( $self->{marks}{ $entry->{name} } ) && defined( $self->{marks}{ $entry->{name} }{$key} ) ) {
+				delete( $self->{marks}{ $entry->{name} }{$key} );
+				if ( !%{ $self->{marks}{ $entry->{name} } } ) {
+					delete( $self->{marks}{ $entry->{name} } );
+				}
+				push( @lifted, { 'name' => $entry->{name}, 'key' => $key } );
+			}
+		} ## end foreach my $key (@keys)
+	} ## end foreach my $entry ( @{ $rule_obj->unmarks } )
+
+	return ( \@set, \@lifted );
+} ## end sub _apply_marks
 
 # registers a match of a IP, banning it once it has racked up max_retrys
 # matches with in find_time seconds... returns the IP's live count, or
@@ -1335,25 +2090,45 @@ sub _register_hit {
 	my $settings = $self->{watchers}{$watcher_name}{settings};
 	my $now      = time;
 
-	if ( !defined( $self->{counters}{$ip} ) ) {
-		$self->{counters}{$ip} = [];
+	# when the watcher allows it, the rule's own thresholds speak over the
+	# watcher's... a rule overriding how counting works gets its own bucket,
+	# so its window does not cross-contaminate the shared one, while a
+	# ban_time-only override counts in the shared bucket and only bans
+	# differently
+	my $overrides  = $settings->{allow_per_rule_thresholds} ? $context->{rule}->thresholds : {};
+	my $max_retrys = defined( $overrides->{max_retrys} ) ? $overrides->{max_retrys} : $settings->{max_retrys};
+	my $find_time  = defined( $overrides->{find_time} )  ? $overrides->{find_time}  : $settings->{find_time};
+	my $ban_time   = defined( $overrides->{ban_time} )   ? $overrides->{ban_time}   : $settings->{ban_time};
+
+	my $bucket;
+	if ( defined( $overrides->{max_retrys} ) || defined( $overrides->{find_time} ) ) {
+		if ( !defined( $self->{rule_counters}{ $context->{rule_name} } ) ) {
+			$self->{rule_counters}{ $context->{rule_name} } = {};
+		}
+		$bucket = $self->{rule_counters}{ $context->{rule_name} };
+	} else {
+		$bucket = $self->{counters};
 	}
-	push( @{ $self->{counters}{$ip} }, $now );
+
+	if ( !defined( $bucket->{$ip} ) ) {
+		$bucket->{$ip} = [];
+	}
+	push( @{ $bucket->{$ip} }, $now );
 
 	# matches older than find_time no longer count
-	@{ $self->{counters}{$ip} } = grep { ( $now - $_ ) < $settings->{find_time} } @{ $self->{counters}{$ip} };
+	@{ $bucket->{$ip} } = grep { ( $now - $_ ) < $find_time } @{ $bucket->{$ip} };
 
-	my $count = scalar( @{ $self->{counters}{$ip} } );
+	my $count = scalar( @{ $bucket->{$ip} } );
 
-	if ( $count >= $settings->{max_retrys} ) {
-		delete( $self->{counters}{$ip} );
-		$self->_ban_ip( $ip, $settings->{ban_time}, $context, $count );
+	if ( $count >= $max_retrys ) {
+		delete( $bucket->{$ip} );
+		$self->_ban_ip( $ip, $ban_time, $context, $count );
 	}
 
 	return $count;
 } ## end sub _register_hit
 
-# consigns a IP to Kur, queueing it for retry by the sweeper if the
+# banishes a IP to Kur, queueing it for retry by the sweeper if the
 # Ereshkigal manager could not be reached
 sub _ban_ip {
 	my ( $self, $ip, $ban_time, $context, $count ) = @_;
@@ -1367,29 +2142,32 @@ sub _ban_ip {
 	if ($@) {
 		$self->_tick( 'ban_errors', $watcher_name, $rule_name );
 		$self->{pending_bans}{$ip} = $ban_time;
-		log_drek( 'err', 'consigning ' . $ip . ' to Kur failed, will retry... ' . $@, undef, $ident );
+		log_drek( 'err', 'banishing ' . $ip . ' to Kur failed, will retry... ' . $@, undef, $ident );
 		return;
 	}
 
 	$self->_tick( 'bans', $watcher_name, $rule_name );
 	delete( $self->{pending_bans}{$ip} );
 	log_drek( 'info',
-		'consigned ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+		'banished ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
 		undef, $ident );
 
-	# the consign event carries the triggering line's envelope when there
-	# was one... a pending retry consign has no context
+	# the banish event carries the triggering line's envelope when there
+	# was one... a pending retry banish has no context. with a GeoIP
+	# database loaded the banished IP's country rides along
+	my $country = ( $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($ip) : undef;
 	$self->_eve_emit(
-		'consign',
+		'banish',
 		{
 			'ip' => $ip,
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+			defined($country)  ? ( 'country'  => $country )  : (),
 			defined($context) ? %{ $self->_eve_fields( $context, $count ) } : (),
 		}
 	);
 
-	# chisel the consignment into the shared ledger and, if this IP has
-	# been consigned too many times across all kurs, drag it through a
+	# chisel the banishment into the shared ledger and, if this IP has
+	# been banished too many times across all kurs, drag it through a
 	# further gate to the recidive kur
 	my $ledger_count = $self->_ledger_append_and_count( $ip, $context );
 	$self->_recidive_check( $ip, $ledger_count );
@@ -1419,15 +2197,15 @@ sub _send_ban {
 	return;
 } ## end sub _send_ban
 
-# returns the path of the shared consignment ledger, under the tablet dir,
+# returns the path of the shared banishment ledger, under the tablet dir,
 # not per galla as every galla writes to the one ledger
 sub ledger_path {
 	my ($self) = @_;
 
-	return $self->{tablet_base_dir} . '/consignments.csv';
+	return $self->{tablet_base_dir} . '/banishments.csv';
 }
 
-# escalates to the recidive kur if the IP has now been consigned
+# escalates to the recidive kur if the IP has now been banished
 # max_retrys times with in find_time across all kurs, per the ledger count
 # from _ledger_append_and_count... a no-op when recidive is off, and never
 # re-counts a recidive escalation it's self
@@ -1454,7 +2232,7 @@ sub _recidive_check {
 		'info',
 		'recidivist '
 			. $ip
-			. ' consigned '
+			. ' banished '
 			. $count
 			. ' times, dragging through to the recidive kur "'
 			. $self->{recidive}{kur} . '"',
@@ -1465,19 +2243,21 @@ sub _recidive_check {
 	eval { $self->_send_ban( $ip, $ban_time, $self->{recidive}{kur} ); };
 	if ($@) {
 		$self->{stats}{ban_errors}++;
-		log_drek( 'err', 'consigning recidivist ' . $ip . ' failed... ' . $@, undef, 'galla-' . $self->{name} );
+		log_drek( 'err', 'banishing recidivist ' . $ip . ' failed... ' . $@, undef, 'galla-' . $self->{name} );
 		return;
 	}
 
-	# a recidive escalation is its own consign event, to the recidive kur,
+	# a recidive escalation is its own banish event, to the recidive kur,
 	# with the ledger count and no single triggering line
+	my $country = ( $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($ip) : undef;
 	$self->_eve_emit(
-		'consign',
+		'banish',
 		{
 			'ip'       => $ip,
 			'kur'      => $self->{recidive}{kur},
 			'ban_time' => $ban_time,
 			'count'    => $count,
+			defined($country) ? ( 'country' => $country ) : (),
 			'recidive' => \1,
 		}
 	);
@@ -1485,7 +2265,7 @@ sub _recidive_check {
 	return;
 } ## end sub _recidive_check
 
-# chisels a consignment row into the shared ledger under a exclusive lock
+# chisels a banishment row into the shared ledger under a exclusive lock
 # and returns how many times this IP appears with in the recidive window...
 # the lock serializes the several gallas sharing the one ledger. Rows are
 # epoch,kur,ip,rule,watcher, pruned to ledger_keep but never inside the
@@ -1552,7 +2332,7 @@ sub _ledger_append_and_count {
 		close($fh);
 	};
 	if ($@) {
-		log_drek( 'err', 'the consignment ledger "' . $path . '" could not be updated... ' . $@,
+		log_drek( 'err', 'the banishment ledger "' . $path . '" could not be updated... ' . $@,
 			undef, 'galla-' . $self->{name} );
 		return undef;
 	}
@@ -1572,13 +2352,44 @@ sub _sweep {
 	# so counters for IPs never seen again don't linger forever... any
 	# still-relevant entry gets re-pruned properly on its next hit
 	my $now = time;
-	foreach my $ip ( keys( %{ $self->{counters} } ) ) {
-		my $newest = $self->{counters}{$ip}[-1];
-		# a day is comfortably past any sane find_time
-		if ( !defined($newest) || ( $now - $newest ) > 86400 ) {
-			delete( $self->{counters}{$ip} );
+	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
+		foreach my $ip ( keys( %{$bucket} ) ) {
+			my $newest = $bucket->{$ip}[-1];
+			# a day is comfortably past any sane find_time
+			if ( !defined($newest) || ( $now - $newest ) > 86400 ) {
+				delete( $bucket->{$ip} );
+			}
 		}
 	}
+	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
+		if ( !%{ $self->{rule_counters}{$rule_name} } ) {
+			delete( $self->{rule_counters}{$rule_name} );
+		}
+	}
+
+	# reload any namtar list file whose mtime changed, appeared, or
+	# vanished, so a updated feed takes effect with in a sweep
+	foreach my $path ( keys( %{ $self->{namtar_files} } ) ) {
+		my $mtime  = ( stat($path) )[9];
+		my $cached = $self->{namtar_files}{$path}{mtime};
+		if ( ( defined($mtime) ? $mtime : -1 ) != ( defined($cached) ? $cached : -1 ) ) {
+			$self->_load_namtar_file($path);
+		}
+	}
+
+	# expire marks whose ttl has run out, so a ttl elapses on time rather
+	# than waiting on the next line that would key it
+	foreach my $mark_name ( keys( %{ $self->{marks} } ) ) {
+		my $store = $self->{marks}{$mark_name};
+		foreach my $key ( keys( %{$store} ) ) {
+			if ( $store->{$key}{expires} <= $now ) {
+				delete( $store->{$key} );
+			}
+		}
+		if ( !%{$store} ) {
+			delete( $self->{marks}{$mark_name} );
+		}
+	} ## end foreach my $mark_name ( keys...)
 
 	# expire the correlation state of the rules... rule objects are shared
 	# across watchers, so sweep each once
@@ -1621,13 +2432,22 @@ sub _cmd_status {
 		};
 	}
 
+	# a IP may live in the shared bucket and per-rule buckets at once...
+	# count each defendant once
+	my %tracked = %{ $self->{counters} };
+	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
+		foreach my $ip ( keys( %{ $self->{rule_counters}{$rule_name} } ) ) {
+			$tracked{$ip} = 1;
+		}
+	}
+
 	return {
 		'name'         => $self->{name},
 		'pid'          => $$,
 		'uptime'       => defined( $self->{started} ) ? time - $self->{started} : 0,
 		'watchers'     => $watchers,
 		'stats'        => $self->{stats},
-		'tracked_ips'  => scalar( keys( %{ $self->{counters} } ) ),
+		'tracked_ips'  => scalar( keys(%tracked) ),
 		'pending_bans' => [ sort( keys( %{ $self->{pending_bans} } ) ) ],
 		'recidive'     => defined( $self->{recidive} ) ? $self->{recidive}{kur} : undef,
 	};
@@ -1636,24 +2456,74 @@ sub _cmd_status {
 sub _cmd_accused {
 	my ($self) = @_;
 
-	my $accused = {};
+	# every live hit per IP, the shared bucket and any per-rule buckets
+	# together... the per-rule buckets also broken out under rules, as each
+	# is racing its own thresholds
+	my %all;
+	my %by_rule;
 	foreach my $ip ( keys( %{ $self->{counters} } ) ) {
-		my $hits = $self->{counters}{$ip};
-		if ( !@{$hits} ) {
+		push( @{ $all{$ip} }, @{ $self->{counters}{$ip} } );
+	}
+	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
+		foreach my $ip ( keys( %{ $self->{rule_counters}{$rule_name} } ) ) {
+			my $hits = $self->{rule_counters}{$rule_name}{$ip};
+			if ( !@{$hits} ) {
+				next;
+			}
+			push( @{ $all{$ip} }, @{$hits} );
+			$by_rule{$ip}{$rule_name} = {
+				'hits'  => scalar( @{$hits} ),
+				'first' => $hits->[0],
+				'last'  => $hits->[-1],
+			};
+		} ## end foreach my $ip ( keys( %{ $self->{rule_counters...}}))
+	} ## end foreach my $rule_name ( keys( %{ $self->{rule_counters...}}))
+
+	my $accused = {};
+	foreach my $ip ( keys(%all) ) {
+		my @hits = sort { $a <=> $b } @{ $all{$ip} };
+		if ( !@hits ) {
 			next;
 		}
 		$accused->{$ip} = {
-			'hits'  => scalar( @{$hits} ),
-			'first' => $hits->[0],
-			'last'  => $hits->[-1],
+			'hits'  => scalar(@hits),
+			'first' => $hits[0],
+			'last'  => $hits[-1],
+			defined( $by_rule{$ip} ) ? ( 'rules' => $by_rule{$ip} ) : (),
 		};
-	}
+	} ## end foreach my $ip ( keys(%all) )
 
 	return {
 		'name'    => $self->{name},
 		'accused' => $accused,
 	};
 } ## end sub _cmd_accused
+
+sub _cmd_marked {
+	my ($self) = @_;
+
+	# the live marks store, per name a hash of branded keys, each with its
+	# expiry and the harvested value when there is one
+	my $now   = time;
+	my $marks = {};
+	foreach my $mark_name ( keys( %{ $self->{marks} } ) ) {
+		my $store = $self->{marks}{$mark_name};
+		foreach my $key ( keys( %{$store} ) ) {
+			if ( $store->{$key}{expires} <= $now ) {
+				next;
+			}
+			$marks->{$mark_name}{$key} = {
+				'expires' => $store->{$key}{expires},
+				exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
+			};
+		} ## end foreach my $key ( keys( %{$store} ) )
+	} ## end foreach my $mark_name ( keys...)
+
+	return {
+		'name'  => $self->{name},
+		'marks' => $marks,
+	};
+} ## end sub _cmd_marked
 
 sub _cmd_stop {
 	my ( $self, $ctx ) = @_;

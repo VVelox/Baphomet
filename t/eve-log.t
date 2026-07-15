@@ -90,7 +90,7 @@ sub read_events {
 	return map { decode_json($_) } @lines;
 }
 
-# capture consignments so nothing tries to reach Ereshkigal
+# capture banishments so nothing tries to reach Ereshkigal
 my @sent;
 {
 	no warnings 'redefine';
@@ -117,16 +117,16 @@ my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 
 is( $galla->{eve_enable}, 1, 'eve_enable on' );
 ok( -d $dir . '/eve', 'the eve dir was created' );
 
-# three bad lines... three found events and one consign at the threshold
+# three bad lines... three found events and one banish at the threshold
 foreach ( 1 .. 3 ) {
 	$galla->_handle_line( 'authlog', 'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', $dir . '/log' );
 }
 
 my @events = read_events();
 my @found  = grep { $_->{event_type} eq 'found' } @events;
-my @consign = grep { $_->{event_type} eq 'consign' } @events;
+my @banish = grep { $_->{event_type} eq 'banish' } @events;
 is( scalar(@found),   3, 'three found events' );
-is( scalar(@consign), 1, 'one consign event' );
+is( scalar(@banish), 1, 'one banish event' );
 
 my $f = $found[0];
 is( $f->{eve_type},   'baphomet', 'eve_type is baphomet' );
@@ -146,13 +146,13 @@ is( $f->{rule}{name}, 'syslog/sshd', 'rule name' );
 ok( defined( $f->{rule}{def}{message_regexp} ), 'rule def present' );
 ok( !exists( $f->{rule}{def}{tests} ),          'rule tests stripped for space' );
 
-# the consign event
-my $c = $consign[0];
-is( $c->{event_type}, 'consign', 'consign event_type' );
-is( $c->{ip},         '9.9.9.9', 'consign ip' );
-is( $c->{ban_time},   300,       'consign ban_time' );
-is( $c->{count},      3,         'consign count' );
-is( $c->{found}{SRC}, '9.9.9.9', 'consign carries the triggering found' );
+# the banish event
+my $c = $banish[0];
+is( $c->{event_type}, 'banish', 'banish event_type' );
+is( $c->{ip},         '9.9.9.9', 'banish ip' );
+is( $c->{ban_time},   300,       'banish ban_time' );
+is( $c->{count},      3,         'banish count' );
+is( $c->{found}{SRC}, '9.9.9.9', 'banish carries the triggering found' );
 
 #
 # a JSON watcher... parsed holds the parsed JSON

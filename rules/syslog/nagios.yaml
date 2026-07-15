@@ -7,6 +7,9 @@ message_regexp:
   - '^Host %%%%SRC%%%% is not allowed to talk to us!\s*$'
 ban_var:
   - SRC
+# fail2ban jail.conf's word for this filter, honored when the kur allows
+# per-rule thresholds
+max_retrys: 1
 tests:
   positive:
     - message: "Feb  3 11:22:44 valhalla nrpe[63284]: Host 50.97.225.132 is not allowed to talk to us!"

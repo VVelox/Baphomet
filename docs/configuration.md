@@ -11,7 +11,7 @@ The config file is TOML, by default
 | `run_base_dir` | `/var/run/baphomet` | Base dir for the sockets and PID files. |
 | `tablet_base_dir` | `/var/db/baphomet` | Base dir for the state tablets, the CSVs and JSONL a galla writes so its counters, pending bans, correlation context, and log positions survive a restart. |
 | `checkpoint` | `60` | Seconds between periodic rewrites of the tablets (rounded up to the ten second sweeper cadence). 0 disables the periodic rewrite; a checkpoint on stop still happens. |
-| `ledger_keep` | `2592000` | How long rows are kept in the shared consignment ledger, 30 days by default. 0 means forever. Rows still inside the recidive `find_time` are always kept. |
+| `ledger_keep` | `2592000` | How long rows are kept in the shared banishment ledger, 30 days by default. 0 means forever. Rows still inside the recidive `find_time` are always kept. |
 | `rules_dir` | `/usr/local/etc/baphomet/rules` | The dir holding the rules. |
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
 | `galla_bin` | `galla` | The galla bin to spawn workers with. |
@@ -19,7 +19,8 @@ The config file is TOML, by default
 | `max_retrys` | `5` | Offenses with in `find_time` before a IP is banned. |
 | `find_time` | `600` | The window in seconds offenses are counted across. |
 | `ban_time` | unset | Ban time in seconds forwarded with ban requests, 0 meaning eternal. Unset means it is left out and the Ereshkigal side default applies. |
-| `ignore_ips` | `[]` | IPv4/IPv6 addresses and CIDRs never consigned, no matter what the rules say. A kur's own `ignore_ips` extends this list for that kur. Hostnames are not accepted. |
+| `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_retrys`/`find_time`/`ban_time` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
+| `ignore_ips` | `[]` | IPv4/IPv6 addresses and CIDRs never banished, no matter what the rules say. A kur's own `ignore_ips` extends this list for that kur. Hostnames are not accepted. |
 | `socket_group` | root's default group | Group ownership of the manager socket. |
 | `socket_mode` | `"0660"` | Perms for the manager socket, an octal string, processed via oct. Galla sockets are always 0600. |
 | `enable_auth` | `false` | Opens the Neti gate... the unix ownership auth challenge on the manager socket. See below. |
@@ -27,9 +28,91 @@ The config file is TOML, by default
 | `authed_groups` | `[]` | Groups whose members are allowed past the Neti gate. |
 | `auth_temp_dir` | unset | Dir for the auth challenge cookie files. |
 | `[recidive]` | off | A table turning on repeat offender escalation. See below. |
-| `internal` | same as `ignore_ips` | Addresses and CIDRs that are your own hosts. Rules with `ban_not_internal` consign the end of a flow that is not internal. Global and per kur. |
+| `internal` | same as `ignore_ips` | Addresses and CIDRs that are your own hosts. Rules with `ban_not_internal` banish the end of a flow that is not internal. Global and per kur. |
 | `eve_log` | `/var/log/baphomet/eve.json` | Path of the EVE event log. |
-| `eve_enable` | `false` | Whether to write the EVE log. The path is set by default but stays silent until this is on. See [eve.md](eve.md). |
+| `eve_enable` | `false` | Whether to write the EVE log. The path is set by default but stays silent until this is on. See [eve](eve). |
+| `geoip_db` | unset | Path to a MaxMind GeoIP2/GeoLite2 country database, for rules with a `country` gate. Read via the optional `IP::Geolocation::MMDB` module. Unset, or unloadable, and every country gate fails closed (banishes nobody), with a loud warning at galla start. |
+| `country_codes` | `{}` | Named lists of ISO 3166 country codes a `country` gate can import. A hash of arrays. Global, per kur, and per watcher, merged per name. See below. |
+| `namtar_lists` | `{}` | Named lists of CIDR files a `namtar_list` gate checks against, each a path or array of paths. A hash. Global, per kur, and per watcher, merged per name. Reloaded on mtime change. See below. |
+| `active_time` | `{}` | Named time windows a `active_time` gate references, each a `{days, hours}` spec or array of them. A hash. Global, per kur, and per watcher, merged per name. See below. |
+
+## Country code lists
+
+`country_codes` names reusable lists of country codes so a rule can import
+one rather than hardcoding countries, keeping the rule library
+geography-neutral. It is a hash of named arrays, layered watcher over kur
+over global and merged per name... a deeper level replaces a same-named
+list, names it does not mention stay inherited. Codes are ISO 3166 alpha-2
+and case-insensitive.
+
+```toml
+[country_codes]
+allowed   = [ "US", "CA", "GB" ]
+high_risk = [ "CN", "RU", "KP" ]
+
+[kur.web.country_codes]        # narrow high_risk for this kur
+high_risk = [ "CN", "RU" ]
+
+[kur.web.login.country_codes]  # ...or tighten allowed for one watcher
+allowed = [ "US" ]
+```
+
+A rule imports a list with the `%%%country_codes{name}%%%` token in its
+`country` gate. See [rules](rules).
+
+## Namtar lists
+
+`namtar_lists` names lists of CIDR files a `namtar_list` gate checks
+offenders against... the inverse of `ignore_ips`, so a rule can banish
+only addresses that appear on a threat feed. Named so a rule stays
+policy-neutral and imports a feed the operator supplies. Each name is a
+file path, or an array of paths, to files of one CIDR or IP per line (`#`
+comments and blank lines skipped). Layered watcher over kur over global,
+merged per name, and every file is reloaded when its mtime changes, so a
+feed that updates on disk takes effect with in a sweep... no restart.
+
+```toml
+[namtar_lists]
+threatfeed = "/var/db/baphomet/threatfeed.cidr"
+torexits   = [ "/var/db/baphomet/tor.cidr", "/var/db/baphomet/tor6.cidr" ]
+
+[kur.web.namtar_lists]         # override or add for this kur
+threatfeed = "/var/db/baphomet/web-threats.cidr"
+```
+
+A file that is unreadable or empty matches nobody, so its gate banishes
+nobody from it, and the galla says so loudly at start. A rule names a list
+with the `namtar_list` gate. See [rules](rules).
+
+## Active time windows
+
+`active_time` names time-of-day/day-of-week windows a `active_time` gate
+references, so a rule can count only in, or only out of, certain hours...
+an admin login that is routine at midday and an alarm at 03:00. Named so a
+rule stays policy-neutral. Each name is a spec, or an array of specs (in
+the window if in any). Layered watcher over kur over global, merged per
+name. Times are the system's local time.
+
+```toml
+[active_time.business]
+days  = [ 1, 2, 3, 4, 5 ]     # 0=Sun .. 6=Sat, optional (default every day)
+hours = "0900-1700"           # optional (default all day), start > end wraps midnight
+
+[active_time.overnight]
+hours = "2200-0600"
+
+[[active_time.mixed]]         # array-of-tables bundles several ranges under one name
+days  = [ 1, 2, 3, 4, 5 ]
+hours = "0900-1700"
+[[active_time.mixed]]
+days  = [ 6 ]
+hours = "0900-1200"
+```
+
+A spec sets `days` (an array of 0–6), `hours` (a `"HHMM-HHMM"` range or an
+array of them), or both, and must set at least one. Membership is inclusive
+of both ends. A rule references a window with the `active_time` gate. See
+[rules](rules).
 
 ## Kurs and watchers
 
@@ -37,7 +120,7 @@ Hashes under `kur` define kurs, one galla each. The name is the hash name
 and is also what ban requests are targeted at on the Ereshkigal side, so it
 should match a kur over there. The kur over there may be a real one or a
 gate (a `fan_out` kur)... a gate has no firewall of its own and relays
-each consignment to its members, so one Baphomet kur can feed a whole set
+each banishment to its members, so one Baphomet kur can feed a whole set
 of Ereshkigal kurs through a single name. With Ereshkigal's `enable_auth`
 on, the baphomet user need only be granted the gate, not any member.
 
@@ -70,9 +153,23 @@ Watcher keys...
 | `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. With an array, rules are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `parser` (journal) | A journal watcher's parser defaults to `journal`. |
 | `max_retrys` / `find_time` / `ban_time` | Optional overrides for this watcher. |
+| `allow_per_rule_thresholds` | Whether this watcher honors thresholds a rule carries. |
+| `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
+| `namtar_lists` | Named CIDR file lists overriding the kur's and global's for this watcher's rules. A hash. |
+| `active_time` | Named time windows overriding the kur's and global's for this watcher's rules. A hash. |
 
-`max_retrys`, `find_time`, and `ban_time` layer watcher over kur over
-global over default.
+`max_retrys`, `find_time`, `ban_time`, and `allow_per_rule_thresholds`
+layer watcher over kur over global over default.
+
+With `allow_per_rule_thresholds` on, a rule carrying its own `max_retrys`,
+`find_time`, or `ban_time` speaks over the watcher... the layering becomes
+rule over watcher over kur over global. The flag is the consent, and it is
+off by default, so the aggressive numbers some shipped rules carry (one
+shellshock probe is enough) do nothing until you turn it on. A rule
+overriding how counting works gets its own counter bucket, so a
+strict rule crossing its threshold does not eat the shared count other
+rules are building against the same IP... `baphomet accused` breaks such
+buckets out per rule.
 
 ## The Neti gate
 
@@ -99,26 +196,26 @@ and spoken to only by the manager.
 
 ## Recidivists
 
-Every consignment any galla makes is chiseled into a shared ledger under
+Every banishment any galla makes is chiseled into a shared ledger under
 the tablet dir, readable via `baphomet ledger`. The `[recidive]` table
-turns on repeat offender escalation against that ledger... a IP consigned
+turns on repeat offender escalation against that ledger... a IP banished
 `max_retrys` times across all kurs with in `find_time` is dragged through
-a further gate... consigned to the `recidive` kur, which should hold them
+a further gate... banished to the `recidive` kur, which should hold them
 long.
 
 ```toml
 [recidive]
 kur        = "recidive"   # the deeper kur, over on the Ereshkigal side
-max_retrys = 5            # consignments before a IP is a recidivist
+max_retrys = 5            # banishments before a IP is a recidivist
 find_time  = 604800       # counted over a week
 ban_time   = 0            # eternal
 ```
 
 | key | default | what |
 | --- | --- | --- |
-| `kur` | required | The kur recidivists are consigned to. There must be a matching kur on the Ereshkigal side, covering everything worth protecting... a fan_out gate over every real kur suits it well. |
-| `max_retrys` | `5` | Consignments before a IP is a recidivist. |
-| `find_time` | `604800` | The window, a week by default, the consignments are counted over. |
+| `kur` | required | The kur recidivists are banished to. There must be a matching kur on the Ereshkigal side, covering everything worth protecting... a fan_out gate over every real kur suits it well. |
+| `max_retrys` | `5` | Banishments before a IP is a recidivist. |
+| `find_time` | `604800` | The window, a week by default, the banishments are counted over. |
 | `ban_time` | `0` | How long a recidivist is held, 0 being eternal. |
 
 The recidive kur wants ports covering all the kurs it backstops... from

@@ -2,7 +2,7 @@
 # Suricata alerts whose action was to block, per eve.json alert.action ==
 # "blocked"... reject rules in any mode, and drop rules when Suricata runs
 # inline. This defers to Suricata's own IPS decision... if its ruleset
-# says drop/reject this traffic, consign the source to Kur so the firewall
+# says drop/reject this traffic, banish the source to Kur so the firewall
 # blocks it outright, beyond the one flow Suricata handled.
 #
 # Mode caveat... in pure IDS mode a drop-intent rule logs action
@@ -13,7 +13,7 @@
 #
 # The offender may be the src or the dest of the flow depending on where
 # the alert fired... a rejected C2 callout from a inside host has the
-# offender as the dest. Both are candidates and ban_not_internal consigns
+# offender as the dest. Both are candidates and ban_not_internal banishes
 # whichever is not one of your own hosts... set the internal config field,
 # which defaults to the ignore IPs.
 gate:
@@ -25,6 +25,9 @@ ban_var:
   - src_ip
   - dest_ip
 ban_not_internal: true
+# Suricata already ruled on this flow... one blocked alert is enough, when
+# the kur allows per-rule thresholds
+max_retrys: 1
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"10.0.0.5","dest_port":443,"proto":"TCP","alert":{"action":"blocked","gid":1,"signature_id":2402000,"rev":1,"signature":"ET DROP Dshield Block Listed Source group 1","category":"Misc Attack","severity":2}}'

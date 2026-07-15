@@ -59,7 +59,7 @@ close($fh);
 
 my $result = App::Cmd::Tester->test_app( 'App::Baphomet::App', ['commands'] );
 is( $result->exit_code, 0, 'commands exits 0' );
-foreach my $command ( 'start', 'stop', 'status', 'check_rules', 'test_line', 'accused', 'consigned', 'ledger' ) {
+foreach my $command ( 'start', 'stop', 'status', 'check_rules', 'test_line', 'accused', 'banished', 'ledger' ) {
 	like( $result->stdout, qr/$command/, 'commands lists ' . $command );
 }
 
@@ -119,7 +119,7 @@ EOC
 close($fh);
 
 my $now = time;
-open( $fh, '>', $dir . '/tablets/consignments.csv' ) || die($!);
+open( $fh, '>', $dir . '/tablets/banishments.csv' ) || die($!);
 print $fh "epoch,kur,ip,rule,watcher\n";
 print $fh ( $now - 172800 ) . ",sshd,1.2.3.4,syslog/good,authlog\n";
 print $fh ( $now - 60 ) . ",sshd,1.2.3.4,syslog/good,authlog\n";

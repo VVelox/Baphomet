@@ -129,7 +129,7 @@ feed( $galla, 'eve', '10.1.1.1', '192.168.1.1' );
 is_deeply( \@sent, [], 'nothing banned when both internal' );
 
 #
-# without ban_not_internal, both ban_vars are consigned as before
+# without ban_not_internal, both ban_vars are banished as before
 #
 
 @sent = ();

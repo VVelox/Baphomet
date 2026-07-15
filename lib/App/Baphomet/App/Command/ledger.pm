@@ -10,7 +10,7 @@ use POSIX                 qw( strftime );
 
 =head1 NAME
 
-App::Baphomet::App::Command::ledger - Read the shared consignment ledger.
+App::Baphomet::App::Command::ledger - Read the shared banishment ledger.
 
 =head1 VERSION
 
@@ -29,8 +29,8 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-Reads the shared consignment ledger under the tablet dir, the record every
-galla chisels a row into when it consigns a IP... when, which kur, which
+Reads the shared banishment ledger under the tablet dir, the record every
+galla chisels a row into when it banishes a IP... when, which kur, which
 IP, and by which rule and watcher. Read straight from the file, so it
 works with the manager down. How far back it reaches is bounded by the
 C<ledger_keep> setting.
@@ -46,11 +46,11 @@ and execute.
 
 =cut
 
-sub abstract { return 'read the shared consignment ledger' }
+sub abstract { return 'read the shared banishment ledger' }
 
 sub description {
 	return
-		  'Reads the shared consignment ledger... every consignment any galla made, '
+		  'Reads the shared banishment ledger... every banishment any galla made, '
 		. 'when, which kur, which IP, and by which rule and watcher. With a kur '
 		. 'name, just that kur. --ip picks one IP, --since bounds how far back, '
 		. 'and --tail keeps only the last N entries.';
@@ -87,7 +87,7 @@ sub execute {
 	my ( $self, $opt, $args ) = @_;
 
 	my $config = load_config( $opt->config );
-	my $path   = $config->{tablet_base_dir} . '/consignments.csv';
+	my $path   = $config->{tablet_base_dir} . '/banishments.csv';
 
 	my $since;
 	if ( defined( $opt->since ) ) {

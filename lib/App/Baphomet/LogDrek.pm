@@ -28,7 +28,7 @@ our @EXPORT_OK = qw( log_drek );
 
     log_drek( 'info', 'started' );
     log_drek( 'err',  'something broke' );
-    log_drek( 'info', 'consigned 1.2.3.4 to Kur', undef, 'galla-sshd' );
+    log_drek( 'info', 'banished 1.2.3.4 to Kur', undef, 'galla-sshd' );
 
 =head1 DESCRIPTION
 

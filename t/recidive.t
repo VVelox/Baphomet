@@ -66,7 +66,7 @@ ok( defined($galla),          'galla with recidive built' );
 ok( defined( $galla->{recidive} ), 'recidive settings present' );
 is( $galla->{recidive}{kur}, 'recidive', 'recidive kur' );
 
-# capture every consignment, with its target kur
+# capture every banishment, with its target kur
 my @sent;
 {
 	no warnings 'redefine';
@@ -77,14 +77,14 @@ my @sent;
 	};
 }
 
-# three consignments of the same IP hits the recidive threshold
+# three banishments of the same IP hits the recidive threshold
 $galla->_ban_ip( '9.9.9.9', 300 );
 $galla->_ban_ip( '9.9.9.9', 300 );
 is( scalar( grep { $_->{kur} eq 'recidive' } @sent ), 0, 'no escalation below threshold' );
 
 $galla->_ban_ip( '9.9.9.9', 300 );
 my @escalations = grep { $_->{kur} eq 'recidive' } @sent;
-is( scalar(@escalations), 1,          'escalated at the third consignment' );
+is( scalar(@escalations), 1,          'escalated at the third banishment' );
 is( $escalations[0]{ip},  '9.9.9.9',  'the recidivist was escalated' );
 is( $escalations[0]{ban_time}, 0,     'with the recidive ban_time' );
 is( $galla->{stats}{recidivists}, 1,  'recidivists stat' );
@@ -93,9 +93,9 @@ is( $galla->{stats}{recidivists}, 1,  'recidivists stat' );
 $galla->_ban_ip( '8.8.8.8', 300 );
 is( scalar( grep { $_->{kur} eq 'recidive' && $_->{ip} eq '8.8.8.8' } @sent ), 0, 'other IP not yet a recidivist' );
 
-# the ledger exists and carries the consignments
-ok( -f $dir . '/cache/consignments.csv', 'ledger written' );
-open( $fh, '<', $dir . '/cache/consignments.csv' ) || die($!);
+# the ledger exists and carries the banishments
+ok( -f $dir . '/cache/banishments.csv', 'ledger written' );
+open( $fh, '<', $dir . '/cache/banishments.csv' ) || die($!);
 my @rows = <$fh>;
 close($fh);
 is( scalar( grep { /,9\.9\.9\.9,/ } @rows ), 3, 'three ledger rows for the recidivist' );
@@ -147,15 +147,15 @@ $plain->_ban_ip( '1.1.1.1', 300 );
 $plain->_ban_ip( '1.1.1.1', 300 );
 $plain->_ban_ip( '1.1.1.1', 300 );
 is( scalar( grep { $_->{kur} eq 'recidive' } @sent ), 0, 'no escalation with recidive off' );
-ok( -f $dir . '/cache2/consignments.csv', 'the ledger is chiseled even with recidive off' );
-open( $fh, '<', $dir . '/cache2/consignments.csv' ) || die($!);
+ok( -f $dir . '/cache2/banishments.csv', 'the ledger is chiseled even with recidive off' );
+open( $fh, '<', $dir . '/cache2/banishments.csv' ) || die($!);
 @rows = <$fh>;
 close($fh);
 is( scalar( grep { /,1\.1\.1\.1,/ } @rows ), 3, 'three ledger rows with recidive off' );
 
-# a consignment carrying its context chisels rule and watcher into the row
+# a banishment carrying its context chisels rule and watcher into the row
 $plain->_ban_ip( '2.2.2.2', 300, { 'watcher' => 'authlog', 'rule_name' => 'syslog/sshd' } );
-open( $fh, '<', $dir . '/cache2/consignments.csv' ) || die($!);
+open( $fh, '<', $dir . '/cache2/banishments.csv' ) || die($!);
 @rows = <$fh>;
 close($fh);
 is( scalar( grep { m{,2\.2\.2\.2,syslog/sshd,authlog$} } @rows ), 1, 'rule and watcher chiseled into the row' );

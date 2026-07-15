@@ -10,7 +10,7 @@ fail2ban, and the accuser half of a pair whose punisher half is
 daemon spawns one `galla` worker per kur configured. Each galla follows the
 log files of its kur, parses the lines, reads them against its rules like
 omen tablets, and counts the offenses of each IP. An IP that racks up
-`max_retrys` offenses with in `find_time` seconds is seized and consigned
+`max_retrys` offenses with in `find_time` seconds is seized and banished
 to Kur... a ban request sent to the Ereshkigal manager socket, targeted at
 the kur of the same name over there, a real kur or a fan_out gate relaying
 to several. Ereshkigal does the actual firewalling. Baphomet never touches
@@ -40,11 +40,11 @@ baphomet start
 # see what they are up to
 baphomet status --all
 
-# the IPs being counted toward a consignment, and who Kur already holds
+# the IPs being counted toward a banishment, and who Kur already holds
 baphomet accused
-baphomet consigned
+baphomet banished
 
-# the consignment history... when, which kur, which IP, by which rule
+# the banishment history... when, which kur, which IP, by which rule
 baphomet ledger --since 7d
 
 # verify the rules pass their own embedded tests

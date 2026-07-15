@@ -2,7 +2,7 @@
 
 =head1 NAME
 
-baphomet - Log watcher that consigns misbehaving IPs to Kur via Ereshkigal.
+baphomet - Log watcher that banishes misbehaving IPs to Kur via Ereshkigal.
 
 =head1 SYNOPSIS
 

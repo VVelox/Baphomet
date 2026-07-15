@@ -1,5 +1,5 @@
 ---
-# Consigns the offenders behind Suricata alerts, per eve.json, at
+# Banishes the offenders behind Suricata alerts, per eve.json, at
 # severities 1 and 2. Test lines are hand built from the documented eve
 # alert shape.
 #
@@ -9,7 +9,7 @@
 # shows the shape for exempting noisy signatures.
 #
 # The offender may be the src or the dest of the flow depending on where
-# the alert fired, so both are candidates and ban_not_internal consigns
+# the alert fired, so both are candidates and ban_not_internal banishes
 # whichever is not one of your own hosts... set the internal config field,
 # which defaults to the ignore IPs.
 gate:

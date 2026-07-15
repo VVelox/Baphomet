@@ -7,24 +7,28 @@ configure there, as Baphomet's config targets them.
 
 ## Dependencies
 
-| dep | FreeBSD | Debian |
+| CPAN module | FreeBSD pkg | Debian pkg |
 | --- | --- | --- |
 | App::Cmd | p5-App-Cmd | libapp-cmd-perl |
-| Error::Helper | p5-Error-Helper | cpanm |
+| Error::Helper | p5-Error-Helper | (cpanm) |
 | JSON::MaybeXS | p5-JSON-MaybeXS | libjson-maybexs-perl |
-| Net::Server::Daemonize | p5-Net-Server | libnet-server-perl |
+| Net::Server (Net::Server::Daemonize) | p5-Net-Server | libnet-server-perl |
 | POE | p5-POE | libpoe-perl |
-| POE::Component::Server::JSONUnix | cpanm | cpanm |
-| Regexp::IPv4 | cpanm | cpanm |
+| POE::Component::Server::JSONUnix | (cpanm) | (cpanm) |
+| Regexp::IPv4 | (cpanm) | (cpanm) |
 | Regexp::IPv6 | p5-Regexp-IPv6 | libregexp-ipv6-perl |
-| TOML::Tiny | cpanm | libtoml-tiny-perl |
+| TOML::Tiny | (cpanm) | libtoml-tiny-perl |
 | YAML::XS | p5-YAML-LibYAML | libyaml-libyaml-perl |
-| Ereshkigal (for Ereshkigal::Client) | cpanm | cpanm |
+| Ereshkigal (for Ereshkigal::Client) | (cpanm) | (cpanm) |
+
+Package names are current as of writing. Anything marked `(cpanm)` —
+or missing from your release — installs cleanly from CPAN via
+[cpanminus](https://metacpan.org/pod/App::cpanminus).
 
 ## From source
 
-Dependencies are declared in Makefile.PL, so with
-[cpanminus](https://metacpan.org/pod/App::cpanminus)...
+Dependencies are declared in Makefile.PL, so from a checkout or an
+unpacked release tarball...
 
 ```shell
 cpanm --installdeps .
@@ -69,3 +73,10 @@ cp rc/systemd/baphomet.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now baphomet
 ```
+
+On systems where `/var/run` is a tmpfs, `/var/run/baphomet` is created
+automatically at startup — but if you point `run_base_dir` somewhere
+deeper, make sure the parents exist at boot (a `RuntimeDirectory=` line
+or a tmpfiles.d entry does it on systemd). Note that unix socket paths
+are limited to roughly 104 characters on the BSDs, so keep
+`run_base_dir` short.

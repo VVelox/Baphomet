@@ -1,0 +1,45 @@
+---
+# Catches a single sshd account being hit from more than one source... the
+# distributed-brute-force and credential-stuffing signature that per-IP
+# counting can not see, since each source alone stays under the threshold.
+# It matches the same failures as syslog/sshd-mark-users and gates on that
+# rule's marks: the account is branded (marked) and the source stored on
+# it differs from this line's source (value_not SRC), meaning a second,
+# different address is working the same account. max_retrys 1 banishes it
+# at once, so this only fires when the kur allows per-rule thresholds.
+#
+# Requires syslog/sshd-mark-users to run in the same watcher, listed AFTER
+# this rule so the gate reads the established source rather than this
+# line's. The embedded tests only prove the matching layer... the mark
+# gate is galla state and is exercised by t/marks.t.
+daemons:
+  - sshd
+  - sshd-session
+message_regexp:
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?<USER>\S+) from %%%%SRC%%%%'
+ban_var:
+  - SRC
+marked:
+  - name: sshd-account-src
+    var: USER
+    value_not: SRC
+max_retrys: 1
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 1
+      data:
+        USER: "moth3r"
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 1
+      data:
+        USER: "admin"
+        SRC: "192.0.2.7"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
+      found: 0
+      undefed: ["SRC", "USER"]

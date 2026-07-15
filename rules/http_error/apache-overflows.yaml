@@ -11,6 +11,9 @@ message_regexp:
   - '^request failed: URI too long \(longer than \d+\)'
   - '^request failed: erroneous characters after protocol string:'
   - '^request failed: invalid characters in URI\b'
+# fail2ban jail.conf's word for this filter, honored when the kur allows
+# per-rule thresholds
+max_retrys: 2
 tests:
   positive:
     - message: '[Tue Mar 16 15:39:29 2010] [error] [client 58.179.109.179] Invalid URI in request \xf9h\xa9\xf3\x88\x8cXKj \xbf-l*4\x87n\xe4\xfe\xd4\x1d\x06\x8c\xf8m\\rS\xf6n\xeb\x8'

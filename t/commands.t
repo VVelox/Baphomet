@@ -16,7 +16,7 @@ BEGIN {
 }
 
 use App::Baphomet::App::Command::ledger    ();
-use App::Baphomet::App::Command::consigned ();
+use App::Baphomet::App::Command::banished ();
 
 #
 # the ledger row parser
@@ -53,7 +53,7 @@ my $week_ago = App::Baphomet::App::Command::ledger::_since_epoch('1w');
 ok( abs( ( time - 604800 ) - $week_ago ) < 5, 'a relative span counts back from now' );
 
 #
-# paring consigned down to a IP
+# paring banished down to a IP
 #
 
 my $result = {
@@ -83,7 +83,7 @@ my $result = {
 	},
 };
 
-my $pared = App::Baphomet::App::Command::consigned::_pare_to_ip( $result, '1.2.3.4' );
+my $pared = App::Baphomet::App::Command::banished::_pare_to_ip( $result, '1.2.3.4' );
 is( $pared->{ip}, '1.2.3.4', 'the IP rides along' );
 is( $pared->{kurs}{sshd}{banned},  1,          'held on the real kur' );
 is( $pared->{kurs}{sshd}{expires}, 1784070000, 'with its expiry' );

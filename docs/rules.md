@@ -81,6 +81,25 @@ The captures to use for bans. For each name here that a matching line
 captured, the captured value is an IP that gets a hit registered against
 it. Usually just `SRC`.
 
+### max_retrys / find_time / ban_time
+
+Optional, on every rule type. The rule's own word on how it is counted
+and how long the ban runs, for rules where the watcher's numbers are the
+wrong fit... one shellshock probe is a verdict, five mistyped passwords
+are not. These are inert unless the watcher's
+`allow_per_rule_thresholds` config setting is on... the flag is the
+consent, and with it given the layering becomes rule over watcher over
+kur over global. A rule overriding `max_retrys` or `find_time` counts
+into its own bucket, so its window does not touch the shared count other
+rules build against the same IP, while a `ban_time`-only override counts
+in the shared bucket and only bans differently.
+
+```yaml
+# one hit is enough, hold the door eternally
+max_retrys: 1
+ban_time: 0
+```
+
 ### tests
 
 Positive tests are lines the rule must match, negative tests are lines it
@@ -128,6 +147,180 @@ with `found` being the expected count of found results across the
 sequence. See `raw/mongodb-auth-legacy` and the No such user pair in
 `syslog/sendmail-reject` for shipped examples.
 
+## Marks... cross-rule state, keyed by anything
+
+Correlation ties lines together with in one rule. Marks tie rules
+together... a mark is a named, expiring brand a rule leaves on a key that a
+later rule, in the same or another watcher of that galla, can gate on. It
+is how one rule remembers something for another, Sagan's xbits and
+flexbits. The keys are legal on every rule type.
+
+The key defaults to the offender IP, but any capture or field of the
+matched line can be the key (`var`), and a mark can carry a value harvested
+from the line too (`value_var`)... so a mark can remember not just "this
+IP" but "this username", and store "the address that used it".
+
+| key | what |
+| --- | --- |
+| `mark` | Array of brands to set on match, each `{name, ttl, var?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var` the brand is keyed by each offender IP, with it by that capture. `value_var` names a capture to store on the brand. |
+| `unmark` | Array of brands to lift on match, each `{name, var?}`. A successful login lifting a suspicion, say. |
+| `marked` | Gate array, ANDed... the result only counts if every named brand is set. Each `{name, var?, value_is?, value_not?}`. A var-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
+| `not_marked` | Gate array, the inverse... the result only counts if none of the named brands is set. Same keying. |
+| `mark_only` | When true the rule only brands and gates, never counting toward a ban, and does not consume the line, so matching falls through to the later rules. |
+
+A rule whose mark gates veto, like a mark_only rule, does not consume the
+line either, so a branding rule and the rule that reads it can both act on
+the same line by falling through.
+
+The shipped `syslog/sshd-mark-users` and `syslog/sshd-spray` pair catch a
+single account hit from more than one source... the distributed
+brute-force signature per-IP counting can not see, since each source alone
+stays under the threshold. The first rule brands each failed account with
+the source that hit it:
+
+```yaml
+# syslog/sshd-mark-users, mark_only... brand USER with the SRC
+mark_only: true
+mark:
+  - name: sshd-account-src
+    ttl: 3600
+    var: USER
+    value_var: SRC
+```
+
+The second matches the same failures and fires only when the account is
+already branded with a *different* source:
+
+```yaml
+# syslog/sshd-spray... a second source on a branded account
+marked:
+  - name: sshd-account-src
+    var: USER
+    value_not: SRC
+max_retrys: 1
+```
+
+Order matters: list the reading rule (`sshd-spray`) before the branding
+one (`sshd-mark-users`) in the watcher, so the gate sees the source that
+established the account rather than the one the same line would re-brand
+it with. Since `sshd-spray` carries `max_retrys: 1`, it only fires where
+the kur sets `allow_per_rule_thresholds`.
+
+Marks are galla state, so a rule's own embedded tests can not exercise
+them... they prove only that the rule matches and captures. The live marks
+are visible with `baphomet marked`, and survive a restart via a marks
+tablet, unlike correlation context. Scope is the galla, so marks cross
+watchers and rules but not kurs. Each mark name is capped, and the ignored
+are never branded.
+
+## Country gate... narrowing an offense by geography
+
+A rule may carry a `country` gate that only lets a match count when the
+offender, or some captured address, is in (or not in) a set of countries.
+It needs a GeoIP database, the `geoip_db` config setting, read through the
+optional `IP::Geolocation::MMDB` module.
+
+```yaml
+country:
+  isnot:                              # count only if NOT in these
+    - "%%%country_codes{allowed}%%%"  # import a named list from the config
+    - "MX"                            # literal 2-letter codes compose too
+max_retrys: 1
+```
+
+`is` or `isnot`, at most one. Each list entry is either a literal ISO 3166
+2-letter code or the `%%%country_codes{name}%%%` token, which splices in a
+named list from the config, layered per watcher... so a shipped rule stays
+geography-neutral and the operator owns the policy. A bare string is taken
+as a one-element list.
+
+By default the gate checks the offender IP being counted. An optional
+`vars` list checks the country of named found vars instead:
+
+```yaml
+country:
+  is: [ "%%%country_codes{yours}%%%" ]
+  vars: [ dest_ip ]        # gate on the dest's country, still ban the src
+ban_var: [ src_ip ]
+```
+
+- **No `vars`** ... offender-keyed. Checked per ban_var candidate in the
+  ban loop, filtering which offenders count, like `ban_not_internal`.
+- **`vars` given** ... data-keyed. Checked once per result against the
+  named found vars (resolved like `ban_var`, so JSON dotted paths work);
+  all must pass, and a veto drops the whole result. Lets a rule gate on the
+  geography of a value it is not banning... ban the `src_ip` of a flow only
+  when the `dest_ip` is one of yours.
+
+The gate always **fails closed**: a value that does not locate, or a
+missing database, blocks the count rather than risking a wrong ban. Because
+a missing database silently stops such a rule, a galla with country-gated
+rules and no loadable database says so loudly at start. There is no shipped
+country rule, since a geography ban is your policy, not a fail2ban port...
+compose one from an offense rule plus a `country` gate and your own
+`country_codes` lists.
+
+## Namtar list gate... only the already-condemned
+
+A `namtar_list` gate only lets a match count when a IP appears on a named
+blocklist, the inverse of `ignore_ips`. The lists are CIDR files named in
+the config's `namtar_lists`, layered per watcher and reloaded on mtime
+change, so a rule can banish only addresses on a threat feed you supply.
+
+```yaml
+namtar_list:
+  - lists: [ threatfeed, torexits ]   # SRC on ANY of these (union)
+    var: SRC
+  - list: corpnets                    # scalar shorthand
+    var: dest_ip                      # check the dest, still ban the src
+max_retrys: 1
+```
+
+The gate is a array of entries. Each names one or more lists (`lists`, or
+`list` for one) and, optionally, the found var to check (resolved like
+`ban_var`, so JSON dotted paths work); without a var it checks the offender
+IP. A value on **any** of an entry's lists satisfies it (union), and
+**every** entry must hold. Like the country gate, a var entry is data-keyed
+and vets the whole result while a var-less one filters offenders, so a rule
+can gate on a captured address it is not banning. Paired with `max_retrys:
+1`, one hit from a listed address is enough.
+
+The gate **fails closed**: an address on no list, or a list whose file is
+unreadable or empty, blocks the count... an absent feed banishes nobody,
+never everybody. `ignore_ips` still wins absolutely, so an ignored address
+is never banished even when it is also blocklisted. There is no shipped
+namtar rule, since which addresses are condemned is your policy... compose
+one from an offense rule, a `namtar_list` gate, and your own feeds.
+
+## Active time gate... only in, or out of, certain hours
+
+A `active_time` gate only lets a match count when the time falls in, or out
+of, named windows... an admin login that is routine at midday and worth a
+ban at 03:00. The windows are defined in the config's `active_time`,
+layered per watcher.
+
+```yaml
+active_time:
+  is: [ business, mixed ]     # count only when the time is in ANY of these (union)
+  # xor  isnot: [ overnight ] # count only when in NONE of them
+  vars: [ ts ]                # optional: which found value holds the time; default = now
+max_retrys: 1
+```
+
+`is` or `isnot`, at most one, each a list of window names resolved against
+the watcher's config. Multiple windows are unioned. **`vars`** names which
+found value(s) hold the time to check; without it the gate checks the
+**current time**, the usual case. A value is read as an epoch (all digits;
+journal microseconds scaled down) or an ISO 8601 datetime... anything else,
+or a missing value, **fails closed**. Because a log's raw timestamp string
+is rarely one of those, `vars` suits JSON or EVE lines carrying a machine
+timestamp; leave it off to gate on now.
+
+Unlike the other gates, active_time is never per-offender... time is a
+property of the line, so the gate is checked once per result and vetoes the
+whole result. Times are the system's local time. There is no shipped
+active_time rule, since which hours matter is your policy.
+
 ## http rules
 
 Rules of the `http` type work on lines parsed by the `http_access` parser
@@ -167,7 +360,8 @@ The matchable fields are host, ident, user, time, request, method, path,
 protocol, status, bytes, referer, user_agent, and format. Gates-only rules
 (every 401, say) are legal... a rule with neither gates nor matches is a
 error. Tests default to the `http_access` parser. See
-`perldoc App::Baphomet::Rules::HTTP` for the full reference.
+[`App::Baphomet::Rules::HTTP`](https://metacpan.org/pod/App::Baphomet::Rules::HTTP)
+for the full reference.
 
 ## http_error rules
 
@@ -201,14 +395,15 @@ tests:
 ```
 
 Named captures in a winning regexp get merged into `data`. See
-`perldoc App::Baphomet::Rules::HTTPError` for the full reference.
+[`App::Baphomet::Rules::HTTPError`](https://metacpan.org/pod/App::Baphomet::Rules::HTTPError)
+for the full reference.
 
 ## Banning the external end of a flow
 
 Some sources, Suricata's eve.json above all, log both ends of a flow and
 which one is the offender depends on where in the stream the alert fired.
 A rule that lists both endpoints as ban_vars and sets `ban_not_internal`
-consigns only the ends that are not one of your own hosts...
+banishes only the ends that are not one of your own hosts...
 
 ```yaml
 ban_var:
@@ -220,8 +415,8 @@ ban_not_internal: true
 Your own hosts are the `internal` config field, which defaults to the
 `ignore_ips` list. So an inbound attack bans the external src, an outbound
 callout bans the external dest, a transit flow bans both, and a
-host-to-host flow bans neither. A ignored IP is never consigned regardless,
-so the consigned end is by extension not ignored either. Works on syslog,
+host-to-host flow bans neither. A ignored IP is never banished regardless,
+so the banished end is by extension not ignored either. Works on syslog,
 raw, and json rules... anywhere a rule has more than one endpoint ban_var.
 
 ## json rules
@@ -261,7 +456,8 @@ tests:
 ```
 
 Tests default to the `json` parser, each message being one line of JSON.
-See `perldoc App::Baphomet::Rules::JSON` for the full reference.
+See [`App::Baphomet::Rules::JSON`](https://metacpan.org/pod/App::Baphomet::Rules::JSON)
+for the full reference.
 
 ## raw rules
 
