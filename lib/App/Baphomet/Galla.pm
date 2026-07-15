@@ -1511,7 +1511,8 @@ sub _handle_line {
 
 			# the EVE context for this match, shared by the found event and
 			# any banish it triggers... watcher and rule_name ride along
-			# for the stats and the ledger
+			# for the stats and the ledger. the effective severity is the
+			# rule's own or, absent that, the watcher-resolved default_severity
 			my $context = {
 				'source'    => $source,
 				'raw'       => $line,
@@ -1520,6 +1521,7 @@ sub _handle_line {
 				'rule'      => $rule_obj,
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
+				'severity'  => defined( $rule_obj->severity ) ? $rule_obj->severity : $watcher->{settings}{default_severity},
 			};
 
 			# a ban_not_internal rule banishes the end of the flow that is
@@ -1596,7 +1598,12 @@ sub _eve_fields {
 		'raw'    => $context->{raw},
 		'parsed' => $self->_eve_parsed( $context->{parsed} ),
 		'found'  => $context->{found},
+		'msg'    => $context->{rule}->msg,
 		'rule'   => $context->{rule}->info,
+		defined( $context->{severity} )     ? ( 'severity'   => $context->{severity} )         : (),
+		defined( $context->{rule}->classtype )  ? ( 'classtype'  => $context->{rule}->classtype )  : (),
+		defined( $context->{rule}->references ) ? ( 'references' => $context->{rule}->references ) : (),
+		defined( $context->{rule}->attack )     ? ( 'attack'     => $context->{rule}->attack )     : (),
 		defined($score) ? ( 'score' => $score ) : (),
 		( defined($set)    && @{$set} )    ? ( 'marks_set' => $set )    : (),
 		( defined($lifted) && @{$lifted} ) ? ( 'unmarked'  => $lifted ) : (),

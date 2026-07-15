@@ -5,6 +5,9 @@
 # format... the address always sits on the "Failed authentication" line
 # itself, so no correlation is needed and this is a plain single-line rule
 # covering the old =INFO/I(...) format and the newer lager [info] formats.
+msg: "[EJABBERD] c2s authentication failure"
+severity: high
+classtype: brute-force
 message_regexp:
   # old format... the I(...) line that the =INFO REPORT banner precedes
   - '^I\(<0\.\d+\.0>:ejabberd_c2s:\d+\) : \([^)]+\) Failed authentication for \S+ from (?:IP )?%%%%SRC%%%%(?: \(\{\{(?:\d+,){3}\d+\},\d+\}\))?$'

@@ -3,6 +3,9 @@
 # translated to Baphomet and simplified... only the ASCII spellings of the
 # localized auth failure message are carried over, the non-ASCII ones are
 # dropped.
+msg: "[PURE-FTPD] authentication failure"
+severity: high
+classtype: brute-force
 daemons:
   - pure-ftpd
 message_regexp:

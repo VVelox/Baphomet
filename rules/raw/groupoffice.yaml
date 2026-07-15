@@ -3,6 +3,9 @@
 # groupoffice filter, translated to Baphomet. Group-Office writes its own
 # bracketed timestamp ([YYYY-MM-DD HH:MM:SS]) rather than a syslog prefix,
 # so this is a raw rule anchored on that shape.
+msg: "[GROUPOFFICE] failed login"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]LOGIN FAILED for user: "\S+" from IP: %%%%SRC%%%%$'
 ban_var:

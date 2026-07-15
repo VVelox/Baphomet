@@ -7,6 +7,9 @@
 # username/password verify failure carries the offender only in that prefix,
 # so those patterns anchor on it. The pre-auth TLS error names the address
 # after `from [AF_INET]` instead.
+msg: "[OPENVPN] auth / TLS handshake failure"
+severity: high
+classtype: brute-force
 daemons:
   - openvpn
 message_regexp:

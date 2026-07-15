@@ -1,6 +1,23 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - Severity and classification metadata on rules and EVE, the rest of
+          the Suricata/Sagan alert set beside msg. Rules may carry severity
+          (info/low/medium/high/critical), classtype (a Snort/Sagan category
+          string), references (URLs/CVEs), and attack (MITRE ATT&CK ids), all
+          inert to matching and written to EVE as top-level fields when set.
+          severity falls back to a new config default_severity (global/kur/
+          watcher) when a rule sets none, else the field is omitted; the other
+          three are omitted when unset. Every shipped rule was backfilled with
+          a severity and classtype. This turns the EVE stream from a flat run
+          of matches into triageable detections.
+        - A msg on rules and EVE. A rule may carry a msg, the Sagan/Suricata
+          human-readable signature ("[TAG] description"), written to every EVE
+          event it produces as the top-level .msg field... Suricata's
+          alert.signature, promoted, so tooling reads what tripped without
+          decoding the raw line. Absent, it falls back to the rule name, so
+          .msg is always present. Every shipped rule was backfilled with one.
+          Inert to matching.
         - BREAKING: max_retrys is renamed max_score, everywhere it appeared...
           the config setting (global, kur, watcher), the per-rule override,
           the recidive table, and every shipped rule. Rename it in your

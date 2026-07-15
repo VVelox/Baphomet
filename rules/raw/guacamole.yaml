@@ -5,6 +5,9 @@
 # address... the source is on the "Authentication attempt from" line
 # itself, so no correlation is needed and this is a plain single-line rule
 # covering both the catalina (WARNING:) and webapp logback formats.
+msg: "[GUACAMOLE] failed authentication attempt"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^WARNING: Authentication attempt from %%%%SRC%%%% for user "[^"]*" failed\.$'
   - '^\d{2}:\d{2}:\d{2}\.\d+ \[\S+\] WARN\s+\S+ - Authentication attempt from %%%%SRC%%%% for user "[^"]+" failed\.$'

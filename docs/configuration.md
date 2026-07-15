@@ -22,6 +22,7 @@ The config file is TOML, by default
 | `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_score`/`find_time`/`ban_time`/`weight` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
 | `eve_only` | `false` | Observe mode... the rules under this scope match and write to EVE but never banish, a would-be ban surfacing as an `alert` and each match as `noted`. A rule's own `eve_only` layers over this. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `observe_ignored` | `false` | When observing, also process IPs `ignore_ips` would otherwise drop, so they too are scored and can `alert`. Only meaningful with `eve_only`. Global, per kur, and per watcher. |
+| `default_severity` | unset | The severity (`info`/`low`/`medium`/`high`/`critical`) written to EVE for a rule that carries no `severity` of its own. Unset means such rules simply omit the field. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `ignore_ips` | `[]` | IPv4/IPv6 addresses and CIDRs never banished, no matter what the rules say. A kur's own `ignore_ips` extends this list for that kur. Hostnames are not accepted. |
 | `socket_group` | root's default group | Group ownership of the manager socket. |
 | `socket_mode` | `"0660"` | Perms for the manager socket, an octal string, processed via oct. Galla sockets are always 0600. |
@@ -175,13 +176,14 @@ Watcher keys...
 | `allow_per_rule_thresholds` | Whether this watcher honors thresholds and weights a rule carries. |
 | `eve_only` | Put this watcher in observe mode... match and write to EVE but never banish. |
 | `observe_ignored` | When observing, also process what `ignore_ips` would drop. |
+| `default_severity` | The EVE severity for this watcher's rules that carry none of their own. |
 | `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
 | `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
 | `active_time` | Named time windows overriding the kur's and global's for this watcher's rules. A hash. |
 
 `max_score`, `find_time`, `ban_time`, `allow_per_rule_thresholds`,
-`eve_only`, and `observe_ignored` layer watcher over kur over global over
-default.
+`eve_only`, `observe_ignored`, and `default_severity` layer watcher over kur
+over global over default.
 
 With `allow_per_rule_thresholds` on, a rule carrying its own `max_score`,
 `find_time`, or `ban_time` speaks over the watcher... the layering becomes

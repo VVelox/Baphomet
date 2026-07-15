@@ -42,6 +42,16 @@ $resolved = resolve_settings(
 );
 is( $resolved->{allow_per_rule_thresholds}, 0, 'watcher-level flag wins over the kur and normalizes to 0' );
 
+# default_severity layers watcher over kur over global, undef when unset
+$resolved = resolve_settings( { max_score => 5, find_time => 600, allow_per_rule_thresholds => 0 }, {}, {} );
+is( $resolved->{default_severity}, undef, 'default_severity is undef when nothing sets it' );
+$resolved = resolve_settings(
+	{ max_score => 5, find_time => 600, allow_per_rule_thresholds => 0, default_severity => 'low' },
+	{ default_severity => 'medium' },
+	{ default_severity => 'high' }
+);
+is( $resolved->{default_severity}, 'high', 'watcher default_severity wins over kur and global' );
+
 #
 # rule def validation and the thresholds accessor
 #
@@ -69,6 +79,35 @@ foreach my $bad ( { max_score => 0 }, { find_time => 'soon' }, { ban_time => -1 
 		qr/(?:positive|non-negative) int/,
 		'a rule with a bad ' . join( '', keys( %{$bad} ) ) . ' refuses to load'
 	);
+}
+
+# the metadata keys... accessors and validation
+$rule = App::Baphomet::Rules::JSON->new(
+	name => 'json/x',
+	def  => { %{$base_def}, severity => 'high', classtype => 'brute-force', references => ['http://x'], attack => ['T1110'] }
+);
+is( $rule->severity,  'high',        'severity accessor' );
+is( $rule->classtype, 'brute-force', 'classtype accessor' );
+is_deeply( $rule->references, ['http://x'], 'references accessor' );
+is_deeply( $rule->attack,     ['T1110'],    'attack accessor' );
+
+$rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def} } );
+is( $rule->severity,  undef, 'severity is undef when the rule sets none' );
+is( $rule->classtype, undef, 'classtype is undef when the rule sets none' );
+
+foreach my $bad (
+	{ key => 'severity',  val => 'urgent',          re => qr/info.low.medium.high.critical/ },
+	{ key => 'classtype', val => '',                re => qr/non-empty string/ },
+	{ key => 'references', val => [],               re => qr/non-empty array/ },
+	{ key => 'attack',     val => [ '', 'T1' ],     re => qr/non-empty string/ },
+	)
+{
+	my $err;
+	eval {
+		App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, $bad->{key} => $bad->{val} } );
+	};
+	$err = $@;
+	like( $err, $bad->{re}, 'a bad ' . $bad->{key} . ' refuses to load' );
 }
 
 #

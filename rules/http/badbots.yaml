@@ -4,6 +4,9 @@
 # the fail2ban list is largely 2007 vintage email harvesters, so this
 # ships the still recognizable ones plus a few modern scanners, and is
 # meant to be extended locally.
+msg: "[BADBOTS] known bad bot / scanner by user agent"
+severity: medium
+classtype: web-application-attack
 method:
   - GET
   - POST

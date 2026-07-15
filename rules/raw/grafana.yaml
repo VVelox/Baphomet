@@ -3,6 +3,9 @@
 # fail2ban grafana filter, translated to Baphomet and simplified. Grafana
 # leads each line with its own t=ISO8601 timestamp, so this is a raw rule
 # anchored on that shape.
+msg: "[GRAFANA] invalid login attempt"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^t=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}(?: lvl=err?or)? msg="Invalid username or password"(?: \S+=(?:\S*|"[^"]*"))* remote_addr=%%%%SRC%%%%$'
 ban_var:

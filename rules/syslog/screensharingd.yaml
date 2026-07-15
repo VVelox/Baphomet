@@ -3,6 +3,9 @@
 # fail2ban screensharingd filter, translated to Baphomet and simplified.
 # The corpus lines carry a year in their timestamp, which the syslog
 # parser does not read, so the tests wear a standard syslog timestamp.
+msg: "[SCREENSHARINGD] authentication failure"
+severity: high
+classtype: brute-force
 daemons:
   - screensharingd
 message_regexp:

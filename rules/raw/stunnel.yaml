@@ -5,6 +5,9 @@
 # rather than a syslog prefix, so this is a raw rule anchored on that
 # shape. The error code back-reference is dropped in favor of a plain hex
 # pattern.
+msg: "[STUNNEL] SSL handshake failure"
+severity: medium
+classtype: attempted-recon
 message_regexp:
   - '^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} LOG\d\[\d+:\d+\]: SSL_accept from %%%%SRC%%%%:\d+ : [\dA-F]+: error:[\dA-F]+:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate$'
 ban_var:

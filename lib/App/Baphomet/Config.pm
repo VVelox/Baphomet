@@ -301,6 +301,7 @@ sub load_config {
 		'allow_per_rule_thresholds' => 0,
 		'eve_only'          => 0,
 		'observe_ignored'   => 0,
+		'default_severity'  => undef,
 		'ignore_ips'        => [],
 		'internal'          => undef,
 		'socket_group'      => undef,
@@ -385,6 +386,10 @@ sub load_config {
 	$config->{allow_per_rule_thresholds} = $config->{allow_per_rule_thresholds} ? 1 : 0;
 	$config->{eve_only}                  = $config->{eve_only}                  ? 1 : 0;
 	$config->{observe_ignored}           = $config->{observe_ignored}           ? 1 : 0;
+	my $severity_error = _severity_error( $config->{default_severity} );
+	if ( defined($severity_error) ) {
+		die( 'The top level ' . $severity_error );
+	}
 	if ( !defined( $config->{eve_log} ) || ref( $config->{eve_log} ) ne '' || $config->{eve_log} eq '' ) {
 		die('eve_log is not a path');
 	}
@@ -451,6 +456,22 @@ watchers, everything else is a setting.
 # are hashes of named things
 my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' => 1 );
 
+# the severity levels a default_severity may name... matches the rule-side
+# set in App::Baphomet::Rules::Base, kept local to avoid a load-order coupling
+my %valid_severity = map { $_ => 1 } qw( info low medium high critical );
+
+# returns a bare error string if the passed default_severity is set and not a
+# valid level, undef otherwise... the caller supplies its own context lead
+sub _severity_error {
+	my ($value) = @_;
+
+	if ( defined($value) && ( ref($value) ne '' || !$valid_severity{$value} ) ) {
+		return 'default_severity is not one of info/low/medium/high/critical';
+	}
+
+	return undef;
+}
+
 sub kur_split {
 	my ($def) = @_;
 
@@ -514,7 +535,7 @@ sub check_kur_def {
 
 		foreach my $key ( keys( %{$watcher} ) ) {
 			if ( $key
-				!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|country_codes|namtar_lists|active_time)$/
+				!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|country_codes|namtar_lists|active_time)$/
 				)
 			{
 				die( $where . 'has the unknown key "' . $key . '"' );
@@ -611,9 +632,11 @@ sub check_kur_def {
 =head2 resolve_settings
 
 Resolves the effective max_score, find_time, ban_time,
-allow_per_rule_thresholds, eve_only, and observe_ignored for a watcher...
-watcher over kur over global. The three booleans are normalized to a plain 0
-or 1. eve_only puts the watcher's rules in observe mode (matches to EVE, no
+allow_per_rule_thresholds, eve_only, observe_ignored, and default_severity for
+a watcher... watcher over kur over global. The three booleans are normalized
+to a plain 0 or 1. default_severity is the level a rule's EVE events carry
+when the rule sets no severity of its own (undef when unset). eve_only puts
+the watcher's rules in observe mode (matches to EVE, no
 real ban); observe_ignored lets that observe mode also process IPs ignore_ips
 would otherwise drop. A rule's own eve_only, when set, layers over this.
 
@@ -625,7 +648,10 @@ sub resolve_settings {
 	my ( $config, $kur_settings, $watcher ) = @_;
 
 	my $resolved = {};
-	foreach my $item ( 'max_score', 'find_time', 'ban_time', 'allow_per_rule_thresholds', 'eve_only', 'observe_ignored' )
+	foreach my $item (
+		'max_score',        'find_time',       'ban_time', 'allow_per_rule_thresholds',
+		'eve_only',         'observe_ignored', 'default_severity'
+		)
 	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
 			$resolved->{$item} = $watcher->{$item};
@@ -837,7 +863,7 @@ sub _settings_error {
 
 	foreach my $key ( keys( %{$settings} ) ) {
 		if ( $key
-			!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
+			!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
 			)
 		{
 			return 'the unknown setting "' . $key . '"';
@@ -861,6 +887,10 @@ sub _settings_error {
 		if ( defined($active_error) ) {
 			return $active_error;
 		}
+	}
+	my $severity_error = _severity_error( $settings->{default_severity} );
+	if ( defined($severity_error) ) {
+		return $severity_error;
 	}
 
 	return _times_error($settings);

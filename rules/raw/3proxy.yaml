@@ -3,6 +3,9 @@
 # status where a non-zero final digit is a error, most relevantly 1
 # for auth failure. Based on the fail2ban 3proxy filter, translated to
 # Baphomet and simplified.
+msg: "[3PROXY] denied connection / auth failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2} [+-]\d{4} \S+ \d{3}0[1-9] \S+ %%%%SRC%%%%:\d+ [\d.]+:\d+ \d+ \d+ \d+\s'
 ban_var:

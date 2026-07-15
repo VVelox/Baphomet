@@ -3,6 +3,9 @@
 # normal mode, translated to Baphomet and simplified... the multi-line
 # machinery, the mode switching, and the nofail/forget tagging are all
 # dropped, so only lines that are themselves failures match.
+msg: "[SSHD] authentication failure / brute force"
+severity: high
+classtype: brute-force
 daemons:
   - sshd
   - sshd-session

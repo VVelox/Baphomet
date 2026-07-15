@@ -2,6 +2,9 @@
 # Matches Apache mod_security denials, the Access denied with a 4xx or
 # 5xx code lines. Based on the fail2ban apache-modsecurity filter,
 # translated to Baphomet and simplified.
+msg: "[APACHE] mod_security access denied"
+severity: high
+classtype: web-application-attack
 level:
   - error
 message_regexp:

@@ -5,6 +5,9 @@
 # this is a raw rule anchored on that timestamp followed immediately by the
 # Logon tag, which keeps unescaped foreign input from injecting a false
 # Logon line further along.
+msg: "[MSSQL] authentication failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? Logon\s+Login failed for user ''(?:[^'']*|.*)''\. [^''\[]+\[CLIENT: %%%%SRC%%%%\]$'
 ban_var:

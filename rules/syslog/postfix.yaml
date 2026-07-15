@@ -3,6 +3,9 @@
 # filter in its default mode, translated to Baphomet and simplified... the
 # ddos and aggressive mode matching is dropped, and SASL auth failures live
 # in syslog/postfix-sasl.
+msg: "[POSTFIX] smtpd reject / abuse"
+severity: low
+classtype: misc-activity
 daemons:
   - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
 message_regexp:

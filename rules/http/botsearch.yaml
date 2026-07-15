@@ -4,6 +4,9 @@
 # (fail2ban's own botsearch filters read the apache/nginx error logs,
 # which Baphomet does not parse yet)... here it is the access log form,
 # gated on the request having failed.
+msg: "[BOTSEARCH] probe for admin panel / login page"
+severity: medium
+classtype: web-application-attack
 status:
   - 401
   - 403

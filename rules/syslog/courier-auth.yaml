@@ -1,6 +1,9 @@
 ---
 # Matches courier imap/pop3 login failures. Based on the fail2ban
 # courier-auth filter, translated to Baphomet and simplified.
+msg: "[COURIER] IMAP/POP3 login failure"
+severity: high
+classtype: brute-force
 daemons:
   - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
 message_regexp:

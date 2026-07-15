@@ -41,6 +41,11 @@ Every record carries these fields...
 | `kur` | the kur. |
 | `path` | the source... the log file, or `journal:<matches>` for a journal watcher. |
 | `score` | the offender's accumulated weighted score after this hit... equal to the raw hit count when no weights are in play. |
+| `msg` | the rule's human-readable signature, Sagan/Suricata `[TAG] description` style... its `msg`, or the rule name when it sets none. Suricata's `alert.signature`, promoted to the top level. |
+| `severity` | the rule's severity (`info`/`low`/`medium`/`high`/`critical`), or the config `default_severity`... omitted when neither is set. |
+| `classtype` | the rule's category, Snort/Sagan/Suricata classtype... present only when the rule sets one. |
+| `references` | the rule's references (URLs, CVE ids)... an array, present only when set. |
+| `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
 | `raw` | the line as received. |
 | `parsed` | the parser's output, or the parsed JSON itself for a JSON log. |
 | `found` | all the found hash keys, what the rule captured. |

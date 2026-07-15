@@ -133,6 +133,39 @@ The named regexp matches to use for bans. For each name here that a
 matching line captured, the captured value is what gets handed to
 Ereshkigal.
 
+=head2 msg
+
+Optional, on every rule type. A short human-readable signature naming what
+the rule detects, the Sagan/Suricata C<msg> convention... a C<[TAG]
+description> line. It is written to every EVE event the rule produces as the
+top-level C<msg> field (Suricata's C<alert.signature>, promoted), so tooling
+reads what tripped without decoding the raw line. When a rule sets none it
+falls back to the rule's name, so the field is always present. Inert to
+matching.
+
+=head2 severity / classtype / references / attack
+
+Optional triage metadata, on every rule type, all inert to matching and all
+written to EVE beside C<msg> when set:
+
+    - severity :: One of info, low, medium, high, or critical. Emitted as the
+          top-level EVE C<severity>. When the rule sets none the config's
+          C<default_severity> (global/kur/watcher) fills in, and absent that
+          too the field is omitted.
+
+    - classtype :: A category string, the Snort/Sagan/Suricata classtype...
+          emitted as EVE C<classtype>. Free-form; the shipped suricata rules
+          carry their Suricata class here.
+
+    - references :: An array of URLs, CVE ids, or doc links. Emitted as EVE
+          C<references>.
+
+    - attack :: An array of MITRE ATT&CK technique ids. Emitted as EVE
+          C<attack>.
+
+Together with C<msg> these are the Suricata/Sagan C<alert> metadata set,
+flattened to top-level EVE fields for triage.
+
 =head2 max_score / find_time / ban_time / weight / eve_only
 
 Optional. The rule's own thresholds and knobs, the first four honored only
@@ -314,7 +347,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );

@@ -7,6 +7,9 @@
 # syslog/sshd-spray, which reads these marks. List sshd-spray BEFORE this
 # in the watcher so the gate sees the source that established the account,
 # not the one this line would re-brand it with.
+msg: "[SSHD] brand account with source"
+severity: info
+classtype: not-suspicious
 daemons:
   - sshd
   - sshd-session

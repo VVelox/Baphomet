@@ -1,6 +1,9 @@
 ---
 # Matches proftpd failures. Based on the fail2ban proftpd filter,
 # translated to Baphomet and simplified.
+msg: "[PROFTPD] login failure"
+severity: high
+classtype: brute-force
 daemons:
   - proftpd
 message_regexp:

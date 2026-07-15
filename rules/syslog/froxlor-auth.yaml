@@ -1,6 +1,9 @@
 ---
 # Matches Froxlor failed login attempts. Based on the fail2ban froxlor-auth
 # filter, translated to Baphomet and simplified.
+msg: "[FROXLOR] login failure"
+severity: high
+classtype: brute-force
 daemons:
   - Froxlor
 message_regexp:

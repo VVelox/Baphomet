@@ -3,6 +3,9 @@
 # written since 4.4. Test lines are hand built from the documented output
 # shape... fail2ban's mongodb-auth filter covers only the pre-4.4 text
 # format, via multiline correlation Baphomet does not do.
+msg: "[MONGODB] authentication failure"
+severity: high
+classtype: brute-force
 gate:
   - field: c
     values: [ ACCESS ]

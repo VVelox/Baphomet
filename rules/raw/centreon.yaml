@@ -4,6 +4,9 @@
 # Centreon leads each line with its own YYYY-MM-DD HH:MM:SS timestamp
 # followed by pipe-delimited fields, so this is a raw rule anchored on
 # that shape.
+msg: "[CENTREON] web authentication failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\|-?\d+){3}\|\[[^\]]*\] \[%%%%SRC%%%%\] Authentication failed for ''[^'']+'''
 ban_var:

@@ -3,6 +3,9 @@
 # that are not there, per its JSON access log. The path vocabulary is
 # fail2ban's botsearch-common, as with http/botsearch. Test lines are
 # hand built from the documented Caddy access log shape.
+msg: "[CADDY] bad bot / scanner probe"
+severity: medium
+classtype: web-application-attack
 gate:
   - field: status
     values: [ 401, 403, 404 ]

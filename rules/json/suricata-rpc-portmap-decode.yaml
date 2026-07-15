@@ -7,6 +7,9 @@
 # the alert fired, so both are candidates and ban_not_internal banishes
 # whichever is not one of your own hosts... set the internal config field,
 # which defaults to the ignore IPs.
+msg: "[SURICATA] Decode of an RPC Query"
+severity: medium
+classtype: rpc-portmap-decode
 gate:
   - field: event_type
     values: [ alert ]

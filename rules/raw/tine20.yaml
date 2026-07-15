@@ -3,6 +3,9 @@
 # tine20 filter, translated to Baphomet and simplified. Tine leads each
 # line with two hex ids and its own ISO8601 timestamp, so this is a raw
 # rule anchored on that shape.
+msg: "[TINE20] login failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^[\da-f]{5,} [\da-f]{5,} (?:-- none --|.*?)(?: \d+(?:\.\d+)?(?:h|m|s|ms)){0,2} - \s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2} WARN \(\d+\): Tinebase_Controller::login::\d+ Login with username .*? from %%%%SRC%%%% failed \(-[13]\)!$'
 ban_var:

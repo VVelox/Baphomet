@@ -4,6 +4,9 @@
 # its own timestamp (YYYY-MM-DD HH:MM:SS) rather than a syslog prefix, so
 # this is a raw rule anchored on that timestamp. The IP is always the bare
 # trailing "IP: ..." field, so %%%%SRC%%%% is pinned there.
+msg: "[LIGHTTPD] mod_auth password failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}: \(?(?:http|mod)_auth\.c\.\d+\) (?:password doesn''t match for (?:\S+|.*?) username:\s+(?:\S+|.*?)\s*|digest: auth failed(?: for\s+(?:\S+|.*?)\s*)?: (?:wrong password|uri mismatch \([^)]*\))|get_password failed),? IP: %%%%SRC%%%%\s*$'
 ban_var:

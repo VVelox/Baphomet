@@ -4,6 +4,9 @@
 # syslog daemon colon, so this is a raw rule anchored on that timestamp and
 # the fixed HORDE tag. The offender is bracketed and may be a hostname, so
 # %%%%HOST%%%% and its ban_var carry whatever was logged.
+msg: "[HORDE] webmail login failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\w{3} +\d+ \d{2}:\d{2}:\d{2} HORDE \[error\] \[(?:horde|imp)\] FAILED LOGIN for \S+ \[%%%%HOST%%%%\](?:\(forwarded for \[\S+\]\))? to (?:Horde|\{[^}]+\}) \[(?:pid \d+ )?on line \d+ of \S+\]$'
 ban_var:

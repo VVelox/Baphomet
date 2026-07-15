@@ -1,6 +1,9 @@
 ---
 # Matches courier smtp relay/auth failures. Based on the fail2ban
 # courier-smtp filter, translated to Baphomet and simplified.
+msg: "[COURIER] SMTP reject"
+severity: low
+classtype: misc-activity
 daemons:
   - courieresmtpd
 message_regexp:

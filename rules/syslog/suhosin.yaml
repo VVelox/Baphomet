@@ -2,6 +2,9 @@
 # Matches suhosin PHP-hardening ALERT lines, logged either directly or
 # through lighttpd's mod_fastcgi. Based on the fail2ban suhosin filter,
 # translated to Baphomet and simplified.
+msg: "[SUHOSIN] script attack alert"
+severity: critical
+classtype: web-application-attack
 daemons:
   - lighttpd
   - suhosin

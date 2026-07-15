@@ -81,6 +81,35 @@ The captures to use for bans. For each name here that a matching line
 captured, the captured value is an IP that gets a hit registered against
 it. Usually just `SRC`.
 
+### msg
+
+Optional, on every rule type. A short human-readable signature naming what
+the rule detects, the Sagan/Suricata `msg` convention... a `[TAG]
+description` line like `[SSHD] authentication failure` or `[SURICATA]
+Attempted Administrator Privilege Gain`. It is written to every EVE event
+the rule produces as the top-level `.msg` field (see [eve](eve)), so a SOC
+analyst or a jq one-liner reads what tripped without decoding the raw line.
+When a rule sets none, `.msg` falls back to the rule's name (`syslog/sshd`),
+so it is always present. Inert to matching.
+
+### severity / classtype / references / attack
+
+Optional triage metadata, on every rule type, all inert to matching and all
+written to EVE beside `msg` when set (see [eve](eve)):
+
+- `severity` — one of `info`/`low`/`medium`/`high`/`critical`. Emitted as
+  `.severity`. When a rule sets none, the config's `default_severity`
+  (global/kur/watcher, see [configuration](configuration)) fills in; absent
+  that too, the field is omitted.
+- `classtype` — a category string, the Snort/Sagan/Suricata classtype (e.g.
+  `brute-force`, `web-application-attack`, `trojan-activity`). Free-form.
+- `references` — an array of URLs, CVE ids, or doc links.
+- `attack` — an array of MITRE ATT&CK technique ids (e.g. `T1110`).
+
+Together with `msg` these are the Suricata/Sagan `alert` metadata set,
+flattened to top-level EVE fields so a stream of matches becomes triageable
+detections. Every shipped rule carries a `severity` and `classtype`.
+
 ### max_score / find_time / ban_time / weight
 
 Optional, on every rule type. The rule's own word on how it is counted

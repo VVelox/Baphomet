@@ -5,6 +5,9 @@
 # prefix, so this is a raw rule anchored on that timestamp shape. The
 # offender is logged in parentheses and may be a hostname, so %%%%HOST%%%%
 # and its ban_var carry whatever was logged.
+msg: "[OPENWEBMAIL] authentication error"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\w{3} \w{3} +\d+ \d{2}:\d{2}:\d{2} \d{4} - \[\d+\] \(%%%%HOST%%%%\) \S+ - login error - (?:no such user - loginname=\S+|auth_unix\.pl, ret -4, Password incorrect)$'
   - '^\w{3} \w{3} +\d+ \d{2}:\d{2}:\d{2} \d{4} - \[\d+\] \(%%%%HOST%%%%\) \S+ - userinfo error - auth_unix\.pl, ret -4, User \S+ doesn''t exist$'

@@ -157,7 +157,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:gate|match|ignore|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:gate|match|ignore|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );

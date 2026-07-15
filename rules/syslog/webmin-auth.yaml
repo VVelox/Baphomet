@@ -1,6 +1,9 @@
 ---
 # Matches webmin login failures. Based on the fail2ban webmin-auth filter,
 # translated to Baphomet and simplified.
+msg: "[WEBMIN] login failure"
+severity: high
+classtype: brute-force
 daemons:
   - webmin
 message_regexp:

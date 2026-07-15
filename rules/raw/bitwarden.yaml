@@ -4,6 +4,9 @@
 # its own ISO timestamp rather than a standard syslog prefix, so this is a
 # raw rule anchored on that timestamp; the optional daemon/host prefix that
 # appears when routed through syslog is tolerated.
+msg: "[BITWARDEN] identity login failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{2}:\d{2})?(?: \S+ Bitwarden-Identity\[\d+\]:)?\s*\[(?:W(?:RN|arning)|Bit\.Core\.[^\]]+)\]\s+Failed login attempt(?:, 2FA invalid)?\. %%%%SRC%%%%$'
 ban_var:

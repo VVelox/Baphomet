@@ -3,6 +3,9 @@
 # filter, translated to Baphomet. GitLab writes its own log format to
 # gitlab-rails/application.log with a leading ISO timestamp rather than a
 # syslog prefix, so this is a raw rule anchored on that timestamp shape.
+msg: "[GITLAB] web portal login failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?: Failed Login: username=.+ ip=%%%%SRC%%%%$'
 ban_var:

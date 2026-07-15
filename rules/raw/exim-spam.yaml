@@ -5,6 +5,9 @@
 # regexp leads with the mainlog timestamp shape. The fail2ban honeypot
 # jail parameter is generalized to any recipient here, since Baphomet has
 # no per-jail interpolation.
+msg: "[EXIM] spam / content reject"
+severity: low
+classtype: misc-activity
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ F=(?:<>|\S+@\S+) (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+rejected by local_scan\(\): .{0,256}$'
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+F=(?:<>|[^@]+@\S+) rejected RCPT [^@]+@\S+: .*dnsbl.*\s*$'

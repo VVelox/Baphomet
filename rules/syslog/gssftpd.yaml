@@ -1,6 +1,9 @@
 ---
 # Matches gssftp repeated login failures. Based on the fail2ban gssftpd
 # filter, translated to Baphomet and simplified.
+msg: "[GSSFTPD] login failure"
+severity: high
+classtype: brute-force
 daemons:
   - ftpd
 message_regexp:

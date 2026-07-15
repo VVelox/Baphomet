@@ -10,6 +10,9 @@
 # accept. The whole line is matched here instead.
 #
 # Source: fail2ban config/filter.d/nginx-bad-request.conf
+msg: "[NGINX] malformed bad request (400)"
+severity: medium
+classtype: attempted-recon
 message_regexp:
   - '^%%%%SRC%%%% - \S+ \[[^\]]*\] "[^"]*" 400\b'
 ban_var:

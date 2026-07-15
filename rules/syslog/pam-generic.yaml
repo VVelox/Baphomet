@@ -5,6 +5,9 @@
 # The rhost of a PAM failure is not always a IP... some services hand PAM a
 # hostname, so this uses the HOST token and ban_var and whatever matched is
 # what gets sent to Ereshkigal.
+msg: "[PAM] authentication failure"
+severity: high
+classtype: brute-force
 daemons:
   - //.//
 message_regexp:

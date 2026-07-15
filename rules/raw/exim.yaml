@@ -4,6 +4,9 @@
 # translated to Baphomet and simplified... exim writes its own log
 # format, so this is a raw rule and every regexp leads with the mainlog
 # timestamp shape.
+msg: "[EXIM] auth failure / SMTP abuse"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? \w+ authenticator failed for (?:[^\[\( ]* )?(?:\(\S*\) )?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?: 535 Incorrect authentication data(?: \(set_id=.*\)|: \d+ Time\(s\))?\s*$'
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? sender verify fail for <\S+>: (?:Unknown user|Unrouteable address|all relevant MX records point to non-existent hosts)\s*$'

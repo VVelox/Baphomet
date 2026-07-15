@@ -11,6 +11,9 @@
 # requires the username present.
 #
 # Source: fail2ban config/filter.d/traefik-auth.conf
+msg: "[TRAEFIK] basic-auth failure (401)"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^%%%%SRC%%%% - (?!- )\S+ \[[^\]]*\] "[A-Z]+ [^"]*" 401\b'
 ban_var:

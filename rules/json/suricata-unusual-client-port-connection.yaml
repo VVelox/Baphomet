@@ -7,6 +7,9 @@
 # the alert fired, so both are candidates and ban_not_internal banishes
 # whichever is not one of your own hosts... set the internal config field,
 # which defaults to the ignore IPs.
+msg: "[SURICATA] A client was using an unusual port"
+severity: medium
+classtype: unusual-client-port-connection
 gate:
   - field: event_type
     values: [ alert ]

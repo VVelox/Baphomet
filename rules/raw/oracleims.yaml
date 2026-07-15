@@ -4,6 +4,9 @@
 # to Baphomet and simplified. Each record is a <co ...> XML element led by
 # its own ts="ISO8601" attribute, so this is a raw rule anchored on that
 # shape. The offender is the fourth pipe field of the tr= transport info.
+msg: "[ORACLEIMS] bad password auth failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^<co ts="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?".*? tr="[A-Z]+\|[0-9.]+\|\d+\|%%%%SRC%%%%\|\d+" ap="[^"]*" mi="Bad password" us="[^"]*" di="535 5\.7\.8 Bad username or password(?: \(Authentication failed\))?\."/>$'
 ban_var:

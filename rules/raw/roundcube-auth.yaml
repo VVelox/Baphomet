@@ -9,6 +9,9 @@
 # ahead of the "... in X.php on line N (...)" epilogue, keeping an attacker
 # from injecting a false offender. The offender may be a hostname, so
 # %%%%HOST%%%% and its ban_var carry whatever was logged.
+msg: "[ROUNDCUBE] webmail login failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?(?:IMAP Error: )?(?:FAILED login|Login failed) for .* from %%%%HOST%%%%(?:(?:\([^)]*\))?\. (?:(?! from ).)*(?: user=.* from [\d.]+)? in \S+\.php on line \d+ \(\S+ \S+\))?$'
   - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?Failed login for .* from %%%%HOST%%%% in session \w+(?: \(error: \d\))?$'

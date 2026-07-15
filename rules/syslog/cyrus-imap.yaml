@@ -1,6 +1,9 @@
 ---
 # Matches cyrus imap/pop3 login failures. Based on the fail2ban cyrus-imap
 # filter, translated to Baphomet and simplified.
+msg: "[CYRUS] IMAP/POP3 login failure"
+severity: high
+classtype: brute-force
 daemons:
   - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
 message_regexp:

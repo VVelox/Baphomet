@@ -1,6 +1,9 @@
 ---
 # Matches vsftpd failures. Based on the fail2ban vsftpd filter, translated
 # to Baphomet and simplified.
+msg: "[VSFTPD] login failure"
+severity: high
+classtype: brute-force
 daemons:
   - vsftpd
 message_regexp:

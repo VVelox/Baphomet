@@ -5,6 +5,9 @@
 #
 # Uses the HOST token and ban_var as mysqld logs hostnames when name
 # resolution is on.
+msg: "[MYSQLD] authentication failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2} )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%'' (?:to database ''[^'']*''|\(using password: (?:YES|NO)\))*\s*$'
 ban_var:

@@ -2,6 +2,9 @@
 # Matches uw-imap (imapd/ipop3d) failed logins and override attempts.
 # Based on the fail2ban uwimap-auth filter, translated to Baphomet and
 # simplified.
+msg: "[UWIMAP] IMAP/POP login failure"
+severity: high
+classtype: brute-force
 daemons:
   - ipop3d
   - imapd

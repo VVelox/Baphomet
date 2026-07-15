@@ -185,6 +185,88 @@ sub eve_only {
 	return $self->{def}{eve_only} ? 1 : 0;
 }
 
+=head2 msg
+
+Returns the rule's msg, the human-readable signature naming what it detects,
+Sagan/Suricata style (C<[TAG] description>). Falls back to the rule's name
+when the def sets none, so the EVE msg field is always present and meaningful,
+the way Suricata always has a signature.
+
+    my $msg = $rule->msg;
+
+=cut
+
+sub msg {
+	my ($self) = @_;
+
+	if ( defined( $self->{def}{msg} ) ) {
+		return $self->{def}{msg};
+	}
+
+	return $self->{name};
+}
+
+=head2 severity
+
+Returns the rule's own severity (one of info/low/medium/high/critical), or
+undef when the def sets none... undef meaning inherit the watcher-resolved
+C<default_severity>. Triage metadata, inert to matching.
+
+    my $severity = $rule->severity;   # undef or a level name
+
+=cut
+
+sub severity {
+	my ($self) = @_;
+
+	return $self->{def}{severity};
+}
+
+=head2 classtype
+
+Returns the rule's classtype, a category string in the Snort/Sagan/Suricata
+sense, or undef when unset. Emitted to EVE as-is.
+
+    my $classtype = $rule->classtype;
+
+=cut
+
+sub classtype {
+	my ($self) = @_;
+
+	return $self->{def}{classtype};
+}
+
+=head2 references
+
+Returns the rule's references (an array of URLs, CVE ids, or doc links) as an
+array ref, or undef when the def sets none.
+
+    my $references = $rule->references;
+
+=cut
+
+sub references {
+	my ($self) = @_;
+
+	return $self->{def}{references};
+}
+
+=head2 attack
+
+Returns the rule's MITRE ATT&CK technique ids as an array ref, or undef when
+the def sets none.
+
+    my $attack = $rule->attack;
+
+=cut
+
+sub attack {
+	my ($self) = @_;
+
+	return $self->{def}{attack};
+}
+
 =head2 marks
 
 Returns the array of marks the rule sets on match, each a hash of C<name>,
@@ -622,6 +704,10 @@ my %tokens = (
 	'DEST'   => qr/(?:$IPv4_re|$IPv6_re)/,
 );
 
+# the severity scale, worst last... the ordinal is unused for now but keeps
+# the order canonical if anything ever wants to sort or compare
+our %SEVERITY = ( 'info' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical' => 4 );
+
 # dies if the def's threshold overrides, max_score, find_time, and
 # ban_time, or its weight or eve_only, hold unusable values... positive ints
 # for the thresholds (non-negative ban_time, 0 meaning eternal), a positive
@@ -657,6 +743,30 @@ sub _check_thresholds {
 	if ( defined( $def->{eve_only} ) && ref( $def->{eve_only} ) ne '' ) {
 		die( 'The rule "' . $name . '" has a eve_only that is not a boolean' );
 	}
+	if ( defined( $def->{msg} ) && ( ref( $def->{msg} ) ne '' || $def->{msg} eq '' ) ) {
+		die( 'The rule "' . $name . '" has a msg that is not a non-empty string' );
+	}
+	if ( defined( $def->{severity} ) && ( ref( $def->{severity} ) ne '' || !exists( $SEVERITY{ $def->{severity} } ) ) ) {
+		die( 'The rule "'
+				. $name
+				. '" has a severity that is not one of info/low/medium/high/critical' );
+	}
+	if ( defined( $def->{classtype} ) && ( ref( $def->{classtype} ) ne '' || $def->{classtype} eq '' ) ) {
+		die( 'The rule "' . $name . '" has a classtype that is not a non-empty string' );
+	}
+	foreach my $listkey ( 'references', 'attack' ) {
+		if ( !defined( $def->{$listkey} ) ) {
+			next;
+		}
+		if ( ref( $def->{$listkey} ) ne 'ARRAY' || !@{ $def->{$listkey} } ) {
+			die( 'The rule "' . $name . '" has a ' . $listkey . ' that is not a non-empty array' );
+		}
+		foreach my $item ( @{ $def->{$listkey} } ) {
+			if ( !defined($item) || ref($item) ne '' || $item eq '' ) {
+				die( 'The rule "' . $name . '" has a ' . $listkey . ' entry that is not a non-empty string' );
+			}
+		}
+	} ## end foreach my $listkey ( 'references'...)
 
 	return;
 } ## end sub _check_thresholds

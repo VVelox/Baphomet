@@ -5,6 +5,9 @@
 # "HttpRequest: access denied" form. The ignore_regexp is the fail2ban
 # filter's suggested (commented out) ignoreregex for the empty user on
 # first connect, ported here as a real ignore.
+msg: "[MONIT] httpd access failure"
+severity: high
+classtype: brute-force
 daemons:
   - monit
 message_regexp:

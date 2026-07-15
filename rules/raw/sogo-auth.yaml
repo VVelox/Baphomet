@@ -4,6 +4,9 @@
 # its own syslog-style timestamp, so this is a raw rule leading with that
 # shape. Where the line lists several addresses the first is the client
 # and the rest are proxies, so only the first is captured.
+msg: "[SOGO] web login failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} sogod \[\d+\]: SOGoRootPage Login from ''%%%%SRC%%%%(?:,[^'']*)?'' for user ''[^'']*'' might not have worked(?: - password policy: -?\d*  grace: -?\d*  expire: -?\d*  bound: -?\d*)?\s*$'
 ban_var:

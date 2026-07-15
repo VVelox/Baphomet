@@ -5,6 +5,9 @@
 # whose daemon token is a "[host/VPN/hub]" tag rather than a plain daemon
 # name), so this is a raw rule anchored on either the bare sec.log
 # timestamp or the syslogged form's leading timestamp and hub tag.
+msg: "[SOFTETHER] VPN user auth failure"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ Connection "[^"]+": User authentication failed\. The user name that has been provided was "(?:[^"]+|.+)", from %%%%SRC%%%%\.$'
   - '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} \S+\s+\[[^\]]+\] \(\d{4}-\d{2}-\d{2} [\d:.]+\) <SECURITY_LOG>: Connection "[^"]+": User authentication failed\. The user name that has been provided was "(?:[^"]+|.+)", from %%%%SRC%%%%\.$'

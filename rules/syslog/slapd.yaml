@@ -4,6 +4,9 @@
 # line that does, by their shared conn id. Based on the fail2ban slapd
 # filter, its maxlines/<SKIPLINES> multiline recast as a capture_regexp...
 # the ACCEPT harvests the source under the conn key, the RESULT defers on it.
+msg: "[SLAPD] bind failure"
+severity: high
+classtype: brute-force
 daemons:
   - slapd
 capture_regexp:

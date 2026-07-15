@@ -6,6 +6,9 @@
 # logs WAR, so both are kept.
 #
 # Source: fail2ban config/filter.d/zoneminder.conf (includes apache-common.conf)
+msg: "[ZONEMINDER] login denied"
+severity: high
+classtype: unsuccessful-user
 message_regexp:
   - '^(?:ERR|WAR) \[(?:Login denied|Could not retrieve)\b'
 tests:

@@ -3,6 +3,9 @@
 # fail2ban znc-adminlog filter, translated to Baphomet and simplified.
 # The adminlog writes its own bracketed timestamp rather than a syslog
 # prefix, so this is a raw rule anchored on that timestamp.
+msg: "[ZNC] failed login (adminlog)"
+severity: high
+classtype: brute-force
 message_regexp:
   - '^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[[^]]+\] failed to login from %%%%SRC%%%%(?::\d+)?\s*$'
 ban_var:

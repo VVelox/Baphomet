@@ -40,6 +40,13 @@ close($fh);
 open( $fh, '>', $dir . '/rules/json/app.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
+msg: "[APP] authentication failure"
+severity: high
+classtype: unsuccessful-user
+references:
+  - "https://example.com/app-auth"
+attack:
+  - T1110
 gate:
   - field: event
     values: [ authfail ]
@@ -140,6 +147,11 @@ is( $f->{found}{SRC}, '9.9.9.9', 'found carries the check data' );
 is( $f->{parsed}{daemon}, 'sshd', 'parsed carries the parser output' );
 is( $f->{score}, 1, 'score on the first found is 1' );
 is( $found[2]{score}, 3, 'score on the third found is 3' );
+is( $f->{msg}, 'syslog/sshd', 'msg falls back to the rule name when the rule sets none' );
+ok( !exists( $f->{severity} ),  'severity absent when the rule sets none and no default_severity' );
+ok( !exists( $f->{classtype} ), 'classtype absent when the rule sets none' );
+ok( !exists( $f->{references} ), 'references absent when the rule sets none' );
+ok( !exists( $f->{attack} ),    'attack absent when the rule sets none' );
 
 # rule info present but without the tests
 is( $f->{rule}{name}, 'syslog/sshd', 'rule name' );
@@ -164,5 +176,10 @@ my ($json_found) = grep { $_->{event_type} eq 'found' && $_->{found}{SRC} && $_-
 ok( defined($json_found), 'json watcher produced a found event' );
 is( $json_found->{parsed}{event}, 'authfail', 'parsed holds the flattened JSON fields' );
 is( $json_found->{parsed}{src},   '2.2.2.2',  'including the source field' );
+is( $json_found->{msg}, '[APP] authentication failure', 'the rule\'s own msg reaches the EVE event' );
+is( $json_found->{severity},  'high',              'the rule severity reaches EVE' );
+is( $json_found->{classtype}, 'unsuccessful-user', 'the rule classtype reaches EVE' );
+is_deeply( $json_found->{references}, ['https://example.com/app-auth'], 'references reach EVE as an array' );
+is_deeply( $json_found->{attack},     ['T1110'],                        'attack reaches EVE as an array' );
 
 done_testing;

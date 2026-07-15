@@ -7,6 +7,9 @@
 # IP and would fire on local share ACL rejections, so it is dropped. The
 # offender is in the trailing parens when a hostname leads, a bare address
 # otherwise.
+msg: "[SAMBA] connection denied"
+severity: high
+classtype: brute-force
 daemons:
   - smbd
 message_regexp:

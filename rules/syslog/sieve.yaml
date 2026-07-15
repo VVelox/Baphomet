@@ -1,6 +1,9 @@
 ---
 # Matches sieve (cyrus timsieved) login failures. Based on the fail2ban
 # sieve filter, translated to Baphomet and simplified.
+msg: "[SIEVE] login failure"
+severity: high
+classtype: brute-force
 daemons:
   - '//^(?:cyrus/)?(?:tim)?sieved?$//'
 message_regexp:
