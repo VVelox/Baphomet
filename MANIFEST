@@ -225,3 +225,4 @@ t/rules-raw.t
 t/rules-shipped.t
 t/rules.t
 t/state-tablets.t
+t/stop-wait.t

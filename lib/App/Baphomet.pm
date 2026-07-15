@@ -295,7 +295,10 @@ The JSON commands handled are as below.
           args.name if given. Per mark name a hash of the branded keys
           with their expiries and stored values.
 
-    - stop :: Stop all the gallas and then the manager.
+    - stop :: Stop all the gallas and then the manager. Returns
+          C<stopping> and the manager's C<pid>, so the caller can wait for
+          the process to actually die before it returns... a restart's
+          start would otherwise race the still-present PID file.
 
 =cut
 
@@ -362,7 +365,10 @@ sub start_server {
 				# the current session is the JSONUnix server session, so this
 				# fires its shutdown state after the response has had time to flush
 				$poe_kernel->delay( 'shutdown', 1 );
-				return { 'stopping' => 1 };
+				# the PID rides back so the stop command can wait for this
+				# process to actually die before returning, else a restart's
+				# start races the still-present PID file
+				return { 'stopping' => 1, 'pid' => $$ };
 			},
 		},
 	);

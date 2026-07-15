@@ -24,7 +24,7 @@ load_rc_config $name
 
 pidfile="/var/run/baphomet/pid"
 start_cmd="/usr/local/bin/baphomet start --config ${baphomet_config}"
-stop_cmd="/usr/local/bin/baphomet stop"
+stop_cmd="/usr/local/bin/baphomet stop --config ${baphomet_config}"
 status_cmd="/usr/local/bin/baphomet status"
 
 run_rc_command "$1"

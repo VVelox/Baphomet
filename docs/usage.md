@@ -17,14 +17,26 @@ baphomet start --config /some/other/config.toml
 # stay in the foreground... handy under a supervisor or when debugging
 baphomet start --foreground
 
-# stop the gallas and the manager
+# stop the gallas and the manager, waiting for the process to actually exit
 baphomet stop
+
+# do not wait for the exit, or cap the wait
+baphomet stop --no-wait
+baphomet stop --timeout 10
 ```
 
 `start` fails fast... every kur def is checked and every referenced rule is
 loaded and has its embedded tests ran before anything is spawned, so a typo
 in the config or a broken rule is a start error rather than a runtime
 mystery.
+
+`stop` is asynchronous on the manager side... it acknowledges, then shuts
+the gallas down and exits a beat later. So the command waits for the
+manager process to actually die before returning, up to the config
+`timeout` (30s when no config is read), which is what makes `service
+baphomet restart` safe... otherwise the following `start` would race the
+still-present PID file and abort. `--no-wait` skips the wait, `--timeout`
+caps it.
 
 ## Watching the watchers
 

@@ -1,6 +1,17 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - Renamed the consign vocabulary to banish, on theme for the
+          underworld... the baphomet consigned command is now baphomet
+          banished, the EVE event_type consign is now banish, and the shared
+          ledger file is banishments.csv. Update anything that filtered EVE
+          on event_type=consign or read consignments.csv.
+        - baphomet stop now waits for the manager to actually exit before
+          returning, up to the config timeout, so service baphomet restart
+          no longer races the old PID file and aborts the start with
+          "Pid_file already exists for running process". The manager's stop
+          reply carries its PID for the wait; --no-wait and --timeout tune
+          it. The FreeBSD rc passes --config to stop to match.
         - A active_time gate on rules... only count a match when the time is
           in, or not in, named time windows, so an offense routine at midday
           can be an alarm at 03:00. The windows are defined in the config's
