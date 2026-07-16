@@ -22,6 +22,9 @@ lib/App/Baphomet/App/Command/start.pm
 lib/App/Baphomet/App/Command/status.pm
 lib/App/Baphomet/App/Command/stop.pm
 lib/App/Baphomet/App/Command/test_line.pm
+lib/App/Baphomet/ClayTablet.pm
+lib/App/Baphomet/ClayTablet/File.pm
+lib/App/Baphomet/ClayTablet/Redis.pm
 lib/App/Baphomet/Config.pm
 lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
@@ -194,6 +197,8 @@ src_bin/galla
 t/00-load.t
 t/active-time.t
 t/ban-not-internal.t
+t/claytablet-file.t
+t/claytablet-redis.t
 t/cli.t
 t/commands.t
 t/country.t
@@ -202,9 +207,11 @@ t/eve-only.t
 t/galla-journal.t
 t/galla.t
 t/ignore-ips.t
+t/lib/BaphometTestRedis.pm
 t/manager-new.t
 t/manifest.t
 t/marks.t
+t/marks-sync.t
 t/mmdb/GeoLite2-Country-Test.mmdb
 t/mmdb/README.md
 t/namtar.t

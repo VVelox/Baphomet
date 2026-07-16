@@ -65,8 +65,23 @@ Top level keys are as below.
 
     - tablet_base_dir :: Base dir for the state tablets a galla writes so
           its counters, pending bans, correlation context, and log
-          positions survive a restart.
+          positions survive a restart. This is the ClayTablet file
+          backend's base dir; it also still holds the shared banishment
+          ledger, which is not a per-galla tablet.
         Default :: /var/db/baphomet
+
+    - ClayTablet :: The pluggable store the per-galla state tablets go to.
+          A table with two keys, both optional. Absent, the file backend
+          is used, which is the current on-disk system.
+        - backend :: The backend name, resolved to the module
+              C<App::Baphomet::ClayTablet::E<lt>UcfirstE<gt>>. C<file> is
+              the default and C<redis> ships. Matches /^[A-Za-z][A-Za-z0-9]*$/.
+        - options :: A free-form table the chosen backend interprets. The
+              file backend takes an optional C<base_dir> (else
+              tablet_base_dir); the redis backend takes C<server>/C<sock>,
+              C<password>, C<prefix>, C<db>, and C<reconnect>. See
+              L<App::Baphomet::ClayTablet::Redis>.
+        Default :: undef (the file backend)
 
     - checkpoint :: Seconds between periodic rewrites of the state
           tablets. 0 disables the periodic rewrite... a checkpoint on stop
@@ -317,6 +332,7 @@ sub load_config {
 		'country_codes'     => {},
 		'namtar_lists'      => {},
 		'active_time'       => {},
+		'ClayTablet'        => undef,
 		'kur'               => {},
 	};
 
@@ -410,8 +426,38 @@ sub load_config {
 		die($active_error);
 	}
 
+	if ( defined( $config->{ClayTablet} ) ) {
+		_check_claytablet( $config->{ClayTablet} );
+	}
+
 	return $config;
 } ## end sub load_config
+
+# checks the ClayTablet table, dieing on anything unusable... the backend the
+# store is dispatched to, and the free-form options that backend interprets.
+# the store itself is verified later, when the galla constructs it
+sub _check_claytablet {
+	my ($ct) = @_;
+
+	if ( ref($ct) ne 'HASH' ) {
+		die('ClayTablet is not a table');
+	}
+	foreach my $key ( keys( %{$ct} ) ) {
+		if ( $key !~ /^(?:backend|options)$/ ) {
+			die( 'ClayTablet has the unknown key "' . $key . '"' );
+		}
+	}
+	if ( defined( $ct->{backend} )
+		&& ( ref( $ct->{backend} ) ne '' || $ct->{backend} !~ /^[A-Za-z][A-Za-z0-9]*$/ ) )
+	{
+		die('ClayTablet backend is not a plain backend name matching /^[A-Za-z][A-Za-z0-9]*$/');
+	}
+	if ( defined( $ct->{options} ) && ref( $ct->{options} ) ne 'HASH' ) {
+		die('ClayTablet options is not a table');
+	}
+
+	return;
+} ## end sub _check_claytablet
 
 # checks the recidive table, dieing on anything unusable
 sub _check_recidive {

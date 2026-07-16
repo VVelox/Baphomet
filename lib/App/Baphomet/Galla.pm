@@ -7,16 +7,16 @@ use base 'Error::Helper';
 use POE                              qw( Wheel::FollowTail Wheel::Run );
 use POE::Component::Server::JSONUnix ();
 use File::Glob                       qw( bsd_glob );
-use File::Path                       qw( make_path );
 use JSON::MaybeXS                    qw( encode_json decode_json );
 use POSIX                            qw( strftime );
 use Sys::Hostname                    ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config
 	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
-use App::Baphomet::Parser            ();
-use App::Baphomet::Rules             ();
-use App::Baphomet::LogDrek           qw( log_drek );
+use App::Baphomet::Parser     ();
+use App::Baphomet::Rules      ();
+use App::Baphomet::ClayTablet ();
+use App::Baphomet::LogDrek    qw( log_drek );
 
 =head1 NAME
 
@@ -86,28 +86,30 @@ sub new {
 				4 => 'NErunBaseDir',
 				5 => 'nonRWrunBaseDir',
 				6 => 'rulesLoadFailed',
-				7 => 'tabletBaseDirError',
+				7 => 'tabletStoreError',
 			},
 			fatal_flags      => {},
 			perror_not_fatal => 0,
 		},
-		config       => '/usr/local/etc/baphomet/config.toml',
-		name         => undef,
-		settings     => undef,
-		watchers     => {},
-		rules        => undef,
-		counters     => {},
-		rule_counters => {},
-		shadow_counters => {},
+		config               => '/usr/local/etc/baphomet/config.toml',
+		name                 => undef,
+		settings             => undef,
+		watchers             => {},
+		rules                => undef,
+		counters             => {},
+		rule_counters        => {},
+		shadow_counters      => {},
 		shadow_rule_counters => {},
-		marks        => {},
-		namtar_files => {},
-		pending_bans => {},
-		wheel_to_watcher => {},
-		started      => undef,
-		stopping     => 0,
-		server       => undef,
-		stats        => {
+		marks                => {},
+		mark_sync            => 0,
+		mark_stream_id       => undef,
+		namtar_files         => {},
+		pending_bans         => {},
+		wheel_to_watcher     => {},
+		started              => undef,
+		stopping             => 0,
+		server               => undef,
+		stats                => {
 			lines       => 0,
 			unparsed    => 0,
 			matched     => 0,
@@ -145,12 +147,12 @@ sub new {
 	$self->{eve_log}           = $config->{eve_log};
 	$self->{eve_enable}        = $config->{eve_enable};
 	$self->_open_geoip( $config->{geoip_db} );
-	$self->{hostname}          = Sys::Hostname::hostname();
-	$self->{last_checkpoint}   = 0;
-	$self->{positions}         = {};
-	$self->{journal_cursors}   = {};
+	$self->{hostname}           = Sys::Hostname::hostname();
+	$self->{last_checkpoint}    = 0;
+	$self->{positions}          = {};
+	$self->{journal_cursors}    = {};
 	$self->{wheelid_to_journal} = {};
-	$self->{wheel_to_file}     = {};
+	$self->{wheel_to_file}      = {};
 	$self->{pid_to_journal}     = {};
 
 	if ( !defined( $self->{name} ) || !defined( $config->{kur}{ $self->{name} } ) ) {
@@ -162,7 +164,7 @@ sub new {
 			. '" under the config "'
 			. $self->{config} . '"';
 		$self->warn;
-	}
+	} ## end if ( !defined( $self->{name} ) || !defined...)
 
 	my $def = $config->{kur}{ $self->{name} };
 	eval { check_kur_def( $self->{name}, $def ); };
@@ -189,9 +191,9 @@ sub new {
 	my @internal_entries = (
 		( defined( $config->{internal} ) ? @{ $config->{internal} } : @{ $config->{ignore_ips} } ),
 		(
-			  defined( $kur_settings->{internal} )     ? @{ $kur_settings->{internal} }
+			  defined( $kur_settings->{internal} )          ? @{ $kur_settings->{internal} }
 			: ref( $kur_settings->{ignore_ips} ) eq 'ARRAY' ? @{ $kur_settings->{ignore_ips} }
-			:                                          ()
+			:                                                 ()
 		)
 	);
 	$self->{internal} = compile_ignore_ips( \@internal_entries, 'internal' );
@@ -215,18 +217,34 @@ sub new {
 		}
 	} ## end foreach my $dir ( $self->{run_base_dir}, $self->...)
 
-	if ( !-e $self->{tablet_base_dir} ) {
-		# make_path, as /var/db does not exist on every system... the
-		# next check handles a failure here
-		eval { make_path( $self->{tablet_base_dir} ); };
-	}
-	if ( !-d $self->{tablet_base_dir} || !-r $self->{tablet_base_dir} || !-w $self->{tablet_base_dir} ) {
+	# the state tablets go through a pluggable backend under the global
+	# ClayTablet config... the file backend, the default, is the current
+	# on-disk system and defaults its base dir to tablet_base_dir. an
+	# unusable backend or store is a fatal startup error, like a bad run dir
+	eval {
+		$self->{tablet} = App::Baphomet::ClayTablet->new(
+			'config'          => $config->{ClayTablet},
+			'name'            => $self->{name},
+			'tablet_base_dir' => $self->{tablet_base_dir},
+		);
+	};
+	if ($@) {
 		$self->{perror}      = 1;
 		$self->{error}       = 7;
-		$self->{errorString}
-			= 'tablet_base_dir,"' . $self->{tablet_base_dir} . '", is not a directory or is not read/writable';
+		$self->{errorString} = $@;
 		$self->warn;
-	}
+	} else {
+		my $tablet_error = $self->{tablet}->verify;
+		if ( defined($tablet_error) ) {
+			$self->{perror}      = 1;
+			$self->{error}       = 7;
+			$self->{errorString} = $tablet_error;
+			$self->warn;
+		}
+		# whether the store carries a fleet mark sync bus... the galla then
+		# publishes brands to it and drains the fleet's into its own marks
+		$self->{mark_sync} = $self->{tablet}->mark_sync;
+	} ## end else [ if ($@) ]
 
 	# make the EVE log's dir when enabled, so a first write does not fail
 	# just for a missing dir... a unwritable one is only logged, as
@@ -259,13 +277,9 @@ sub new {
 				$self->{perror} = 1;
 				$self->{error}  = 6;
 				$self->{errorString}
-					= 'Failed to load the rule "'
-					. $rule_name
-					. '" for the watcher "'
-					. $watcher_name . '"... '
-					. $@;
+					= 'Failed to load the rule "' . $rule_name . '" for the watcher "' . $watcher_name . '"... ' . $@;
 				$self->warn;
-			} ## end if ($@)
+			}
 			push( @rule_objs, $rule );
 		} ## end foreach my $rule_name (@rule_names)
 
@@ -288,9 +302,9 @@ sub new {
 					$self->{errorString} = $@;
 					$self->warn;
 				}
-			} ## end if ( defined( $rule_objs...))
+			} ## end if ( defined( $rule_objs[$i] ) )
 			push( @country_gates, $gate );
-		} ## end for ( my $i = 0; $i < scalar...)
+		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
 
 		# and the namtar_list gates the same way... the list names resolve to
 		# the watcher's file paths, the files themselves loaded and mtime
@@ -310,9 +324,9 @@ sub new {
 					$self->{errorString} = $@;
 					$self->warn;
 				}
-			} ## end if ( defined( $rule_objs...))
+			} ## end if ( defined( $rule_objs[$i] ) )
 			push( @namtar_gates, $gate );
-		} ## end for ( my $i = 0; $i < scalar...)
+		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
 
 		# and the active_time gates... the window names resolve to the
 		# watcher's specs, compiled here as pure config that nothing reloads
@@ -331,16 +345,16 @@ sub new {
 					$self->{errorString} = $@;
 					$self->warn;
 				}
-			} ## end if ( defined( $rule_objs...))
+			} ## end if ( defined( $rule_objs[$i] ) )
 			push( @active_gates, $gate );
-		} ## end for ( my $i = 0; $i < scalar...)
+		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
 
 		my $is_journal = defined( $watcher->{journal} );
 		$self->{watchers}{$watcher_name} = {
 			'is_journal'      => $is_journal,
-			'log_spec'        => $is_journal ? [] : [ watcher_logs($watcher) ],
-			'journal_matches' => $is_journal ? [ watcher_journal($watcher) ] : [],
-			'parser'          => defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' ),
+			'log_spec'        => $is_journal          ? []                            : [ watcher_logs($watcher) ],
+			'journal_matches' => $is_journal          ? [ watcher_journal($watcher) ] : [],
+			'parser' => defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' ),
 			'rules'           => \@rule_names,
 			'rule_objs'       => \@rule_objs,
 			'country_gates'   => \@country_gates,
@@ -374,7 +388,7 @@ sub new {
 			undef,
 			'galla-' . $self->{name}
 		);
-	} ## end if ( $country_gated && !defined...)
+	} ## end if ( $country_gated && !defined( $self->{geoip...}))
 
 	# load every namtar list slot the gates reference once, up front... the
 	# sweeper refreshes them on mtime change from here on. a slot that loads
@@ -391,8 +405,8 @@ sub new {
 					$namtar_slots{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) } = $slot;
 				}
 			}
-		} ## end foreach my $gate ( @{ $self...})
-	} ## end foreach my $watcher_name ( keys...)
+		} ## end foreach my $gate ( @{ $self->{watchers}{$watcher_name...}})
+	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 	foreach my $key ( sort( keys(%namtar_slots) ) ) {
 		my $slot = $namtar_slots{$key};
 		$self->_load_namtar_file( $slot->{type}, $slot->{nocase}, $slot->{path} );
@@ -403,9 +417,13 @@ sub new {
 	} sort( keys(%namtar_slots) );
 	if (@empty) {
 		my @paths = map { $self->{namtar_files}{$_}{path} } @empty;
-		log_drek( 'err', 'these namtar list files loaded empty or unreadable, gates matching them banish nobody... '
+		log_drek(
+			'err',
+			'these namtar list files loaded empty or unreadable, gates matching them banish nobody... '
 				. join( ', ', @paths ),
-			undef, 'galla-' . $self->{name} );
+			undef,
+			'galla-' . $self->{name}
+		);
 	} ## end if (@empty)
 
 	# bring back the tablets... counters, pending bans, stats, correlation
@@ -445,7 +463,8 @@ sub pid_path {
 
 =head2 state_path
 
-Returns the path of a state tablet of the given kind for this instance.
+Returns the locator of a state tablet of the given kind for this instance...
+a path for the file backend, a store key for others.
 
     my $path = $galla->state_path('counters');
 
@@ -454,58 +473,41 @@ Returns the path of a state tablet of the given kind for this instance.
 sub state_path {
 	my ( $self, $kind ) = @_;
 
-	my $suffix = ( $kind eq 'context' || $kind eq 'stats' ) ? 'jsonl' : 'csv';
-
-	return $self->{tablet_base_dir} . '/galla.' . $self->{name} . '.' . $kind . '.' . $suffix;
+	return $self->{tablet}->locator($kind);
 }
 
-# writes a tablet atomically via a temp file and rename, calling $writer
-# with the open filehandle... logs and swallows errors, as a failed
-# checkpoint should not take the galla down
+# builds a tablet's lines by handing $writer a in-memory filehandle to print
+# into, exactly as the old on-disk writer did, then hands the lines to the
+# configured backend... the backend logs and swallows a storage failure, as a
+# failed checkpoint should not take the galla down
 sub _write_tablet {
 	my ( $self, $kind, $writer ) = @_;
 
-	my $path = $self->state_path($kind);
+	my @lines;
 	eval {
-		my $tmp = $path . '.tmp';
-		open( my $fh, '>', $tmp ) || die( 'open failed... ' . $! );
+		my $buf = '';
+		open( my $fh, '>', \$buf ) || die( 'in-memory open failed... ' . $! );
 		$writer->($fh);
 		close($fh);
-		rename( $tmp, $path ) || die( 'rename failed... ' . $! );
+		@lines = split( /\n/, $buf );
 	};
 	if ($@) {
-		log_drek( 'err', 'writing the ' . $kind . ' tablet "' . $path . '" failed... ' . $@,
-			undef, 'galla-' . $self->{name} );
+		log_drek( 'err', 'building the ' . $kind . ' tablet failed... ' . $@, undef, 'galla-' . $self->{name} );
+		return;
 	}
+
+	$self->{tablet}->write( $kind, \@lines );
 
 	return;
 } ## end sub _write_tablet
 
-# reads a tablet's lines, returning them chomped... a missing tablet is
-# just a empty list, a unreadable one is logged
+# reads a tablet's lines from the backend, returning them chomped... a missing
+# tablet is just a empty list
 sub _read_tablet {
 	my ( $self, $kind ) = @_;
 
-	my $path = $self->state_path($kind);
-	if ( !-f $path ) {
-		return ();
-	}
-
-	my @lines;
-	eval {
-		open( my $fh, '<', $path ) || die( 'open failed... ' . $! );
-		@lines = <$fh>;
-		close($fh);
-	};
-	if ($@) {
-		log_drek( 'err', 'reading the ' . $kind . ' tablet "' . $path . '" failed... ' . $@,
-			undef, 'galla-' . $self->{name} );
-		return ();
-	}
-
-	chomp(@lines);
-	return @lines;
-} ## end sub _read_tablet
+	return $self->{tablet}->read($kind);
+}
 
 =head2 checkpoint
 
@@ -554,7 +556,8 @@ sub checkpoint {
 			my ($fh) = @_;
 			print $fh "ip,ban_time\n";
 			foreach my $ip ( sort( keys( %{ $self->{pending_bans} } ) ) ) {
-				print $fh $ip . ',' . ( defined( $self->{pending_bans}{$ip} ) ? $self->{pending_bans}{$ip} : '' ) . "\n";
+				print $fh $ip . ','
+					. ( defined( $self->{pending_bans}{$ip} ) ? $self->{pending_bans}{$ip} : '' ) . "\n";
 			}
 		}
 	);
@@ -609,7 +612,7 @@ sub checkpoint {
 				my $rules = $self->{watchers}{$watcher_name}{rules};
 				my $objs  = $self->{watchers}{$watcher_name}{rule_objs};
 				for ( my $i = 0; $i < scalar( @{$objs} ); $i++ ) {
-					my $rule_obj = $objs->[$i];
+					my $rule_obj  = $objs->[$i];
 					my $rule_name = $rules->[$i];
 					if ( !defined($rule_obj) || $seen{$rule_name} ) {
 						next;
@@ -619,7 +622,7 @@ sub checkpoint {
 					if ( defined($state) ) {
 						print $fh encode_json( { 'rule' => $rule_name, 'state' => $state } ) . "\n";
 					}
-				} ## end for ( my $i = 0; $i < scalar...)
+				} ## end for ( my $i = 0; $i < scalar( @{$objs} ); $i...)
 			} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
 		}
 	);
@@ -642,10 +645,25 @@ sub checkpoint {
 							exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
 						}
 					) . "\n";
-				} ## end foreach my $key ( sort( keys...))
-			} ## end foreach my $mark_name ( sort...)
+				} ## end foreach my $key ( sort( keys( %{$store} ) ) )
+			} ## end foreach my $mark_name ( sort( keys( %{ $self->{...}})))
 		}
 	);
+
+	# the mark stream cursor... where the fleet mark bus was last drained to,
+	# so a restart resumes the tail rather than replaying the whole stream.
+	# host-local, like the journal cursors
+	if ( $self->{mark_sync} ) {
+		$self->_write_tablet(
+			'mark_stream',
+			sub {
+				my ($fh) = @_;
+				if ( defined( $self->{mark_stream_id} ) && $self->{mark_stream_id} ne '' ) {
+					print $fh $self->{mark_stream_id} . "\n";
+				}
+			}
+		);
+	} ## end if ( $self->{mark_sync} )
 
 	$self->{last_checkpoint} = $now;
 
@@ -667,7 +685,7 @@ sub _snapshot_positions {
 			if ( defined($offset) && defined($inode) ) {
 				$self->{positions}{$file} = { 'inode' => $inode, 'offset' => $offset };
 			}
-		} ## end foreach my $file ( keys( %{ $watcher->{wheels...}}))
+		}
 	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 
 	return;
@@ -712,7 +730,7 @@ sub _load_state {
 		} else {
 			push( @{ $self->{counters}{$ip} }, [ $hit + 0, $weight + 0 ] );
 		}
-	} ## end foreach my $line ( $self->_read_tablet...)
+	} ## end foreach my $line ( $self->_read_tablet('counters'...))
 	# sort each by epoch and drop entries with nothing recent... the register
 	# path re-prunes per the effective find_time on the next hit
 	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
@@ -724,7 +742,7 @@ sub _load_state {
 				$bucket->{$ip} = \@sorted;
 			}
 		}
-	} ## end foreach my $bucket ( $self->{counters}, values...)
+	} ## end foreach my $bucket ( $self->{counters}, values(...))
 	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
 		if ( !%{ $self->{rule_counters}{$rule_name} } ) {
 			delete( $self->{rule_counters}{$rule_name} );
@@ -743,7 +761,7 @@ sub _load_state {
 			next;
 		}
 		$self->{pending_bans}{$ip} = ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
-	} ## end foreach my $line ( $self->_read_tablet...)
+	} ## end foreach my $line ( $self->_read_tablet('pending'...))
 
 	# log positions
 	$line_int = 0;
@@ -763,7 +781,7 @@ sub _load_state {
 			next;
 		}
 		$self->{positions}{$file} = { 'inode' => $inode + 0, 'offset' => $offset + 0 };
-	} ## end foreach my $line ( $self->_read_tablet...)
+	} ## end foreach my $line ( $self->_read_tablet('positions'...))
 
 	# journal cursors
 	$line_int = 0;
@@ -783,7 +801,7 @@ sub _load_state {
 		{
 			$self->{journal_cursors}{$watcher_name} = $cursor;
 		}
-	} ## end foreach my $line ( $self->_read_tablet...)
+	} ## end foreach my $line ( $self->_read_tablet('cursors'...))
 
 	# stats... take the stored totals, but only shapes and numbers that
 	# make sense, as the tablet may be from a older format
@@ -809,7 +827,7 @@ sub _load_state {
 			}
 		} ## end foreach my $key ( keys( %{ $self->{stats} } ) )
 		last;
-	} ## end foreach my $line ( $self->_read_tablet...)
+	} ## end foreach my $line ( $self->_read_tablet('stats'))
 
 	# correlation context
 	foreach my $line ( $self->_read_tablet('context') ) {
@@ -826,7 +844,7 @@ sub _load_state {
 		if ( defined($rule_obj) ) {
 			$rule_obj->restore_state( $decoded->{state}, $now );
 		}
-	} ## end foreach my $line ( $self->_read_tablet...)
+	} ## end foreach my $line ( $self->_read_tablet('context'...))
 
 	# marks, restored whole and pruned of anything already expired
 	foreach my $line ( $self->_read_tablet('marks') ) {
@@ -835,7 +853,7 @@ sub _load_state {
 		}
 		my $decoded;
 		eval { $decoded = decode_json($line); };
-		if ( ref($decoded) ne 'HASH'
+		if (   ref($decoded) ne 'HASH'
 			|| !defined( $decoded->{name} )
 			|| !defined( $decoded->{key} )
 			|| !defined( $decoded->{expires} )
@@ -844,9 +862,25 @@ sub _load_state {
 		{
 			next;
 		}
-		$self->{marks}{ $decoded->{name} }{ $decoded->{key} }
-			= { 'expires' => $decoded->{expires} + 0, exists( $decoded->{value} ) ? ( 'value' => $decoded->{value} ) : () };
-	} ## end foreach my $line ( $self->_read_tablet...)
+		$self->{marks}{ $decoded->{name} }{ $decoded->{key} } = {
+			'expires' => $decoded->{expires} + 0,
+			exists( $decoded->{value} ) ? ( 'value' => $decoded->{value} ) : ()
+		};
+	} ## end foreach my $line ( $self->_read_tablet('marks'))
+
+	# the mark stream cursor, then a first drain to catch up on whatever the
+	# fleet branded while this galla was down... over the local marks just
+	# restored above, so the two converge before the socket opens. a missing
+	# or trimmed-away cursor just replays the retained stream, which is safe
+	if ( $self->{mark_sync} ) {
+		foreach my $line ( $self->_read_tablet('mark_stream') ) {
+			if ( $line ne '' ) {
+				$self->{mark_stream_id} = $line;
+				last;
+			}
+		}
+		$self->_sync_marks;
+	}
 
 	return;
 } ## end sub _load_state
@@ -895,7 +929,7 @@ sub _csv_unescape {
 		$value =~ s/""/"/g;
 	}
 	return $value;
-} ## end sub _csv_unescape
+}
 
 # emits a event to the EVE log... a no-op unless eve_enable is on... the
 # passed fields are merged over the common envelope, and a banish or
@@ -927,7 +961,7 @@ sub _eve_emit {
 	# sharing the one file and correct under a log rotation
 	eval {
 		open( my $fh, '>>', $self->{eve_log} ) || die( 'open failed... ' . $! );
-		flock( $fh, 2 ) || die( 'lock failed... ' . $! );    # LOCK_EX
+		flock( $fh, 2 )                        || die( 'lock failed... ' . $! );    # LOCK_EX
 		print $fh $line . "\n";
 		close($fh);
 	};
@@ -949,7 +983,7 @@ sub _eve_parsed {
 	}
 
 	return $parsed;
-} ## end sub _eve_parsed
+}
 
 =head2 start_server
 
@@ -1026,16 +1060,16 @@ sub start_server {
 	POE::Session->create(
 		object_states => [
 			$self => {
-				'_start'         => '_poe_start',
-				'got_line'       => '_poe_got_line',
-				'tail_error'     => '_poe_tail_error',
-				'tail_reset'     => '_poe_tail_reset',
-				'journal_stdout' => '_poe_journal_stdout',
-				'journal_stderr' => '_poe_journal_stderr',
-				'journal_reaped' => '_poe_journal_reaped',
+				'_start'          => '_poe_start',
+				'got_line'        => '_poe_got_line',
+				'tail_error'      => '_poe_tail_error',
+				'tail_reset'      => '_poe_tail_reset',
+				'journal_stdout'  => '_poe_journal_stdout',
+				'journal_stderr'  => '_poe_journal_stderr',
+				'journal_reaped'  => '_poe_journal_reaped',
 				'restart_journal' => '_poe_restart_journal',
-				'sweep'          => '_poe_sweep',
-				'stop_tails'     => '_poe_stop_tails',
+				'sweep'           => '_poe_sweep',
+				'stop_tails'      => '_poe_stop_tails',
 			},
 		],
 	);
@@ -1048,7 +1082,8 @@ sub start_server {
 			. $self->socket_path
 			. ' watchers='
 			. join( ',', sort( keys( %{ $self->{watchers} } ) ) ),
-		undef, $ident
+		undef,
+		$ident
 	);
 
 	$poe_kernel->run;
@@ -1123,7 +1158,7 @@ sub _start_tail {
 			undef, $ident );
 	}
 
-	$watcher->{wheels}{$file} = $wheel;
+	$watcher->{wheels}{$file}               = $wheel;
 	$self->{wheel_to_watcher}{ $wheel->ID } = $watcher_name;
 	$self->{wheel_to_file}{ $wheel->ID }    = $file;
 
@@ -1174,10 +1209,10 @@ sub _start_journal {
 	);
 	$poe_kernel->sig_child( $wheel->PID, 'journal_reaped' );
 
-	$watcher->{journal_wheel}   = $wheel;
-	$watcher->{journal_spawned} = time;
-	$self->{wheelid_to_journal}{ $wheel->ID }  = $watcher_name;
-	$self->{pid_to_journal}{ $wheel->PID }     = $watcher_name;
+	$watcher->{journal_wheel}                 = $wheel;
+	$watcher->{journal_spawned}               = time;
+	$self->{wheelid_to_journal}{ $wheel->ID } = $watcher_name;
+	$self->{pid_to_journal}{ $wheel->PID }    = $watcher_name;
 
 	log_drek( 'info', 'following the journal for the watcher "' . $watcher_name . '"... ' . join( ' ', @cmd ),
 		undef, $ident );
@@ -1205,7 +1240,7 @@ sub _poe_journal_stdout {
 
 	# the source for the EVE log... a journal watcher has no file
 	my $matches = $self->{watchers}{$watcher_name}{journal_matches};
-	my $source = 'journal' . ( @{$matches} ? ':' . join( ',', @{$matches} ) : '' );
+	my $source  = 'journal' . ( @{$matches} ? ':' . join( ',', @{$matches} ) : '' );
 
 	$self->_handle_line( $watcher_name, $line, $source );
 
@@ -1249,8 +1284,7 @@ sub _poe_journal_reaped {
 	my $delay = $watcher->{journal_delay};
 	$watcher->{journal_delay} = $delay * 2 > 60 ? 60 : $delay * 2;
 
-	log_drek( 'err',
-		'journalctl for the watcher "' . $watcher_name . '" exited, restarting in ' . $delay . ' seconds',
+	log_drek( 'err', 'journalctl for the watcher "' . $watcher_name . '" exited, restarting in ' . $delay . ' seconds',
 		undef, 'galla-' . $self->{name} );
 
 	$kernel->delay_set( 'restart_journal', $delay, $watcher_name );
@@ -1354,7 +1388,12 @@ sub _poe_tail_error {
 
 	log_drek(
 		'err',
-		'tail error for the watcher "' . $watcher_name . '" during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')',
+		'tail error for the watcher "'
+			. $watcher_name
+			. '" during '
+			. $operation . '... '
+			. $errstr . ' ('
+			. $errnum . ')',
 		undef,
 		'galla-' . $self->{name}
 	);
@@ -1483,7 +1522,7 @@ sub _handle_line {
 		# one, so a deployment can be set observe at any level and trusted rules
 		# opt back in. observe_ignored, a watcher setting, lets observe mode
 		# also watch what ignore_ips would drop
-		my $rule_eve_only = $rule_obj->eve_only;
+		my $rule_eve_only   = $rule_obj->eve_only;
 		my $eve_only        = defined($rule_eve_only) ? $rule_eve_only : $watcher->{settings}{eve_only};
 		my $observe_ignored = $watcher->{settings}{observe_ignored};
 
@@ -1521,7 +1560,9 @@ sub _handle_line {
 				'rule'      => $rule_obj,
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
-				'severity'  => defined( $rule_obj->severity ) ? $rule_obj->severity : $watcher->{settings}{default_severity},
+				'severity'  => defined( $rule_obj->severity )
+				? $rule_obj->severity
+				: $watcher->{settings}{default_severity},
 			};
 
 			# a ban_not_internal rule banishes the end of the flow that is
@@ -1544,7 +1585,7 @@ sub _handle_line {
 					next;
 				}
 				push( @offenders, $ip );
-			} ## end foreach my $ban_var ( $rule_obj...)
+			} ## end foreach my $ban_var ( $rule_obj->ban_var )
 
 			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
 
@@ -1567,7 +1608,7 @@ sub _handle_line {
 					if ( !defined($score) && defined($registered) ) {
 						$score = $registered;
 					}
-				}
+				} ## end foreach my $ip (@offenders)
 			} ## end if ( !$mark_only )
 
 			# observe mode colors the match event noted, not found
@@ -1577,7 +1618,7 @@ sub _handle_line {
 		if ($consumed) {
 			last;
 		}
-	} ## end for ( my $rule_int = 0; $rule_int < scalar...)
+	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
 
 	return;
 } ## end sub _handle_line
@@ -1600,13 +1641,13 @@ sub _eve_fields {
 		'found'  => $context->{found},
 		'msg'    => $context->{rule}->msg,
 		'rule'   => $context->{rule}->info,
-		defined( $context->{severity} )     ? ( 'severity'   => $context->{severity} )         : (),
+		defined( $context->{severity} )         ? ( 'severity'   => $context->{severity} )         : (),
 		defined( $context->{rule}->classtype )  ? ( 'classtype'  => $context->{rule}->classtype )  : (),
 		defined( $context->{rule}->references ) ? ( 'references' => $context->{rule}->references ) : (),
 		defined( $context->{rule}->attack )     ? ( 'attack'     => $context->{rule}->attack )     : (),
-		defined($score) ? ( 'score' => $score ) : (),
-		( defined($set)    && @{$set} )    ? ( 'marks_set' => $set )    : (),
-		( defined($lifted) && @{$lifted} ) ? ( 'unmarked'  => $lifted ) : (),
+		defined($score)                         ? ( 'score'      => $score )                       : (),
+		( defined($set) && @{$set} )            ? ( 'marks_set'  => $set )                         : (),
+		( defined($lifted) && @{$lifted} )      ? ( 'unmarked'   => $lifted )                      : (),
 	};
 } ## end sub _eve_fields
 
@@ -1680,7 +1721,7 @@ sub _resolve_country_gate {
 		} else {
 			$set{ uc($entry) } = 1;
 		}
-	} ## end foreach my $entry ( @{ $country...})
+	} ## end foreach my $entry ( @{ $country->{entries} } )
 
 	return {
 		'mode'  => $country->{mode},
@@ -1758,7 +1799,7 @@ sub _load_namtar_file {
 			}
 		}
 		close($fh);
-	} ## end if ( defined($mtime) &&...)
+	} ## end if ( defined($mtime) && open( $fh, '<', $path...))
 
 	my $set;
 	if ( $type eq 'string' ) {
@@ -1773,7 +1814,7 @@ sub _load_namtar_file {
 				undef, 'galla-' . $self->{name} );
 			$set = [];
 		}
-	} ## end else [ if ( $type eq 'string' )]
+	}
 
 	$self->{namtar_files}{$key} = {
 		'mtime'  => $mtime,
@@ -1811,7 +1852,7 @@ sub _resolve_namtar_gate {
 				my $key = join( "\0", $list->{type}, $list->{nocase}, $path );
 				$slots{$key} = { 'type' => $list->{type}, 'nocase' => $list->{nocase}, 'path' => $path };
 			}
-		} ## end foreach my $name ( @{ $entry...})
+		} ## end foreach my $name ( @{ $entry->{lists} } )
 		push( @entries, { 'slots' => [ map { $slots{$_} } sort( keys(%slots) ) ], 'var' => $entry->{var} } );
 	} ## end foreach my $entry ( @{$gate} )
 
@@ -1873,7 +1914,7 @@ sub _namtar_gate_pass {
 			if ( !$self->_namtar_on_any( $entry->{slots}, $ip ) ) {
 				return 0;
 			}
-		} ## end else [ if ( defined( $entry->{var...}))]
+		}
 	} ## end foreach my $entry ( @{$gate} )
 
 	return 1;
@@ -1914,10 +1955,10 @@ sub _resolve_active_time_gate {
 					my ( $start, $end ) = split( /-/, $range );
 					push( @{$ranges}, [ $start + 0, $end + 0 ] );
 				}
-			} ## end if ( defined( $spec->{hours...}))
+			}
 			push( @specs, { 'days' => $days, 'ranges' => $ranges } );
 		} ## end foreach my $spec ( @{$window} )
-	} ## end foreach my $name ( @{ $active...})
+	} ## end foreach my $name ( @{ $active->{windows} } )
 
 	return { 'mode' => $active->{mode}, 'specs' => \@specs, 'vars' => $active->{vars} };
 } ## end sub _resolve_active_time_gate
@@ -1973,11 +2014,11 @@ sub _in_active_windows {
 					$hit = 1;
 					last;
 				}
-			} ## end foreach my $range ( @{ $spec...})
+			}
 			if ( !$hit ) {
 				next;
 			}
-		} ## end if ( defined( $spec->{ranges...}))
+		} ## end if ( defined( $spec->{ranges} ) )
 		return 1;
 	} ## end foreach my $spec ( @{$specs} )
 
@@ -2092,9 +2133,15 @@ sub _mark_set {
 			my ($soonest) = sort { $store->{$a}{expires} <=> $store->{$b}{expires} } keys( %{$store} );
 			delete( $store->{$soonest} );
 		}
-	} ## end if ( !defined( $store->{$key} ) && scalar...)
+	} ## end if ( !defined( $store->{$key} ) && scalar(...))
 
 	$store->{$key} = { 'expires' => $now + $ttl, defined($value) ? ( 'value' => $value ) : () };
+
+	# gossip the brand to the fleet, best-effort, after the local set... a
+	# failed publish never unmakes the brand that just happened
+	if ( $self->{mark_sync} ) {
+		$self->{tablet}->mark_publish( 'set', $name, $key, $value, $now + $ttl );
+	}
 
 	return;
 } ## end sub _mark_set
@@ -2134,12 +2181,76 @@ sub _apply_marks {
 					delete( $self->{marks}{ $entry->{name} } );
 				}
 				push( @lifted, { 'name' => $entry->{name}, 'key' => $key } );
-			}
+				if ( $self->{mark_sync} ) {
+					$self->{tablet}->mark_publish( 'unset', $entry->{name}, $key, undef, undef );
+				}
+			} ## end if ( defined( $self->{marks}{ $entry->{name...}}))
 		} ## end foreach my $key (@keys)
 	} ## end foreach my $entry ( @{ $rule_obj->unmarks } )
 
 	return ( \@set, \@lifted );
 } ## end sub _apply_marks
+
+# drains the fleet mark bus and folds the new deltas into the live marks,
+# advancing the stream cursor... a no-op unless the store carries a bus. the
+# read path never touches it, so a bus that is down just yields nothing and the
+# gates keep deciding on the local marks
+sub _sync_marks {
+	my ($self) = @_;
+
+	if ( !$self->{mark_sync} ) {
+		return;
+	}
+
+	my $now = time;
+	my ( $events, $new_id ) = $self->{tablet}->mark_drain( $self->{mark_stream_id} );
+	foreach my $event ( @{$events} ) {
+		$self->_ingest_mark_event( $event, $now );
+	}
+	$self->{mark_stream_id} = $new_id;
+
+	return;
+} ## end sub _sync_marks
+
+# applies one drained mark delta to the live marks. events fold in stream
+# order, which is a single total order every galla agrees on, so this converges
+# without any locking. a set is extend-only on the expiry, so a re-brand from
+# anywhere never shortens a mark, and takes the delta's value; an unset lifts.
+# already-expired sets are dropped, the local sweeper handles the rest
+sub _ingest_mark_event {
+	my ( $self, $event, $now ) = @_;
+
+	my ( $op, $name, $key ) = ( $event->{op}, $event->{name}, $event->{key} );
+	if ( !defined($op) || !defined($name) || !defined($key) ) {
+		return;
+	}
+
+	if ( $op eq 'unset' ) {
+		if ( defined( $self->{marks}{$name} ) && defined( $self->{marks}{$name}{$key} ) ) {
+			delete( $self->{marks}{$name}{$key} );
+			if ( !%{ $self->{marks}{$name} } ) {
+				delete( $self->{marks}{$name} );
+			}
+		}
+		return;
+	}
+
+	if ( $op eq 'set' ) {
+		my $expires = $event->{expires};
+		if ( !defined($expires) || $expires !~ /^[0-9]+$/ || $expires <= $now ) {
+			return;
+		}
+		$expires += 0;
+		my $held = $self->{marks}{$name}{$key};
+		if ( defined($held) && $held->{expires} > $expires ) {
+			$expires = $held->{expires};
+		}
+		$self->{marks}{$name}{$key}
+			= { 'expires' => $expires, exists( $event->{value} ) ? ( 'value' => $event->{value} ) : () };
+	} ## end if ( $op eq 'set' )
+
+	return;
+} ## end sub _ingest_mark_event
 
 # registers a match of a IP, banning it once its accumulated score reaches
 # max_score with in find_time seconds... each match deposits the rule's
@@ -2169,12 +2280,12 @@ sub _register_hit {
 	# ban_time-only override counts in the shared bucket and only bans
 	# differently. without the consent every weight is 1, so a shipped rule
 	# can not reshape the tuning
-	my $allow      = $settings->{allow_per_rule_thresholds};
-	my $overrides  = $allow ? $context->{rule}->thresholds : {};
-	my $max_score  = defined( $overrides->{max_score} ) ? $overrides->{max_score} : $settings->{max_score};
-	my $find_time  = defined( $overrides->{find_time} )  ? $overrides->{find_time}  : $settings->{find_time};
-	my $ban_time   = defined( $overrides->{ban_time} )   ? $overrides->{ban_time}   : $settings->{ban_time};
-	my $weight     = $allow ? $context->{rule}->weight : 1;
+	my $allow     = $settings->{allow_per_rule_thresholds};
+	my $overrides = $allow                             ? $context->{rule}->thresholds : {};
+	my $max_score = defined( $overrides->{max_score} ) ? $overrides->{max_score}      : $settings->{max_score};
+	my $find_time = defined( $overrides->{find_time} ) ? $overrides->{find_time}      : $settings->{find_time};
+	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}       : $settings->{ban_time};
+	my $weight    = $allow                             ? $context->{rule}->weight     : 1;
 
 	# observe mode counts into the shadow families, kept apart so a watched
 	# rule neither causes nor delays a real ban, nor is polluted by one
@@ -2236,8 +2347,7 @@ sub _ban_ip {
 
 	$self->_tick( 'bans', $watcher_name, $rule_name );
 	delete( $self->{pending_bans}{$ip} );
-	log_drek( 'info',
-		'banished ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+	log_drek( 'info', 'banished ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
 		undef, $ident );
 
 	# the banish event carries the triggering line's envelope when there
@@ -2250,7 +2360,7 @@ sub _ban_ip {
 			'ip' => $ip,
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 			defined($country)  ? ( 'country'  => $country )  : (),
-			defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (),
+			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
 		}
 	);
 
@@ -2286,7 +2396,7 @@ sub _alert_ip {
 			'ip' => $ip,
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 			defined($country)  ? ( 'country'  => $country )  : (),
-			defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (),
+			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
 		}
 	);
 
@@ -2339,7 +2449,7 @@ sub _recidive_check {
 	}
 
 	my $max_score = defined( $self->{recidive}{max_score} ) ? $self->{recidive}{max_score} : 5;
-	my $ban_time   = defined( $self->{recidive}{ban_time} ) ? $self->{recidive}{ban_time} : 0;
+	my $ban_time  = defined( $self->{recidive}{ban_time} )  ? $self->{recidive}{ban_time}  : 0;
 
 	if ( !defined($count) || $count < $max_score ) {
 		return;
@@ -2393,8 +2503,8 @@ sub _ledger_append_and_count {
 	my ( $self, $ip, $context ) = @_;
 
 	my $now = time;
-	my $find_time =
-		defined( $self->{recidive} )
+	my $find_time
+		= defined( $self->{recidive} )
 		? ( defined( $self->{recidive}{find_time} ) ? $self->{recidive}{find_time} : 604800 )
 		: 0;
 	my $recidive_kur = defined( $self->{recidive} ) ? $self->{recidive}{kur} : '';
@@ -2413,7 +2523,7 @@ sub _ledger_append_and_count {
 	my $count = 0;
 	eval {
 		open( my $fh, '+>>', $path ) || die( 'open failed... ' . $! );
-		flock( $fh, 2 ) || die( 'lock failed... ' . $! );    # LOCK_EX
+		flock( $fh, 2 )              || die( 'lock failed... ' . $! );    # LOCK_EX
 
 		print $fh $now . ','
 			. $self->{name} . ','
@@ -2483,7 +2593,7 @@ sub _sweep {
 				delete( $bucket->{$ip} );
 			}
 		}
-	} ## end foreach my $bucket ( $self->...)
+	} ## end foreach my $bucket ( $self->{counters}, values(...))
 	foreach my $rule_counters ( $self->{rule_counters}, $self->{shadow_rule_counters} ) {
 		foreach my $rule_name ( keys( %{$rule_counters} ) ) {
 			if ( !%{ $rule_counters->{$rule_name} } ) {
@@ -2502,7 +2612,11 @@ sub _sweep {
 		if ( ( defined($mtime) ? $mtime : -1 ) != ( defined($cached) ? $cached : -1 ) ) {
 			$self->_load_namtar_file( $rec->{type}, $rec->{nocase}, $rec->{path} );
 		}
-	} ## end foreach my $key ( keys( %{ ...}))
+	}
+
+	# drain the fleet mark bus into the live marks before expiring, so a
+	# freshly gossiped brand is present and then aged by the same pass
+	$self->_sync_marks;
 
 	# expire marks whose ttl has run out, so a ttl elapses on time rather
 	# than waiting on the next line that would key it
@@ -2516,7 +2630,7 @@ sub _sweep {
 		if ( !%{$store} ) {
 			delete( $self->{marks}{$mark_name} );
 		}
-	} ## end foreach my $mark_name ( keys...)
+	} ## end foreach my $mark_name ( keys( %{ $self->{marks}...}))
 
 	# expire the correlation state of the rules... rule objects are shared
 	# across watchers, so sweep each once
@@ -2528,7 +2642,7 @@ sub _sweep {
 				$rule_obj->sweep_state($now);
 			}
 		}
-	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+	}
 
 	return;
 } ## end sub _sweep
@@ -2557,7 +2671,7 @@ sub _cmd_status {
 				'following' => [ sort( keys( %{ $watcher->{wheels} } ) ) ],
 			),
 		};
-	}
+	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 
 	# a IP may live in the shared bucket and per-rule buckets at once...
 	# count each defendant once
@@ -2590,7 +2704,7 @@ sub _score_of {
 	}
 
 	return $score;
-}
+} ## end sub _score_of
 
 sub _cmd_accused {
 	my ($self) = @_;
@@ -2659,8 +2773,8 @@ sub _cmd_marked {
 				'expires' => $store->{$key}{expires},
 				exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
 			};
-		} ## end foreach my $key ( keys( %{$store} ) )
-	} ## end foreach my $mark_name ( keys...)
+		}
+	} ## end foreach my $mark_name ( keys( %{ $self->{marks}...}))
 
 	return {
 		'name'  => $self->{name},
@@ -2726,9 +2840,11 @@ the current user.
 Failed to load a rule referenced by a watcher... no such rule, unparsable,
 uncompilable, or its embedded tests failing.
 
-=head2 7, tabletBaseDirError
+=head2 7, tabletStoreError
 
-The tablet base dir could not be created or is not read/writable.
+The state tablet store could not be set up... the file backend's base dir is
+not read/writable, a configured backend would not load, or a store such as the
+redis backend's could not be reached. See L<App::Baphomet::ClayTablet>.
 
 =head1 AUTHOR
 

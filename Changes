@@ -1,6 +1,36 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - Fleet-shared marks over Redis, a sync bus rather than a store. With
+          the redis ClayTablet backend, a galla still holds its marks in
+          memory and gates on them locally, but publishes each brand and lift
+          to a per-scope Redis Stream and drains the fleet's on its sweep, so
+          machines running the same kur converge... the account sprayed from a
+          fresh source on another host now trips this host's marked gate. The
+          reads never touch Redis, so an outage is invisible to the gates; a
+          galla degrades to standalone marks and buffers un-published brands in
+          an outbox that flushes on reconnect. The backend connects fast-fail
+          and reconnects on its own throttle, so a down or absent Redis never
+          hangs startup. It optionally wraps the file backend
+          (ClayTablet.options.local) so the host-local tablets persist to disk,
+          letting a galla that loses the bus and is restarted while it is still
+          gone resume its whole state locally. Deltas fold in stream order with
+          extend-only expiry, so the fold converges without locking. New
+          options: scope, mark_max_ttl, host, local, cnx_timeout, outbox_max.
+          Off unless the redis backend is chosen. See App::Baphomet::ClayTablet::Redis.
+        - Pluggable state tablet storage. A galla's per-galla tablets
+          (counters, pending bans, log positions, journal cursors, stats,
+          correlation context, and marks) now go through a pluggable backend,
+          the ClayTablet frontend, chosen by a new global [ClayTablet] table:
+          .ClayTablet.backend names the backend and .ClayTablet.options is the
+          free-form table it interprets. The default is the "file" backend,
+          the current on-disk system, byte-for-byte unchanged, so an absent
+          [ClayTablet] table and every existing config keep working; the
+          tablet_base_dir setting stays its base dir. A "redis" backend ships,
+          built on the optional Redis::Fast, keeping each tablet as one key
+          under <prefix>:tablet:<galla>:<kind> so a fleet can share a store
+          off the local disk. The shared banishment ledger is not a per-galla
+          tablet and stays a file. See App::Baphomet::ClayTablet.
         - Severity and classification metadata on rules and EVE, the rest of
           the Suricata/Sagan alert set beside msg. Rules may carry severity
           (info/low/medium/high/critical), classtype (a Snort/Sagan category

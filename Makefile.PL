@@ -42,11 +42,13 @@ my %WriteMakefileArgs = (
 				web  => 'https://github.com/LilithSec/Baphomet',
 			},
 		},
-		# only needed by the optional country gate, a soft require at runtime
+		# only needed by optional pieces, soft requires at runtime... the
+		# country gate's GeoIP, and the ClayTablet redis backend
 		prereqs => {
 			runtime => {
 				recommends => {
 					'IP::Geolocation::MMDB' => '0',
+					'Redis::Fast'           => '0',
 				},
 			},
 		},

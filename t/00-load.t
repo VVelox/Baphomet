@@ -26,6 +26,9 @@ my @modules = (
 	'App::Baphomet::Rules::JSON',
 	'App::Baphomet::Rules::Raw',
 	'App::Baphomet::Galla',
+	'App::Baphomet::ClayTablet',
+	'App::Baphomet::ClayTablet::File',
+	'App::Baphomet::ClayTablet::Redis',
 	'App::Baphomet::App',
 );
 
