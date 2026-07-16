@@ -3,9 +3,12 @@ package App::Baphomet::Rules::Base;
 use 5.006;
 use strict;
 use warnings;
-use Regexp::IPv4 qw( $IPv4_re );
-use Regexp::IPv6 qw( $IPv6_re );
+use Regexp::IPv4          qw( $IPv4_re );
+use Regexp::IPv6          qw( $IPv6_re );
+use MIME::Base64          qw( decode_base64 );
+use Encode                ();
 use App::Baphomet::Parser ();
+use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
 
 =pod
 
@@ -88,7 +91,7 @@ sub sweep_state {
 			} else {
 				delete( $self->{pending}{$scope}{$key} );
 			}
-		} ## end foreach my $key ( keys( %{ $self->{pending}{$scope...}}))
+		}
 		if ( !keys( %{ $self->{pending}{$scope} } ) ) {
 			delete( $self->{pending}{$scope} );
 		}
@@ -364,12 +367,12 @@ sub country {
 			$self->{country_parsed} = {
 				'mode'    => $mode,
 				'entries' => [ ref( $def->{$mode} ) eq 'ARRAY' ? @{ $def->{$mode} } : ( $def->{$mode} ) ],
-				'vars' => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
+				'vars'    => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
 				: defined( $def->{vars} ) ? [ $def->{vars} ]
 				:                           undef,
 			};
-		} ## end else [ if ( ref($def) ne 'HASH')]
-	} ## end if ( !exists( $self->{country_parsed...}))
+		} ## end else [ if ( ref($def) ne 'HASH' ) ]
+	} ## end if ( !exists( $self->{country_parsed} ) )
 
 	return $self->{country_parsed};
 } ## end sub country
@@ -407,8 +410,8 @@ sub namtar_list {
 				);
 			} ## end foreach my $entry ( @{$def} )
 			$self->{namtar_parsed} = \@entries;
-		} ## end else [ if ( ref($def) ne 'ARRAY')]
-	} ## end if ( !exists( $self->{namtar_parsed...}))
+		} ## end else [ if ( ref($def) ne 'ARRAY' ) ]
+	} ## end if ( !exists( $self->{namtar_parsed} ) )
 
 	return $self->{namtar_parsed};
 } ## end sub namtar_list
@@ -438,15 +441,32 @@ sub active_time {
 			$self->{active_parsed} = {
 				'mode'    => $mode,
 				'windows' => [ ref( $def->{$mode} ) eq 'ARRAY' ? @{ $def->{$mode} } : ( $def->{$mode} ) ],
-				'vars' => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
+				'vars'    => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
 				: defined( $def->{vars} ) ? [ $def->{vars} ]
 				:                           undef,
 			};
-		} ## end else [ if ( ref($def) ne 'HASH')]
-	} ## end if ( !exists( $self->{active_parsed...}))
+		} ## end else [ if ( ref($def) ne 'HASH' ) ]
+	} ## end if ( !exists( $self->{active_parsed} ) )
 
 	return $self->{active_parsed};
 } ## end sub active_time
+
+=head2 distinct
+
+Returns the rule's distinct-cardinality spec, a hash naming C<of> (the found
+var whose distinct values are counted per offender), or undef when the rule
+counts hits the usual way. The galla is what does the counting... this just
+exposes the def key.
+
+    my $distinct = $rule->distinct;   # undef or { of => 'USER' }
+
+=cut
+
+sub distinct {
+	my ($self) = @_;
+
+	return ( ref( $self->{def}{distinct} ) eq 'HASH' ) ? $self->{def}{distinct} : undef;
+}
 
 =head2 info
 
@@ -521,8 +541,8 @@ sub restore_state {
 					$self->{context}{$scope}{$key} = $entry;
 				}
 			}
-		} ## end foreach my $scope ( keys( %{ $state->{context...}}))
-	} ## end if ( ref( $state->{context...}))
+		}
+	} ## end if ( ref( $state->{context} ) eq 'HASH' )
 
 	if ( ref( $state->{pending} ) eq 'HASH' ) {
 		foreach my $scope ( keys( %{ $state->{pending} } ) ) {
@@ -532,9 +552,9 @@ sub restore_state {
 				if (@live) {
 					push( @{ $self->{pending}{$scope}{$key} }, @live );
 				}
-			} ## end foreach my $key ( keys( %{ $state->{pending}{$scope...}}))
-		} ## end foreach my $scope ( keys( %{ $state->{pending...}}))
-	} ## end if ( ref( $state->{pending...}))
+			}
+		}
+	} ## end if ( ref( $state->{pending} ) eq 'HASH' )
 
 	return;
 } ## end sub restore_state
@@ -583,8 +603,7 @@ sub run_tests {
 			my $where = $sort . ' test ' . $test_int;
 			$test_int++;
 
-			if ( ref($test) ne 'HASH' || ( !defined( $test->{message} ) && ref( $test->{messages} ) ne 'ARRAY' ) )
-			{
+			if ( ref($test) ne 'HASH' || ( !defined( $test->{message} ) && ref( $test->{messages} ) ne 'ARRAY' ) ) {
 				$results->{fail}++;
 				push( @{ $results->{failures} }, $where . ' is not a hash with a message or a messages array' );
 				next;
@@ -593,7 +612,7 @@ sub run_tests {
 			my @messages = defined( $test->{message} ) ? ( $test->{message} ) : @{ $test->{messages} };
 
 			my $parser
-				= defined( $test->{parser} ) ? $test->{parser}
+				= defined( $test->{parser} )           ? $test->{parser}
 				: defined( $self->{def}{test_parser} ) ? $self->{def}{test_parser}
 				:                                        $self->default_test_parser;
 
@@ -613,8 +632,10 @@ sub run_tests {
 				}
 				if ( !defined($parsed) ) {
 					$results->{fail}++;
-					push( @{ $results->{failures} },
-						$where . ' message did not parse via ' . $parser . '... "' . $message . '"' );
+					push(
+						@{ $results->{failures} },
+						$where . ' message did not parse via ' . $parser . '... "' . $message . '"'
+					);
 					$parse_failed = 1;
 					last;
 				}
@@ -636,15 +657,16 @@ sub run_tests {
 
 			if ( $got_found != $expected_found ) {
 				$results->{fail}++;
-				push( @{ $results->{failures} },
-						  $where
+				push(
+					@{ $results->{failures} },
+					$where
 						. ' expected found='
 						. $expected_found
 						. ' but got found='
 						. $got_found
 						. ' for "'
-						. $messages[-1]
-						. '"' );
+						. $messages[-1] . '"'
+				);
 				next;
 			} ## end if ( $got_found != $expected_found )
 
@@ -656,17 +678,19 @@ sub run_tests {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( !defined($got) || $got ne $test->{data}{$key} ) {
 						$results->{fail}++;
-						push( @{ $results->{failures} },
-								  $where
+						push(
+							@{ $results->{failures} },
+							$where
 								. ' expected data.'
 								. $key . '="'
 								. $test->{data}{$key}
 								. '" but got '
-								. ( defined($got) ? '"' . $got . '"' : 'undef' ) );
+								. ( defined($got) ? '"' . $got . '"' : 'undef' )
+						);
 						$data_failed = 1;
 						last;
 					} ## end if ( !defined($got) || $got ne $test->{data...})
-				} ## end foreach my $key ( sort( keys( %{ $test->{data}...})))
+				} ## end foreach my $key ( sort( keys( %{ $test->{data} ...})))
 			} ## end if ( defined( $test->{data} ) && ref( $test...))
 
 			if ( defined( $test->{undefed} ) && ref( $test->{undefed} ) eq 'ARRAY' && !$data_failed ) {
@@ -674,13 +698,15 @@ sub run_tests {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( defined($got) ) {
 						$results->{fail}++;
-						push( @{ $results->{failures} },
-							$where . ' expected ' . $key . ' to be undef but got "' . $got . '"' );
+						push(
+							@{ $results->{failures} },
+							$where . ' expected ' . $key . ' to be undef but got "' . $got . '"'
+						);
 						$data_failed = 1;
 						last;
 					}
 				} ## end foreach my $key ( @{ $test->{undefed} } )
-			} ## end if ( defined( $test->{undefed} ) && ref( ...))
+			} ## end if ( defined( $test->{undefed} ) && ref( $test...))
 
 			if ( !$data_failed ) {
 				$results->{pass}++;
@@ -719,7 +745,8 @@ sub _check_thresholds {
 	my $name = $self->{name};
 
 	foreach my $item ( 'max_score', 'find_time' ) {
-		if ( defined( $def->{$item} ) && ( ref( $def->{$item} ) ne '' || $def->{$item} !~ /^[0-9]+$/ || !$def->{$item} ) )
+		if ( defined( $def->{$item} )
+			&& ( ref( $def->{$item} ) ne '' || $def->{$item} !~ /^[0-9]+$/ || !$def->{$item} ) )
 		{
 			die( 'The rule "' . $name . '" has a ' . $item . ', "' . $def->{$item} . '", that is not a positive int' );
 		}
@@ -746,10 +773,9 @@ sub _check_thresholds {
 	if ( defined( $def->{msg} ) && ( ref( $def->{msg} ) ne '' || $def->{msg} eq '' ) ) {
 		die( 'The rule "' . $name . '" has a msg that is not a non-empty string' );
 	}
-	if ( defined( $def->{severity} ) && ( ref( $def->{severity} ) ne '' || !exists( $SEVERITY{ $def->{severity} } ) ) ) {
-		die( 'The rule "'
-				. $name
-				. '" has a severity that is not one of info/low/medium/high/critical' );
+	if ( defined( $def->{severity} ) && ( ref( $def->{severity} ) ne '' || !exists( $SEVERITY{ $def->{severity} } ) ) )
+	{
+		die( 'The rule "' . $name . '" has a severity that is not one of info/low/medium/high/critical' );
 	}
 	if ( defined( $def->{classtype} ) && ( ref( $def->{classtype} ) ne '' || $def->{classtype} eq '' ) ) {
 		die( 'The rule "' . $name . '" has a classtype that is not a non-empty string' );
@@ -766,7 +792,7 @@ sub _check_thresholds {
 				die( 'The rule "' . $name . '" has a ' . $listkey . ' entry that is not a non-empty string' );
 			}
 		}
-	} ## end foreach my $listkey ( 'references'...)
+	} ## end foreach my $listkey ( 'references', 'attack' )
 
 	return;
 } ## end sub _check_thresholds
@@ -804,23 +830,36 @@ sub _check_marks {
 					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
 				}
 			}
-			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ )
-			{
+			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ ) {
 				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
 			}
-			if ( defined( $shapes{$key}{ttl} )
-				&& ( !defined( $entry->{ttl} ) || ref( $entry->{ttl} ) ne '' || $entry->{ttl} !~ /^[0-9]+$/ || !$entry->{ttl} ) )
+			if (
+				defined( $shapes{$key}{ttl} )
+				&& (  !defined( $entry->{ttl} )
+					|| ref( $entry->{ttl} ) ne ''
+					|| $entry->{ttl} !~ /^[0-9]+$/
+					|| !$entry->{ttl} )
+				)
 			{
 				die( $where . ' entry "' . $entry->{name} . '" lacks a ttl that is a positive int of seconds' );
-			}
-			foreach my $string_key ( grep { defined( $shapes{$key}{$_} ) && $shapes{$key}{$_} eq 'string' }
-				keys( %{$entry} ) )
+			} ## end if ( defined( $shapes{$key}{ttl} ) && ( !defined...))
+			foreach my $string_key (
+				grep { defined( $shapes{$key}{$_} ) && $shapes{$key}{$_} eq 'string' }
+				keys( %{$entry} )
+				)
 			{
-				if ( !defined( $entry->{$string_key} ) || ref( $entry->{$string_key} ) ne '' || $entry->{$string_key} eq '' )
+				if (  !defined( $entry->{$string_key} )
+					|| ref( $entry->{$string_key} ) ne ''
+					|| $entry->{$string_key} eq '' )
 				{
-					die( $where . ' entry "' . $entry->{name} . '" has a ' . $string_key . ' that is not a non-empty string' );
-				}
-			}
+					die(      $where
+							. ' entry "'
+							. $entry->{name}
+							. '" has a '
+							. $string_key
+							. ' that is not a non-empty string' );
+				} ## end if ( !defined( $entry->{$string_key} ) || ...)
+			} ## end foreach my $string_key ( grep { defined( $shapes...)})
 			if ( defined( $entry->{value_is} ) && defined( $entry->{value_not} ) ) {
 				die( $where . ' entry "' . $entry->{name} . '" carries both value_is and value_not' );
 			}
@@ -860,17 +899,19 @@ sub _check_country {
 		die( $where . ' has neither is nor isnot' );
 	}
 
-	my $mode = defined( $c->{is} ) ? 'is' : 'isnot';
+	my $mode    = defined( $c->{is} )           ? 'is'             : 'isnot';
 	my @entries = ref( $c->{$mode} ) eq 'ARRAY' ? @{ $c->{$mode} } : ( $c->{$mode} );
 	if ( !@entries ) {
 		die( $where . ' ' . $mode . ' is empty' );
 	}
 	foreach my $entry (@entries) {
-		if ( !defined($entry)
+		if (  !defined($entry)
 			|| ref($entry) ne ''
 			|| $entry !~ /^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/ )
 		{
-			die( $where . ' ' . $mode . ' has a entry that is not a 2-letter code or a %%%country_codes{name}%%% import' );
+			die(      $where . ' '
+					. $mode
+					. ' has a entry that is not a 2-letter code or a %%%country_codes{name}%%% import' );
 		}
 	} ## end foreach my $entry (@entries)
 
@@ -884,7 +925,7 @@ sub _check_country {
 				die( $where . ' vars has a entry that is not a non-empty string' );
 			}
 		}
-	} ## end if ( defined( $c->{vars...}))
+	} ## end if ( defined( $c->{vars} ) )
 
 	return;
 } ## end sub _check_country
@@ -934,7 +975,7 @@ sub _check_namtar {
 		if ( defined( $entry->{var} ) && ( ref( $entry->{var} ) ne '' || $entry->{var} eq '' ) ) {
 			die( $where . ' has a var that is not a non-empty string' );
 		}
-	} ## end foreach my $entry ( @{ $def->...})
+	} ## end foreach my $entry ( @{ $def->{namtar_list} } )
 
 	return;
 } ## end sub _check_namtar
@@ -969,7 +1010,7 @@ sub _check_active_time {
 		die( $where . ' has neither is nor isnot' );
 	}
 
-	my $mode = defined( $a->{is} ) ? 'is' : 'isnot';
+	my $mode    = defined( $a->{is} )           ? 'is'             : 'isnot';
 	my @windows = ref( $a->{$mode} ) eq 'ARRAY' ? @{ $a->{$mode} } : ( $a->{$mode} );
 	if ( !@windows ) {
 		die( $where . ' ' . $mode . ' is empty' );
@@ -990,24 +1031,61 @@ sub _check_active_time {
 				die( $where . ' vars has a entry that is not a non-empty string' );
 			}
 		}
-	} ## end if ( defined( $a->{vars...}))
+	} ## end if ( defined( $a->{vars} ) )
 
 	return;
 } ## end sub _check_active_time
+
+# checks the distinct-cardinality spec, dieing on anything unusable... a table
+# with a of naming the found var whose distinct values the galla counts
+sub _check_distinct {
+	my ( $self, $def ) = @_;
+
+	if ( !defined( $def->{distinct} ) ) {
+		return;
+	}
+	my $name = $self->{name};
+	my $spec = $def->{distinct};
+
+	if ( ref($spec) ne 'HASH' ) {
+		die( 'The distinct of the rule "' . $name . '" is not a table' );
+	}
+	foreach my $key ( keys( %{$spec} ) ) {
+		if ( $key ne 'of' ) {
+			die( 'The distinct of the rule "' . $name . '" has the unknown key "' . $key . '"' );
+		}
+	}
+	if ( !defined( $spec->{of} ) || ref( $spec->{of} ) ne '' || $spec->{of} eq '' ) {
+		die(      'The distinct of the rule "'
+				. $name
+				. '" lacks a non-empty of naming the field to count distinct values of' );
+	}
+
+	return;
+} ## end sub _check_distinct
 
 # compiles the message_regexp and ignore_regexp of the passed def,
 # expanding %%%%TOKEN%%%% tokens into named captures, and populates
 # regexps and ignore_regexps on the object... shared by the handlers
 # whose matching is regexps against a message with something to extract
 sub _compile_message_regexps {
-	my ( $self, $def ) = @_;
+	my ( $self, $def, $allow_empty ) = @_;
 
 	my $name = $self->{name};
 
 	$self->{regexps}        = [];
 	$self->{ignore_regexps} = [];
 
+	# a message_json rule may have no message_regexp, the json fields being
+	# what it matches on, so the caller can allow an empty list. a missing key
+	# is fine then; a present but malformed one is still an error
+	if ( !defined( $def->{message_regexp} ) && $allow_empty ) {
+		return;
+	}
 	if ( ref( $def->{message_regexp} ) ne 'ARRAY' || !@{ $def->{message_regexp} } ) {
+		if ( $allow_empty && !defined( $def->{message_regexp} ) ) {
+			return;
+		}
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
 	}
 	foreach my $item ( @{ $def->{message_regexp} } ) {
@@ -1017,11 +1095,7 @@ sub _compile_message_regexps {
 		if ( ref($item) eq 'HASH' ) {
 			foreach my $key ( keys( %{$item} ) ) {
 				if ( $key !~ /^(?:regexp|key|defer)$/ ) {
-					die(      'A message_regexp entry of the rule "'
-							. $name
-							. '" has the unknown key "'
-							. $key
-							. '"' );
+					die( 'A message_regexp entry of the rule "' . $name . '" has the unknown key "' . $key . '"' );
 				}
 			}
 			if ( !defined( $item->{regexp} ) || ref( $item->{regexp} ) ne '' ) {
@@ -1061,7 +1135,7 @@ sub _compile_message_regexps {
 
 	my $entry_int = 0;
 	foreach my $item ( @{ $def->{message_regexp} } ) {
-		my $regexp = ref($item) eq 'HASH' ? $item->{regexp} : $item;
+		my $regexp   = ref($item) eq 'HASH' ? $item->{regexp} : $item;
 		my $compiled = $self->_compile_tokened_regexp( $regexp,
 			'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
 		if ( ref($item) eq 'HASH' ) {
@@ -1070,7 +1144,7 @@ sub _compile_message_regexps {
 		}
 		push( @{ $self->{regexps} }, $compiled );
 		$entry_int++;
-	} ## end foreach my $item ( @{ $def->{message_regexp} }...)
+	} ## end foreach my $item ( @{ $def->{message_regexp} } )
 
 	return;
 } ## end sub _compile_message_regexps
@@ -1117,7 +1191,7 @@ sub _compile_capture_regexps {
 
 		push( @{ $self->{capture_regexps} }, $compiled );
 		$entry_int++;
-	} ## end foreach my $item ( @{ $def->{capture_regexp} }...)
+	} ## end foreach my $item ( @{ $def->{capture_regexp} } )
 
 	return;
 } ## end sub _compile_capture_regexps
@@ -1173,7 +1247,7 @@ sub _expand_token {
 # possibly carrying a more array of further completions when a capture
 # line resolved deferred offenses
 sub _check_message {
-	my ( $self, $message, $scope ) = @_;
+	my ( $self, $message, $scope, $extra ) = @_;
 
 	if ( !defined($message) ) {
 		return undef;
@@ -1266,6 +1340,35 @@ sub _check_message {
 		$entry_int++;
 	} ## end foreach my $entry ( @{ $self->{regexps} } )
 
+	# message_json... with no message_regexp the offense is the extra fields
+	# themselves (the json body and syslog envelope), synthesized here so the
+	# gate below decides on them. with message_regexp present the regexp stays
+	# the matcher, so nothing is synthesized when it did not fire
+	if ( defined($extra) && !defined($found) && !@completions && !@{ $self->{regexps} } ) {
+		$found = { 'data' => {}, 'regexp' => undef };
+	}
+
+	# merge the extra json+envelope fields into the field space, the line's
+	# own captures winning on a clash, so the gate and ban_var see both
+	if ( defined($extra) ) {
+		if ( defined($found) ) {
+			$found->{data} = { %{$extra}, %{ $found->{data} } };
+		}
+		foreach my $completion (@completions) {
+			$completion->{data} = { %{$extra}, %{ $completion->{data} } };
+		}
+	}
+
+	# the rule's boolean matcher (the gate or the selections+condition, over the
+	# captures, and the json fields when message_json) filters the offense and
+	# each completion, dropping those that do not pass... none skips this
+	if ( ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) || defined( $self->{condition_ast} ) ) {
+		if ( defined($found) && !$self->_boolean_pass( $found->{data}, $message ) ) {
+			$found = undef;
+		}
+		@completions = grep { $self->_boolean_pass( $_->{data}, $message ) } @completions;
+	}
+
 	my $primary = $found;
 	if ( !defined($primary) && @completions ) {
 		$primary = shift(@completions);
@@ -1276,6 +1379,24 @@ sub _check_message {
 
 	return $primary;
 } ## end sub _check_message
+
+# flattens a message that is a JSON object into dotted-path fields, reusing
+# the json parser's flattener... a message that is not a JSON object gives a
+# empty hash, so a message_json rule simply finds no fields and falls through
+sub _flatten_json_message {
+	my ( $self, $message ) = @_;
+
+	if ( !defined($message) ) {
+		return {};
+	}
+	my $parsed;
+	eval { $parsed = App::Baphomet::Parser::parse( 'json', $message ); };
+	if ( ref($parsed) eq 'HASH' && ref( $parsed->{fields} ) eq 'HASH' ) {
+		return $parsed->{fields};
+	}
+
+	return {};
+} ## end sub _flatten_json_message
 
 # stores harvested captures under (scope, key), bounding the per scope
 # key count... on hitting the cap expired entries are pruned first and
@@ -1327,7 +1448,7 @@ sub _match_tokened {
 				delete( $caps{$alias} );
 			}
 		}
-	} ## end foreach my $token ( keys( %{ $entry->{aliases}...}))
+	} ## end foreach my $token ( keys( %{ $entry->{aliases} ...}))
 
 	# SRC/DEST only regard as being found if matched together
 	if ( $entry->{paired} && ( !defined( $caps{SRC} ) || !defined( $caps{DEST} ) ) ) {
@@ -1389,6 +1510,586 @@ sub _matchers_hit {
 
 	return 0;
 } ## end sub _matchers_hit
+
+# the typed field operators, the opt-in richer form of a gate entry. legacy
+# entries (field + values, equality or //regex//) are untouched and never reach
+# here... this only fires for an entry carrying op/value/all/negate
+our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt lt ge le cidr );
+
+# the decode transforms, each string -> zero or more candidate strings, run
+# left to right over a field value before the operator so an obfuscated payload
+# is compared decoded. a transform that can not decode yields no candidate and
+# that branch drops. base64offset yields the three alignment candidates
+our %PREDICATE_TRANSFORMS = (
+	'lower' => sub { return ( lc( $_[0] ) ); },
+	'upper' => sub { return ( uc( $_[0] ) ); },
+	'url'   => sub {
+		my $string = $_[0];
+		$string =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/ge;
+		return ($string);
+	},
+	'windash' => sub {
+		my $string = $_[0];
+		# the unicode dash variants a Windows flag accepts, folded to ascii -
+		$string =~ s/[\x{2010}\x{2011}\x{2012}\x{2013}\x{2014}\x{2015}]/-/g;
+		return ($string);
+	},
+	'base64' => sub {
+		my $decoded;
+		eval { $decoded = decode_base64( $_[0] ); };
+		return ( defined($decoded) && $decoded ne '' ) ? ($decoded) : ();
+	},
+	'base64offset' => sub {
+		my $string = $_[0];
+		my @out;
+		foreach my $offset ( 0, 1, 2 ) {
+			my $slice = substr( $string, $offset );
+			my $trim  = length($slice) - ( length($slice) % 4 );
+			if ( $trim <= 0 ) {
+				next;
+			}
+			my $decoded;
+			eval { $decoded = decode_base64( substr( $slice, 0, $trim ) ); };
+			if ( defined($decoded) && $decoded ne '' ) {
+				push( @out, $decoded );
+			}
+		} ## end foreach my $offset ( 0, 1, 2 )
+		return @out;
+	},
+	'utf16le' => sub {
+		my $d;
+		eval { $d = Encode::decode( 'UTF-16LE', $_[0], Encode::FB_CROAK() ); };
+		return defined($d) ? ($d) : ();
+	},
+	'utf16be' => sub {
+		my $d;
+		eval { $d = Encode::decode( 'UTF-16BE', $_[0], Encode::FB_CROAK() ); };
+		return defined($d) ? ($d) : ();
+	},
+	'utf16' => sub {
+		my $d;
+		eval { $d = Encode::decode( 'UTF-16', $_[0], Encode::FB_CROAK() ); };
+		return defined($d) ? ($d) : ();
+	},
+);
+# wide is a Sigma alias for utf16le
+$PREDICATE_TRANSFORMS{wide} = $PREDICATE_TRANSFORMS{utf16le};
+
+# true if a gate entry is the predicate form rather than the legacy
+# field/values form, so the compiler can branch and leave the old path alone
+sub _is_predicate {
+	my ( $self, $entry ) = @_;
+
+	return (
+		ref($entry) eq 'HASH' && ( exists( $entry->{op} )
+			|| exists( $entry->{value} )
+			|| exists( $entry->{all} )
+			|| exists( $entry->{negate} )
+			|| exists( $entry->{decode} ) )
+		)
+		? 1
+		: 0;
+} ## end sub _is_predicate
+
+# compiles a predicate entry into a runnable form, dieing on anything
+# unusable. shape: { field, op (default eq), value | values, all, negate }.
+# op eq/contains/startswith/endswith are string tests, re a regexp (tokened),
+# gt/lt/ge/le numeric, cidr a v4/v6 membership reusing the ignore-list machine
+sub _compile_predicate {
+	my ( $self, $entry, $where ) = @_;
+
+	foreach my $key ( keys( %{$entry} ) ) {
+		if ( $key !~ /^(?:field|op|value|values|all|negate|decode)$/ ) {
+			die( $where . ' has the unknown key "' . $key . '"' );
+		}
+	}
+
+	my $op = defined( $entry->{op} ) ? $entry->{op} : 'eq';
+	if ( ref($op) ne '' || !$PREDICATE_OPS{$op} ) {
+		die( $where . ' has the unknown op "' . ( ref($op) ? ref($op) : $op ) . '"' );
+	}
+
+	my @values;
+	if ( exists( $entry->{values} ) ) {
+		if ( ref( $entry->{values} ) ne 'ARRAY' || !@{ $entry->{values} } ) {
+			die( $where . ' values is not a non-empty array' );
+		}
+		@values = @{ $entry->{values} };
+	} elsif ( exists( $entry->{value} ) ) {
+		@values = ( $entry->{value} );
+	} else {
+		die( $where . ' lacks a value or values' );
+	}
+	foreach my $v (@values) {
+		if ( !defined($v) || ref($v) ne '' ) {
+			die( $where . ' has a non-scalar value' );
+		}
+	}
+
+	my $predicate = {
+		'field'  => $entry->{field},
+		'op'     => $op,
+		'all'    => $entry->{all}    ? 1 : 0,
+		'negate' => $entry->{negate} ? 1 : 0,
+	};
+
+	if ( exists( $entry->{decode} ) ) {
+		if ( ref( $entry->{decode} ) ne 'ARRAY' || !@{ $entry->{decode} } ) {
+			die( $where . ' decode is not a non-empty array' );
+		}
+		foreach my $transform ( @{ $entry->{decode} } ) {
+			if ( !defined($transform) || ref($transform) ne '' || !$PREDICATE_TRANSFORMS{$transform} ) {
+				die(      $where
+						. ' has the unknown decode transform "'
+						. ( defined($transform) ? ( ref($transform) ? ref($transform) : $transform ) : 'undef' )
+						. '"' );
+			}
+		}
+		$predicate->{decode} = [ @{ $entry->{decode} } ];
+	} ## end if ( exists( $entry->{decode} ) )
+
+	if ( $op eq 're' ) {
+		my @regexps;
+		foreach my $v (@values) {
+			push( @regexps, $self->_compile_tokened_regexp( $v, $where )->{regexp} );
+		}
+		$predicate->{regexps} = \@regexps;
+	} elsif ( $op =~ /^(?:gt|lt|ge|le)$/ ) {
+		my @numbers;
+		foreach my $v (@values) {
+			if ( $v !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
+				die( $where . ' op ' . $op . ' needs numeric values, got "' . $v . '"' );
+			}
+			push( @numbers, $v + 0 );
+		}
+		$predicate->{numbers} = \@numbers;
+	} elsif ( $op eq 'cidr' ) {
+		# dies on a bad CIDR, exactly as the ignore/namtar lists do
+		$predicate->{cidr} = compile_ignore_ips( \@values, $where );
+	} else {
+		$predicate->{strings} = \@values;
+	}
+
+	return $predicate;
+} ## end sub _compile_predicate
+
+# runs a compiled predicate against a field value, honoring negate. a missing
+# field is a false core, so a plain predicate misses and a negated one holds,
+# matching Sigma's "field absent" semantics
+sub _predicate_hit {
+	my ( $self, $predicate, $value ) = @_;
+
+	my $core = $self->_predicate_core( $predicate, $value );
+	if ( $predicate->{negate} ) {
+		return $core ? 0 : 1;
+	}
+	return $core;
+}
+
+sub _predicate_core {
+	my ( $self, $predicate, $value ) = @_;
+
+	if ( !defined($value) ) {
+		return 0;
+	}
+
+	# the field value, run through any decode chain into one or more candidate
+	# strings, the operator matching if any candidate satisfies it. with no
+	# decode the candidate is just the value, so this is the plain path
+	foreach my $candidate ( $self->_decode_candidates( $predicate->{decode}, "$value" ) ) {
+		if ( $self->_predicate_test_one( $predicate, $candidate ) ) {
+			return 1;
+		}
+	}
+
+	return 0;
+} ## end sub _predicate_core
+
+# applies a predicate's decode chain to a value, fanning out... each transform
+# maps every current candidate to zero or more, so base64offset widens and a
+# failed decode narrows. no decode chain is the value unchanged
+sub _decode_candidates {
+	my ( $self, $decode, $value ) = @_;
+
+	if ( !defined($decode) ) {
+		return ($value);
+	}
+
+	my @candidates = ($value);
+	foreach my $transform ( @{$decode} ) {
+		my @next;
+		foreach my $candidate (@candidates) {
+			push( @next, $PREDICATE_TRANSFORMS{$transform}->($candidate) );
+		}
+		@candidates = @next;
+		if ( !@candidates ) {
+			return ();
+		}
+	} ## end foreach my $transform ( @{$decode} )
+
+	return @candidates;
+} ## end sub _decode_candidates
+
+# tests one candidate string against a predicate's operator and values
+sub _predicate_test_one {
+	my ( $self, $predicate, $value ) = @_;
+
+	my $op = $predicate->{op};
+
+	if ( $op eq 'cidr' ) {
+		return ip_ignored( $predicate->{cidr}, $value ) ? 1 : 0;
+	}
+
+	if ( $op =~ /^(?:gt|lt|ge|le)$/ ) {
+		if ( $value !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
+			return 0;
+		}
+		my $number = $value + 0;
+		return $self->_predicate_any_all(
+			$predicate->{all},
+			$predicate->{numbers},
+			sub {
+				my ($t) = @_;
+				return
+					  $op eq 'gt' ? ( $number > $t )
+					: $op eq 'lt' ? ( $number < $t )
+					: $op eq 'ge' ? ( $number >= $t )
+					:               ( $number <= $t );
+			}
+		);
+	} ## end if ( $op =~ /^(?:gt|lt|ge|le)$/ )
+
+	if ( $op eq 're' ) {
+		return $self->_predicate_any_all( $predicate->{all}, $predicate->{regexps},
+			sub { my ($r) = @_; return ( $value =~ $r ) ? 1 : 0; } );
+	}
+
+	# the string ops... eq/contains/startswith/endswith
+	return $self->_predicate_any_all(
+		$predicate->{all},
+		$predicate->{strings},
+		sub {
+			my ($s) = @_;
+			if ( $op eq 'eq' ) {
+				return ( $value eq $s ) ? 1 : 0;
+			}
+			if ( $op eq 'contains' ) {
+				return ( index( $value, $s ) >= 0 ) ? 1 : 0;
+			}
+			if ( $op eq 'startswith' ) {
+				return ( substr( $value, 0, length($s) ) eq $s ) ? 1 : 0;
+			}
+			# endswith
+			return ( length($s) <= length($value) && substr( $value, length($value) - length($s) ) eq $s )
+				? 1
+				: 0;
+		}
+	);
+} ## end sub _predicate_test_one
+
+# folds a test over the values... any by default, all when the predicate's
+# all flag is set
+sub _predicate_any_all {
+	my ( $self, $all, $list, $test ) = @_;
+
+	if ($all) {
+		foreach my $item ( @{$list} ) {
+			if ( !$test->($item) ) {
+				return 0;
+			}
+		}
+		return 1;
+	}
+
+	foreach my $item ( @{$list} ) {
+		if ( $test->($item) ) {
+			return 1;
+		}
+	}
+
+	return 0;
+} ## end sub _predicate_any_all
+
+# compiles a rule's gate array into runnable entries, each either a legacy
+# field/values matcher set or a typed predicate. shared by every type that
+# carries a gate... json runs it as a pre-filter over parsed fields, syslog and
+# raw as a post-match refinement over the captures, and a selection is one such
+# gate list too. $where_prefix names it in errors, so a selection reads clearly
+sub _compile_gates {
+	my ( $self, $gate_def, $where_prefix ) = @_;
+
+	if ( ref($gate_def) ne 'ARRAY' || !@{$gate_def} ) {
+		die( $where_prefix . ' is not a array or is empty' );
+	}
+
+	my @gates;
+	my $entry_int = 0;
+	foreach my $entry ( @{$gate_def} ) {
+		my $where = $where_prefix . ' entry ' . $entry_int;
+		if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) ) {
+			die( $where . ' is not a hash with a field' );
+		}
+		if ( $self->_is_predicate($entry) ) {
+			push( @gates, { 'field' => $entry->{field}, 'predicate' => $self->_compile_predicate( $entry, $where ) } );
+		} else {
+			if ( ref( $entry->{values} ) ne 'ARRAY' ) {
+				die( $where . ' is not a hash with a field and a values array' );
+			}
+			foreach my $key ( keys( %{$entry} ) ) {
+				if ( $key !~ /^(?:field|values)$/ ) {
+					die( $where . ' has the unknown key "' . $key . '"' );
+				}
+			}
+			push( @gates,
+				{ 'field' => $entry->{field}, 'matchers' => $self->_compile_matchers( $entry->{values}, $where ) }
+			);
+		} ## end else [ if ( $self->_is_predicate($entry) ) ]
+		$entry_int++;
+	} ## end foreach my $entry ( @{$gate_def} )
+
+	return \@gates;
+} ## end sub _compile_gates
+
+# runs the rule's own gates over a data hash. the message, when passed, is
+# exposed under the reserved field MESSAGE for a gate that names it and no
+# capture already has, so a predicate can decode or test the whole message
+sub _gate_pass {
+	my ( $self, $data, $message ) = @_;
+
+	return $self->_gates_pass( $self->{gates}, $data, $message );
+}
+
+# compiles a rule's boolean matcher, the flat gate or the selections+condition
+# form, onto the object... they are mutually exclusive, a condition needs
+# selections and the reverse. shared by every type that carries a gate, so json,
+# syslog, and raw all get the operators, decode, and the boolean form uniformly
+sub _compile_boolean {
+	my ( $self, $def, $name ) = @_;
+
+	if ( defined( $def->{gate} ) && defined( $def->{selections} ) ) {
+		die( 'The rule "' . $name . '" has both a gate and selections, which are two forms of the same thing' );
+	}
+
+	if ( defined( $def->{gate} ) ) {
+		$self->{gates} = $self->_compile_gates( $def->{gate}, 'The gate of the rule "' . $name . '"' );
+	}
+
+	if ( defined( $def->{selections} ) ) {
+		if ( !defined( $def->{condition} ) ) {
+			die( 'The rule "' . $name . '" has selections but no condition' );
+		}
+		if ( ref( $def->{selections} ) ne 'HASH' || !%{ $def->{selections} } ) {
+			die( 'The selections of the rule "' . $name . '" is not a non-empty table' );
+		}
+		my %compiled;
+		foreach my $sel_name ( keys( %{ $def->{selections} } ) ) {
+			if ( $sel_name !~ /^[A-Za-z_][A-Za-z0-9_]*$/ || $sel_name =~ /^(?:and|or|not|of|them|all)$/i ) {
+				die( 'The selection name "' . $sel_name . '" of the rule "' . $name . '" is not a plain identifier' );
+			}
+			$compiled{$sel_name} = $self->_compile_gates( $def->{selections}{$sel_name},
+				'The selection "' . $sel_name . '" of the rule "' . $name . '"' );
+		}
+		$self->{selections} = \%compiled;
+		$self->{condition_ast}
+			= $self->_compile_condition( $def->{condition}, \%compiled, 'The condition of the rule "' . $name . '"' );
+	} elsif ( defined( $def->{condition} ) ) {
+		die( 'The rule "' . $name . '" has a condition but no selections' );
+	}
+
+	return;
+} ## end sub _compile_boolean
+
+# runs a rule's boolean matcher over a data hash, true when it passes... the
+# selections folded by their condition when the rule has them, else the flat
+# gate, else true (no boolean filter). the one entry point for json's pre-filter
+# and the syslog/raw post-match refinement alike
+sub _boolean_pass {
+	my ( $self, $data, $message ) = @_;
+
+	if ( defined( $self->{condition_ast} ) ) {
+		my %results;
+		foreach my $sel_name ( keys( %{ $self->{selections} } ) ) {
+			$results{$sel_name} = $self->_gates_pass( $self->{selections}{$sel_name}, $data, $message );
+		}
+		return $self->_eval_condition( $self->{condition_ast}, \%results );
+	}
+
+	if ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) {
+		return $self->_gates_pass( $self->{gates}, $data, $message );
+	}
+
+	return 1;
+} ## end sub _boolean_pass
+
+# the core... runs a given gate list (ANDed) over a data hash, true when all
+# pass. shared by the rule gate and by each selection of the boolean form
+sub _gates_pass {
+	my ( $self, $gates, $data, $message ) = @_;
+
+	foreach my $gate ( @{$gates} ) {
+		my $value
+			= ( $gate->{field} eq 'MESSAGE' && defined($message) && !exists( $data->{MESSAGE} ) )
+			? $message
+			: $data->{ $gate->{field} };
+		my $hit
+			= defined( $gate->{predicate} )
+			? $self->_predicate_hit( $gate->{predicate}, $value )
+			: $self->_matchers_hit( $gate->{matchers}, $value );
+		if ( !$hit ) {
+			return 0;
+		}
+	} ## end foreach my $gate ( @{$gates} )
+
+	return 1;
+} ## end sub _gates_pass
+
+# parses a Sigma-style condition string over the named selections into an AST,
+# dieing on a syntax error or a reference to a unknown selection. the grammar
+# is or > and > not > primary, primary being a paren group, a selection name,
+# or a quantifier... "all of them", "1 of them", "N of <prefix>_*"
+sub _compile_condition {
+	my ( $self, $string, $selections, $where ) = @_;
+
+	if ( !defined($string) || ref($string) ne '' || $string !~ /\S/ ) {
+		die( $where . ' is not a non-empty string' );
+	}
+
+	my @tokens;
+	while ( $string =~ /\G\s*([()]|[^\s()]+)/gc ) {
+		push( @tokens, $1 );
+	}
+
+	my $pos  = 0;
+	my $peek = sub { return $pos < scalar(@tokens) ? $tokens[$pos] : undef; };
+	my $next = sub { return $tokens[ $pos++ ]; };
+
+	my ( $parse_or, $parse_and, $parse_not, $parse_primary );
+
+	$parse_primary = sub {
+		my $tok = $peek->();
+		if ( !defined($tok) ) {
+			die( $where . ' ends unexpectedly' );
+		}
+		if ( $tok eq '(' ) {
+			$next->();
+			my $node  = $parse_or->();
+			my $close = $next->();
+			if ( !defined($close) || $close ne ')' ) {
+				die( $where . ' has an unbalanced paren' );
+			}
+			return $node;
+		}
+		# a quantifier... (all|N) of (them | <prefix>_*)
+		if (   ( lc($tok) eq 'all' || $tok =~ /^[0-9]+$/ )
+			&& defined( $tokens[ $pos + 1 ] )
+			&& lc( $tokens[ $pos + 1 ] ) eq 'of' )
+		{
+			my $qty = $next->();
+			$next->();    # of
+			my $target = $next->();
+			if ( !defined($target) ) {
+				die( $where . ' has an "of" with no target' );
+			}
+			my @names     = $self->_cond_resolve( $target, $selections, $where );
+			my $threshold = ( lc($qty) eq 'all' ) ? scalar(@names) : $qty + 0;
+			return [ 'count', $threshold, \@names ];
+		} ## end if ( ( lc($tok) eq 'all' || $tok =~ /^[0-9]+$/...))
+		my $name = $next->();
+		if ( $name =~ /^(?:and|or|not|of|them|all)$/i || $name eq ')' ) {
+			die( $where . ' has a misplaced "' . $name . '"' );
+		}
+		if ( !exists( $selections->{$name} ) ) {
+			die( $where . ' references the unknown selection "' . $name . '"' );
+		}
+		return [ 'sel', $name ];
+	}; ## end $parse_primary = sub
+
+	$parse_not = sub {
+		my $tok = $peek->();
+		if ( defined($tok) && lc($tok) eq 'not' ) {
+			$next->();
+			return [ 'not', $parse_not->() ];
+		}
+		return $parse_primary->();
+	};
+
+	$parse_and = sub {
+		my $node = $parse_not->();
+		while ( defined( $peek->() ) && lc( $peek->() ) eq 'and' ) {
+			$next->();
+			$node = [ 'and', $node, $parse_not->() ];
+		}
+		return $node;
+	};
+
+	$parse_or = sub {
+		my $node = $parse_and->();
+		while ( defined( $peek->() ) && lc( $peek->() ) eq 'or' ) {
+			$next->();
+			$node = [ 'or', $node, $parse_and->() ];
+		}
+		return $node;
+	};
+
+	my $ast = $parse_or->();
+	if ( $pos != scalar(@tokens) ) {
+		die( $where . ' has trailing tokens after "' . $tokens[$pos] . '"' );
+	}
+
+	return $ast;
+} ## end sub _compile_condition
+
+# resolves a quantifier target to the list of selection names it covers...
+# "them" is all, a trailing * is a name prefix, else a single named selection
+sub _cond_resolve {
+	my ( $self, $target, $selections, $where ) = @_;
+
+	if ( lc($target) eq 'them' ) {
+		my @names = sort( keys( %{$selections} ) );
+		return @names;
+	}
+	if ( $target =~ /^(.*)\*$/ ) {
+		my $prefix = $1;
+		my @names  = grep { index( $_, $prefix ) == 0 } sort( keys( %{$selections} ) );
+		return @names;
+	}
+	if ( !exists( $selections->{$target} ) ) {
+		die( $where . ' has an "of" target "' . $target . '" that is not a selection or a *-pattern' );
+	}
+	return ($target);
+} ## end sub _cond_resolve
+
+# folds a condition AST over a hash of selection name to boolean result
+sub _eval_condition {
+	my ( $self, $ast, $results ) = @_;
+
+	my $op = $ast->[0];
+	if ( $op eq 'sel' ) {
+		return $results->{ $ast->[1] } ? 1 : 0;
+	}
+	if ( $op eq 'not' ) {
+		return $self->_eval_condition( $ast->[1], $results ) ? 0 : 1;
+	}
+	if ( $op eq 'and' ) {
+		return ( $self->_eval_condition( $ast->[1], $results ) && $self->_eval_condition( $ast->[2], $results ) )
+			? 1
+			: 0;
+	}
+	if ( $op eq 'or' ) {
+		return ( $self->_eval_condition( $ast->[1], $results ) || $self->_eval_condition( $ast->[2], $results ) )
+			? 1
+			: 0;
+	}
+	# count... at least threshold of the named selections are true
+	my ( $threshold, $names ) = ( $ast->[1], $ast->[2] );
+	my $hits = 0;
+	foreach my $name ( @{$names} ) {
+		if ( $results->{$name} ) {
+			$hits++;
+		}
+	}
+	return ( $hits >= $threshold ) ? 1 : 0;
+} ## end sub _eval_condition
 
 =head1 AUTHOR
 

@@ -36,10 +36,11 @@ the message. It is a syslog rule with out the daemon gate... the same
 C<message_regexp> with the same C<%%%%TOKEN%%%%> tokens, the same
 C<ignore_regexp>, the same C<ban_var> naming which captures to ban, the
 same per-rule C<max_score>/C<find_time>/C<ban_time>, the same cross-rule
-marks (C<mark>/C<unmark>/C<marked>/C<not_marked>/C<mark_only>), and the
-same C<country>, C<namtar_list>, and C<active_time> gates. See
-L<App::Baphomet::Rules::Syslog> for those. Tests default to the C<raw>
-parser.
+marks (C<mark>/C<unmark>/C<marked>/C<not_marked>/C<mark_only>), the same
+C<country>, C<namtar_list>, and C<active_time> gates, and the same
+predicate C<gate> over the captures (operators and decode over an extracted
+variable or the reserved C<MESSAGE>). See L<App::Baphomet::Rules::Syslog>
+for those. Tests default to the C<raw> parser.
 
     ---
     message_regexp:
@@ -77,8 +78,9 @@ sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		name => defined( $opts{name} ) ? $opts{name} : 'unnamed',
-		def  => $opts{def},
+		name  => defined( $opts{name} ) ? $opts{name} : 'unnamed',
+		def   => $opts{def},
+		gates => [],
 	};
 	bless $self;
 
@@ -91,7 +93,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|gate|selections|condition|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -102,6 +104,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_distinct($def);
 
 	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
 		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
@@ -119,6 +122,10 @@ sub new {
 	# the token and regexp machinery lives in the base class
 	$self->_compile_message_regexps($def);
 	$self->_compile_capture_regexps($def);
+
+	# an optional gate or selections+condition refines the match on its
+	# captures... operators and decode over the extracted vars, and MESSAGE
+	$self->_compile_boolean( $def, $name );
 
 	return $self;
 } ## end sub new
@@ -142,7 +149,7 @@ sub check {
 	}
 
 	return $self->_check_message( $parsed->{message}, $scope );
-} ## end sub check
+}
 
 =head2 ban_var
 

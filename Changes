@@ -1,6 +1,74 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - Distinct-cardinality counting (TODO 5). A rule may carry a distinct
+          spec, distinct: { of: FIELD }, switching its counting from summing
+          hits to counting the distinct values of that field seen from an
+          offender IP within find_time... the score is the set size, and the
+          IP is banished when it reaches max_score distinct values. This is the
+          credential-stuffing shape, N different usernames from one source,
+          that per-hit counting can not tell from one username retried. Works
+          on every rule type, its own bucket keyed by rule and IP, swept and
+          checkpointed like the counters so a partial count rides a restart.
+          See App::Baphomet::Rules::Syslog and the distinct tablet.
+        - selections/condition reach the syslog and raw types. The boolean
+          form (cut three) is no longer json-only... a syslog or raw rule may
+          use named selections and a condition over its captures the same way
+          it uses a gate, run as the post-match refinement. Gate and boolean
+          compile and evaluation are now one shared path in Rules::Base for all
+          three types.
+        - message_json on syslog rules, the fourth Sigma cut. When a daemon
+          logs a JSON object as its message, message_json: true decodes and
+          flattens it into fields the gate tests by dotted path, so the
+          operators and decode fall on the message's own fields... the syslog
+          envelope reachable under reserved syslog.* keys, ban_var naming a
+          json field or a capture. message_regexp is then optional, the gate
+          matching; a non-json message yields no fields and falls through, and
+          a present message_regexp still runs on the raw message as the matcher
+          with the gate refining over both. The decode is memoised per line
+          across rules. Opt-in, so rules without it are unchanged. See
+          App::Baphomet::Rules::Syslog.
+        - Boolean rule logic on json rules... selections and a condition, the
+          third Sigma cut. A rule may carry named selections, each a list of
+          gate predicates ANDed, and a condition string composing them with
+          and/or/not, parens, and the quantifiers "all of them", "1 of them",
+          and "N of <prefix>_*". This is the pre-filter when present, giving
+          the OR, arbitrary nested NOT, and N-of-M the flat gate cannot... the
+          Sigma detection model. An alternative to gate (the two together are
+          an error); a rule without selections runs the gate path unchanged.
+          The condition parser and evaluator are in Rules::Base. See
+          App::Baphomet::Rules::JSON.
+        - The gate operators and decode reach syslog and raw rules too. Those
+          types gain an optional gate, a post-match refinement over the
+          captures a message_regexp extracts... the same predicate form the
+          json gate uses (legacy field/values, or op/value/all/negate/decode),
+          run after the pattern matches, any failing predicate dropping the
+          line to a non-offense. The field names a capture (a token like SRC,
+          a named group like CMD) or the reserved MESSAGE for the whole
+          message, so a rule can decode an extracted variable or the message
+          itself. Composes with a future message_json. Gate compile and
+          evaluation are now shared in Rules::Base; a rule with no gate is
+          unchanged. See App::Baphomet::Rules::Syslog.
+        - Decode/transform on json gate predicates, the second Sigma cut. A
+          predicate may carry a decode list run left to right over the field
+          value before the operator, so an obfuscated payload is compared
+          decoded... base64, base64offset (the three alignment candidates),
+          utf16le/utf16be/utf16 (wide aliasing utf16le), windash, url, lower,
+          upper. A transform that cannot decode drops that candidate, so a bad
+          decode simply misses; decode: [ base64, utf16le ] with op contains
+          is the PowerShell -enc shape. Opt-in on the predicate, so rules
+          without it are unchanged.
+        - Typed field operators on the json rule gate, the first cut of the
+          Sigma-grade condition work. A gate entry may now use an operator
+          form... op eq (default), contains, startswith, endswith, re (a
+          tokened regexp), numeric gt/lt/ge/le, or cidr (v4/v6 membership,
+          reusing the ignore-list machine), with value/values, an all flag
+          for match-every rather than match-any, and negate (which holds when
+          the field is absent, matching Sigma's field-absent semantics). The
+          form is opt-in and detected by an op/value/all/negate key, so the
+          legacy field/values equality-or-//regexp// gate is untouched and
+          every shipped rule and its tests are unchanged. See
+          App::Baphomet::Rules::JSON.
         - Fleet-shared marks over Redis, a sync bus rather than a store. With
           the redis ClayTablet backend, a galla still holds its marks in
           memory and gates on them locally, but publishes each brand and lift

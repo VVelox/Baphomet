@@ -124,9 +124,10 @@ check things like C<data.host> and C<data.path>.
 
 =cut
 
-my %fields = map { $_ => 1 }
-	( 'host', 'ident', 'user', 'time', 'request', 'method', 'path', 'protocol', 'status', 'bytes', 'referer',
-	'user_agent', 'format' );
+my %fields = map { $_ => 1 } (
+	'host',   'ident', 'user',    'time',       'request', 'method', 'path', 'protocol',
+	'status', 'bytes', 'referer', 'user_agent', 'format'
+);
 
 =head1 METHODS
 
@@ -164,7 +165,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:status|method|match|ignore|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:status|method|match|ignore|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -175,6 +176,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_distinct($def);
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );

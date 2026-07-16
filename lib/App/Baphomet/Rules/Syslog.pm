@@ -127,6 +127,56 @@ found with out defer falls through to the next entry.
 Correlation state is per watcher, in memory only, and bounded... a galla
 restart forgets pending correlations.
 
+=head2 message_json
+
+Optional boolean. When a daemon logs a JSON object as its message, this
+decodes it and flattens it into fields the L</gate> can test by their dotted
+paths, the way a C<json> rule works, so operators and decode fall on the
+message's own fields. The syslog envelope stays reachable under reserved keys
+(C<syslog.daemon>, C<syslog.host>, C<syslog.pid>, C<syslog.time>,
+C<syslog.message>), and C<ban_var> may name a json field or a capture.
+
+    daemons:
+      - myapp
+    message_json: true
+    gate:
+      - { field: event, op: eq, value: auth_fail }
+      - { field: cmd,   op: contains, value: mimikatz, decode: [ base64 ] }
+    ban_var:
+      - src
+
+With message_json on, C<message_regexp> becomes optional... the gate is the
+matcher, so a rule may have none. A message that is not a JSON object yields
+no fields, so the gate falls through and the line is not an offense (and any
+C<message_regexp>, if present, still runs on the raw message as the matcher,
+the gate then refining over both its captures and the json fields). The decode
+is memoised per line, so several message_json rules on one watcher share the
+one parse. A rule with message_json, no message_regexp, and no gate is a error,
+as it would banish every line.
+
+=head2 gate
+
+Optional. A post-match refinement over the captures, ANDed... after a
+C<message_regexp> matches and its captures are extracted, each gate entry
+tests one of them, and any failure drops the line to a non-offense. A rule
+with no gate matches exactly as before. With L</message_json> the gate also
+sees the decoded json fields and the reserved C<syslog.*> envelope.
+
+An entry is the same form the json type's gate uses, so see
+L<App::Baphomet::Rules::JSON/gate>: a legacy C<field>/C<values> equality or
+C<//regexp//>, or the typed operator form with C<op> (eq, contains,
+startswith, endswith, re, gt/lt/ge/le, cidr), C<value>/C<values>, C<all>,
+C<negate>, and C<decode> (base64, base64offset, utf16le/be, wide, windash,
+url, lower, upper). The C<field> names a capture... a token capture like
+C<SRC>, a named group like C<CMD>, or the reserved C<MESSAGE> for the whole
+message, so a rule can decode an extracted variable or the message itself.
+
+    message_regexp:
+      - 'ran command (?<CMD>\S+) as %%%%SRC%%%%'
+    gate:
+      - { field: CMD, decode: [ base64 ], op: contains, value: mimikatz }
+      - { field: SRC, op: cidr, value: 10.0.0.0/8 }
+
 =head2 ban_var
 
 The named regexp matches to use for bans. For each name here that a
@@ -335,6 +385,8 @@ sub new {
 		def            => $opts{def},
 		daemon_strings => {},
 		daemon_regexps => [],
+		gates          => [],
+		message_json   => 0,
 	};
 	bless $self;
 
@@ -347,7 +399,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|gate|selections|condition|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -358,6 +410,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_distinct($def);
 
 	foreach my $key ( 'daemons', 'ban_var' ) {
 		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
@@ -390,9 +443,30 @@ sub new {
 		}
 	} ## end foreach my $daemon ( @{ $def->{daemons} } )
 
+	# when the daemon logs a JSON object as its message, decode it into fields
+	# the gate can test... message_regexp is then optional, the gate matching
+	if ( defined( $def->{message_json} ) && ref( $def->{message_json} ) ne '' ) {
+		die( 'The message_json of the rule "' . $name . '" is not a boolean' );
+	}
+	$self->{message_json} = $def->{message_json} ? 1 : 0;
+
 	# the token and regexp machinery lives in the base class
-	$self->_compile_message_regexps($def);
+	$self->_compile_message_regexps( $def, $self->{message_json} );
 	$self->_compile_capture_regexps($def);
+
+	# an optional gate or selections+condition refines the match on its
+	# captures, and when message_json on the decoded fields too... operators and
+	# decode over the extracted vars, the json fields, and the reserved MESSAGE
+	$self->_compile_boolean( $def, $name );
+
+	# a message_json rule with no message_regexp must match on something, else
+	# it would regard every JSON line from the daemon as a offense
+	if ( $self->{message_json} && !@{ $self->{regexps} } && !@{ $self->{gates} } && !defined( $self->{condition_ast} ) )
+	{
+		die(      'The rule "'
+				. $name
+				. '" is message_json with no message_regexp and no gate or selections, so it would banish every line' );
+	}
 
 	return $self;
 } ## end sub new
@@ -437,8 +511,32 @@ sub check {
 		return undef;
 	}
 
+	if ( $self->{message_json} ) {
+		return $self->_check_message( $parsed->{message}, $scope, $self->_message_json_extra($parsed) );
+	}
+
 	return $self->_check_message( $parsed->{message}, $scope );
 } ## end sub check
+
+# builds the extra field space a message_json rule gates over... the JSON body
+# flattened (memoised on the parsed line so several rules share the one decode)
+# plus the syslog envelope under reserved syslog.* keys that can not clash
+sub _message_json_extra {
+	my ( $self, $parsed ) = @_;
+
+	if ( !exists( $parsed->{_message_json_fields} ) ) {
+		$parsed->{_message_json_fields} = $self->_flatten_json_message( $parsed->{message} );
+	}
+	my %extra = %{ $parsed->{_message_json_fields} };
+
+	if ( defined( $parsed->{daemon} ) )   { $extra{'syslog.daemon'}  = $parsed->{daemon}; }
+	if ( defined( $parsed->{hostname} ) ) { $extra{'syslog.host'}    = $parsed->{hostname}; }
+	if ( defined( $parsed->{pid} ) )      { $extra{'syslog.pid'}     = $parsed->{pid}; }
+	if ( defined( $parsed->{time} ) )     { $extra{'syslog.time'}    = $parsed->{time}; }
+	if ( defined( $parsed->{message} ) )  { $extra{'syslog.message'} = $parsed->{message}; }
+
+	return \%extra;
+} ## end sub _message_json_extra
 
 =head2 ban_var
 

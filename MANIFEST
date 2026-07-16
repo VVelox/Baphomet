@@ -229,6 +229,11 @@ t/per-rule-thresholds.t
 t/pod-coverage.t
 t/pod.t
 t/recidive.t
+t/rule-distinct.t
+t/rule-gate-syslog.t
+t/rule-message-json.t
+t/rule-predicates.t
+t/rule-selections.t
 t/rules-http-error.t
 t/rules-http.t
 t/rules-json.t

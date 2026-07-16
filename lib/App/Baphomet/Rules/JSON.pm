@@ -62,6 +62,55 @@ Optional, ANDed. Each entry names a field and the values it must have...
 values entries starting and ending with C<//> are regexps, everything else
 is string equality. A field the line does not carry never matches a gate.
 
+An entry may instead use the typed operator form, opt-in and detected by the
+presence of an C<op>, C<value>, C<all>, or C<negate> key (a plain
+C<field>/C<values> entry stays the legacy equality/regexp form above,
+unchanged):
+
+    gate:
+      - { field: event,     op: eq,    value: auth_fail }
+      - { field: bytes_out, op: gt,    value: 1000000 }
+      - { field: src,       op: cidr,  values: [ 10.0.0.0/8, 2001:db8::/32 ] }
+      - { field: cmd,       op: contains, values: [ psexec, mimikatz ], all: false }
+      - { field: user,      op: eq,    value: healthcheck, negate: true }
+
+    - op :: eq (default), contains, startswith, endswith, re (a tokened
+          regexp), gt/lt/ge/le (numeric, the field coerced, a non-number
+          missing), or cidr (v4/v6 membership).
+    - value / values :: one scalar or a non-empty list, matching if any holds,
+          or all when C<all> is true.
+    - all :: require every value to match rather than any. Default false.
+    - negate :: invert the entry. A negated entry holds when the field is
+          absent, matching Sigma's field-absent semantics.
+    - decode :: a list of transforms run left to right over the field value
+          before the operator, so an obfuscated payload is compared decoded...
+          base64, base64offset (the three alignment candidates), utf16le /
+          utf16be / utf16 (wide an alias for utf16le), windash, url, lower,
+          upper. A transform that can not decode drops that candidate, so a
+          bad decode simply does not match. C<decode: [ base64, utf16le ]>
+          with C<op: contains> is the PowerShell -enc shape.
+
+=head2 selections / condition
+
+Optional, the boolean form and an alternative to L</gate> (a rule may not
+carry both). C<selections> is a table of named selections, each a list of
+gate entries (the same predicate and legacy forms) ANDed together.
+C<condition> is a string composing the selections with C<and>, C<or>,
+C<not>, parens, and the quantifiers C<all of them>, C<1 of them>, and
+C<N of E<lt>prefixE<gt>_*>. It is the pre-filter, ANDed ahead of the
+matches, and gives the OR, arbitrary nesting, and N-of-M the flat gate can
+not... the Sigma detection model.
+
+    selections:
+      auth:  [ { field: event, op: eq, value: authFailure } ]
+      admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
+      trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
+    condition: "auth and admin and not trust"
+
+A selection referenced but not defined, an unbalanced paren, or a stray
+token is a load-time error, as is a condition without selections or the two
+present together.
+
 =head2 match
 
 Optional. Regexps checked in order, first hit wins, each a hash naming the
@@ -157,7 +206,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:gate|match|ignore|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|test_parser|tests)$/
+			!~ /^(?:gate|selections|condition|match|ignore|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -168,6 +217,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_distinct($def);
 
 	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
 		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
@@ -182,31 +232,9 @@ sub new {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
 	}
 
-	if ( defined( $def->{gate} ) ) {
-		if ( ref( $def->{gate} ) ne 'ARRAY' || !@{ $def->{gate} } ) {
-			die( 'The gate of the rule "' . $name . '" is not a array or is empty' );
-		}
-		my $entry_int = 0;
-		foreach my $entry ( @{ $def->{gate} } ) {
-			my $where = 'The gate entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) || ref( $entry->{values} ) ne 'ARRAY' ) {
-				die( $where . ' is not a hash with a field and a values array' );
-			}
-			foreach my $key ( keys( %{$entry} ) ) {
-				if ( $key !~ /^(?:field|values)$/ ) {
-					die( $where . ' has the unknown key "' . $key . '"' );
-				}
-			}
-			push(
-				@{ $self->{gates} },
-				{
-					'field'    => $entry->{field},
-					'matchers' => $self->_compile_matchers( $entry->{values}, $where ),
-				}
-			);
-			$entry_int++;
-		} ## end foreach my $entry ( @{ $def->{gate} } )
-	} ## end if ( defined( $def->{gate} ) )
+	# the flat gate or the boolean selections+condition form, compiled in the
+	# base class and shared with the syslog and raw types
+	$self->_compile_boolean( $def, $name );
 
 	foreach my $sort ( 'match', 'ignore' ) {
 		if ( !defined( $def->{$sort} ) ) {
@@ -239,8 +267,8 @@ sub new {
 		} ## end foreach my $entry ( @{ $def->{$sort} } )
 	} ## end foreach my $sort ( 'match', 'ignore' )
 
-	if ( !@{ $self->{gates} } && !@{ $self->{matches} } ) {
-		die( 'The rule "' . $name . '" has no gates and no matches... it would regard nothing as a offense' );
+	if ( !@{ $self->{gates} } && !defined( $self->{condition_ast} ) && !@{ $self->{matches} } ) {
+		die( 'The rule "' . $name . '" has no gates, selections, or matches... it would regard nothing as a offense' );
 	}
 
 	return $self;
@@ -268,10 +296,10 @@ sub check {
 	}
 	my $fields = $parsed->{fields};
 
-	foreach my $gate ( @{ $self->{gates} } ) {
-		if ( !$self->_matchers_hit( $gate->{matchers}, $fields->{ $gate->{field} } ) ) {
-			return undef;
-		}
+	# the boolean pre-filter... the gate or the selections+condition, ANDed
+	# ahead of the matches
+	if ( !$self->_boolean_pass( $fields, undef ) ) {
+		return undef;
 	}
 
 	foreach my $ignore ( @{ $self->{ignores} } ) {
@@ -292,7 +320,7 @@ sub check {
 				last;
 			}
 			$entry_int++;
-		} ## end foreach my $match ( @{ $self->{matches} } )
+		}
 		if ( !defined($matched) ) {
 			return undef;
 		}

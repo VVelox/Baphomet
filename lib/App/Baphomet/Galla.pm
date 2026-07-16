@@ -91,25 +91,27 @@ sub new {
 			fatal_flags      => {},
 			perror_not_fatal => 0,
 		},
-		config               => '/usr/local/etc/baphomet/config.toml',
-		name                 => undef,
-		settings             => undef,
-		watchers             => {},
-		rules                => undef,
-		counters             => {},
-		rule_counters        => {},
-		shadow_counters      => {},
-		shadow_rule_counters => {},
-		marks                => {},
-		mark_sync            => 0,
-		mark_stream_id       => undef,
-		namtar_files         => {},
-		pending_bans         => {},
-		wheel_to_watcher     => {},
-		started              => undef,
-		stopping             => 0,
-		server               => undef,
-		stats                => {
+		config                   => '/usr/local/etc/baphomet/config.toml',
+		name                     => undef,
+		settings                 => undef,
+		watchers                 => {},
+		rules                    => undef,
+		counters                 => {},
+		rule_counters            => {},
+		shadow_counters          => {},
+		shadow_rule_counters     => {},
+		distinct_counters        => {},
+		shadow_distinct_counters => {},
+		marks                    => {},
+		mark_sync                => 0,
+		mark_stream_id           => undef,
+		namtar_files             => {},
+		pending_bans             => {},
+		wheel_to_watcher         => {},
+		started                  => undef,
+		stopping                 => 0,
+		server                   => undef,
+		stats                    => {
 			lines       => 0,
 			unparsed    => 0,
 			matched     => 0,
@@ -549,6 +551,25 @@ sub checkpoint {
 		}
 	);
 
+	# distinct-cardinality sets... one JSON line per (rule, ip, distinct value)
+	# with the value's newest epoch, so a restart resumes a partial count
+	$self->_write_tablet(
+		'distinct',
+		sub {
+			my ($fh) = @_;
+			foreach my $rule_name ( sort( keys( %{ $self->{distinct_counters} } ) ) ) {
+				foreach my $ip ( sort( keys( %{ $self->{distinct_counters}{$rule_name} } ) ) ) {
+					my $set = $self->{distinct_counters}{$rule_name}{$ip};
+					foreach my $value ( sort( keys( %{$set} ) ) ) {
+						print $fh encode_json(
+							{ 'rule' => $rule_name, 'ip' => $ip, 'value' => $value, 'epoch' => $set->{$value} } )
+							. "\n";
+					}
+				}
+			} ## end foreach my $rule_name ( sort( keys( %{ $self->{...}})))
+		}
+	);
+
 	# pending bans... ip,ban_time, ban_time empty meaning undef
 	$self->_write_tablet(
 		'pending',
@@ -748,6 +769,28 @@ sub _load_state {
 			delete( $self->{rule_counters}{$rule_name} );
 		}
 	}
+
+	# distinct-cardinality sets, restored per (rule, ip, value) and pruned of
+	# anything more than a day stale... the register path re-prunes to the
+	# effective find_time on the next hit
+	foreach my $line ( $self->_read_tablet('distinct') ) {
+		if ( $line eq '' ) {
+			next;
+		}
+		my $decoded;
+		eval { $decoded = decode_json($line); };
+		if (   ref($decoded) ne 'HASH'
+			|| !defined( $decoded->{rule} )
+			|| !defined( $decoded->{ip} )
+			|| !defined( $decoded->{value} )
+			|| !defined( $decoded->{epoch} )
+			|| $decoded->{epoch} !~ /^[0-9]+$/
+			|| ( $now - $decoded->{epoch} ) > 86400 )
+		{
+			next;
+		} ## end if ( ref($decoded) ne 'HASH' || !defined( ...))
+		$self->{distinct_counters}{ $decoded->{rule} }{ $decoded->{ip} }{ $decoded->{value} } = $decoded->{epoch} + 0;
+	} ## end foreach my $line ( $self->_read_tablet('distinct'...))
 
 	# pending bans
 	$line_int = 0;
@@ -2287,6 +2330,44 @@ sub _register_hit {
 	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}       : $settings->{ban_time};
 	my $weight    = $allow                             ? $context->{rule}->weight     : 1;
 
+	# distinct-cardinality counting... instead of summing hits, the bucket is
+	# the set of distinct values of the rule's `of` field seen from this IP, and
+	# the score is the set size. bans when the IP has produced max_score distinct
+	# values with in find_time, catching credential stuffing (N users from one
+	# source) that per-hit counting can not tell from one user retried
+	my $distinct = defined( $context->{rule} ) ? $context->{rule}->distinct : undef;
+	if ( defined($distinct) ) {
+		my $dcounters = $eve_only ? $self->{shadow_distinct_counters} : $self->{distinct_counters};
+		my $rule_name = $context->{rule_name};
+		my $of_value  = $context->{found}{ $distinct->{of} };
+
+		my $set = $dcounters->{$rule_name}{$ip};
+		if ( !defined($set) ) {
+			$set = $dcounters->{$rule_name}{$ip} = {};
+		}
+		if ( defined($of_value) && $of_value ne '' ) {
+			$set->{$of_value} = $now;
+		}
+		# distinct values older than find_time no longer count
+		foreach my $value ( keys( %{$set} ) ) {
+			if ( ( $now - $set->{$value} ) >= $find_time ) {
+				delete( $set->{$value} );
+			}
+		}
+
+		my $score = scalar( keys( %{$set} ) );
+		if ( $score >= $max_score ) {
+			delete( $dcounters->{$rule_name}{$ip} );
+			if ($eve_only) {
+				$self->_alert_ip( $ip, $ban_time, $context, $score );
+			} else {
+				$self->_ban_ip( $ip, $ban_time, $context, $score );
+			}
+		}
+
+		return $score;
+	} ## end if ( defined($distinct) )
+
 	# observe mode counts into the shadow families, kept apart so a watched
 	# rule neither causes nor delays a real ban, nor is polluted by one
 	my $counters      = $eve_only ? $self->{shadow_counters}      : $self->{counters};
@@ -2601,6 +2682,27 @@ sub _sweep {
 			}
 		}
 	}
+
+	# the distinct-cardinality sets the same way... drop values past a day, a
+	# coarse cleanup, the register path re-prunes per the effective find_time
+	foreach my $dcounters ( $self->{distinct_counters}, $self->{shadow_distinct_counters} ) {
+		foreach my $rule_name ( keys( %{$dcounters} ) ) {
+			foreach my $ip ( keys( %{ $dcounters->{$rule_name} } ) ) {
+				my $set = $dcounters->{$rule_name}{$ip};
+				foreach my $value ( keys( %{$set} ) ) {
+					if ( ( $now - $set->{$value} ) > 86400 ) {
+						delete( $set->{$value} );
+					}
+				}
+				if ( !%{$set} ) {
+					delete( $dcounters->{$rule_name}{$ip} );
+				}
+			} ## end foreach my $ip ( keys( %{ $dcounters->{$rule_name...}}))
+			if ( !%{ $dcounters->{$rule_name} } ) {
+				delete( $dcounters->{$rule_name} );
+			}
+		} ## end foreach my $rule_name ( keys( %{$dcounters} ) )
+	} ## end foreach my $dcounters ( $self->{distinct_counters...})
 
 	# reload any namtar list slot whose file mtime changed, appeared, or
 	# vanished, so a updated feed takes effect with in a sweep... _load keys
