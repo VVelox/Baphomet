@@ -497,7 +497,7 @@ a raw line becomes a match, and where the offender comes from.
 
 | type | works on (parser) | how it decides an offense | offender |
 | --- | --- | --- | --- |
-| `syslog` | syslog lines (`bsd_syslog`/`syslog`/`ietf_syslog`/journal) | a `daemons` gate, then `message_regexp` over the message text | `ban_var` captures |
+| `syslog` | syslog lines (`bsd_syslog`/`syslog`/`ietf_syslog`/`json_syslog`/journal) | a `daemons` gate, then `message_regexp` over the message text | `ban_var` captures |
 | `raw` | whole lines (`raw`) | `message_regexp` over the whole line, no daemon gate | `ban_var` captures |
 | `http` | access logs (`http_access`) | `status`/`method` gates and `match` regexps over parsed fields | always `host` |
 | `http_error` | error logs (`apache_error`/`nginx_error`) | `level`/`module` gates, then `message_regexp` over the message | always `client` |

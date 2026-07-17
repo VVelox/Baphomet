@@ -11,7 +11,7 @@ what got ported... the aggressive/ddos mode machinery is dropped.
 
 Rules whose fail2ban jail.conf sets a non-default `maxretry` carry that
 number as their own `max_score` (shellshock, badbots, nagios, and
-portsentry at 1, the overflow/botsearch family at 2, asterisk and
+portsentry at 1, apache-overflows and apache-botsearch at 2, asterisk and
 freeswitch at 10), as do the priority 1 Suricata classes and
 `json/suricata-blocked` (one alert is enough). These numbers are inert
 unless the `allow_per_rule_thresholds` config setting says otherwise...
@@ -112,7 +112,8 @@ output shapes.
 
 Beside the severity-gated `json/suricata`, there is a rule per Suricata
 classification class, `json/suricata-<classtype>`, each gating on that
-class's `alert.category` and banishing `src_ip`. Pick the classes you
+class's `alert.category` and banishing whichever of `src_ip`/`dest_ip` is
+external (`ban_not_internal`, as below). Pick the classes you
 actually want to act on rather than banning on everything Suricata
 alerts... a watcher's rule array is how you choose.
 
