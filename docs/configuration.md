@@ -159,9 +159,9 @@ ban_time=300
 # read authlog
 # the key for the hash under sshd is just a freeform name
 [kur.sshd.authlog]
-log=/var/log/auth.log
-parser=bsd_syslog
-rule=syslog/sshd
+log="/var/log/auth.log"
+parser="bsd_syslog"
+rule="syslog/sshd"
 ```
 
 Watcher keys...
@@ -284,6 +284,7 @@ base_dir = "/var/db/baphomet"   # host-local tablets on disk; redis is bus-only
 | `server` / `sock` | `127.0.0.1:6379` | The Redis, by host:port or a unix socket. |
 | `password` | unset | The AUTH password, when the Redis wants one. |
 | `prefix` | `baphomet` | The key namespace. |
+| `db` | unset | The numbered database to `SELECT` into. |
 | `scope` | the kur name | The mark sharing unit. Machines sharing a scope share marks, so same-named kurs across the fleet share while different kurs stay apart. |
 | `mark_max_ttl` | `604800` | The stream trim horizon and the cold-replay bound, in seconds. Must exceed the longest mark `ttl`. A cold or long-down galla reconstructs its marks by replaying the retained stream. |
 | `host` | the hostname | This machine's identity, stamped on published deltas so a galla skips its own on drain. Pin it to keep identity stable across a hostname change. |

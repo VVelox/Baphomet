@@ -44,7 +44,7 @@ where the file left off through rotations.
 
 Inside a galla, each new line of a watcher's log runs the gauntlet...
 
-1. **Parse.** The watcher's parser (`bsd_syslog` or `ietf_syslog`) breaks
+1. **Parse.** The watcher's parser (e.g. `bsd_syslog`, one of several) breaks
    the line into time, hostname, daemon, level, pid, facility, severity,
    and message. Lines that do not parse are counted and skipped.
 2. **The daemon gate.** The rule's `daemons` list is checked against the
@@ -78,8 +78,9 @@ accumulates in one counter, while kurs count independently.
 Both speak the newline delimited JSON protocol of
 [POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix),
 same as Ereshkigal. The manager socket
-answers `status`, `status_all`, `status_galla`, `accused`, and `stop`,
-with the status and accused fan-out proxied to the galla sockets. The
+answers `status`, `status_all`, `status_galla`, `accused`, `marked`, and
+`stop`, with the status, accused, and marked fan-out proxied to the galla
+sockets. The
 manager socket's group and mode are configurable via `socket_group` and
 `socket_mode`... it only exposes read-only views and stop, but stop is
 still stop.

@@ -538,9 +538,10 @@ sub _read_tablet {
 
 =head2 checkpoint
 
-Writes the state tablets out now... the counters, the pending bans, the
-running stats, the correlation context, the marks, and the log positions.
-Called periodically by the sweeper and on stop.
+Writes the state tablets out now... the counters, the distinct-cardinality
+sets, the pending bans, the log positions, the journal cursors, the running
+stats, the correlation context, the marks, and the mark-stream cursor. Called
+periodically by the sweeper and on stop.
 
     $galla->checkpoint;
 
@@ -738,10 +739,11 @@ sub _snapshot_positions {
 	return;
 } ## end sub _snapshot_positions
 
-# loads the tablets back at start... counters and pending bans pruned to
-# what is still relevant, correlation context restored into the rules,
-# marks restored and pruned of the expired, and log positions kept for
-# start_server to seek to
+# loads the tablets back at start... counters, distinct sets, and pending bans
+# pruned to what is still relevant, log positions kept for start_server to seek
+# to, journal cursors restored, the running stats carried forward, correlation
+# context restored into the rules, marks restored and pruned of the expired,
+# and the mark stream drained to catch up on what the fleet branded while down
 sub _load_state {
 	my ($self) = @_;
 

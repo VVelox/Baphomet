@@ -78,7 +78,8 @@ Each syslog parser takes a line and hands back either undef, for a line it
 can not make sense of, or a hash with the keys below, any of which other
 than format and message may be undef when the line does not carry it.
 
-    - format :: Which grammar parsed the line, bsd_syslog or ietf_syslog.
+    - format :: Which grammar parsed the line: bsd_syslog, ietf_syslog,
+          json_syslog, or journal.
 
     - time :: The timestamp, as the raw string from the line.
 

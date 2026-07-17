@@ -24,9 +24,9 @@ ban_time=300
 # read authlog
 # the key for the hash under sshd is just a freeform name
 [kur.sshd.authlog]
-log=/var/log/auth.log
-parser=bsd_syslog
-rule=syslog/sshd
+log="/var/log/auth.log"
+parser="bsd_syslog"
+rule="syslog/sshd"
 ```
 
 ```shell

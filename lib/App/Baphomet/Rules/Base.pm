@@ -194,8 +194,9 @@ values entries starting and ending with C<//> are regexps, everything else is
 string equality. A field the line does not carry never matches a gate.
 
 An entry may instead use the typed operator form, opt-in and detected by the
-presence of an C<op>, C<value>, C<all>, or C<negate> key (a plain
-C<field>/C<values> entry stays the legacy equality/regexp form above):
+presence of an C<op>, C<value>, C<all>, C<negate>, C<nocase>, C<fieldref>, or
+C<decode> key (a plain C<field>/C<values> entry stays the legacy
+equality/regexp form above):
 
     gate:
       - { field: event,     op: eq,       value: auth_fail }
@@ -337,7 +338,7 @@ A gate that only lets a match count when a IP is in, or not in, a set of
 countries, needing the C<geoip_db> config setting and the optional
 IP::Geolocation::MMDB module. A hash of:
 
-    - is / isnot :: At most one. A list of ISO 3166 2-letter codes and
+    - is / isnot :: Exactly one. A list of ISO 3166 2-letter codes and
           C<%%%country_codes{name}%%%> imports of named lists from the config
           (resolved per watcher). A bare string is a one-element list. is
           counts only IPs in the set, isnot only those not in it.
@@ -380,7 +381,7 @@ ignored IP is never banished even when blocklisted.
 A gate that only lets a match count when a time is in, or not in, named
 windows from the config's C<active_time>, resolved per watcher. A hash of:
 
-    - is / isnot :: At most one. A window name or a list of them. Multiple are
+    - is / isnot :: Exactly one. A window name or a list of them. Multiple are
           unioned. is counts only when the time is in a window, isnot only
           when in none.
 

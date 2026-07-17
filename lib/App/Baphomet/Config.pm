@@ -54,9 +54,9 @@ watchers, each binding a log file to a parser and a rule.
     # read authlog
     # the key for the hash under sshd is just a freeform name
     [kur.sshd.authlog]
-    log=/var/log/auth.log
-    parser=bsd_syslog
-    rule=syslog/sshd
+    log="/var/log/auth.log"
+    parser="bsd_syslog"
+    rule="syslog/sshd"
 
 Top level keys are as below.
 
@@ -78,9 +78,9 @@ Top level keys are as below.
               the default and C<redis> ships. Matches /^[A-Za-z][A-Za-z0-9]*$/.
         - options :: A free-form table the chosen backend interprets. The
               file backend takes an optional C<base_dir> (else
-              tablet_base_dir); the redis backend takes C<server>/C<sock>,
-              C<password>, C<prefix>, C<db>, and C<reconnect>. See
-              L<App::Baphomet::ClayTablet::Redis>.
+              tablet_base_dir); the redis backend takes its own set, from
+              C<server>/C<sock> to C<scope>, C<mark_max_ttl>, and C<local>,
+              documented in full in L<App::Baphomet::ClayTablet::Redis>.
         Default :: undef (the file backend)
 
     - checkpoint :: Seconds between periodic rewrites of the state
@@ -595,7 +595,7 @@ sub check_kur_def {
 				&& !( $key =~ /^(?:rule|log|journal)$/                       && ref( $watcher->{$key} ) eq 'ARRAY' )
 				&& !( $key =~ /^(?:country_codes|namtar_lists|active_time)$/ && ref( $watcher->{$key} ) eq 'HASH' )
 				&& !(
-					$key =~ /^(?:allow_per_rule_thresholds|eve_only|observe_ignored)$/
+					$key =~ /^(?:journal|allow_per_rule_thresholds|eve_only|observe_ignored)$/
 					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean'
 				)
 				)

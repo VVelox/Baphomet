@@ -291,7 +291,8 @@ ANDed ahead of the type's own matching. Every type has it.
 
 - **`gate`** — a list of field predicates, ANDed. The legacy form is
   `{field, values: [ ... ]}` where an entry is a string equality or a
-  `//regexp//`. The typed form, detected by an `op` key, is
+  `//regexp//`. The typed form, detected by any of an `op`, `value`, `all`,
+  `negate`, `nocase`, `fieldref`, or `decode` key, is
   `{field, op, value|values, all?, negate?, nocase?, fieldref?, decode?}` with
   operators `eq`, `contains`, `startswith`, `endswith`, `re`, `gt`/`lt`/`ge`/`le`,
   `cidr`, and `exists` (the field is present, any value... `negate` makes it the
@@ -399,7 +400,7 @@ country:
 max_score: 1
 ```
 
-`is` or `isnot`, at most one. Each list entry is either a literal ISO 3166
+`is` or `isnot`, exactly one. Each list entry is either a literal ISO 3166
 2-letter code or the `%%%country_codes{name}%%%` token, which splices in a
 named list from the config, layered per watcher... so a shipped rule stays
 geography-neutral and the operator owns the policy. A bare string is taken as
@@ -475,7 +476,7 @@ active_time:
 max_score: 1
 ```
 
-`is` or `isnot`, at most one, each a list of window names resolved against
+`is` or `isnot`, exactly one, each a list of window names resolved against
 the watcher's config. Multiple windows are unioned. **`vars`** names which
 found value(s) hold the time to check; without it the gate checks the
 **current time**, the usual case. A value is read as an epoch (all digits;

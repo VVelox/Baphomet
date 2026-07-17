@@ -22,8 +22,8 @@ our $VERSION = '0.0.1';
 
 The default backend, the current on-disk system a galla has always used. Each
 tablet is a file under the base dir named C<galla.E<lt>nameE<gt>.E<lt>kindE<gt>.E<lt>suffixE<gt>>,
-the suffix C<jsonl> for the structured C<context> and C<stats> tablets and
-C<csv> for the rest. Writes go via a temp file and a rename so a tablet is
+the suffix C<jsonl> for the structured C<context>, C<stats>, and C<distinct>
+tablets and C<csv> for the rest. Writes go via a temp file and a rename so a tablet is
 swapped in whole, never seen half-written. A missing tablet reads as a empty
 list; a read or write that throws is logged and swallowed, as a lost checkpoint
 must never take the galla down.
