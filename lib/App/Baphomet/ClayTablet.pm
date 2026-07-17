@@ -198,7 +198,7 @@ sub mark_sync {
 
 =head2 mark_publish
 
-    $tablet->mark_publish( $op, $name, $key, $value, $expires );
+    $tablet->mark_publish( $op, $name, $key, $value, $expires, $set );
 
 Publishes a mark delta to the sync bus. Only call when L</mark_sync> is true.
 

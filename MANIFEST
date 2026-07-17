@@ -186,6 +186,7 @@ rules/syslog/solid-pop3d.yaml
 rules/syslog/sshd-mark-users.yaml
 rules/syslog/sshd-spray.yaml
 rules/syslog/sshd.yaml
+rules/syslog/sudo-policy.yaml
 rules/syslog/suhosin.yaml
 rules/syslog/uwimap-auth.yaml
 rules/syslog/vsftpd.yaml
@@ -202,6 +203,7 @@ t/claytablet-redis.t
 t/cli.t
 t/commands.t
 t/country.t
+t/detection.t
 t/eve-log.t
 t/eve-only.t
 t/galla-journal.t
@@ -230,10 +232,14 @@ t/pod-coverage.t
 t/pod.t
 t/recidive.t
 t/rule-distinct.t
+t/rule-gate-http.t
 t/rule-gate-syslog.t
+t/rule-keywords.t
 t/rule-message-json.t
 t/rule-predicates.t
 t/rule-selections.t
+t/rule-sequence.t
+t/rule-value-count.t
 t/rules-http-error.t
 t/rules-http.t
 t/rules-json.t

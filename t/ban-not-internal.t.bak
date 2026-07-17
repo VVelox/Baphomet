@@ -112,33 +112,27 @@ my @sent;
 
 sub feed {
 	my ( $galla, $watcher, $src, $dest ) = @_;
-	$galla->_handle_line(
-		$watcher,
+	$galla->_handle_line( $watcher,
 		'{"event_type":"alert","src_ip":"' . $src . '","dest_ip":"' . $dest . '","alert":{"category":"x"}}',
-		$dir . '/eve.json'
-	);
+		$dir . '/eve.json' );
 	return;
-}
+} ## end sub feed
 
 sub feed_http {
 	my ( $galla, $host ) = @_;
-	$galla->_handle_line(
-		'access',
+	$galla->_handle_line( 'access',
 		$host . ' - - [12/Jul/2026:08:15:50 -0500] "GET /missing HTTP/1.1" 404 196 "-" "-"',
-		$dir . '/access.log'
-	);
+		$dir . '/access.log' );
 	return;
-}
+} ## end sub feed_http
 
 sub feed_httperror {
 	my ( $galla, $client ) = @_;
-	$galla->_handle_line(
-		'errlog',
+	$galla->_handle_line( 'errlog',
 		'[Sat Jun 01 02:17:42 2013] [error] [client ' . $client . '] user foo not found: /',
-		$dir . '/error.log'
-	);
+		$dir . '/error.log' );
 	return;
-}
+} ## end sub feed_httperror
 
 #
 # internal defaults to ignore_ips
@@ -186,16 +180,11 @@ is_deeply( \@sent, [], 'nothing banned when both internal' );
 #
 
 @sent = ();
-$galla->_handle_line(
-	'eveboth',
+$galla->_handle_line( 'eveboth',
 	'{"event_type":"alert","src_ip":"198.51.100.11","dest_ip":"10.9.9.9","alert":{"category":"x"}}',
-	$dir . '/eve2.json'
-);
-is_deeply(
-	[ sort @sent ],
-	[ '10.9.9.9', '198.51.100.11' ],
-	'a plain dual ban_var rule still bans both, internal and all'
-);
+	$dir . '/eve2.json' );
+is_deeply( [ sort @sent ], [ '10.9.9.9', '198.51.100.11' ],
+	'a plain dual ban_var rule still bans both, internal and all' );
 
 #
 # ban_not_internal on a single fixed offender... the http host

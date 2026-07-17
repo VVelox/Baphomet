@@ -68,6 +68,15 @@ whose field does not match a present gate is not a offense. nginx lines
 and Apache 2.2 lines carry no module, so a module gate makes a rule
 Apache 2.4 only.
 
+=head2 gate / selections / condition / keywords
+
+Optional, the shared predicate matcher run over the parsed error fields
+(client, level, module, message) as a pre-filter ANDed ahead of the
+message_regexp match. The typed operators and C<decode>, the
+C<selections>/C<condition> boolean, and C<keywords> / C<%%%ANY%%%> search all
+work here; the C<message> field carries the error text, so keywords search it.
+See L<App::Baphomet::Rules::Base/"The predicate gate"> for the forms.
+
 =head2 message_regexp
 
 The regexps checked, in order, against the message free text of a parsed
@@ -81,37 +90,18 @@ line.
 Optional. Same, but a hit vetoes the line entirely. Checked before the
 matches.
 
-=head2 max_score / find_time / ban_time / weight / eve_only
+=head2 detection_var
 
-Optional. The rule's own thresholds, honored only when the watcher's
-C<allow_per_rule_thresholds> config setting is on. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
+Optional. Names a field to count by instead of banishing C<client>, making
+the rule detection-only. See L<App::Baphomet::Rules::Base/detection_var>.
 
-=head2 mark / unmark / marked / not_marked / mark_only
+=head2 The common keys
 
-Optional. Cross-rule marks, keyed by the offender or any capture. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 country
-
-Optional. A GeoIP gate on the offender or named found vars. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 namtar_list
-
-Optional. A blocklist gate on the offender or named found vars. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 active_time
-
-Optional. A time-of-day gate on the current time or named found vars. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 test_parser / tests
-
-Positive and negative tests, same shape as everywhere else. Tests parse
-via C<apache_error> unless the rule sets C<test_parser> or a test names a
-parser itself... a nginx rule wants C<test_parser: nginx_error>.
+The counting knobs, the triage metadata, the marks, the
+C<country>/C<namtar_list>/C<active_time> gates, and C<tests> (parsed via
+C<apache_error> unless the rule sets C<test_parser> or a test names one... a
+nginx rule wants C<test_parser: nginx_error>) are shared by every type and
+documented under L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 
 =cut
 
@@ -136,7 +126,7 @@ sub new {
 	my $self = {
 		name           => defined( $opts{name} ) ? $opts{name} : 'unnamed',
 		def            => $opts{def},
-		gates          => {},
+		field_gates    => {},
 		regexps        => [],
 		ignore_regexps => [],
 	};
@@ -151,7 +141,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:level|module|message_regexp|ignore_regexp|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:level|module|gate|selections|condition|keywords|message_regexp|ignore_regexp|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -164,6 +154,10 @@ sub new {
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
 
+	# an http_error rule banishes client by default, but naming a detection_var
+	# makes it detection-only, counting by that instead
+	$self->_check_detection_var( $def, $name );
+
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
 	}
@@ -175,9 +169,13 @@ sub new {
 		if ( ref( $def->{$gate} ) ne 'ARRAY' || !@{ $def->{$gate} } ) {
 			die( 'The ' . $gate . ' of the rule "' . $name . '" is not a array or is empty' );
 		}
-		$self->{gates}{$gate}
+		$self->{field_gates}{$gate}
 			= $self->_compile_matchers( $def->{$gate}, 'The ' . $gate . ' of the rule "' . $name . '"' );
 	} ## end foreach my $gate ( 'level', 'module' )
+
+	# the generic gate / selections / keywords over the parsed fields, the same
+	# machinery the json type uses, ANDed ahead of the message_regexp match
+	$self->_compile_boolean( $def, $name );
 
 	if ( ref( $def->{message_regexp} ) ne 'ARRAY' || !@{ $def->{message_regexp} } ) {
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
@@ -235,10 +233,23 @@ sub check {
 		return undef;
 	}
 
-	foreach my $gate ( keys( %{ $self->{gates} } ) ) {
-		if ( !$self->_matchers_hit( $self->{gates}{$gate}, $parsed->{$gate} ) ) {
+	foreach my $gate ( keys( %{ $self->{field_gates} } ) ) {
+		if ( !$self->_matchers_hit( $self->{field_gates}{$gate}, $parsed->{$gate} ) ) {
 			return undef;
 		}
+	}
+
+	# the generic gate / selections / keywords over the parsed scalar fields
+	# (the message included, so keywords search the error text), a pre-filter
+	# ANDed ahead of the message_regexp match
+	my %field_data;
+	foreach my $field ( keys( %{$parsed} ) ) {
+		if ( defined( $parsed->{$field} ) && ref( $parsed->{$field} ) eq '' ) {
+			$field_data{$field} = $parsed->{$field};
+		}
+	}
+	if ( !$self->_boolean_pass( \%field_data, undef ) ) {
+		return undef;
 	}
 
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {

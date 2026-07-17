@@ -158,18 +158,13 @@ as it would banish every line.
 
 Optional. A post-match refinement over the captures, ANDed... after a
 C<message_regexp> matches and its captures are extracted, each gate entry
-tests one of them, and any failure drops the line to a non-offense. A rule
-with no gate matches exactly as before. With L</message_json> the gate also
-sees the decoded json fields and the reserved C<syslog.*> envelope.
-
-An entry is the same form the json type's gate uses, so see
-L<App::Baphomet::Rules::JSON/gate>: a legacy C<field>/C<values> equality or
-C<//regexp//>, or the typed operator form with C<op> (eq, contains,
-startswith, endswith, re, gt/lt/ge/le, cidr), C<value>/C<values>, C<all>,
-C<negate>, and C<decode> (base64, base64offset, utf16le/be, wide, windash,
-url, lower, upper). The C<field> names a capture... a token capture like
-C<SRC>, a named group like C<CMD>, or the reserved C<MESSAGE> for the whole
-message, so a rule can decode an extracted variable or the message itself.
+tests one of them, and any failure drops the line to a non-offense. With
+L</message_json> the gate also sees the decoded json fields and the reserved
+C<syslog.*> envelope. Here the C<field> names a capture... a token capture
+like C<SRC>, a named group like C<CMD>, or the reserved C<MESSAGE> for the
+whole message. The entry forms, operators, and C<decode>, along with
+C<selections>/C<condition> and C<keywords>, are the shared predicate
+vocabulary documented under L<App::Baphomet::Rules::Base/"The predicate gate">.
 
     message_regexp:
       - 'ran command (?<CMD>\S+) as %%%%SRC%%%%'
@@ -179,188 +174,22 @@ message, so a rule can decode an extracted variable or the message itself.
 
 =head2 ban_var
 
-The named regexp matches to use for bans. For each name here that a
-matching line captured, the captured value is what gets handed to
-Ereshkigal.
+The capture names to ban by. For each name here that a matching line
+captured, the captured value is the offender handed to Ereshkigal. Usually
+just C<SRC>. To count without banning, name L<App::Baphomet::Rules::Base/detection_var>
+in its place.
 
-=head2 msg
+=head2 The common keys
 
-Optional, on every rule type. A short human-readable signature naming what
-the rule detects, the Sagan/Suricata C<msg> convention... a C<[TAG]
-description> line. It is written to every EVE event the rule produces as the
-top-level C<msg> field (Suricata's C<alert.signature>, promoted), so tooling
-reads what tripped without decoding the raw line. When a rule sets none it
-falls back to the rule's name, so the field is always present. Inert to
-matching.
-
-=head2 severity / classtype / references / attack
-
-Optional triage metadata, on every rule type, all inert to matching and all
-written to EVE beside C<msg> when set:
-
-    - severity :: One of info, low, medium, high, or critical. Emitted as the
-          top-level EVE C<severity>. When the rule sets none the config's
-          C<default_severity> (global/kur/watcher) fills in, and absent that
-          too the field is omitted.
-
-    - classtype :: A category string, the Snort/Sagan/Suricata classtype...
-          emitted as EVE C<classtype>. Free-form; the shipped suricata rules
-          carry their Suricata class here.
-
-    - references :: An array of URLs, CVE ids, or doc links. Emitted as EVE
-          C<references>.
-
-    - attack :: An array of MITRE ATT&CK technique ids. Emitted as EVE
-          C<attack>.
-
-Together with C<msg> these are the Suricata/Sagan C<alert> metadata set,
-flattened to top-level EVE fields for triage.
-
-=head2 max_score / find_time / ban_time / weight / eve_only
-
-Optional. The rule's own thresholds and knobs, the first four honored only
-when the watcher's C<allow_per_rule_thresholds> config setting is on, at
-which point the layering is rule over watcher over kur over global. A rule
-overriding C<max_score> or C<find_time> is counted in its own bucket, apart
-from the shared per-IP count, while a C<ban_time>-only override counts in
-the shared bucket and just bans with its own duration.
-
-C<max_score> is the accumulated score at which an offender is banished, not
-a plain retry count... each match deposits the rule's C<weight> (a positive
-number, default 1), so a heavy signature bans faster and several rules
-against one IP sum toward the one judgment. With every weight 1 the score
-is just the hit count, as before.
-
-C<eve_only>, unlike the others, is honored whatever the consent setting and
-layers over the watcher's own C<eve_only>... a boolean putting the rule in
-observe mode. Its matches are written to EVE but never counted toward a real
-ban, a would-be banish surfacing as an C<alert> event and each match as
-C<noted> rather than C<found>. Set it false to opt one rule back in to real
-banning under a watcher or kur that is observing.
-
-=head2 mark / unmark / marked / not_marked / mark_only
-
-Optional. Marks are a galla wide, expiring, named store one rule brands and
-another gates on, so rules can carry state across each other the way
-correlation carries it across lines. The key defaults to the offender IP
-but any capture or field can be it, and a value can be harvested from the
-line too.
-
-    - mark :: Array of brands to set on match, each a hash of C<name> and
-          C<ttl>, and optionally C<var> (key by this capture instead of the
-          offender IP) and C<value_var> (store this capture on the brand).
-
-    - unmark :: Array of brands to lift on match, each C<name> and
-          optionally C<var>.
-
-    - marked :: Gate array, ANDed... the result only counts if every named
-          brand is set. Each a hash of C<name>, optionally C<var>, and at
-          most one of C<value_is> or C<value_not> naming a capture the
-          stored value must equal or differ from. A var entry is checked
-          against the line's captures, a var-less one against each offender.
-
-    - not_marked :: The inverse gate... the result only counts if none of
-          the named brands is set.
-
-    - mark_only :: When true the rule only brands and gates, never counting
-          toward a ban, and does not consume the line, so matching falls
-          through to the later rules.
-
-A rule whose mark gates veto, like a mark_only rule, falls through rather
-than consuming the line, so the brander and the gater can both fire on it.
-Marks live per galla, cross watchers and rules but not kurs, survive a
-restart, and are visible with C<baphomet marked>. The ignored are never
-branded. See C<syslog/sshd-mark-users> and C<syslog/sshd-spray> for a
-shipped pair.
-
-=head2 country
-
-Optional. A gate that only lets a match count when a IP is in, or not in, a
-set of countries, needing the C<geoip_db> config setting and the optional
-IP::Geolocation::MMDB module. A hash of:
-
-    - is / isnot :: At most one. A list of ISO 3166 2-letter codes and
-          C<%%%country_codes{name}%%%> imports of named lists from the
-          config (resolved per watcher). A bare string is a one-element
-          list. is counts only IPs in the set, isnot only those not in it.
-
-    - vars :: Optional. Found vars to check the country of instead of the
-          offender. Without it the gate is offender-keyed, checked per
-          ban_var candidate in the ban loop. With it the gate is data-keyed,
-          checked once per result against those vars (resolved like ban_var)
-          and vetoing the whole result on a failure... so a rule can gate on
-          the geography of a value it is not banning.
-
-The gate fails closed: a IP that does not locate, or a missing database,
-blocks the count rather than risking a wrong ban. A galla with country
-gated rules and no database says so loudly at start.
-
-=head2 namtar_list
-
-Optional. A gate that only lets a match count when a value is on a named
-blocklist, the inverse of ignore_ips. The lists are named in the config's
-C<namtar_lists>, layered per watcher and reloaded on mtime change. Each
-list is a cidr list matched by address containment, or a string list
-matched by exact (optionally case-folded) equality, so the gate reaches
-beyond the offender IP to any captured field. The flavor is set on the list
-in the config, not the rule. A array of entries, each:
-
-    - list / lists :: One or more named lists to check against. A value on
-          any of them (union) satisfies the entry, even across flavors.
-
-    - var :: Optional. The found var to check, resolved like ban_var. With
-          it the entry is data-keyed and vets the whole result, without it
-          the entry is offender-keyed and filters candidates... so a rule
-          can gate on a captured field it is not banning.
-
-Every entry must hold. The gate fails closed: a value on no list, or a list
-whose file is unreadable, blocks the count. ignore_ips still wins, so a
-ignored IP is never banished even when blocklisted.
-
-=head2 active_time
-
-Optional. A gate that only lets a match count when a time is in, or not in,
-named windows from the config's C<active_time>, resolved per watcher. A
-hash of:
-
-    - is / isnot :: At most one. A window name or a list of them. Multiple
-          are unioned. is counts only when the time is in a window, isnot
-          only when in none.
-
-    - vars :: Optional. Found vars holding the time to check, read as a
-          epoch or a ISO 8601 datetime. Without it the gate checks the
-          current time. A value that does not parse fails closed.
-
-Unlike the other gates active_time is never per-offender... time is a
-property of the line, so it is checked once per result and vetoes the whole
-result. Times are local.
-
-=head2 tests
-
-Positive and negative tests for verifying the rule works. These are ran at
-load time and a rule failing its own tests refuses to load. Each test is a
-hash with the keys below. A top level C<test_parser> key sets the default
-parser for all of them.
-
-    - message :: The full log line to test with. Either this or messages
-          is required.
-
-    - messages :: A array of lines fed through in order, for testing
-          correlation... each test entry runs in its own throwaway scope,
-          found is the expected count of found results across the
-          sequence, and data asserts against the last of them.
-
-    - parser :: The parser to parse it with.
-        Default :: bsd_syslog
-
-    - found :: If the rule should match the line or not, 1 or 0.
-        Default :: 1 for positive, 0 for negative
-
-    - data :: For positive tests, a hash of capture names to the values
-          they should of captured.
-
-    - undefed :: For negative tests, a array of capture names that should
-          not be defined.
+Everything past the matcher... C<detection_var>, C<ban_not_internal>, the
+counting knobs (C<max_score>/C<find_time>/C<ban_time>/C<weight>, C<eve_only>,
+C<distinct>), the triage metadata (C<msg>,
+C<severity>/C<classtype>/C<references>/C<attack>), the C<selections> /
+C<condition> / C<keywords> boolean forms, the marks
+(C<mark>/C<unmark>/C<marked>/C<not_marked>/C<mark_only>, C<sequence>), the
+C<country> / C<namtar_list> / C<active_time> gates, and C<tests>... is shared
+by every rule type and documented in full under
+L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 
 =head1 METHODS
 
@@ -399,7 +228,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|gate|selections|condition|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -412,7 +241,11 @@ sub new {
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
 
-	foreach my $key ( 'daemons', 'ban_var' ) {
+	# a detection-only rule counts by its detection_var subject and never
+	# banishes, so it needs no ban_var... daemons is required either way
+	my $is_detection = $self->_check_detection_var( $def, $name );
+	my @required     = $is_detection ? ('daemons') : ( 'daemons', 'ban_var' );
+	foreach my $key (@required) {
 		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
 			die( 'The rule "' . $name . '" lacks a ' . $key . ' array or it is empty' );
 		}
@@ -421,7 +254,7 @@ sub new {
 				die( 'The ' . $key . ' of the rule "' . $name . '" contains a non-string entry' );
 			}
 		}
-	} ## end foreach my $key ( 'daemons', 'ban_var' )
+	} ## end foreach my $key (@required)
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );

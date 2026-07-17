@@ -119,6 +119,7 @@ sub new {
 			bans        => 0,
 			ban_errors  => 0,
 			recidivists => 0,
+			sightings   => 0,
 			per_watcher => {},
 			per_rule    => {},
 		},
@@ -369,6 +370,30 @@ sub new {
 			'journal_spawned' => undef,
 		};
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
+
+	# a detection rule writes only to EVE, so it is a silent no-op with the log
+	# off... force it on when any is loaded, make the dir a first write needs,
+	# and say so, rather than leave the operator wondering why nothing lands
+	if ( !$self->{eve_enable} ) {
+		my $has_detection = 0;
+		foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+			foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
+				if ( defined($rule_obj) && $rule_obj->is_detection ) {
+					$has_detection = 1;
+				}
+			}
+		}
+		if ($has_detection) {
+			$self->{eve_enable} = 1;
+			my $eve_dir = $self->{eve_log};
+			$eve_dir =~ s{/[^/]*$}{};
+			if ( $eve_dir ne '' && !-e $eve_dir ) {
+				eval { mkdir($eve_dir); };
+			}
+			log_drek( 'info', 'a detection rule is loaded... EVE output enabled to ' . $self->{eve_log},
+				undef, 'galla-' . $self->{name} );
+		} ## end if ($has_detection)
+	} ## end if ( !$self->{eve_enable} )
 
 	# a country gate with no GeoIP database behind it fails closed, so those
 	# rules banish nobody... that is a silent hole, so say so loudly. not a
@@ -663,6 +688,7 @@ sub checkpoint {
 							'name'    => $mark_name,
 							'key'     => $key,
 							'expires' => $store->{$key}{expires},
+							defined( $store->{$key}{set} )  ? ( 'set'   => $store->{$key}{set} )   : (),
 							exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
 						}
 					) . "\n";
@@ -907,7 +933,8 @@ sub _load_state {
 		}
 		$self->{marks}{ $decoded->{name} }{ $decoded->{key} } = {
 			'expires' => $decoded->{expires} + 0,
-			exists( $decoded->{value} ) ? ( 'value' => $decoded->{value} ) : ()
+			( defined( $decoded->{set} ) && $decoded->{set} =~ /^[0-9]+$/ ) ? ( 'set'   => $decoded->{set} + 0 ) : (),
+			exists( $decoded->{value} )                                     ? ( 'value' => $decoded->{value} )   : ()
 		};
 	} ## end foreach my $line ( $self->_read_tablet('marks'))
 
@@ -1557,6 +1584,7 @@ sub _handle_line {
 
 		my $gates        = $rule_obj->mark_gates;
 		my $mark_only    = $rule_obj->mark_only;
+		my $is_detection = $rule_obj->is_detection;
 		my $country_gate = $watcher->{country_gates}[$rule_int];
 		my $namtar_gate  = $watcher->{namtar_gates}[$rule_int];
 		my $active_gate  = $watcher->{active_gates}[$rule_int];
@@ -1610,52 +1638,77 @@ sub _handle_line {
 
 			# a ban_not_internal rule banishes the end of the flow that is
 			# not one of ours... the offender may be the src or the dest
-			# depending on where the alert fired
-			my $not_internal = $rule_obj->ban_not_internal;
+			# depending on where the alert fired. a detection rule banishes
+			# nobody, so it has no offenders, only detection_var subjects
+			my $not_internal = $is_detection ? 0 : $rule_obj->ban_not_internal;
 
 			# the offenders this result would banish... the ban_vars that
 			# captured a IP that is not one of our own. also who the var-less
 			# marks brand and the var-less gates key by
 			my @offenders;
-			foreach my $ban_var ( $rule_obj->ban_var ) {
-				my $ip = $one->{data}{$ban_var};
-				if ( !defined($ip) ) {
-					next;
-				}
-				if ( $not_internal && ip_ignored( $self->{internal}, $ip ) ) {
-					# ip_ignored is a plain set membership test... here it is
-					# the internal set, so this IP is ours, not the offender
-					next;
-				}
-				push( @offenders, $ip );
-			} ## end foreach my $ban_var ( $rule_obj->ban_var )
+			if ( !$is_detection ) {
+				foreach my $ban_var ( $rule_obj->ban_var ) {
+					my $ip = $one->{data}{$ban_var};
+					if ( !defined($ip) ) {
+						next;
+					}
+					if ( $not_internal && ip_ignored( $self->{internal}, $ip ) ) {
+						# ip_ignored is a plain set membership test... here it is
+						# the internal set, so this IP is ours, not the offender
+						next;
+					}
+					push( @offenders, $ip );
+				} ## end foreach my $ban_var ( $rule_obj->ban_var )
+			} ## end if ( !$is_detection )
 
 			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
 
 			my $score;
-			if ( !$mark_only ) {
-				# a firing non-mark_only rule consumes the line, same as
-				# before marks, whichever offenders the gates then let count
+			if ($is_detection) {
+				# detection-only... count each detection_var subject into the
+				# shadow buckets and never banish. a subject crossing threshold
+				# raises a sighted, a match itself is a sighting. it consumes
+				# the line the same as any firing non-mark_only rule
 				$consumed = 1;
-				foreach my $ip (@offenders) {
-					if ( !$self->_mark_gates_pass( $gates, $one->{data}, $ip, $now ) ) {
+				foreach my $detection_var ( $rule_obj->detection_var ) {
+					my $subject = $one->{data}{$detection_var};
+					if ( !defined($subject) || $subject eq '' ) {
 						next;
 					}
-					if ( !$self->_country_gate_pass( $country_gate, $one->{data}, $ip ) ) {
-						next;
-					}
-					if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
-						next;
-					}
-					my $registered = $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
+					my $registered
+						= $self->_register_hit( $watcher_name, $subject, $context, $eve_only, $observe_ignored, 1 );
 					if ( !defined($score) && defined($registered) ) {
 						$score = $registered;
 					}
-				} ## end foreach my $ip (@offenders)
-			} ## end if ( !$mark_only )
+				} ## end foreach my $detection_var ( $rule_obj->detection_var)
+				$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
+			} else {
+				if ( !$mark_only ) {
+					# a firing non-mark_only rule consumes the line, same as
+					# before marks, whichever offenders the gates then let count
+					$consumed = 1;
+					foreach my $ip (@offenders) {
+						if ( !$self->_mark_gates_pass( $gates, $one->{data}, $ip, $now ) ) {
+							next;
+						}
+						if ( !$self->_country_gate_pass( $country_gate, $one->{data}, $ip ) ) {
+							next;
+						}
+						if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
+							next;
+						}
+						my $registered
+							= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
+						if ( !defined($score) && defined($registered) ) {
+							$score = $registered;
+						}
+					} ## end foreach my $ip (@offenders)
+				} ## end if ( !$mark_only )
 
-			# observe mode colors the match event noted, not found
-			$self->_eve_emit( $eve_only ? 'noted' : 'found', $self->_eve_fields( $context, $score, $set, $lifted ) );
+				# observe mode colors the match event noted, not found
+				$self->_eve_emit( $eve_only ? 'noted' : 'found',
+					$self->_eve_fields( $context, $score, $set, $lifted ) );
+			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
 		if ($consumed) {
@@ -2152,6 +2205,37 @@ sub _mark_gates_pass {
 		}
 	} ## end foreach my $entry ( @{ $gates->{not_marked} } )
 
+	# the sequence gate... ordered temporal correlation. every named mark must
+	# be live for the key and their first-seen times non-decreasing in the
+	# listed order, so "stage a then b then c" only holds when a fired no later
+	# than b and b no later than c. keyed like the marked gate, by a var's
+	# capture or, var-less, by the offender
+	foreach my $entry ( @{ $gates->{sequence} } ) {
+		if ( defined( $entry->{var} ) ? defined($ip) : !defined($ip) ) {
+			next;
+		}
+		my $key = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
+		if ( !defined($key) ) {
+			return 0;
+		}
+		my $prev_set;
+		foreach my $mark_name ( @{ $entry->{marks} } ) {
+			my $mark = $self->{marks}{$mark_name}{$key};
+			if ( !defined($mark) || $mark->{expires} <= $now ) {
+				return 0;
+			}
+			my $set = $mark->{set};
+			# order only enforced between marks that both carry a set time... a
+			# mark from before set times existed simply is not ordered against
+			if ( defined($set) && defined($prev_set) && $set < $prev_set ) {
+				return 0;
+			}
+			if ( defined($set) ) {
+				$prev_set = $set;
+			}
+		} ## end foreach my $mark_name ( @{ $entry->{marks} } )
+	} ## end foreach my $entry ( @{ $gates->{sequence} } )
+
 	return 1;
 } ## end sub _mark_gates_pass
 
@@ -2178,12 +2262,19 @@ sub _mark_set {
 		}
 	} ## end if ( !defined( $store->{$key} ) && scalar(...))
 
-	$store->{$key} = { 'expires' => $now + $ttl, defined($value) ? ( 'value' => $value ) : () };
+	# the set time is first-seen... a re-brand refreshes the expiry but keeps
+	# when the mark first appeared, so the sequence gate orders by when each
+	# stage first fired rather than when it was last touched
+	my $set
+		= ( defined( $store->{$key} ) && defined( $store->{$key}{set} ) && $store->{$key}{expires} > $now )
+		? $store->{$key}{set}
+		: $now;
+	$store->{$key} = { 'expires' => $now + $ttl, 'set' => $set, defined($value) ? ( 'value' => $value ) : () };
 
 	# gossip the brand to the fleet, best-effort, after the local set... a
 	# failed publish never unmakes the brand that just happened
 	if ( $self->{mark_sync} ) {
-		$self->{tablet}->mark_publish( 'set', $name, $key, $value, $now + $ttl );
+		$self->{tablet}->mark_publish( 'set', $name, $key, $value, $now + $ttl, $set );
 	}
 
 	return;
@@ -2288,8 +2379,18 @@ sub _ingest_mark_event {
 		if ( defined($held) && $held->{expires} > $expires ) {
 			$expires = $held->{expires};
 		}
-		$self->{marks}{$name}{$key}
-			= { 'expires' => $expires, exists( $event->{value} ) ? ( 'value' => $event->{value} ) : () };
+		# the set time folds to the earliest, so the whole fleet agrees on when
+		# a stage first fired regardless of drain order... expires max, set min,
+		# both order-independent so the fold converges
+		my $set = ( defined( $event->{set} ) && $event->{set} =~ /^[0-9]+$/ ) ? $event->{set} + 0 : undef;
+		if ( defined($held) && defined( $held->{set} ) && ( !defined($set) || $held->{set} < $set ) ) {
+			$set = $held->{set};
+		}
+		$self->{marks}{$name}{$key} = {
+			'expires' => $expires,
+			defined($set)             ? ( 'set'   => $set )            : (),
+			exists( $event->{value} ) ? ( 'value' => $event->{value} ) : ()
+		};
 	} ## end if ( $op eq 'set' )
 
 	return;
@@ -2303,11 +2404,12 @@ sub _ingest_mark_event {
 # counts into a shadow bucket kept wholly apart from the real ones and raises
 # a alert instead of banishing, so nothing is sent to Kur
 sub _register_hit {
-	my ( $self, $watcher_name, $ip, $context, $eve_only, $observe_ignored ) = @_;
+	my ( $self, $watcher_name, $ip, $context, $eve_only, $observe_ignored, $detection ) = @_;
 
 	# the ignored never accumulate so much as a counter... unless observe mode
-	# is told to watch what ignore_ips would otherwise drop
-	if ( ip_ignored( $self->{ignore_ips}, $ip ) ) {
+	# is told to watch what ignore_ips would otherwise drop. a detection subject
+	# is not necessarily a IP and never banishes, so ignore_ips does not apply
+	if ( !$detection && ip_ignored( $self->{ignore_ips}, $ip ) ) {
 		if ( !( $eve_only && $observe_ignored ) ) {
 			$self->_tick( 'ignored', $watcher_name );
 			return undef;
@@ -2316,6 +2418,10 @@ sub _register_hit {
 
 	my $settings = $self->{watchers}{$watcher_name}{settings};
 	my $now      = time;
+
+	# detection rules, like observe mode, count into the shadow families so
+	# they can never cause or delay a real ban
+	my $use_shadow = ( $eve_only || $detection );
 
 	# when the watcher allows it, the rule's own thresholds and weight speak
 	# over the watcher's... a rule overriding how counting works gets its own
@@ -2331,23 +2437,44 @@ sub _register_hit {
 	my $weight    = $allow                             ? $context->{rule}->weight     : 1;
 
 	# distinct-cardinality counting... instead of summing hits, the bucket is
-	# the set of distinct values of the rule's `of` field seen from this IP, and
-	# the score is the set size. bans when the IP has produced max_score distinct
-	# values with in find_time, catching credential stuffing (N users from one
-	# source) that per-hit counting can not tell from one user retried
+	# the set of distinct values of the rule's `of` field, keyed by the grouping
+	# key, and the score is the set size. bans when the key has produced
+	# max_score distinct values with in find_time. the grouping key is the `by`
+	# field when set (value_count, count of one field grouped by another, N
+	# sources against one account), else the offender (plain distinct-
+	# cardinality, N users from one source), and the ban always lands on the
+	# current offender, so a non-bannable key like a username still banishes the
+	# source that tipped it over
 	my $distinct = defined( $context->{rule} ) ? $context->{rule}->distinct : undef;
 	if ( defined($distinct) ) {
-		my $dcounters = $eve_only ? $self->{shadow_distinct_counters} : $self->{distinct_counters};
+		my $dcounters = $use_shadow ? $self->{shadow_distinct_counters} : $self->{distinct_counters};
 		my $rule_name = $context->{rule_name};
 		my $of_value  = $context->{found}{ $distinct->{of} };
+		my $key       = defined( $distinct->{by} ) ? $context->{found}{ $distinct->{by} } : $ip;
+		if ( !defined($key) || $key eq '' ) {
+			return undef;
+		}
 
-		my $set = $dcounters->{$rule_name}{$ip};
+		my $set = $dcounters->{$rule_name}{$key};
 		if ( !defined($set) ) {
-			$set = $dcounters->{$rule_name}{$ip} = {};
+			$set = $dcounters->{$rule_name}{$key} = {};
 		}
 		if ( defined($of_value) && $of_value ne '' ) {
+			# bound the set per key... prune the expired first, then evict the
+			# oldest, so a flood of distinct values can not grow it without limit
+			if ( !defined( $set->{$of_value} ) && scalar( keys( %{$set} ) ) >= 10000 ) {
+				foreach my $held ( keys( %{$set} ) ) {
+					if ( ( $now - $set->{$held} ) >= $find_time ) {
+						delete( $set->{$held} );
+					}
+				}
+				if ( scalar( keys( %{$set} ) ) >= 10000 ) {
+					my ($oldest) = sort { $set->{$a} <=> $set->{$b} } keys( %{$set} );
+					delete( $set->{$oldest} );
+				}
+			} ## end if ( !defined( $set->{$of_value} ) && scalar...)
 			$set->{$of_value} = $now;
-		}
+		} ## end if ( defined($of_value) && $of_value ne '')
 		# distinct values older than find_time no longer count
 		foreach my $value ( keys( %{$set} ) ) {
 			if ( ( $now - $set->{$value} ) >= $find_time ) {
@@ -2357,21 +2484,30 @@ sub _register_hit {
 
 		my $score = scalar( keys( %{$set} ) );
 		if ( $score >= $max_score ) {
-			delete( $dcounters->{$rule_name}{$ip} );
-			if ($eve_only) {
+			# offender-keyed... the key is the banished IP, clear its set like a
+			# counter. by-keyed value_count... the key is not the ban target, so
+			# keep the set and banish the current offender, catching every
+			# further source while the group stays over threshold
+			if ( $key eq $ip ) {
+				delete( $dcounters->{$rule_name}{$key} );
+			}
+			if ($detection) {
+				$self->_sighted( $ip, $context, $score );
+			} elsif ($eve_only) {
 				$self->_alert_ip( $ip, $ban_time, $context, $score );
 			} else {
 				$self->_ban_ip( $ip, $ban_time, $context, $score );
 			}
-		}
+		} ## end if ( $score >= $max_score )
 
 		return $score;
 	} ## end if ( defined($distinct) )
 
-	# observe mode counts into the shadow families, kept apart so a watched
-	# rule neither causes nor delays a real ban, nor is polluted by one
-	my $counters      = $eve_only ? $self->{shadow_counters}      : $self->{counters};
-	my $rule_counters = $eve_only ? $self->{shadow_rule_counters} : $self->{rule_counters};
+	# observe mode and detection count into the shadow families, kept apart so
+	# a watched or detection rule neither causes nor delays a real ban, nor is
+	# polluted by one
+	my $counters      = $use_shadow ? $self->{shadow_counters}      : $self->{counters};
+	my $rule_counters = $use_shadow ? $self->{shadow_rule_counters} : $self->{rule_counters};
 
 	my $bucket;
 	if ( defined( $overrides->{max_score} ) || defined( $overrides->{find_time} ) ) {
@@ -2398,12 +2534,14 @@ sub _register_hit {
 
 	if ( $score >= $max_score ) {
 		delete( $bucket->{$ip} );
-		if ($eve_only) {
+		if ($detection) {
+			$self->_sighted( $ip, $context, $score );
+		} elsif ($eve_only) {
 			$self->_alert_ip( $ip, $ban_time, $context, $score );
 		} else {
 			$self->_ban_ip( $ip, $ban_time, $context, $score );
 		}
-	}
+	} ## end if ( $score >= $max_score )
 
 	return $score;
 } ## end sub _register_hit
@@ -2483,6 +2621,33 @@ sub _alert_ip {
 
 	return;
 } ## end sub _alert_ip
+
+# the detection twin of _ban_ip and _alert_ip... a detection rule whose shadow
+# score reached max_score records a sighted for the subject that crossed it. it
+# writes the EVE event with the same match envelope, but the subject is whatever
+# the detection_var named, not necessarily a IP, so there is no country lookup
+# and no ban_time. it sends nothing to Kur, chisels no ledger, escalates no
+# recidive, and ticks sightings. the shadow bucket was already cleared, so it
+# re-arms
+sub _sighted {
+	my ( $self, $subject, $context, $score ) = @_;
+
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
+
+	$self->_tick( 'sightings', $watcher_name, $rule_name );
+	log_drek( 'info', 'sighted ' . $subject . ' (detection)', undef, 'galla-' . $self->{name} );
+
+	$self->_eve_emit(
+		'sighted',
+		{
+			'subject' => $subject,
+			defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (),
+		}
+	);
+
+	return;
+} ## end sub _sighted
 
 # the actual ban request to the Ereshkigal manager, to this galla's kur by
 # default or the passed one for a recidive escalation

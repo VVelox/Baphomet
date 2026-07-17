@@ -1,6 +1,51 @@
 Revision history for App-Baphomet
 
 0.0.1	2026-07-12
+        - The gate, selections/condition, and keywords/%%%ANY%%% boolean
+          matcher reaches the http and http_error types too, so the operators,
+          decode, boolean composition, and keyword search are now on every rule
+          type. Each runs its generic gate as a pre-filter over the parsed
+          fields (host/method/path/status/... for http, client/level/module/
+          message for http_error), ANDed with the type's own status/method or
+          level/module gates and its matches. The types' internal status/method
+          and level/module store moved to field_gates to free the shared gate
+          slot; existing http and http_error rules are unchanged. See
+          App::Baphomet::Rules::HTTP and App::Baphomet::Rules::HTTPError.
+        - Keyword search across fields. A gate or selection predicate may name
+          the reserved field %%%ANY%%% to fan itself over every field value at
+          once (and the message on syslog/raw), or %%%ANY:prefix%%% to fan only
+          over a subtree, so a string is searched everywhere or just a known
+          branch without touching the rest. The operators and decode all work
+          over the fan, and a negate means the string is in no field. The
+          keywords shorthand is sugar... a plain list searches every field, the
+          { in, values } table scopes it to a path, a subtree, or all. Keywords
+          AND ahead of any gate or selections. On json, syslog, and raw. See
+          App::Baphomet::Rules::JSON.
+        - value_count, distinct with a grouping key. The distinct spec gained
+          an optional by field, so counting groups by any field rather than
+          always the offender... count(of) by (by). With no by it is the built
+          distinct-cardinality, keyed by the offender and banishing it. With a
+          by the set is keyed by that field and the current offender is
+          banished instead, since the key may not be bannable, so N distinct
+          sources against one account (distributed spray) banishes the source
+          that tips it over, not the account. A by-keyed set does not reset on
+          firing, so every further source is caught while the key stays over
+          threshold; the set is bounded per key. Pairs with eve_only for
+          detect-only, and generalizes the marks-based sshd-spray pair into one
+          declarative rule. See App::Baphomet::Rules::Syslog.
+        - Temporal correlation, the sequence gate. Marks gained a first-seen
+          set time, and a rule may carry a sequence gate, an array of entries
+          each naming a list of marks that must all be set for the key and in
+          the listed order by set time, keyed by a var's capture or the
+          offender. So a run of mark_only rules branding stages, and a rule
+          watching for them in sequence, fires only on an ordered attack chain
+          (recon then foothold then exfil). A missing, expired, or out-of-order
+          stage fails the gate; equal set times count as in order. The set time
+          is checkpointed to the marks tablet and carried on the fleet mark sync
+          bus (folded to the earliest across machines), so a fleet-shared
+          sequence correlates stages seen on different hosts. Unordered
+          correlation is still the plain marked gate over the same brands. See
+          App::Baphomet::Rules::Syslog.
         - Distinct-cardinality counting (TODO 5). A rule may carry a distinct
           spec, distinct: { of: FIELD }, switching its counting from summing
           hits to counting the distinct values of that field seen from an

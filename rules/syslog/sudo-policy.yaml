@@ -1,0 +1,35 @@
+---
+# A detection-only rule... sudo authorization failures are a policy signal,
+# not a thing to firewall, and the offender is a local user, not an address.
+# It counts by the username via detection_var, so a user tripping sudo
+# repeatedly raises a sighting per attempt and a sighted at the threshold,
+# banishing nobody. See docs/rules and docs/eve.
+msg: "[SUDO] authorization failure"
+severity: medium
+classtype: policy-violation
+daemons:
+  - sudo
+message_regexp:
+  - '^(?<USER>\S+) : user NOT in sudoers'
+  - '^(?<USER>\S+) : command not allowed'
+  - '^(?<USER>\S+) : \d+ incorrect password attempts?'
+detection_var:
+  - USER
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sudo[4092]: kitsune : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/bash"
+      found: 1
+      data:
+        USER: "kitsune"
+    - message: "Jul 12 08:15:51 vixen42 sudo[4093]: eve : command not allowed ; TTY=pts/1 ; PWD=/tmp ; USER=root ; COMMAND=/usr/bin/id"
+      found: 1
+      data:
+        USER: "eve"
+    - message: "Jul 12 08:15:52 vixen42 sudo[4094]: mallory : 3 incorrect password attempts ; TTY=pts/2 ; PWD=/ ; USER=root ; COMMAND=/bin/sh"
+      found: 1
+      data:
+        USER: "mallory"
+  negative:
+    - message: "Jul 12 08:15:53 vixen42 sudo[4095]: kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls"
+      found: 0
+      undefed: ["USER"]

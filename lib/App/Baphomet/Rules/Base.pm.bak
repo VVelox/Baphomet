@@ -206,19 +206,9 @@ C<field>/C<values> entry stays the legacy equality/regexp form above):
 
     - op :: eq (default), contains, startswith, endswith, re (a tokened
           regexp), gt/lt/ge/le (numeric, the field coerced, a non-number
-          missing), cidr (v4/v6 membership), or exists (the field is present,
-          any value... Sigma's C<|exists>, taking no value; with C<negate> it
-          is the field-absent test).
+          missing), or cidr (v4/v6 membership).
     - value / values :: one scalar or a non-empty list, matching if any holds,
           or all when C<all> is true.
-    - fieldref :: names another field to compare against instead of a literal,
-          its value the needle resolved from the line at match time, Sigma's
-          C<|fieldref>... so a rule can say two fields must (with C<negate>,
-          must not) agree, C<{ field: auth_user, op: eq, fieldref: cert_user }>.
-          Stands in for value/values (a error to set both), and only the string
-          ops eq/contains/startswith/endswith take it. A absent referenced field
-          is a non-match. Folds under C<nocase> and decodes the source under
-          C<decode> like any other compare.
     - all :: require every value to match rather than any. Default false.
     - negate :: invert the entry. A negated entry holds when the field is
           absent, matching Sigma's field-absent semantics.
@@ -2006,7 +1996,7 @@ sub _matchers_hit {
 # the typed field operators, the opt-in richer form of a gate entry. legacy
 # entries (field + values, equality or //regex//) are untouched and never reach
 # here... this only fires for an entry carrying op/value/all/negate
-our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt lt ge le cidr exists );
+our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt lt ge le cidr );
 
 # the decode transforms, each string -> zero or more candidate strings, run
 # left to right over a field value before the operator so an obfuscated payload
@@ -2078,7 +2068,6 @@ sub _is_predicate {
 			|| exists( $entry->{all} )
 			|| exists( $entry->{negate} )
 			|| exists( $entry->{nocase} )
-			|| exists( $entry->{fieldref} )
 			|| exists( $entry->{decode} ) )
 		)
 		? 1
@@ -2093,7 +2082,7 @@ sub _compile_predicate {
 	my ( $self, $entry, $where ) = @_;
 
 	foreach my $key ( keys( %{$entry} ) ) {
-		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|fieldref|decode)$/ ) {
+		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|decode)$/ ) {
 			die( $where . ' has the unknown key "' . $key . '"' );
 		}
 	}
@@ -2110,45 +2099,8 @@ sub _compile_predicate {
 		die( $where . ' nocase does not apply to the ' . $op . ' op' );
 	}
 
-	# fieldref names another field to compare against, its value the needle
-	# resolved from the line at match time rather than a literal. it stands in
-	# for value/values and only the string ops, which compare a needle, take it
-	my $fieldref = $entry->{fieldref};
-	if ( defined($fieldref) ) {
-		if ( ref($fieldref) ne '' || $fieldref eq '' ) {
-			die( $where . ' fieldref is not a non-empty field name' );
-		}
-		if ( exists( $entry->{value} ) || exists( $entry->{values} ) ) {
-			die( $where . ' sets both fieldref and a literal value' );
-		}
-		if ( $op !~ /^(?:eq|contains|startswith|endswith)$/ ) {
-			die( $where . ' fieldref works only with the eq, contains, startswith, and endswith ops' );
-		}
-	} ## end if ( defined($fieldref) )
-
-	# exists tests only whether the field is present, so it takes no needle...
-	# negate turns it into the field-absent test, Sigma's C<|exists: false>
-	if ( $op eq 'exists' ) {
-		if (   exists( $entry->{value} )
-			|| exists( $entry->{values} )
-			|| defined($fieldref)
-			|| exists( $entry->{decode} )
-			|| $nocase
-			|| $entry->{all} )
-		{
-			die( $where . ' the exists op takes no value, fieldref, decode, nocase, or all' );
-		}
-		return {
-			'field'  => $entry->{field},
-			'op'     => 'exists',
-			'negate' => $entry->{negate} ? 1 : 0,
-		};
-	} ## end if ( $op eq 'exists' )
-
 	my @values;
-	if ( defined($fieldref) ) {
-		# no literal needle... the referenced field is resolved at match time
-	} elsif ( exists( $entry->{values} ) ) {
+	if ( exists( $entry->{values} ) ) {
 		if ( ref( $entry->{values} ) ne 'ARRAY' || !@{ $entry->{values} } ) {
 			die( $where . ' values is not a non-empty array' );
 		}
@@ -2165,12 +2117,11 @@ sub _compile_predicate {
 	}
 
 	my $predicate = {
-		'field'    => $entry->{field},
-		'op'       => $op,
-		'all'      => $entry->{all}    ? 1 : 0,
-		'negate'   => $entry->{negate} ? 1 : 0,
-		'nocase'   => $nocase,
-		'fieldref' => $fieldref,
+		'field'  => $entry->{field},
+		'op'     => $op,
+		'all'    => $entry->{all}    ? 1 : 0,
+		'negate' => $entry->{negate} ? 1 : 0,
+		'nocase' => $nocase,
 	};
 
 	if ( exists( $entry->{decode} ) ) {
@@ -2209,9 +2160,6 @@ sub _compile_predicate {
 	} elsif ( $op eq 'cidr' ) {
 		# dies on a bad CIDR, exactly as the ignore/namtar lists do
 		$predicate->{cidr} = compile_ignore_ips( \@values, $where );
-	} elsif ( defined($fieldref) ) {
-		# the needle is the referenced field, injected at match time, so there
-		# are no static strings to compile
 	} else {
 		# nocase folds the needles once here, the candidate folded to match at
 		# test time, so a case-insensitive compare costs no per-hit lc of these
@@ -2225,9 +2173,9 @@ sub _compile_predicate {
 # field is a false core, so a plain predicate misses and a negated one holds,
 # matching Sigma's "field absent" semantics
 sub _predicate_hit {
-	my ( $self, $predicate, $value, $ref ) = @_;
+	my ( $self, $predicate, $value ) = @_;
 
-	my $core = $self->_predicate_core( $predicate, $value, $ref );
+	my $core = $self->_predicate_core( $predicate, $value );
 	if ( $predicate->{negate} ) {
 		return $core ? 0 : 1;
 	}
@@ -2235,13 +2183,7 @@ sub _predicate_hit {
 }
 
 sub _predicate_core {
-	my ( $self, $predicate, $value, $ref ) = @_;
-
-	# exists tests presence, so it must see undef rather than short-circuit on
-	# it... negate (applied by the caller) flips it to the field-absent test
-	if ( $predicate->{op} eq 'exists' ) {
-		return defined($value) ? 1 : 0;
-	}
+	my ( $self, $predicate, $value ) = @_;
 
 	if ( !defined($value) ) {
 		return 0;
@@ -2249,10 +2191,9 @@ sub _predicate_core {
 
 	# the field value, run through any decode chain into one or more candidate
 	# strings, the operator matching if any candidate satisfies it. with no
-	# decode the candidate is just the value, so this is the plain path. $ref is
-	# the referenced field's value for a fieldref predicate, the dynamic needle
+	# decode the candidate is just the value, so this is the plain path
 	foreach my $candidate ( $self->_decode_candidates( $predicate->{decode}, "$value" ) ) {
-		if ( $self->_predicate_test_one( $predicate, $candidate, $ref ) ) {
+		if ( $self->_predicate_test_one( $predicate, $candidate ) ) {
 			return 1;
 		}
 	}
@@ -2285,10 +2226,9 @@ sub _decode_candidates {
 	return @candidates;
 } ## end sub _decode_candidates
 
-# tests one candidate string against a predicate's operator and values. $ref,
-# the referenced field's value, is the dynamic needle for a fieldref predicate
+# tests one candidate string against a predicate's operator and values
 sub _predicate_test_one {
-	my ( $self, $predicate, $value, $ref ) = @_;
+	my ( $self, $predicate, $value ) = @_;
 
 	my $op = $predicate->{op};
 
@@ -2324,21 +2264,9 @@ sub _predicate_test_one {
 	# was folded at compile time, so folding the candidate here makes the compare
 	# case-insensitive
 	my $candidate = $predicate->{nocase} ? lc($value) : $value;
-
-	# a fieldref predicate compares against another field's live value, injected
-	# as the needle here, folded to match under nocase since it was not folded at
-	# compile time... an absent referenced field is a non-match
-	my $needles = $predicate->{strings};
-	if ( defined( $predicate->{fieldref} ) ) {
-		if ( !defined($ref) ) {
-			return 0;
-		}
-		$needles = [ $predicate->{nocase} ? lc($ref) : $ref ];
-	}
-
 	return $self->_predicate_any_all(
 		$predicate->{all},
-		$needles,
+		$predicate->{strings},
 		sub {
 			my ($s) = @_;
 			if ( $op eq 'eq' ) {
@@ -2351,8 +2279,7 @@ sub _predicate_test_one {
 				return ( substr( $candidate, 0, length($s) ) eq $s ) ? 1 : 0;
 			}
 			# endswith
-			return ( length($s) <= length($candidate)
-					&& substr( $candidate, length($candidate) - length($s) ) eq $s )
+			return ( length($s) <= length($candidate) && substr( $candidate, length($candidate) - length($s) ) eq $s )
 				? 1
 				: 0;
 		}
@@ -2604,17 +2531,9 @@ sub _gate_hit {
 		= ( $gate->{field} eq 'MESSAGE' && defined($message) && !exists( $data->{MESSAGE} ) )
 		? $message
 		: $data->{ $gate->{field} };
-	if ( !defined( $gate->{predicate} ) ) {
-		return $self->_matchers_hit( $gate->{matchers}, $value );
-	}
-
-	# a fieldref predicate's needle is another field's live value, resolved
-	# here where the data hash is in hand and threaded into the compare
-	my $ref;
-	if ( defined( $gate->{predicate}{fieldref} ) ) {
-		$ref = $data->{ $gate->{predicate}{fieldref} };
-	}
-	return $self->_predicate_hit( $gate->{predicate}, $value, $ref );
+	return defined( $gate->{predicate} )
+		? $self->_predicate_hit( $gate->{predicate}, $value )
+		: $self->_matchers_hit( $gate->{matchers}, $value );
 } ## end sub _gate_hit
 
 # the values a keyword gate fans over... every field value plus the message for

@@ -72,6 +72,15 @@ method of the parsed line... entries starting and ending with C<//> are
 regexps, everything else is string equality. A line whose field does not
 match a present gate is not a offense, no matter what the matches say.
 
+=head2 gate / selections / condition / keywords
+
+Optional, the shared predicate matcher run over the parsed access-log fields
+(host, method, path, status, referer, user_agent, ...) as a pre-filter ANDed
+ahead of the matches. So a C<gate> with the typed operators and C<decode>, a
+C<selections>/C<condition> boolean, or a C<keywords> / C<%%%ANY%%%> search
+across the fields all work here. See
+L<App::Baphomet::Rules::Base/"The predicate gate"> for the forms.
+
 =head2 match
 
 Optional. Regexps checked in order, first hit wins, each a hash naming the
@@ -89,38 +98,19 @@ matches is a error.
 Optional. Same shape as L</match>, but a hit vetoes the line entirely.
 Checked before the matches.
 
-=head2 max_score / find_time / ban_time / weight / eve_only
+=head2 detection_var
 
-Optional. The rule's own thresholds, honored only when the watcher's
-C<allow_per_rule_thresholds> config setting is on. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
+Optional. Names a field to count by instead of banishing C<host>, making the
+rule detection-only... count by C<path>, C<user_agent>, or any parsed field.
+See L<App::Baphomet::Rules::Base/detection_var>.
 
-=head2 mark / unmark / marked / not_marked / mark_only
+=head2 The common keys
 
-Optional. Cross-rule marks, keyed by the offender or any capture. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 country
-
-Optional. A GeoIP gate on the offender or named found vars. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 namtar_list
-
-Optional. A blocklist gate on the offender or named found vars. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 active_time
-
-Optional. A time-of-day gate on the current time or named found vars. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 tests
-
-Positive and negative tests, same shape as syslog rules but with access
-log lines, parsed via C<http_access> unless a test names another parser.
-The data of a found line is the parsed line's defined fields, so tests can
-check things like C<data.host> and C<data.path>.
+The counting knobs, the triage metadata, the marks, the
+C<country>/C<namtar_list>/C<active_time> gates, and C<tests> (parsed via
+C<http_access> unless overridden, the found data being the parsed line's
+fields, so a test may check C<data.host> or C<data.path>) are shared by every
+type and documented under L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 
 =cut
 
@@ -148,11 +138,11 @@ sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		name    => defined( $opts{name} ) ? $opts{name} : 'unnamed',
-		def     => $opts{def},
-		gates   => {},
-		matches => [],
-		ignores => [],
+		name        => defined( $opts{name} ) ? $opts{name} : 'unnamed',
+		def         => $opts{def},
+		field_gates => {},
+		matches     => [],
+		ignores     => [],
 	};
 	bless $self;
 
@@ -165,7 +155,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:status|method|match|ignore|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:status|method|gate|selections|condition|keywords|match|ignore|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -178,6 +168,10 @@ sub new {
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
 
+	# an http rule banishes host by default, but naming a detection_var (a URI,
+	# a user-agent) makes it detection-only, counting by that instead
+	$self->_check_detection_var( $def, $name );
+
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
 	}
@@ -189,9 +183,13 @@ sub new {
 		if ( ref( $def->{$gate} ) ne 'ARRAY' || !@{ $def->{$gate} } ) {
 			die( 'The ' . $gate . ' of the rule "' . $name . '" is not a array or is empty' );
 		}
-		$self->{gates}{$gate}
+		$self->{field_gates}{$gate}
 			= $self->_compile_matchers( $def->{$gate}, 'The ' . $gate . ' of the rule "' . $name . '"' );
 	} ## end foreach my $gate ( 'status', 'method' )
+
+	# the generic gate / selections / keywords over the parsed fields, the same
+	# operator, decode, and boolean machinery the json type uses
+	$self->_compile_boolean( $def, $name );
 
 	foreach my $sort ( 'match', 'ignore' ) {
 		if ( !defined( $def->{$sort} ) ) {
@@ -231,9 +229,16 @@ sub new {
 		} ## end foreach my $entry ( @{ $def->{$sort} } )
 	} ## end foreach my $sort ( 'match', 'ignore' )
 
-	if ( !keys( %{ $self->{gates} } ) && !@{ $self->{matches} } ) {
-		die( 'The rule "' . $name . '" has no gates and no matches... it would regard nothing as a offense' );
-	}
+	if (   !keys( %{ $self->{field_gates} } )
+		&& !( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
+		&& !defined( $self->{condition_ast} )
+		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
+		&& !@{ $self->{matches} } )
+	{
+		die(      'The rule "'
+				. $name
+				. '" has no gates, selections, keywords, or matches... it would regard nothing as a offense' );
+	} ## end if ( !keys( %{ $self->{field_gates} } ) &&...)
 
 	return $self;
 } ## end sub new
@@ -260,10 +265,24 @@ sub check {
 		return undef;
 	}
 
-	foreach my $gate ( keys( %{ $self->{gates} } ) ) {
-		if ( !$self->_matchers_hit( $self->{gates}{$gate}, $parsed->{$gate} ) ) {
+	foreach my $gate ( keys( %{ $self->{field_gates} } ) ) {
+		if ( !$self->_matchers_hit( $self->{field_gates}{$gate}, $parsed->{$gate} ) ) {
 			return undef;
 		}
+	}
+
+	# the field space, the parsed access-log fields, for the generic gate and
+	# for the returned data
+	my %data;
+	foreach my $field ( keys(%fields) ) {
+		if ( defined( $parsed->{$field} ) ) {
+			$data{$field} = $parsed->{$field};
+		}
+	}
+
+	# the generic gate / selections / keywords, ANDed ahead of the matches
+	if ( !$self->_boolean_pass( \%data, undef ) ) {
+		return undef;
 	}
 
 	foreach my $ignore ( @{ $self->{ignores} } ) {
@@ -288,13 +307,6 @@ sub check {
 			return undef;
 		}
 	} ## end if ( @{ $self->{matches} } )
-
-	my %data;
-	foreach my $field ( keys(%fields) ) {
-		if ( defined( $parsed->{$field} ) ) {
-			$data{$field} = $parsed->{$field};
-		}
-	}
 
 	return { 'data' => \%data, 'regexp' => $matched };
 } ## end sub check

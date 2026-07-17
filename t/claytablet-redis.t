@@ -133,7 +133,7 @@ is_deeply( [ $dead->read('marks') ], [], 'read on a dead backend is empty' );
 # server, so they skip without it
 SKIP: {
 	eval { require Redis::Fast; };
-	skip( 'Redis::Fast not installed', 20 ) if $@;
+	skip( 'Redis::Fast not installed', 21 ) if $@;
 
 	require File::Temp;
 	my $dir = File::Temp::tempdir( CLEANUP => 1 );
@@ -159,14 +159,15 @@ SKIP: {
 	is( $a->mark_sync, 1, 'the redis backend carries a mark bus' );
 	is( $a->origin, 'hostA', 'origin is the configured host' );
 
-	$a->mark_publish( 'set', 'acct', 'admin', '1.1.1.1', time + 600 );
+	$a->mark_publish( 'set', 'acct', 'admin', '1.1.1.1', time + 600, 1234567890 );
 	my ( $events, $id ) = $b->mark_drain(undef);
 	is( scalar( @{$events} ), 1, 'the other machine drains the delta' );
-	is( $events->[0]{op},     'set',     'op' );
-	is( $events->[0]{name},   'acct',    'name' );
-	is( $events->[0]{key},    'admin',   'key' );
-	is( $events->[0]{value},  '1.1.1.1', 'the value rides along' );
-	is( $events->[0]{origin}, 'hostA',   'origin' );
+	is( $events->[0]{op},     'set',        'op' );
+	is( $events->[0]{name},   'acct',       'name' );
+	is( $events->[0]{key},    'admin',      'key' );
+	is( $events->[0]{value},  '1.1.1.1',    'the value rides along' );
+	is( $events->[0]{set},    '1234567890', 'the set time rides along, for the sequence gate' );
+	is( $events->[0]{origin}, 'hostA',      'origin' );
 
 	# a machine skips its own deltas on drain
 	my ( $own, $own_id ) = $a->mark_drain(undef);

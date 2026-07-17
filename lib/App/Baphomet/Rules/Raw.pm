@@ -33,14 +33,14 @@ Normally not used directly but via L<App::Baphomet::Rules>.
 
 A raw rule works on lines from the C<raw> parser, where the whole line is
 the message. It is a syslog rule with out the daemon gate... the same
-C<message_regexp> with the same C<%%%%TOKEN%%%%> tokens, the same
-C<ignore_regexp>, the same C<ban_var> naming which captures to ban, the
-same per-rule C<max_score>/C<find_time>/C<ban_time>, the same cross-rule
-marks (C<mark>/C<unmark>/C<marked>/C<not_marked>/C<mark_only>), the same
-C<country>, C<namtar_list>, and C<active_time> gates, and the same
-predicate C<gate> over the captures (operators and decode over an extracted
-variable or the reserved C<MESSAGE>). See L<App::Baphomet::Rules::Syslog>
-for those. Tests default to the C<raw> parser.
+matcher, the C<message_regexp> with its C<%%%%TOKEN%%%%> tokens, the
+C<ignore_regexp>, the C<capture_regexp> correlation, and the C<gate> over the
+captures (the reserved C<MESSAGE> being the whole line). See
+L<App::Baphomet::Rules::Syslog> for that matcher. C<ban_var> and every common
+key... C<detection_var>, the counting knobs, the metadata, the marks, the
+C<country>/C<namtar_list>/C<active_time> gates, and C<tests> (defaulting to
+the C<raw> parser)... are documented under
+L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 
     ---
     message_regexp:
@@ -93,7 +93,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|gate|selections|condition|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -106,14 +106,18 @@ sub new {
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
 
-	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
-		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
-	}
-	foreach my $item ( @{ $def->{ban_var} } ) {
-		if ( !defined($item) || ref($item) ne '' ) {
-			die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
+	# a detection-only rule counts by its detection_var subject and never
+	# banishes, so it needs no ban_var
+	if ( !$self->_check_detection_var( $def, $name ) ) {
+		if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
+			die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
 		}
-	}
+		foreach my $item ( @{ $def->{ban_var} } ) {
+			if ( !defined($item) || ref($item) ne '' ) {
+				die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
+			}
+		}
+	} ## end if ( !$self->_check_detection_var( $def, $name...))
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );

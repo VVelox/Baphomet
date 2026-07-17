@@ -229,24 +229,21 @@ ok( !eval { $rules->load('json/frempty'); 1 }, 'an empty fieldref is a load erro
 
 # --- exists: field presence ---
 write_rule( 'json/ex', $head . "  - field: ParentImage\n    op: exists\n" );
-is( matches( 'json/ex', '{"ParentImage":"/usr/bin/x","src":"1.1.1.1"}' ),
-	1, 'exists matches when the field is present' );
-is( matches( 'json/ex', '{"ParentImage":"","src":"1.1.1.1"}' ), 1, 'exists matches a present-but-empty field' );
-is( matches( 'json/ex', '{"src":"1.1.1.1"}' ),                  0, 'exists misses when the field is absent' );
+is( matches( 'json/ex', '{"ParentImage":"/usr/bin/x","src":"1.1.1.1"}' ), 1, 'exists matches when the field is present' );
+is( matches( 'json/ex', '{"ParentImage":"","src":"1.1.1.1"}' ),          1, 'exists matches a present-but-empty field' );
+is( matches( 'json/ex', '{"src":"1.1.1.1"}' ),                            0, 'exists misses when the field is absent' );
 
 # --- exists + negate: field absence (Sigma exists:false) ---
 write_rule( 'json/exneg', $head . "  - field: CommandLine\n    op: exists\n    negate: true\n" );
-is( matches( 'json/exneg', '{"src":"1.1.1.1"}' ), 1, 'exists+negate matches when the field is absent' );
-is( matches( 'json/exneg', '{"CommandLine":"whoami","src":"1.1.1.1"}' ),
-	0, 'exists+negate misses when the field is present' );
+is( matches( 'json/exneg', '{"src":"1.1.1.1"}' ),                       1, 'exists+negate matches when the field is absent' );
+is( matches( 'json/exneg', '{"CommandLine":"whoami","src":"1.1.1.1"}' ), 0, 'exists+negate misses when the field is present' );
 
 # --- exists composes in a selection alongside a value predicate ---
 write_rule( 'json/exsel',
 	"---\nban_var:\n  - src\nselections:\n  s:\n    - field: EventID\n      op: eq\n      value: 1\n    - field: ParentImage\n      op: exists\ncondition: s\n"
 );
-is( matches( 'json/exsel', '{"EventID":1,"ParentImage":"/x","src":"1.1.1.1"}' ), 1,
-	'exists in a selection, both hold' );
-is( matches( 'json/exsel', '{"EventID":1,"src":"1.1.1.1"}' ), 0, 'exists in a selection, field absent fails the AND' );
+is( matches( 'json/exsel', '{"EventID":1,"ParentImage":"/x","src":"1.1.1.1"}' ), 1, 'exists in a selection, both hold' );
+is( matches( 'json/exsel', '{"EventID":1,"src":"1.1.1.1"}' ),                    0, 'exists in a selection, field absent fails the AND' );
 
 # --- exists load errors: it takes no value/fieldref/decode ---
 write_rule( 'json/exval', $head . "  - field: a\n    op: exists\n    value: x\n" );

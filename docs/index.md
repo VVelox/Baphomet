@@ -29,6 +29,10 @@ looses and oversees them.
 - [examples](examples) ... copy-paste scenarios.
 - [fail2ban](fail2ban) ... the concept map, what is better, what is
   still missing, and how to migrate a jail.
+- [sagan](sagan) ... the gates folded in from Sagan's rule language,
+  and what a full log-analysis engine still does that this does not.
+- [sigma](sigma) ... how the json rule type speaks Sigma's detection
+  model, the modifier mapping, and porting a Sigma rule by hand.
 
 ## Module POD
 

@@ -59,52 +59,9 @@ is how a jail with several actions maps over (see below).
   key with TTLs, instead of fail2ban's maxlines buffer rematching.
 - **The split itself.** The thing reading hostile input holds no firewall
   privileges, and several Baphomet hosts can accuse to one Ereshkigal.
-
-## Beyond fail2ban, adapted from Sagan
-
-fail2ban counts a regexp per jail and bans. Sagan's rule language reaches
-further, and the gates it has that fail2ban lacks were read end to end and
-folded in... they run in the galla between a rule matching and the offense
-being counted, so rules stay pure matchers. None of these has a fail2ban
-equivalent.
-
-- **Per-rule thresholds (Sagan's own count/seconds).** A rule may carry its
-  own `max_score` / `find_time` / `ban_time`, so one noisy signature can
-  demand more hits, or fewer, than its neighbours in the same kur. fail2ban's
-  thresholds are per-jail only, one number for every failregex at once.
-  Inert unless the config opts in with `allow_per_rule_thresholds`.
-- **Marks... cross-rule state (Sagan xbits/flexbits).** A galla-wide store of
-  expiring named marks, keyed by the offender IP or by any capture or field
-  (`var`), optionally harvesting and gating on a value (`value_var`,
-  `value_is`/`value_not`). Rule keys `mark`/`unmark`/`marked`/`not_marked`/
-  `mark_only` let one rule brand a line and a later rule fire only on the
-  branded. This is how distributed brute force is caught... `syslog/sshd-mark-users`
-  brands each account with the source that hit it, `syslog/sshd-spray` fires
-  when a second source hits the same account. `baphomet marked` reads the
-  store. fail2ban has no shared state between filters.
-- **A country gate (Sagan country_code).** A rule key
-  `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
-  offender (or a harvested var) geolocates inside, or outside, a named set of
-  country codes. Lists come from the config `country_codes` and a
-  `%%%country_codes{name}%%%` token; resolution is via the optional
-  `IP::Geolocation::MMDB` and a `geoip_db`. Fails closed on a unlocatable IP.
-- **A blocklist gate (Sagan blacklist), the namtar_list.** The inverse of
-  `ignore_ips`... a rule key `namtar_list: [{list|lists, var?}, ...]` counts
-  an offense only when a value is already on a named list, drawn from the
-  config `namtar_lists` and reloaded on file mtime. A list is a CIDR list
-  matched by address, or a string list matched by exact (optionally
-  case-folded) name, so the gate reaches beyond the offender IP to any
-  captured field via `var`... a honeypot username, a known-bad URI or
-  user-agent. For acting only on the already-known-bad.
-- **A time-of-day gate (Sagan alert_time), active_time.** A rule key
-  `active_time: {is|isnot: [window names], vars?: [...]}` counts a match only
-  inside, or outside, named `{days, hours}` windows (hours may wrap midnight),
-  so the same log line can be ignored at midday and banished at 03:00.
-
-Sagan's remaining vocabulary needs no borrowing... its content/pcre match
-chains are subsumed by Perl regexps, its json_content by the json rule type's
-dotted paths, its program/facility/level gates by `daemons`, and its
-actions are Ereshkigal's domain, since Baphomet accuses and does not act.
+- **Gates fail2ban never had.** Per-rule thresholds, cross-rule marks, and
+  country / blocklist / time-of-day gates, folded in from Sagan whose rule
+  language reaches past a regexp per jail... see [sagan](sagan).
 
 ## Beyond fail2ban, from sshguard and CrowdSec
 
@@ -223,7 +180,40 @@ baphomet status --all
 ereshkigal banned
 ```
 
-A filter with no shipped rule ports by hand... [rules](rules) walks
-the format, `test_line` pokes single lines at a draft, and the fail2ban
-test log corpus (`fail2ban/tests/files/logs/` in its source) is a fine
-vein of test lines, as every shipped rule here demonstrates.
+## Porting a filter
+
+A filter with no shipped rule ports by hand, and the translation is mostly
+mechanical...
+
+1. **Find the filter and its log samples.** fail2ban ships them in
+   `config/filter.d/<name>.conf`, a `[Definition]` of `failregex`,
+   `ignoreregex`, and sometimes a `prefregex` common prefix. Its test lines
+   live in `fail2ban/tests/files/logs/<name>` in the source... a ready vein of
+   positive cases, and the successful-login lines make the best negatives.
+2. **Pick the rule type by the log's shape**, not the daemon. A `daemon[pid]:`
+   syslog line is a `syslog` rule; a free-form app log with its own timestamp
+   is `raw`; an access log is `http`; an apache/nginx error log is
+   `http_error`; JSON is `json`. See [rules](rules).
+3. **Translate the regexps.** Each `failregex` line becomes a `message_regexp`
+   entry, each `ignoreregex` an `ignore_regexp`. Drop fail2ban's tags for
+   Baphomet's address tokens... `<HOST>` (host or address) becomes
+   `%%%%HOST%%%%`, `<ADDR>` (address only) `%%%%ADDR%%%%`, and name the one you
+   count on in `ban_var`, usually captured as `%%%%SRC%%%%`. Spell out
+   `%(...)s` includes, drop `<F-...>` capture markers for plain named groups,
+   and anchor with `^`... a syslog rule matches the message after the
+   `daemon[pid]:`, so a `prefregex` folds into the `daemons` gate and the
+   anchor rather than the regexp.
+4. **Add the metadata and tests.** Give it a `msg`, `severity`, and
+   `classtype`, then paste the corpus lines under `tests: positive:` with the
+   `SRC` each should capture, and the must-not-match lines under `negative:`.
+   The `fail2ban-regex` session becomes part of the rule file.
+5. **Verify.** `baphomet test_line` pokes a single line at a draft with its
+   tests skipped, and `baphomet check_rules` runs the embedded tests, refusing
+   to load a rule that fails its own... the same guard `baphomet start` uses.
+
+What does not port one-to-one: `journalmatch` is a watcher's `journal` key,
+not a rule key; `datepattern` is the parser's job, chosen by the rule type;
+and fail2ban's keyless `maxlines` multiline has no equivalent, though keyed
+offense-and-address correlation does (see [rules](rules)). The
+[rules-catalog](rules-catalog) lists what already ships, and the handful
+deliberately not ported and why.

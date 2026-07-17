@@ -56,69 +56,30 @@ says which fields matter and how.
           data:
             SRC: "192.0.2.5"
 
-=head2 gate
+=head2 gate / selections / condition / keywords
 
-Optional, ANDed. Each entry names a field and the values it must have...
-values entries starting and ending with C<//> are regexps, everything else
-is string equality. A field the line does not carry never matches a gate.
-
-An entry may instead use the typed operator form, opt-in and detected by the
-presence of an C<op>, C<value>, C<all>, or C<negate> key (a plain
-C<field>/C<values> entry stays the legacy equality/regexp form above,
-unchanged):
+The predicate layer, and where json earns its keep... the flat C<gate>, the
+Sigma-style C<selections>/C<condition> boolean, and the C<keywords>
+shorthand. Here a C<field> is a flattened dotted path (C<attr.remote>,
+C<request.client_ip>), and the reserved C<%%%ANY%%%> / C<%%%ANY:prefix%%%>
+fan a predicate over every field or a subtree. A rule may carry C<gate> or
+C<selections>/C<condition>, not both, and needs at least a gate or a
+L</match>. The full vocabulary... operators, C<decode>, the quantifiers... is
+documented under L<App::Baphomet::Rules::Base/"The predicate gate">.
 
     gate:
-      - { field: event,     op: eq,    value: auth_fail }
-      - { field: bytes_out, op: gt,    value: 1000000 }
-      - { field: src,       op: cidr,  values: [ 10.0.0.0/8, 2001:db8::/32 ] }
-      - { field: cmd,       op: contains, values: [ psexec, mimikatz ], all: false }
-      - { field: user,      op: eq,    value: healthcheck, negate: true }
-
-    - op :: eq (default), contains, startswith, endswith, re (a tokened
-          regexp), gt/lt/ge/le (numeric, the field coerced, a non-number
-          missing), or cidr (v4/v6 membership).
-    - value / values :: one scalar or a non-empty list, matching if any holds,
-          or all when C<all> is true.
-    - all :: require every value to match rather than any. Default false.
-    - negate :: invert the entry. A negated entry holds when the field is
-          absent, matching Sigma's field-absent semantics.
-    - decode :: a list of transforms run left to right over the field value
-          before the operator, so an obfuscated payload is compared decoded...
-          base64, base64offset (the three alignment candidates), utf16le /
-          utf16be / utf16 (wide an alias for utf16le), windash, url, lower,
-          upper. A transform that can not decode drops that candidate, so a
-          bad decode simply does not match. C<decode: [ base64, utf16le ]>
-          with C<op: contains> is the PowerShell -enc shape.
-
-=head2 selections / condition
-
-Optional, the boolean form and an alternative to L</gate> (a rule may not
-carry both). C<selections> is a table of named selections, each a list of
-gate entries (the same predicate and legacy forms) ANDed together.
-C<condition> is a string composing the selections with C<and>, C<or>,
-C<not>, parens, and the quantifiers C<all of them>, C<1 of them>, and
-C<N of E<lt>prefixE<gt>_*>. It is the pre-filter, ANDed ahead of the
-matches, and gives the OR, arbitrary nesting, and N-of-M the flat gate can
-not... the Sigma detection model.
-
-    selections:
-      auth:  [ { field: event, op: eq, value: authFailure } ]
-      admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
-      trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
-    condition: "auth and admin and not trust"
-
-A selection referenced but not defined, an unbalanced paren, or a stray
-token is a load-time error, as is a condition without selections or the two
-present together.
+      - field: c
+        values: [ ACCESS ]
+      - { field: attr.remote, op: startswith, value: "10." }
 
 =head2 match
 
 Optional. Regexps checked in order, first hit wins, each a hash naming the
-flattened field it runs against. The C<%%%%TOKEN%%%%> tokens of syslog
-rules work here, as the offender may be inside a string value... see
-L<App::Baphomet::Rules::Syslog> for the tokens. With no match entries at
-all, passing the gates is itself the offense. A rule with neither gates
-nor matches is a error.
+flattened field it runs against. The C<%%%%TOKEN%%%%> tokens work here, as
+the offender may be inside a string value... see
+L<App::Baphomet::Rules::Syslog/message_regexp> for the tokens. With no match
+entries at all, passing the gates is itself the offense. A rule with neither
+gates nor matches is a error.
 
 =head2 ignore
 
@@ -127,46 +88,22 @@ Checked after the gates and before the matches.
 
 =head2 ban_var
 
-Required. What to ban, resolved against the data of a found line, which is
-the flattened fields merged with the named captures of the winning match
-entry. So a ban_var may name a token capture, like C<SRC> when the address
-had to be dug out of a string, or a field path directly, like
-C<request.client_ip> when the log hands the address over bare.
+What to ban, resolved against the data of a found line, which is the
+flattened fields merged with the named captures of the winning match entry.
+So a ban_var may name a token capture, like C<SRC> when the address had to be
+dug out of a string, or a field path directly, like C<request.client_ip>
+when the log hands the address over bare. Name
+L<App::Baphomet::Rules::Base/detection_var> instead to count without banning.
 
-=head2 max_score / find_time / ban_time / weight / eve_only
+=head2 The common keys
 
-Optional. The rule's own thresholds, honored only when the watcher's
-C<allow_per_rule_thresholds> config setting is on. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 mark / unmark / marked / not_marked / mark_only
-
-Optional. Cross-rule marks, keyed by the offender or any capture. A json
-rule's C<var>/C<value_var> may name a token capture or a field path. See
-L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 country
-
-Optional. A GeoIP gate on the offender or named found vars, its C<vars>
-naming token captures or field paths. See L<App::Baphomet::Rules::Syslog>
-for the semantics.
-
-=head2 namtar_list
-
-Optional. A blocklist gate on the offender or named found vars, its C<var>
-naming a token capture or field path. See L<App::Baphomet::Rules::Syslog>
-for the semantics.
-
-=head2 active_time
-
-Optional. A time-of-day gate on the current time or named found vars, its
-C<vars> naming token captures or field paths holding a epoch or ISO time.
-See L<App::Baphomet::Rules::Syslog> for the semantics.
-
-=head2 test_parser / tests
-
-Positive and negative tests, same shape as everywhere else, with each
-message being one line of JSON. Tests parse via C<json> unless overridden.
+C<detection_var>, C<ban_not_internal>, the counting knobs, the triage
+metadata, the marks, the C<country>/C<namtar_list>/C<active_time> gates, and
+C<tests> (which parse via C<json> unless a per-test or C<test_parser> default
+overrides) are shared by every type and documented under
+L<App::Baphomet::Rules::Base/"RULE FORMAT">. A found var named by any of
+them... a mark's C<var>, a gate's C<vars>... may be a token capture or a
+dotted field path, the json type's one wrinkle.
 
 =cut
 
@@ -206,7 +143,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:gate|selections|condition|match|ignore|ban_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:gate|selections|condition|keywords|match|ignore|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -219,14 +156,18 @@ sub new {
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
 
-	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
-		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
-	}
-	foreach my $item ( @{ $def->{ban_var} } ) {
-		if ( !defined($item) || ref($item) ne '' ) {
-			die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
+	# a detection-only rule counts by its detection_var subject and never
+	# banishes, so it needs no ban_var
+	if ( !$self->_check_detection_var( $def, $name ) ) {
+		if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
+			die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
 		}
-	}
+		foreach my $item ( @{ $def->{ban_var} } ) {
+			if ( !defined($item) || ref($item) ne '' ) {
+				die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
+			}
+		}
+	} ## end if ( !$self->_check_detection_var( $def, $name...))
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
@@ -267,8 +208,14 @@ sub new {
 		} ## end foreach my $entry ( @{ $def->{$sort} } )
 	} ## end foreach my $sort ( 'match', 'ignore' )
 
-	if ( !@{ $self->{gates} } && !defined( $self->{condition_ast} ) && !@{ $self->{matches} } ) {
-		die( 'The rule "' . $name . '" has no gates, selections, or matches... it would regard nothing as a offense' );
+	if (   !@{ $self->{gates} }
+		&& !defined( $self->{condition_ast} )
+		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
+		&& !@{ $self->{matches} } )
+	{
+		die(      'The rule "'
+				. $name
+				. '" has no gates, selections, keywords, or matches... it would regard nothing as a offense' );
 	}
 
 	return $self;

@@ -43,6 +43,7 @@ see [configuration](configuration) and [rules](rules).
 | `syslog/sshd` | OpenSSH auth failures | `sshd`, `sshd-session` |
 | `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
 | `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_score 1`) | `sshd`, `sshd-session` |
+| `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
 | `syslog/xinetd-fail` | xinetd connection failures | `xinetd` |

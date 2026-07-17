@@ -16,8 +16,8 @@ land in one stream filterable by `.kur`.
 
 ## The events
 
-One JSON object per line. Four kinds, in `.event_type`... a real pair and an
-observe-mode pair:
+One JSON object per line. Six kinds, in `.event_type`... a real pair, an
+observe-mode pair, and a detection pair:
 
 - **found** ... a rule matched a line. Written on every match, whether or
   not it tips the offender over the threshold, so it is the full audit of
@@ -29,13 +29,21 @@ observe-mode pair:
 - **alert** ... the observe-mode twin of `banish`, an offender whose score
   reached the threshold under observe mode. It reads just like the banish it
   stands in for, minus the fact of the ban... nothing was sent to Kur.
+- **sighting** ... the detection twin of `found`, a match under a
+  detection-only rule (one carrying a `detection_var`). The rule banishes
+  nobody, only counts its subject, so every match is a sighting. See
+  [rules](rules).
+- **sighted** ... the detection twin of `banish`, a subject whose count
+  crossed the threshold under a detection rule. It carries the match
+  envelope but names a `.subject`, not an `.ip`... the subject need not be a
+  address, and nothing is sent to Kur.
 
 Every record carries these fields...
 
 | field | what |
 | --- | --- |
 | `eve_type` | `baphomet`, always... marks the producer for downstream tooling. |
-| `event_type` | `found`, `banish`, `noted`, or `alert`. |
+| `event_type` | `found`, `banish`, `noted`, `alert`, `sighting`, or `sighted`. |
 | `timestamp` | ISO 8601 with zone. |
 | `hostname` | the system hostname. |
 | `kur` | the kur. |
@@ -61,6 +69,14 @@ banished IP's `.country` rides along too. An **alert** carries the same
 observe-mode stand-in. A **found** or **noted** event carries `.marks_set`
 and `.unmarked` when the rule branded or lifted marks.
 
+A **sighted** event adds `.subject`, the value of the `detection_var` that
+crossed the threshold... a username, a hostname, a URI, or a IP when that is
+what the rule counts. It carries the same `.score` and match envelope a
+banish would, but no `.ip`, `.ban_time`, `.country`, or `.recidive`... a
+detection rule never banishes, so none of those apply. A **sighting** carries
+the match envelope like a `found`, plus `.marks_set` / `.unmarked` when the
+rule brands.
+
 ## Reading it
 
 ```shell
@@ -76,6 +92,9 @@ jq 'select(.found.SRC=="1.2.3.4" or .ip=="1.2.3.4")' /var/log/baphomet/eve.json
 
 # what observe mode WOULD have banished
 jq -r 'select(.event_type=="alert") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.json
+
+# every detection that crossed its threshold, as subject and kur
+jq -r 'select(.event_type=="sighted") | "\(.kur) \(.subject)"' /var/log/baphomet/eve.json
 ```
 
 ## Notes
@@ -83,7 +102,11 @@ jq -r 'select(.event_type=="alert") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.js
 - `found` fires on every match, not every line read, so the volume tracks
   how much abuse is landing, not how chatty the logs are... still, a site
   under heavy attack writes a lot, so mind the disk. `noted` and `alert`
-  are the same, for rules running in observe mode.
+  are the same, for rules running in observe mode, as are `sighting` and
+  `sighted` for detection rules.
+- A detection rule (one with a `detection_var`) writes only to EVE, so its
+  output would vanish with the log off... loading one forces `eve_enable` on,
+  logged at start, so a detection deployment is never a silent no-op.
 - The file is reopened per event, so a logrotate that moves it aside is
   picked up on the next write with no signal needed.
 - It is telemetry, never load bearing... a write failure is logged and

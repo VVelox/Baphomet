@@ -56,7 +56,8 @@ that treats Redis as reliable infrastructure or a single galla per prefix.
 
 A Redis Stream per scope, C<< <prefix>:marklog:<scope> >>, is an append-only,
 ordered, durable log of mark deltas... C<< { op, name, key, value?, expires,
-origin } >>. C<XADD> is the atomic append that stands in for the ledger's flock;
+set?, origin } >> (the C<set> first-seen time carries the sequence gate's
+ordering across the fleet). C<XADD> is the atomic append that stands in for the ledger's flock;
 one stream on one server is a single total order every machine folds identically
 and so converges on. The galla publishes a delta after each local brand or lift,
 and drains new deltas on its sweep into its own live marks. The stream is trimmed
@@ -409,7 +410,7 @@ sub origin {
 
 =head2 mark_publish
 
-    $backend->mark_publish( $op, $name, $key, $value, $expires );
+    $backend->mark_publish( $op, $name, $key, $value, $expires, $set );
 
 Queues a mark delta (C<$op> being C<set> or C<unset>) and flushes the queue to
 the stream. A delta that can not be sent, the Redis being down, stays buffered
@@ -421,7 +422,7 @@ already happened.
 =cut
 
 sub mark_publish {
-	my ( $self, $op, $name, $key, $value, $expires ) = @_;
+	my ( $self, $op, $name, $key, $value, $expires, $set ) = @_;
 
 	push(
 		@{ $self->{outbox} },
@@ -431,6 +432,7 @@ sub mark_publish {
 			'key'     => $key,
 			'value'   => $value,
 			'expires' => $expires,
+			'set'     => $set,
 			'origin'  => $self->{origin}
 		}
 	);
@@ -471,6 +473,9 @@ sub _flush_outbox {
 		);
 		if ( defined( $delta->{value} ) ) {
 			push( @fields, 'value', $delta->{value} );
+		}
+		if ( defined( $delta->{set} ) ) {
+			push( @fields, 'set', $delta->{set} );
 		}
 		my $sent;
 		eval {
@@ -546,6 +551,7 @@ sub mark_drain {
 					'key'     => $field{key},
 					'expires' => $field{expires},
 					'origin'  => $field{origin},
+					exists( $field{set} )   ? ( 'set'   => $field{set} )   : (),
 					exists( $field{value} ) ? ( 'value' => $field{value} ) : (),
 				}
 			);
