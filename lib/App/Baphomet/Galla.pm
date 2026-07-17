@@ -747,6 +747,28 @@ sub _load_state {
 
 	my $now = time;
 
+	$self->_load_counters($now);
+	$self->_load_distinct($now);
+	$self->_load_pending_bans;
+	$self->_load_positions;
+	$self->_load_cursors;
+	$self->_load_stats;
+	$self->_load_context($now);
+	$self->_load_marks($now);
+
+	if ( $self->{mark_sync} ) {
+		$self->_load_mark_stream;
+	}
+
+	return;
+} ## end sub _load_state
+
+# restores the accumulated per-ip and per-rule hit counters, then sorts each
+# bucket by epoch and drops anything with nothing recent... the register path
+# re-prunes per the effective find_time on the next hit
+sub _load_counters {
+	my ( $self, $now ) = @_;
+
 	# counters... a weight column then the per-rule bucket name, both added
 	# later. a four-field row is the current ip,hit,weight,rule form; a
 	# three-field row is the older ip,hit,rule, its hit weighing 1; rows from
@@ -778,8 +800,18 @@ sub _load_state {
 			push( @{ $self->{counters}{$ip} }, [ $hit + 0, $weight + 0 ] );
 		}
 	} ## end foreach my $line ( $self->_read_tablet('counters'...))
-	# sort each by epoch and drop entries with nothing recent... the register
-	# path re-prunes per the effective find_time on the next hit
+
+	$self->_prune_counter_buckets($now);
+
+	return;
+} ## end sub _load_counters
+
+# sort each restored counter bucket by epoch and drop entries with nothing
+# recent, then drop any per-rule bucket left empty... the register path
+# re-prunes per the effective find_time on the next hit
+sub _prune_counter_buckets {
+	my ( $self, $now ) = @_;
+
 	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
 		foreach my $ip ( keys( %{$bucket} ) ) {
 			my @sorted = sort { $a->[0] <=> $b->[0] } @{ $bucket->{$ip} };
@@ -796,9 +828,15 @@ sub _load_state {
 		}
 	}
 
-	# distinct-cardinality sets, restored per (rule, ip, value) and pruned of
-	# anything more than a day stale... the register path re-prunes to the
-	# effective find_time on the next hit
+	return;
+} ## end sub _prune_counter_buckets
+
+# distinct-cardinality sets, restored per (rule, ip, value) and pruned of
+# anything more than a day stale... the register path re-prunes to the
+# effective find_time on the next hit
+sub _load_distinct {
+	my ( $self, $now ) = @_;
+
 	foreach my $line ( $self->_read_tablet('distinct') ) {
 		if ( $line eq '' ) {
 			next;
@@ -818,8 +856,14 @@ sub _load_state {
 		$self->{distinct_counters}{ $decoded->{rule} }{ $decoded->{ip} }{ $decoded->{value} } = $decoded->{epoch} + 0;
 	} ## end foreach my $line ( $self->_read_tablet('distinct'...))
 
-	# pending bans
-	$line_int = 0;
+	return;
+} ## end sub _load_distinct
+
+# pending bans... an ip and, optionally, the ban_time it is owed
+sub _load_pending_bans {
+	my ($self) = @_;
+
+	my $line_int = 0;
 	foreach my $line ( $self->_read_tablet('pending') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^ip,/ ) || $line eq '' ) {
@@ -832,8 +876,14 @@ sub _load_state {
 		$self->{pending_bans}{$ip} = ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
 	} ## end foreach my $line ( $self->_read_tablet('pending'...))
 
-	# log positions
-	$line_int = 0;
+	return;
+} ## end sub _load_pending_bans
+
+# log positions... the saved inode and offset a file was last read to
+sub _load_positions {
+	my ($self) = @_;
+
+	my $line_int = 0;
 	foreach my $line ( $self->_read_tablet('positions') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^file,/ ) || $line eq '' ) {
@@ -852,8 +902,15 @@ sub _load_state {
 		$self->{positions}{$file} = { 'inode' => $inode + 0, 'offset' => $offset + 0 };
 	} ## end foreach my $line ( $self->_read_tablet('positions'...))
 
-	# journal cursors
-	$line_int = 0;
+	return;
+} ## end sub _load_positions
+
+# journal cursors, kept only for a watcher that still exists and is still a
+# journal one
+sub _load_cursors {
+	my ($self) = @_;
+
+	my $line_int = 0;
 	foreach my $line ( $self->_read_tablet('cursors') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^watcher,/ ) || $line eq '' ) {
@@ -872,8 +929,14 @@ sub _load_state {
 		}
 	} ## end foreach my $line ( $self->_read_tablet('cursors'...))
 
-	# stats... take the stored totals, but only shapes and numbers that
-	# make sense, as the tablet may be from a older format
+	return;
+} ## end sub _load_cursors
+
+# stats... take the stored totals, but only shapes and numbers that make
+# sense, as the tablet may be from a older format
+sub _load_stats {
+	my ($self) = @_;
+
 	foreach my $line ( $self->_read_tablet('stats') ) {
 		if ( $line eq '' ) {
 			next;
@@ -898,7 +961,13 @@ sub _load_state {
 		last;
 	} ## end foreach my $line ( $self->_read_tablet('stats'))
 
-	# correlation context
+	return;
+} ## end sub _load_stats
+
+# correlation context, handed back to each rule to restore its own state
+sub _load_context {
+	my ( $self, $now ) = @_;
+
 	foreach my $line ( $self->_read_tablet('context') ) {
 		if ( $line eq '' ) {
 			next;
@@ -915,7 +984,13 @@ sub _load_state {
 		}
 	} ## end foreach my $line ( $self->_read_tablet('context'...))
 
-	# marks, restored whole and pruned of anything already expired
+	return;
+} ## end sub _load_context
+
+# marks, restored whole and pruned of anything already expired
+sub _load_marks {
+	my ( $self, $now ) = @_;
+
 	foreach my $line ( $self->_read_tablet('marks') ) {
 		if ( $line eq '' ) {
 			next;
@@ -938,22 +1013,26 @@ sub _load_state {
 		};
 	} ## end foreach my $line ( $self->_read_tablet('marks'))
 
-	# the mark stream cursor, then a first drain to catch up on whatever the
-	# fleet branded while this galla was down... over the local marks just
-	# restored above, so the two converge before the socket opens. a missing
-	# or trimmed-away cursor just replays the retained stream, which is safe
-	if ( $self->{mark_sync} ) {
-		foreach my $line ( $self->_read_tablet('mark_stream') ) {
-			if ( $line ne '' ) {
-				$self->{mark_stream_id} = $line;
-				last;
-			}
+	return;
+} ## end sub _load_marks
+
+# the mark stream cursor, then a first drain to catch up on whatever the
+# fleet branded while this galla was down... over the local marks just
+# restored above, so the two converge before the socket opens. a missing
+# or trimmed-away cursor just replays the retained stream, which is safe
+sub _load_mark_stream {
+	my ($self) = @_;
+
+	foreach my $line ( $self->_read_tablet('mark_stream') ) {
+		if ( $line ne '' ) {
+			$self->{mark_stream_id} = $line;
+			last;
 		}
-		$self->_sync_marks;
 	}
+	$self->_sync_marks;
 
 	return;
-} ## end sub _load_state
+} ## end sub _load_mark_stream
 
 # figures out where a fresh wheel on a file should start... the saved
 # offset if the file is the same one and has not shrunk, else the top for

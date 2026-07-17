@@ -210,6 +210,7 @@ t/galla-journal.t
 t/galla.t
 t/ignore-ips.t
 t/lib/BaphometTestRedis.pm
+t/load-state-helpers.t
 t/manager-new.t
 t/manifest.t
 t/marks.t
