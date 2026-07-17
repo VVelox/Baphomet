@@ -50,7 +50,7 @@ sub opt_spec {
 	return (
 		[ 'rule=s',      'the rule to check the line against' ],
 		[ 'parser=s',    'the parser to parse the line with', { default => 'syslog' } ],
-		[ 'config=s',    'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
+		[ 'config=s',    'path of the config file',           { default => '/usr/local/etc/baphomet/config.toml' } ],
 		[ 'rules-dir=s', 'the rules dir, instead of the one from the config' ],
 	);
 }
@@ -65,8 +65,10 @@ sub validate_args {
 		$self->usage_error('test_line takes exactly one arg, the line... quote it');
 	}
 	if ( !App::Baphomet::Parser::is_known( $opt->parser ) ) {
-		$self->usage_error(
-			'"' . $opt->parser . '" is not a known parser... ' . join( ' ', App::Baphomet::Parser::known_parsers ) );
+		$self->usage_error( '"'
+				. $opt->parser
+				. '" is not a known parser... '
+				. join( ' ', App::Baphomet::Parser::known_parsers ) );
 	}
 
 	return;

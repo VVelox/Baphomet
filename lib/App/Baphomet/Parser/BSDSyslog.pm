@@ -119,7 +119,7 @@ sub parse {
 			'level'    => $level,
 			'message'  => $message,
 		};
-	} ## end if ( $line =~ /^ ... )
+	} ## end if ( $line =~ /^ )
 
 	return undef;
 } ## end sub parse

@@ -82,7 +82,7 @@ sub execute {
 			}
 			$result->{gallas}{$galla}{marks} = { $opt->name => $marks->{ $opt->name } };
 		}
-	} ## end if ( defined( $opt->name...))
+	} ## end if ( defined( $opt->name ) && ref( $result...))
 
 	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);
 

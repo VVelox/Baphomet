@@ -98,8 +98,7 @@ sub parse {
 		$/x
 		)
 	{
-		my ( $time, $module, $level, $pid, $tid, $client_raw, $code, $message )
-			= ( $1, $2, $3, $4, $5, $6, $7, $8 );
+		my ( $time, $module, $level, $pid, $tid, $client_raw, $code, $message ) = ( $1, $2, $3, $4, $5, $6, $7, $8 );
 
 		# the 2.4 prefork empty module form, [:error]
 		if ( defined($module) && $module eq '' ) {
@@ -120,7 +119,7 @@ sub parse {
 			'code'        => $code,
 			'message'     => $message,
 		};
-	} ## end if ( $line =~ /^ ... )
+	} ## end if ( $line =~ /^ )
 
 	return undef;
 } ## end sub parse

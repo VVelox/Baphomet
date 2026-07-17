@@ -85,11 +85,11 @@ my %types = (
 );
 
 my %type_parsers = (
-	'syslog'     => { 'syslog' => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1, 'json_syslog' => 1, 'journal' => 1 },
-	'http'       => { 'http_access' => 1 },
+	'syslog'     => { 'syslog'       => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1, 'json_syslog' => 1, 'journal' => 1 },
+	'http'       => { 'http_access'  => 1 },
 	'http_error' => { 'apache_error' => 1, 'nginx_error' => 1 },
-	'json'       => { 'json' => 1 },
-	'raw'        => { 'raw' => 1 },
+	'json'       => { 'json'         => 1 },
+	'raw'        => { 'raw'          => 1 },
 );
 
 sub new {
@@ -133,9 +133,7 @@ sub load {
 	my ( $self, $name, %opts ) = @_;
 
 	if ( !defined($name) || $name !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
-		die(      'The rule name, "'
-				. ( defined($name) ? $name : 'undef' )
-				. '", is not in the form "type/name"' );
+		die( 'The rule name, "' . ( defined($name) ? $name : 'undef' ) . '", is not in the form "type/name"' );
 	}
 
 	if ( defined( $self->{cache}{$name} ) ) {
@@ -171,11 +169,10 @@ sub load {
 					. '" failed '
 					. $results->{fail} . ' of '
 					. ( $results->{pass} + $results->{fail} )
-					. ' of its own tests...'
-					. "\n"
+					. ' of its own tests...' . "\n"
 					. join( "\n", @{ $results->{failures} } )
 					. "\n" );
-		}
+		} ## end if ( $results->{fail} )
 	} ## end if ( !$opts{skip_tests} )
 
 	$self->{cache}{$name} = $rule;

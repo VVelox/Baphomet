@@ -112,12 +112,12 @@ the line could not be parsed. Will die if the parser is not a known one.
 =cut
 
 my %parsers = (
-	'syslog'      => \&App::Baphomet::Parser::Syslog::parse,
-	'bsd_syslog'  => \&App::Baphomet::Parser::BSDSyslog::parse,
-	'ietf_syslog' => \&App::Baphomet::Parser::IETFSyslog::parse,
-	'json_syslog' => \&App::Baphomet::Parser::JSONSyslog::parse,
-	'journal'     => \&App::Baphomet::Parser::Journal::parse,
-	'http_access' => \&App::Baphomet::Parser::HTTPAccess::parse,
+	'syslog'       => \&App::Baphomet::Parser::Syslog::parse,
+	'bsd_syslog'   => \&App::Baphomet::Parser::BSDSyslog::parse,
+	'ietf_syslog'  => \&App::Baphomet::Parser::IETFSyslog::parse,
+	'json_syslog'  => \&App::Baphomet::Parser::JSONSyslog::parse,
+	'journal'      => \&App::Baphomet::Parser::Journal::parse,
+	'http_access'  => \&App::Baphomet::Parser::HTTPAccess::parse,
 	'apache_error' => \&App::Baphomet::Parser::ApacheError::parse,
 	'nginx_error'  => \&App::Baphomet::Parser::NginxError::parse,
 	'json'         => \&App::Baphomet::Parser::JSON::parse,
@@ -132,7 +132,7 @@ sub parse {
 	}
 
 	return $parsers{$parser}->($line);
-} ## end sub parse
+}
 
 =head2 is_known
 
@@ -181,7 +181,7 @@ sub severity_name {
 	}
 
 	return $severity_names[$severity];
-} ## end sub severity_name
+}
 
 =head2 severity_number
 
@@ -201,7 +201,7 @@ sub severity_number {
 	}
 
 	return $severity_numbers{ lc($level) };
-} ## end sub severity_number
+}
 
 =head2 known_parsers
 

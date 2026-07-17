@@ -82,7 +82,7 @@ sub execute {
 			}
 			$result->{gallas}{$galla}{accused} = { $opt->ip => $accused->{ $opt->ip } };
 		}
-	}
+	} ## end if ( defined( $opt->ip ) && ref( $result->...))
 
 	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);
 

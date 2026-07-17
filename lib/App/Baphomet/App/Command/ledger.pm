@@ -159,7 +159,7 @@ sub _unquote {
 	}
 
 	return $value;
-}
+} ## end sub _unquote
 
 # a --since spec into a epoch... bare digits are a epoch already, digits
 # with a unit are a span back from now
@@ -172,7 +172,7 @@ sub _since_epoch {
 	}
 
 	return $spec + 0;
-}
+} ## end sub _since_epoch
 
 =head1 AUTHOR
 

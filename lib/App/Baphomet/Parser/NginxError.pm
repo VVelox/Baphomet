@@ -130,7 +130,7 @@ sub parse {
 		$parsed->{message} = $rest;
 
 		return $parsed;
-	} ## end if ( $line =~ /^ ... )
+	} ## end if ( $line =~ /^ )
 
 	return undef;
 } ## end sub parse

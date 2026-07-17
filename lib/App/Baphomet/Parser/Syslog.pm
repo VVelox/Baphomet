@@ -67,17 +67,20 @@ sub parse {
 	my @order;
 	if ( $line =~ /^\s*\{/ ) {
 		@order = (
-			\&App::Baphomet::Parser::JSONSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse,
+			\&App::Baphomet::Parser::JSONSyslog::parse,
+			\&App::Baphomet::Parser::BSDSyslog::parse,
 			\&App::Baphomet::Parser::IETFSyslog::parse,
 		);
 	} elsif ( $line =~ /^\s*<\d{1,3}>\d/ ) {
 		@order = (
-			\&App::Baphomet::Parser::IETFSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse,
+			\&App::Baphomet::Parser::IETFSyslog::parse,
+			\&App::Baphomet::Parser::BSDSyslog::parse,
 			\&App::Baphomet::Parser::JSONSyslog::parse,
 		);
 	} else {
 		@order = (
-			\&App::Baphomet::Parser::BSDSyslog::parse, \&App::Baphomet::Parser::IETFSyslog::parse,
+			\&App::Baphomet::Parser::BSDSyslog::parse,
+			\&App::Baphomet::Parser::IETFSyslog::parse,
 			\&App::Baphomet::Parser::JSONSyslog::parse,
 		);
 	}

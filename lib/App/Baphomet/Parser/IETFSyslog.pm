@@ -84,16 +84,16 @@ sub parse {
 
 		return {
 			'format'   => 'ietf_syslog',
-			'time'     => $time eq '-' ? undef : $time,
+			'time'     => $time eq '-'     ? undef : $time,
 			'hostname' => $hostname eq '-' ? undef : $hostname,
-			'daemon'   => $daemon eq '-' ? undef : $daemon,
-			'pid'      => $pid eq '-' ? undef : $pid,
+			'daemon'   => $daemon eq '-'   ? undef : $daemon,
+			'pid'      => $pid eq '-'      ? undef : $pid,
 			'facility' => int( $pri / 8 ),
 			'severity' => $severity,
 			'level'    => App::Baphomet::Parser::severity_name($severity),
 			'message'  => defined($message) ? $message : '',
 		};
-	} ## end if ( $line =~ /^ ... )
+	} ## end if ( $line =~ /^ )
 
 	return undef;
 } ## end sub parse

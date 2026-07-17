@@ -301,39 +301,39 @@ sub load_config {
 	}
 
 	my $config = {
-		'run_base_dir'      => '/var/run/baphomet',
-		'tablet_base_dir'   => '/var/db/baphomet',
-		'rules_dir'         => '/usr/local/etc/baphomet/rules',
-		'ereshkigal_socket' => '/var/run/ereshkigal/socket',
-		'galla_bin'         => 'galla',
-		'journalctl_bin'    => 'journalctl',
-		'timeout'           => 30,
-		'checkpoint'        => 60,
-		'ledger_keep'       => 2592000,
-		'max_score'        => 5,
-		'find_time'         => 600,
-		'ban_time'          => undef,
+		'run_base_dir'              => '/var/run/baphomet',
+		'tablet_base_dir'           => '/var/db/baphomet',
+		'rules_dir'                 => '/usr/local/etc/baphomet/rules',
+		'ereshkigal_socket'         => '/var/run/ereshkigal/socket',
+		'galla_bin'                 => 'galla',
+		'journalctl_bin'            => 'journalctl',
+		'timeout'                   => 30,
+		'checkpoint'                => 60,
+		'ledger_keep'               => 2592000,
+		'max_score'                 => 5,
+		'find_time'                 => 600,
+		'ban_time'                  => undef,
 		'allow_per_rule_thresholds' => 0,
-		'eve_only'          => 0,
-		'observe_ignored'   => 0,
-		'default_severity'  => undef,
-		'ignore_ips'        => [],
-		'internal'          => undef,
-		'socket_group'      => undef,
-		'socket_mode'       => '0660',
-		'enable_auth'       => 0,
-		'authed_users'      => [],
-		'authed_groups'     => [],
-		'auth_temp_dir'     => undef,
-		'recidive'          => undef,
-		'eve_log'           => '/var/log/baphomet/eve.json',
-		'eve_enable'        => 0,
-		'geoip_db'          => undef,
-		'country_codes'     => {},
-		'namtar_lists'      => {},
-		'active_time'       => {},
-		'ClayTablet'        => undef,
-		'kur'               => {},
+		'eve_only'                  => 0,
+		'observe_ignored'           => 0,
+		'default_severity'          => undef,
+		'ignore_ips'                => [],
+		'internal'                  => undef,
+		'socket_group'              => undef,
+		'socket_mode'               => '0660',
+		'enable_auth'               => 0,
+		'authed_users'              => [],
+		'authed_groups'             => [],
+		'auth_temp_dir'             => undef,
+		'recidive'                  => undef,
+		'eve_log'                   => '/var/log/baphomet/eve.json',
+		'eve_enable'                => 0,
+		'geoip_db'                  => undef,
+		'country_codes'             => {},
+		'namtar_lists'              => {},
+		'active_time'               => {},
+		'ClayTablet'                => undef,
+		'kur'                       => {},
 	};
 
 	foreach my $item ( keys( %{$parsed} ) ) {
@@ -369,7 +369,8 @@ sub load_config {
 	if ( ref( $config->{socket_mode} ) ne '' || $config->{socket_mode} !~ /^[0-7]{3,4}$/ ) {
 		die( 'socket_mode, "' . $config->{socket_mode} . '", is not a octal perms string such as "0660"' );
 	}
-	if ( defined( $config->{socket_group} ) && ( ref( $config->{socket_group} ) ne '' || $config->{socket_group} eq '' ) )
+	if ( defined( $config->{socket_group} )
+		&& ( ref( $config->{socket_group} ) ne '' || $config->{socket_group} eq '' ) )
 	{
 		die('socket_group is not a group name');
 	}
@@ -382,7 +383,8 @@ sub load_config {
 			die( $item . ' is ' . $list_error );
 		}
 	}
-	if ( defined( $config->{auth_temp_dir} ) && ( ref( $config->{auth_temp_dir} ) ne '' || $config->{auth_temp_dir} eq '' ) )
+	if ( defined( $config->{auth_temp_dir} )
+		&& ( ref( $config->{auth_temp_dir} ) ne '' || $config->{auth_temp_dir} eq '' ) )
 	{
 		die('auth_temp_dir is not a path');
 	}
@@ -474,8 +476,7 @@ sub _check_recidive {
 	if ( !defined( $recidive->{kur} ) || ref( $recidive->{kur} ) ne '' || $recidive->{kur} !~ /^[a-zA-Z0-9\-]+$/ ) {
 		die('recidive lacks a kur naming where recidivists are banished, matching /^[a-zA-Z0-9\-]+$/');
 	}
-	if ( defined( $recidive->{max_score} ) && ( $recidive->{max_score} !~ /^[0-9]+$/ || !$recidive->{max_score} ) )
-	{
+	if ( defined( $recidive->{max_score} ) && ( $recidive->{max_score} !~ /^[0-9]+$/ || !$recidive->{max_score} ) ) {
 		die('recidive max_score is not a positive int');
 	}
 	if ( defined( $recidive->{find_time} ) && ( $recidive->{find_time} !~ /^[0-9]+$/ || !$recidive->{find_time} ) ) {
@@ -589,14 +590,18 @@ sub check_kur_def {
 			# rule, log, and journal may be arrays, country_codes,
 			# namtar_lists, and active_time hashes, TOML booleans are
 			# blessed... else a scalar
-			if ( ref( $watcher->{$key} ) ne ''
-				&& !( $key =~ /^(?:rule|log|journal)$/                      && ref( $watcher->{$key} ) eq 'ARRAY' )
+			if (
+				   ref( $watcher->{$key} ) ne ''
+				&& !( $key =~ /^(?:rule|log|journal)$/                       && ref( $watcher->{$key} ) eq 'ARRAY' )
 				&& !( $key =~ /^(?:country_codes|namtar_lists|active_time)$/ && ref( $watcher->{$key} ) eq 'HASH' )
-				&& !( $key =~ /^(?:allow_per_rule_thresholds|eve_only|observe_ignored)$/
-					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean' ) )
+				&& !(
+					$key =~ /^(?:allow_per_rule_thresholds|eve_only|observe_ignored)$/
+					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean'
+				)
+				)
 			{
 				die( $where . 'key "' . $key . '" is not a scalar' );
-			}
+			} ## end if ( ref( $watcher->{$key} ) ne '' && !( $key...))
 		} ## end foreach my $key ( keys( %{$watcher} ) )
 
 		my $watcher_settings_error = _settings_error($watcher);
@@ -668,7 +673,7 @@ sub check_kur_def {
 						. '" with the parser "'
 						. $parser
 						. '", whose lines that type can not consume' );
-			}
+			} ## end if ( !App::Baphomet::Rules::type_accepts_parser...)
 		} ## end foreach my $rule (@rules)
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
@@ -695,8 +700,8 @@ sub resolve_settings {
 
 	my $resolved = {};
 	foreach my $item (
-		'max_score',        'find_time',       'ban_time', 'allow_per_rule_thresholds',
-		'eve_only',         'observe_ignored', 'default_severity'
+		'max_score', 'find_time',       'ban_time', 'allow_per_rule_thresholds',
+		'eve_only',  'observe_ignored', 'default_severity'
 		)
 	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
@@ -706,7 +711,7 @@ sub resolve_settings {
 		} else {
 			$resolved->{$item} = $config->{$item};
 		}
-	}
+	} ## end foreach my $item ( 'max_score', 'find_time', 'ban_time'...)
 	foreach my $flag ( 'allow_per_rule_thresholds', 'eve_only', 'observe_ignored' ) {
 		$resolved->{$flag} = $resolved->{$flag} ? 1 : 0;
 	}
@@ -731,7 +736,7 @@ sub watcher_rules {
 	}
 
 	return ( $watcher->{rule} );
-} ## end sub watcher_rules
+}
 
 =head2 watcher_logs
 
@@ -751,7 +756,7 @@ sub watcher_logs {
 	}
 
 	return ( $watcher->{log} );
-} ## end sub watcher_logs
+}
 
 =head2 compile_ignore_ips
 
@@ -850,7 +855,8 @@ sub ip_ignored {
 		}
 		if ($spare_bits) {
 			my $mask = chr( 0xFF << ( 8 - $spare_bits ) & 0xFF );
-			if ( ( substr( $packed, $whole_bytes, 1 ) & $mask ) ne ( substr( $net->{packed}, $whole_bytes, 1 ) & $mask ) )
+			if ( ( substr( $packed, $whole_bytes, 1 ) & $mask ) ne
+				( substr( $net->{packed}, $whole_bytes, 1 ) & $mask ) )
 			{
 				next;
 			}
@@ -1072,7 +1078,7 @@ sub _namtar_lists_error {
 				if ( !defined( $value->{type} ) || $value->{type} ne 'string' ) {
 					return $where . ' list "' . $name . '" sets nocase on a non-string list';
 				}
-			} ## end if ( defined( $value->{nocase...}))
+			}
 			$paths = $value->{files};
 			if ( !defined($paths) ) {
 				return $where . ' list "' . $name . '" is missing files';
@@ -1081,7 +1087,7 @@ sub _namtar_lists_error {
 			return $where . ' list "' . $name . '" is not a path, a array of paths, or a typed table';
 		} else {
 			$paths = $value;
-		} ## end else [ if ( ref($value) eq 'HASH')]
+		}
 
 		my @paths = ref($paths) eq 'ARRAY' ? @{$paths} : ($paths);
 		if ( !@paths ) {
@@ -1148,7 +1154,7 @@ sub _active_time_error {
 				return $spec_error;
 			}
 		}
-	} ## end foreach my $name ( keys( %{$windows...}))
+	} ## end foreach my $name ( keys( %{$windows} ) )
 
 	return undef;
 } ## end sub _active_time_error
@@ -1180,7 +1186,7 @@ sub _active_time_spec_error {
 				return $where . ' has a day that is not 0..6';
 			}
 		}
-	} ## end if ( defined( $spec->{days...}))
+	} ## end if ( defined( $spec->{days} ) )
 
 	if ( defined( $spec->{hours} ) ) {
 		if ( ref( $spec->{hours} ) ne '' && ref( $spec->{hours} ) ne 'ARRAY' ) {
@@ -1191,12 +1197,14 @@ sub _active_time_spec_error {
 			return $where . ' has a empty hours array';
 		}
 		foreach my $range (@ranges) {
-			if ( !defined($range) || ref($range) ne '' || $range !~ /^(?:[01][0-9]|2[0-3])[0-5][0-9]-(?:[01][0-9]|2[0-3])[0-5][0-9]$/ )
+			if (  !defined($range)
+				|| ref($range) ne ''
+				|| $range !~ /^(?:[01][0-9]|2[0-3])[0-5][0-9]-(?:[01][0-9]|2[0-3])[0-5][0-9]$/ )
 			{
 				return $where . ' has a hours range that is not HHMM-HHMM';
 			}
 		}
-	} ## end if ( defined( $spec->{hours...}))
+	} ## end if ( defined( $spec->{hours} ) )
 
 	return undef;
 } ## end sub _active_time_spec_error
@@ -1206,8 +1214,7 @@ sub _active_time_spec_error {
 sub _times_error {
 	my ($settings) = @_;
 
-	if ( defined( $settings->{max_score} ) && ( $settings->{max_score} !~ /^[0-9]+$/ || !$settings->{max_score} ) )
-	{
+	if ( defined( $settings->{max_score} ) && ( $settings->{max_score} !~ /^[0-9]+$/ || !$settings->{max_score} ) ) {
 		return 'a max_score, "' . $settings->{max_score} . '", that is not a positive int';
 	}
 	if ( defined( $settings->{find_time} ) && ( $settings->{find_time} !~ /^[0-9]+$/ || !$settings->{find_time} ) ) {

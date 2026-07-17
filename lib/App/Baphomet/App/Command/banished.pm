@@ -125,10 +125,10 @@ sub execute {
 		if ( ref( $kur_status->{fan_out} ) eq 'ARRAY' ) {
 			my $members = {};
 			foreach my $member ( @{ $kur_status->{fan_out} } ) {
-				$members->{$member} =
-					defined( $held->{$member} )
+				$members->{$member}
+					= defined( $held->{$member} )
 					? { 'banned' => $held->{$member}{banned}, 'expires' => $held->{$member}{expires} }
-					: { 'error' => 'not among the banned lists' };
+					: { 'error'  => 'not among the banned lists' };
 			}
 			$result->{kurs}{$kur} = {
 				'fan_out' => $kur_status->{fan_out},
@@ -150,12 +150,14 @@ sub execute {
 	} else {
 		foreach my $kur (@kurs) {
 			my $galla = $status_all->{gallas}{$kur};
-			if ( defined($galla) && ref( $galla->{status} ) eq 'HASH' && ref( $galla->{status}{pending_bans} ) eq 'ARRAY' )
+			if (   defined($galla)
+				&& ref( $galla->{status} ) eq 'HASH'
+				&& ref( $galla->{status}{pending_bans} ) eq 'ARRAY' )
 			{
 				$result->{kurs}{$kur}{pending} = $galla->{status}{pending_bans};
 			}
 		}
-	}
+	} ## end else [ if ($@) ]
 
 	if ( defined( $opt->ip ) ) {
 		$result = _pare_to_ip( $result, $opt->ip );
@@ -197,7 +199,7 @@ sub _pare_to_ip {
 					}
 				}
 			}
-		}
+		} ## end if ( ref( $entry->{members} ) eq 'HASH' )
 
 		if ( ref( $entry->{pending} ) eq 'ARRAY' && grep { $_ eq $ip } @{ $entry->{pending} } ) {
 			$found->{pending} = 1;

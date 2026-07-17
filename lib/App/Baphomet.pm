@@ -107,13 +107,13 @@ sub new {
 			fatal_flags      => {},
 			perror_not_fatal => 0,
 		},
-		config          => '/usr/local/etc/baphomet/config.toml',
-		gallas          => {},
-		wheel_to_galla  => {},
-		pid_to_galla    => {},
-		shutting_down   => 0,
-		started         => undef,
-		server          => undef,
+		config         => '/usr/local/etc/baphomet/config.toml',
+		gallas         => {},
+		wheel_to_galla => {},
+		pid_to_galla   => {},
+		shutting_down  => 0,
+		started        => undef,
+		server         => undef,
 	};
 	bless $self;
 
@@ -130,8 +130,8 @@ sub new {
 		$self->warn;
 	}
 	foreach my $item (
-		'run_base_dir', 'rules_dir',    'ereshkigal_socket', 'galla_bin',
-		'timeout',      'socket_group', 'enable_auth',        'authed_users',
+		'run_base_dir',  'rules_dir',    'ereshkigal_socket', 'galla_bin',
+		'timeout',       'socket_group', 'enable_auth',       'authed_users',
 		'authed_groups', 'auth_temp_dir'
 		)
 	{
@@ -194,7 +194,7 @@ sub new {
 						. $@;
 					$self->warn;
 				} ## end if ($@)
-			} ## end foreach my $rule ( watcher_rules( $watchers->...))
+			} ## end foreach my $rule ( watcher_rules( $watchers->{$watcher_name...}))
 		} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
 		$self->{gallas}{$name} = {
@@ -205,7 +205,7 @@ sub new {
 			'enabled'  => 1,
 			'spawned'  => undef,
 		};
-	} ## end foreach my $name ( sort( keys( %{ $config->{kur...})))
+	} ## end foreach my $name ( sort( keys( %{ $config->{kur...}})))
 
 	# create these here rather than in start_server as the PID file gets
 	# written prior to start_server being called
@@ -381,15 +381,13 @@ sub start_server {
 
 	$self->{started} = time;
 
-	log_drek(
-		'info',
-		'started... socket='
+	log_drek( 'info',
+			  'started... socket='
 			. $self->socket_path
 			. ' auth='
 			. ( $self->{enable_auth} ? 'on' : 'off' )
 			. ' gallas='
-			. join( ',', sort( keys( %{ $self->{gallas} } ) ) )
-	);
+			. join( ',', sort( keys( %{ $self->{gallas} } ) ) ) );
 
 	$poe_kernel->run;
 
@@ -606,7 +604,7 @@ sub _poe_stop_all {
 				$entry->{wheel}->kill('TERM');
 			}
 		}
-	} ## end foreach my $name ( sort( keys( %{ $self->{gallas...})))
+	} ## end foreach my $name ( sort( keys( %{ $self->{gallas...}})))
 
 	$kernel->alarm_remove_all;
 	$kernel->alias_remove('baphomet_manager');
@@ -661,7 +659,7 @@ sub _cmd_status_all {
 				$status->{gallas}{$name}{status} = $galla_status;
 			}
 		}
-	} ## end foreach my $name ( keys( %{ $status->{gallas} ...}))
+	} ## end foreach my $name ( keys( %{ $status->{gallas} }...))
 
 	return $status;
 } ## end sub _cmd_status_all

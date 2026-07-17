@@ -5,9 +5,9 @@ use strict;
 use warnings;
 use App::Baphomet::App -command;
 use App::Baphomet::Config qw( load_config );
-use Ereshkigal::Client ();
-use JSON::MaybeXS      ();
-use Time::HiRes        qw( usleep );
+use Ereshkigal::Client    ();
+use JSON::MaybeXS         ();
+use Time::HiRes           qw( usleep );
 
 =head1 NAME
 
@@ -49,7 +49,7 @@ sub usage_desc { return '%c stop %o'; }
 
 sub opt_spec {
 	return (
-		[ 'config=s', 'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
+		[ 'config=s',  'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
 		[ 'timeout=i', 'seconds to wait for the manager to exit, 0 to not wait' ],
 		[ 'no-wait',   'return as soon as the stop is acknowledged, without waiting for exit' ],
 	);
@@ -79,13 +79,14 @@ sub execute {
 		my $timeout = defined( $opt->timeout ) ? $opt->timeout : _config_timeout( $opt->config );
 		my $waited  = _wait_for_exit( $result->{pid}, $timeout );
 		if ( !$waited ) {
-			warn( 'the manager (PID '
+			warn(     'the manager (PID '
 					. $result->{pid}
 					. ') was still alive after '
 					. $timeout
-					. 's... a immediate restart may race its PID file' . "\n" );
+					. 's... a immediate restart may race its PID file'
+					. "\n" );
 		}
-	} ## end if ( !$opt->no_wait && defined...)
+	} ## end if ( !$opt->no_wait && defined( $result->{...}))
 
 	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);
 

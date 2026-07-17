@@ -135,7 +135,7 @@ sub parse {
 			'format'     => $format,
 			'host'       => $host,
 			'ident'      => $ident eq '-' ? undef : $ident,
-			'user'       => $user eq '-' ? undef : $user,
+			'user'       => $user eq '-'  ? undef : $user,
 			'time'       => $time,
 			'request'    => $request,
 			'method'     => $method,
@@ -143,10 +143,10 @@ sub parse {
 			'protocol'   => $protocol,
 			'status'     => $status,
 			'bytes'      => $bytes eq '-' ? undef : $bytes,
-			'referer'    => ( defined($referer) && $referer ne '-' ) ? $referer : undef,
+			'referer'    => ( defined($referer)    && $referer ne '-' )    ? $referer    : undef,
 			'user_agent' => ( defined($user_agent) && $user_agent ne '-' ) ? $user_agent : undef,
 		};
-	} ## end if ( $line =~ /^ ... )
+	} ## end if ( $line =~ /^ )
 
 	return undef;
 } ## end sub parse
