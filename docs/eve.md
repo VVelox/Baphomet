@@ -66,7 +66,18 @@ when it is a seventh-gate escalation to the recidive kur. A banish
 triggered by a specific line crossing the threshold carries that line's
 `raw`/`parsed`/`found`/`rule`; one from a pending retry or a recidive
 escalation is the bare banishment. With a `geoip_db` loaded, the
-banished IP's `.country` rides along too. An **alert** carries the same
+banished IP's `.country` rides along too.
+
+A **subnet banish** is a banish whose `.ip` is a CIDR (`65.49.1.0/24`)
+rather than a single address... raised when a network bucket crosses
+`subnet_max_score` (see [configuration](configuration)). Its `.raw` (and
+`.parsed`/`.found`) are the last line that tipped the bucket over, and it
+adds a `.bucket` table describing the network: `family` (`v4`/`v6`),
+`cidr`, `prefix`, `members` (the distinct offender IPs that fed it, in
+first-seen order), `hits`, `score`, and the `first`/`last` epochs the
+window spanned. It carries no `.country`, a CIDR has no single one. In
+observe mode the same crossing surfaces as an `alert` with the same
+`.ip` and `.bucket`. An **alert** carries the same
 `.ip`, `.ban_time`, `.score`, and envelope a banish would, being its
 observe-mode stand-in. A **found** or **noted** event carries `.marks_set`
 and `.unmarked` when the rule branded or lifted marks, and `.ip`, the

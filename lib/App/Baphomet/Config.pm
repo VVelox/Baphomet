@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use Exporter   qw( import );
-use Socket     qw( AF_INET AF_INET6 inet_pton );
+use Socket     qw( AF_INET AF_INET6 inet_pton inet_ntop );
 use TOML::Tiny qw( from_toml );
 
 =pod
@@ -22,7 +22,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored ip_network ip_family );
 
 =head1 SYNOPSIS
 
@@ -313,6 +313,10 @@ sub load_config {
 		'max_score'                 => 5,
 		'find_time'                 => 600,
 		'ban_time'                  => undef,
+		'ban_subnet_v4'             => undef,
+		'ban_subnet_v6'             => undef,
+		'subnet_max_score'          => undef,
+		'subnet_find_time'          => undef,
 		'allow_per_rule_thresholds' => 0,
 		'eve_only'                  => 0,
 		'observe_ignored'           => 0,
@@ -582,7 +586,7 @@ sub check_kur_def {
 
 		foreach my $key ( keys( %{$watcher} ) ) {
 			if ( $key
-				!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|country_codes|namtar_lists|active_time)$/
+				!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|country_codes|namtar_lists|active_time)$/
 				)
 			{
 				die( $where . 'has the unknown key "' . $key . '"' );
@@ -700,8 +704,9 @@ sub resolve_settings {
 
 	my $resolved = {};
 	foreach my $item (
-		'max_score', 'find_time',       'ban_time', 'allow_per_rule_thresholds',
-		'eve_only',  'observe_ignored', 'default_severity'
+		'max_score',     'find_time',        'ban_time',         'allow_per_rule_thresholds',
+		'eve_only',      'observe_ignored',  'default_severity', 'ban_subnet_v4',
+		'ban_subnet_v6', 'subnet_max_score', 'subnet_find_time'
 		)
 	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
@@ -868,6 +873,99 @@ sub ip_ignored {
 	return 0;
 } ## end sub ip_ignored
 
+=head2 ip_family
+
+Returns C<v4> or C<v6> for a IP, or undef for anything that is not one. A IPv4
+mapped IPv6, the ::ffff: form, counts as C<v4>, since that is how it is really
+banned and bucketed. Lets a caller pick the family's own subnet prefix before
+handing it to L</ip_network>, so a v4 prefix is never applied to a v6 address.
+
+    my $family = ip_family($ip);   # 'v4', 'v6', or undef
+
+=cut
+
+sub ip_family {
+	my ($ip) = @_;
+
+	if ( !defined($ip) || ref($ip) ne '' ) {
+		return undef;
+	}
+	if ( defined( inet_pton( AF_INET, $ip ) ) ) {
+		return 'v4';
+	}
+	my $packed6 = inet_pton( AF_INET6, $ip );
+	if ( !defined($packed6) ) {
+		return undef;
+	}
+	if ( substr( $packed6, 0, 12 ) eq ( "\0" x 10 ) . "\xff\xff" ) {
+		return 'v4';
+	}
+	return 'v6';
+} ## end sub ip_family
+
+=head2 ip_network
+
+Returns the canonical network address of a IP at the given prefix length, as a
+C<address/prefix> CIDR string, or undef when the value is not a IP. The host
+bits below the prefix are masked off, so C<ip_network('65.49.1.118', 24)>
+returns C<65.49.1.0/24>, matching what Ereshkigal's C<normalize_cidr> would
+make of it. A IPv4 mapped IPv6 address, the ::ffff: form, is treated as its
+IPv4 self, so the caller passes the family's own prefix (1..32 for IPv4,
+1..128 for IPv6). undef prefix, or one out of range for the family, returns
+undef, so a family with no prefix configured simply does not bucket.
+
+    my $net = ip_network( $ip, 24 );   # '65.49.1.0/24' or undef
+
+=cut
+
+sub ip_network {
+	my ( $ip, $prefix ) = @_;
+
+	if ( !defined($ip) || ref($ip) ne '' || !defined($prefix) || $prefix !~ /^[0-9]+$/ ) {
+		return undef;
+	}
+
+	my $packed = inet_pton( AF_INET, $ip );
+	my $family = AF_INET;
+	my $bits   = 32;
+	if ( !defined($packed) ) {
+		my $packed6 = inet_pton( AF_INET6, $ip );
+		if ( !defined($packed6) ) {
+			return undef;
+		}
+		# a IPv4 mapped IPv6 is really IPv4, so it nets under the v4 prefix
+		if ( substr( $packed6, 0, 12 ) eq ( "\0" x 10 ) . "\xff\xff" ) {
+			$packed = substr( $packed6, 12 );
+		} else {
+			$packed = $packed6;
+			$family = AF_INET6;
+			$bits   = 128;
+		}
+	} ## end if ( !defined($packed) )
+
+	if ( $prefix < 1 || $prefix > $bits ) {
+		return undef;
+	}
+
+	# mask the host bits off, whole bytes then the partial byte, the same
+	# byte and bit split ip_ignored uses to compare
+	my $whole_bytes = int( $prefix / 8 );
+	my $spare_bits  = $prefix % 8;
+	my $masked      = substr( $packed, 0, $whole_bytes );
+	if ($spare_bits) {
+		my $mask = chr( 0xFF << ( 8 - $spare_bits ) & 0xFF );
+		$masked .= ( substr( $packed, $whole_bytes, 1 ) & $mask );
+	}
+	$masked .= "\0" x ( length($packed) - length($masked) );
+
+	my $network = inet_ntop( $family, $masked );
+	if ( !defined($network) ) {
+		return undef;
+	}
+
+	return $network . '/' . $prefix;
+} ## end sub ip_network
+
 =head2 watcher_journal
 
 Returns the journalctl matches of a watcher as a list, regardless of if
@@ -915,7 +1013,7 @@ sub _settings_error {
 
 	foreach my $key ( keys( %{$settings} ) ) {
 		if ( $key
-			!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
+			!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
 			)
 		{
 			return 'the unknown setting "' . $key . '"';
@@ -1222,6 +1320,37 @@ sub _times_error {
 	}
 	if ( defined( $settings->{ban_time} ) && $settings->{ban_time} !~ /^[0-9]+$/ ) {
 		return 'a ban_time, "' . $settings->{ban_time} . '", that is not a non-negative int of seconds';
+	}
+	if ( defined( $settings->{subnet_max_score} )
+		&& ( $settings->{subnet_max_score} !~ /^[0-9]+$/ || !$settings->{subnet_max_score} ) )
+	{
+		return 'a subnet_max_score, "' . $settings->{subnet_max_score} . '", that is not a positive int';
+	}
+	if ( defined( $settings->{subnet_find_time} )
+		&& ( $settings->{subnet_find_time} !~ /^[0-9]+$/ || !$settings->{subnet_find_time} ) )
+	{
+		return 'a subnet_find_time, "' . $settings->{subnet_find_time} . '", that is not a positive int of seconds';
+	}
+
+	# the subnet prefix lengths gate which families bucket... a v4 prefix is
+	# 1..32, a v6 one 1..128, and naming neither leaves subnet bucketing off
+	if (
+		defined( $settings->{ban_subnet_v4} )
+		&& (   $settings->{ban_subnet_v4} !~ /^[0-9]+$/
+			|| $settings->{ban_subnet_v4} < 1
+			|| $settings->{ban_subnet_v4} > 32 )
+		)
+	{
+		return 'a ban_subnet_v4, "' . $settings->{ban_subnet_v4} . '", that is not a prefix length of 1..32';
+	}
+	if (
+		defined( $settings->{ban_subnet_v6} )
+		&& (   $settings->{ban_subnet_v6} !~ /^[0-9]+$/
+			|| $settings->{ban_subnet_v6} < 1
+			|| $settings->{ban_subnet_v6} > 128 )
+		)
+	{
+		return 'a ban_subnet_v6, "' . $settings->{ban_subnet_v6} . '", that is not a prefix length of 1..128';
 	}
 
 	return undef;

@@ -12,7 +12,7 @@ use POSIX                            qw( strftime );
 use Sys::Hostname                    ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::ClayTablet ();
@@ -102,11 +102,14 @@ sub new {
 		shadow_rule_counters     => {},
 		distinct_counters        => {},
 		shadow_distinct_counters => {},
+		subnet_counters          => { v4 => {}, v6 => {} },
+		shadow_subnet_counters   => { v4 => {}, v6 => {} },
 		marks                    => {},
 		mark_sync                => 0,
 		mark_stream_id           => undef,
 		namtar_files             => {},
 		pending_bans             => {},
+		pending_cidr_bans        => {},
 		wheel_to_watcher         => {},
 		started                  => undef,
 		stopping                 => 0,
@@ -577,6 +580,31 @@ sub checkpoint {
 		}
 	);
 
+	# subnet buckets... family,net,hit_epoch,weight,member one row per live
+	# deposit, so a restart resumes a partial subnet count and remembers who
+	# fed it. the family is v4 or v6, the two kept apart. the shadow buckets of
+	# observe mode are ephemeral and never chiseled. the member is last, as a
+	# IPv6 holds no comma but is the one field worth putting at the end anyway
+	$self->_write_tablet(
+		'subnet',
+		sub {
+			my ($fh) = @_;
+			print $fh "family,net,hit,weight,member\n";
+			foreach my $family ( sort( keys( %{ $self->{subnet_counters} } ) ) ) {
+				my $store = $self->{subnet_counters}{$family};
+				foreach my $network ( sort( keys( %{$store} ) ) ) {
+					foreach my $entry ( @{ $store->{$network} } ) {
+						print $fh $family . ','
+							. $network . ','
+							. $entry->[0] . ','
+							. $entry->[1] . ','
+							. ( defined( $entry->[2] ) ? $entry->[2] : '' ) . "\n";
+					}
+				}
+			} ## end foreach my $family ( sort( keys( %{ $self->{subnet_counters...}})))
+		}
+	);
+
 	# distinct-cardinality sets... one JSON line per (rule, ip, distinct value)
 	# with the value's newest epoch, so a restart resumes a partial count
 	$self->_write_tablet(
@@ -605,6 +633,21 @@ sub checkpoint {
 			foreach my $ip ( sort( keys( %{ $self->{pending_bans} } ) ) ) {
 				print $fh $ip . ','
 					. ( defined( $self->{pending_bans}{$ip} ) ? $self->{pending_bans}{$ip} : '' ) . "\n";
+			}
+		}
+	);
+
+	# pending CIDR bans... net,ban_time, ban_time empty meaning undef, the twin
+	# of pending for a subnet ban the manager could not be reached for
+	$self->_write_tablet(
+		'pending_cidr',
+		sub {
+			my ($fh) = @_;
+			print $fh "net,ban_time\n";
+			foreach my $network ( sort( keys( %{ $self->{pending_cidr_bans} } ) ) ) {
+				print $fh $network . ','
+					. ( defined( $self->{pending_cidr_bans}{$network} ) ? $self->{pending_cidr_bans}{$network} : '' )
+					. "\n";
 			}
 		}
 	);
@@ -749,9 +792,11 @@ sub _load_state {
 
 	my $now = time;
 
+	$self->_load_subnet($now);
 	$self->_load_counters($now);
 	$self->_load_distinct($now);
 	$self->_load_pending_bans;
+	$self->_load_pending_cidr_bans;
 	$self->_load_positions;
 	$self->_load_cursors;
 	$self->_load_stats;
@@ -808,6 +853,38 @@ sub _load_counters {
 	return;
 } ## end sub _load_counters
 
+# restores the subnet buckets, per family, remembering each deposit's member
+# IP... loaded before the counters so their shared prune sorts and ages these
+# too. a row for a family other than v4 or v6, or with a unusable epoch, is
+# skipped. a missing weight restores as 1, like the per-IP counters
+sub _load_subnet {
+	my ( $self, $now ) = @_;
+
+	my $line_int = 0;
+	foreach my $line ( $self->_read_tablet('subnet') ) {
+		$line_int++;
+		if ( ( $line_int == 1 && $line =~ /^family,/ ) || $line eq '' ) {
+			next;
+		}
+		my ( $family, $network, $hit, $weight, $member ) = split( /,/, $line, 5 );
+		if ( !defined($family) || ( $family ne 'v4' && $family ne 'v6' ) ) {
+			next;
+		}
+		if ( !defined($network) || $network eq '' || !defined($hit) || $hit !~ /^[0-9]+$/ ) {
+			next;
+		}
+		if ( !defined($weight) || $weight !~ /^[0-9]+(?:\.[0-9]+)?$/ || $weight + 0 <= 0 ) {
+			$weight = 1;
+		}
+		push(
+			@{ $self->{subnet_counters}{$family}{$network} },
+			[ $hit + 0, $weight + 0, ( defined($member) && $member ne '' ? $member : undef ) ]
+		);
+	} ## end foreach my $line ( $self->_read_tablet('subnet'...))
+
+	return;
+} ## end sub _load_subnet
+
 # sort each restored counter bucket by epoch and drop entries with nothing
 # recent, then drop any per-rule bucket left empty... the register path
 # re-prunes per the effective find_time on the next hit
@@ -829,6 +906,20 @@ sub _prune_counter_buckets {
 			delete( $self->{rule_counters}{$rule_name} );
 		}
 	}
+
+	# the restored subnet buckets, per family... sort each network's deposits
+	# and drop any with nothing recent, the same as the per-IP buckets
+	foreach my $family ( keys( %{ $self->{subnet_counters} } ) ) {
+		my $store = $self->{subnet_counters}{$family};
+		foreach my $network ( keys( %{$store} ) ) {
+			my @sorted = sort { $a->[0] <=> $b->[0] } @{ $store->{$network} };
+			if ( !@sorted || ( $now - $sorted[-1][0] ) > 86400 ) {
+				delete( $store->{$network} );
+			} else {
+				$store->{$network} = \@sorted;
+			}
+		}
+	} ## end foreach my $family ( keys( %{ $self->{subnet_counters...}}))
 
 	return;
 } ## end sub _prune_counter_buckets
@@ -880,6 +971,28 @@ sub _load_pending_bans {
 
 	return;
 } ## end sub _load_pending_bans
+
+# pending CIDR bans... a network and, optionally, the ban_time it is owed. the
+# twin of _load_pending_bans for the subnet case
+sub _load_pending_cidr_bans {
+	my ($self) = @_;
+
+	my $line_int = 0;
+	foreach my $line ( $self->_read_tablet('pending_cidr') ) {
+		$line_int++;
+		if ( ( $line_int == 1 && $line =~ /^net,/ ) || $line eq '' ) {
+			next;
+		}
+		my ( $network, $ban_time ) = split( /,/, $line );
+		if ( !defined($network) || $network eq '' ) {
+			next;
+		}
+		$self->{pending_cidr_bans}{$network}
+			= ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
+	} ## end foreach my $line ( $self->_read_tablet('pending_cidr'...))
+
+	return;
+} ## end sub _load_pending_cidr_bans
 
 # log positions... the saved inode and offset a file was last read to
 sub _load_positions {
@@ -1152,7 +1265,7 @@ sub _eve_raw {
 	}
 
 	return $raw;
-}
+} ## end sub _eve_raw
 
 =head2 start_server
 
@@ -1865,7 +1978,7 @@ sub _eve_fields {
 		'src_ip'  => $src_ip,
 		'dest_ip' => $dest_ip,
 		'msg'     => $context->{rule}->msg,
-		'rule'   => $context->{rule}->info,
+		'rule'    => $context->{rule}->info,
 		defined( $context->{severity} )         ? ( 'severity'   => $context->{severity} )         : (),
 		defined( $context->{rule}->classtype )  ? ( 'classtype'  => $context->{rule}->classtype )  : (),
 		defined( $context->{rule}->references ) ? ( 'references' => $context->{rule}->references ) : (),
@@ -2672,8 +2785,105 @@ sub _register_hit {
 		}
 	} ## end if ( $score >= $max_score )
 
+	# alongside the per-IP tally the offender also feeds a subnet bucket, when
+	# the watcher names a prefix for this IP's family... its own threshold, its
+	# own window, and a crossing banishes the whole CIDR. a detection subject
+	# never banishes, so it never buckets
+	if ( !$detection ) {
+		$self->_register_subnet_hit( $watcher_name, $ip, $context, $eve_only, $weight, $now );
+	}
+
 	return $score;
 } ## end sub _register_hit
+
+# feeds the subnet bucket for a offender, when its family has a configured
+# prefix... v4 and v6 keep wholly separate stores, and only a family named in
+# the settings buckets at all. each deposit remembers the member IP so a
+# crossing can name who tipped it. crossing subnet_max_score with in
+# subnet_find_time banishes the CIDR, or in observe mode alerts on it. counts
+# into the shadow store for observe mode, kept apart from the real one
+sub _register_subnet_hit {
+	my ( $self, $watcher_name, $ip, $context, $eve_only, $weight, $now ) = @_;
+
+	my $settings = $self->{watchers}{$watcher_name}{settings};
+
+	# never bucket, let alone banish, our own space
+	if ( ip_ignored( $self->{internal}, $ip ) ) {
+		return;
+	}
+
+	my $family = ip_family($ip);
+	if ( !defined($family) ) {
+		return;
+	}
+	my $prefix = $family eq 'v4' ? $settings->{ban_subnet_v4} : $settings->{ban_subnet_v6};
+	if ( !defined($prefix) ) {
+		return;
+	}
+	my $network = ip_network( $ip, $prefix );
+	if ( !defined($network) ) {
+		return;
+	}
+
+	# the subnet threshold and window fall back to the per-IP ones when the
+	# watcher sets none of their own. the ban_time is the watcher's
+	my $max_score = defined( $settings->{subnet_max_score} ) ? $settings->{subnet_max_score} : $settings->{max_score};
+	my $find_time = defined( $settings->{subnet_find_time} ) ? $settings->{subnet_find_time} : $settings->{find_time};
+	my $ban_time  = $settings->{ban_time};
+
+	my $bucket = ( $eve_only ? $self->{shadow_subnet_counters} : $self->{subnet_counters} )->{$family};
+	if ( !defined( $bucket->{$network} ) ) {
+		$bucket->{$network} = [];
+	}
+	push( @{ $bucket->{$network} }, [ $now, $weight, $ip ] );
+
+	# deposits older than the subnet find_time no longer count
+	@{ $bucket->{$network} } = grep { ( $now - $_->[0] ) < $find_time } @{ $bucket->{$network} };
+
+	my $score = 0;
+	foreach my $entry ( @{ $bucket->{$network} } ) {
+		$score += $entry->[1];
+	}
+	if ( $score < $max_score ) {
+		return;
+	}
+
+	# the members that fed the CIDR, distinct and in first-seen order, with the
+	# window they spanned, for the eve bucket
+	my %seen;
+	my @members;
+	my ( $first, $last );
+	foreach my $entry ( @{ $bucket->{$network} } ) {
+		if ( !$seen{ $entry->[2] } ) {
+			$seen{ $entry->[2] } = 1;
+			push( @members, $entry->[2] );
+		}
+		if ( !defined($first) || $entry->[0] < $first ) { $first = $entry->[0]; }
+		if ( !defined($last)  || $entry->[0] > $last )  { $last  = $entry->[0]; }
+	}
+	my $info = {
+		'family'  => $family,
+		'cidr'    => $network,
+		'prefix'  => $prefix + 0,
+		'members' => \@members,
+		'hits'    => scalar( @{ $bucket->{$network} } ),
+		'score'   => $score,
+		defined($first) ? ( 'first' => $first ) : (),
+		defined($last)  ? ( 'last'  => $last )  : (),
+	};
+
+	# clear on firing, like a per-IP bucket, so it re-arms rather than banishing
+	# every further hit
+	delete( $bucket->{$network} );
+
+	if ($eve_only) {
+		$self->_alert_subnet( $network, $ban_time, $context, $score, $info );
+	} else {
+		$self->_ban_subnet( $network, $ban_time, $context, $score, $info );
+	}
+
+	return;
+} ## end sub _register_subnet_hit
 
 # banishes a IP to Kur, queueing it for retry by the sweeper if the
 # Ereshkigal manager could not be reached
@@ -2778,6 +2988,107 @@ sub _sighted {
 	return;
 } ## end sub _sighted
 
+# banishes a whole CIDR to Kur when its subnet bucket crossed... the twin of
+# _ban_ip for the network case. queues the CIDR for the sweeper to retry if
+# the manager could not be reached. the banish event lists the CIDR as its ip,
+# the last triggering line as its raw, and a bucket field naming the members
+# that fed it. no country lookup, a CIDR has no single one. the CIDR is chiseled
+# into the shared ledger under its own key, so a subnet banished too many times
+# escalates to the recidive kur just as a IP would, as a cidr_ban
+sub _ban_subnet {
+	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
+
+	my $ident = 'galla-' . $self->{name};
+
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
+
+	eval { $self->_send_cidr_ban( $network, $ban_time ); };
+	if ($@) {
+		$self->_tick( 'ban_errors', $watcher_name, $rule_name );
+		$self->{pending_cidr_bans}{$network} = $ban_time;
+		log_drek( 'err', 'banishing ' . $network . ' to Kur failed, will retry... ' . $@, undef, $ident );
+		return;
+	}
+
+	$self->_tick( 'subnet_bans', $watcher_name, $rule_name );
+	delete( $self->{pending_cidr_bans}{$network} );
+	log_drek( 'info', 'banished ' . $network . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+		undef, $ident );
+
+	$self->_eve_emit(
+		'banish',
+		{
+			'ip' => $network,
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+			defined($info)     ? ( 'bucket'   => $info )     : (),
+			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
+		}
+	);
+
+	# chisel the CIDR into the shared ledger, keyed on its own network string,
+	# and escalate to the recidive kur when it has been banished too often
+	my $ledger_count = $self->_ledger_append_and_count( $network, $context );
+	$self->_recidive_check( $network, $ledger_count, 1 );
+
+	return;
+} ## end sub _ban_subnet
+
+# the observe-mode twin of _ban_subnet... a crossed shadow subnet bucket raises
+# a alert instead of banishing, sending nothing to Kur
+sub _alert_subnet {
+	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
+
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
+
+	$self->_tick( 'subnet_alerts', $watcher_name, $rule_name );
+	log_drek(
+		'info',
+		'would banish '
+			. $network
+			. ' to Kur (observe mode)'
+			. ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+		undef,
+		'galla-' . $self->{name}
+	);
+
+	$self->_eve_emit(
+		'alert',
+		{
+			'ip' => $network,
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+			defined($info)     ? ( 'bucket'   => $info )     : (),
+			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
+		}
+	);
+
+	return;
+} ## end sub _alert_subnet
+
+# the CIDR ban request to the Ereshkigal manager, its cidr_ban command... the
+# manager masks the host bits, dedupes, and drops it on a kur that can not do
+# CIDR per its cidr_silent_drop. to this galla's kur by default
+sub _send_cidr_ban {
+	my ( $self, $network, $ban_time, $kur ) = @_;
+
+	my $client = Ereshkigal::Client->new(
+		'socket'  => $self->{ereshkigal_socket},
+		'timeout' => $self->{timeout},
+	);
+
+	$client->call_ok(
+		'cidr_ban',
+		{
+			'cidrs' => [$network],
+			'kur' => defined($kur) ? $kur : $self->{name},
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+		}
+	);
+
+	return;
+} ## end sub _send_cidr_ban
+
 # the actual ban request to the Ereshkigal manager, to this galla's kur by
 # default or the passed one for a recidive escalation
 sub _send_ban {
@@ -2808,12 +3119,14 @@ sub ledger_path {
 	return $self->{tablet_base_dir} . '/banishments.csv';
 }
 
-# escalates to the recidive kur if the IP has now been banished
+# escalates to the recidive kur if the subject has now been banished
 # max_score times with in find_time across all kurs, per the ledger count
 # from _ledger_append_and_count... a no-op when recidive is off, and never
-# re-counts a recidive escalation it's self
+# re-counts a recidive escalation it's self. the subject is a IP normally, or
+# a CIDR when $subnet is set, in which case the escalation goes out as a
+# cidr_ban and no country is looked up, a CIDR having no single one
 sub _recidive_check {
-	my ( $self, $ip, $count ) = @_;
+	my ( $self, $subject, $count, $subnet ) = @_;
 
 	if ( !defined( $self->{recidive} ) ) {
 		return;
@@ -2834,7 +3147,7 @@ sub _recidive_check {
 	log_drek(
 		'info',
 		'recidivist '
-			. $ip
+			. $subject
 			. ' banished '
 			. $count
 			. ' times, dragging through to the recidive kur "'
@@ -2843,20 +3156,27 @@ sub _recidive_check {
 		'galla-' . $self->{name}
 	);
 
-	eval { $self->_send_ban( $ip, $ban_time, $self->{recidive}{kur} ); };
+	eval {
+		if ($subnet) {
+			$self->_send_cidr_ban( $subject, $ban_time, $self->{recidive}{kur} );
+		} else {
+			$self->_send_ban( $subject, $ban_time, $self->{recidive}{kur} );
+		}
+	};
 	if ($@) {
 		$self->{stats}{ban_errors}++;
-		log_drek( 'err', 'banishing recidivist ' . $ip . ' failed... ' . $@, undef, 'galla-' . $self->{name} );
+		log_drek( 'err', 'banishing recidivist ' . $subject . ' failed... ' . $@, undef, 'galla-' . $self->{name} );
 		return;
 	}
 
 	# a recidive escalation is its own banish event, to the recidive kur,
 	# with the ledger count and no single triggering line
-	my $country = ( $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($ip) : undef;
+	my $country
+		= ( !$subnet && $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($subject) : undef;
 	$self->_eve_emit(
 		'banish',
 		{
-			'ip'       => $ip,
+			'ip'       => $subject,
 			'kur'      => $self->{recidive}{kur},
 			'ban_time' => $ban_time,
 			'count'    => $count,
@@ -2951,6 +3271,9 @@ sub _sweep {
 	foreach my $ip ( sort( keys( %{ $self->{pending_bans} } ) ) ) {
 		$self->_ban_ip( $ip, $self->{pending_bans}{$ip} );
 	}
+	foreach my $network ( sort( keys( %{ $self->{pending_cidr_bans} } ) ) ) {
+		$self->_ban_subnet( $network, $self->{pending_cidr_bans}{$network} );
+	}
 
 	# so counters for IPs never seen again don't linger forever... any
 	# still-relevant entry gets re-pruned properly on its next hit. the
@@ -2976,6 +3299,19 @@ sub _sweep {
 			}
 		}
 	}
+
+	# the subnet buckets the same way, per family, real and shadow... a network
+	# with no recent deposit is dropped so a quiet CIDR does not linger
+	foreach my $store ( $self->{subnet_counters}, $self->{shadow_subnet_counters} ) {
+		foreach my $family ( keys( %{$store} ) ) {
+			foreach my $network ( keys( %{ $store->{$family} } ) ) {
+				my $newest = $store->{$family}{$network}[-1];
+				if ( !defined($newest) || ( $now - $newest->[0] ) > 86400 ) {
+					delete( $store->{$family}{$network} );
+				}
+			}
+		}
+	} ## end foreach my $store ( $self->{subnet_counters}, $self...)
 
 	# the distinct-cardinality sets the same way... drop values past a day, a
 	# coarse cleanup, the register path re-prunes per the effective find_time
@@ -3079,14 +3415,17 @@ sub _cmd_status {
 	}
 
 	return {
-		'name'         => $self->{name},
-		'pid'          => $$,
-		'uptime'       => defined( $self->{started} ) ? time - $self->{started} : 0,
-		'watchers'     => $watchers,
-		'stats'        => $self->{stats},
-		'tracked_ips'  => scalar( keys(%tracked) ),
-		'pending_bans' => [ sort( keys( %{ $self->{pending_bans} } ) ) ],
-		'recidive'     => defined( $self->{recidive} ) ? $self->{recidive}{kur} : undef,
+		'name'            => $self->{name},
+		'pid'             => $$,
+		'uptime'          => defined( $self->{started} ) ? time - $self->{started} : 0,
+		'watchers'        => $watchers,
+		'stats'           => $self->{stats},
+		'tracked_ips'     => scalar( keys(%tracked) ),
+		'tracked_subnets' => scalar( keys( %{ $self->{subnet_counters}{v4} } ) )
+			+ scalar( keys( %{ $self->{subnet_counters}{v6} } ) ),
+		'pending_bans'      => [ sort( keys( %{ $self->{pending_bans} } ) ) ],
+		'pending_cidr_bans' => [ sort( keys( %{ $self->{pending_cidr_bans} } ) ) ],
+		'recidive'          => defined( $self->{recidive} ) ? $self->{recidive}{kur} : undef,
 	};
 } ## end sub _cmd_status
 

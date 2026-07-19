@@ -20,6 +20,10 @@ The config file is TOML, by default
 | `max_score` | `5` | The accumulated score with in `find_time` at which a IP is banned. Each match adds its rule's `weight` (default 1), so with unweighted rules this is just an offense count. |
 | `find_time` | `600` | The window in seconds offenses are counted across. |
 | `ban_time` | unset | Ban time in seconds forwarded with ban requests, 0 meaning eternal. Unset means it is left out and the Ereshkigal side default applies. |
+| `ban_subnet_v4` | unset | IPv4 prefix length (1..32). Set, an offender also feeds a second bucket keyed by its `/prefix` network, alongside the per-IP count, and crossing `subnet_max_score` banishes the whole CIDR via Ereshkigal's `cidr_ban`. Unset, IPv4 offenders are not subnet-bucketed. Global, per kur, and per watcher. See [eve](eve). |
+| `ban_subnet_v6` | unset | IPv6 prefix length (1..128). The IPv6 twin of `ban_subnet_v4`, kept in a wholly separate bucket family. Naming one family and not the other buckets only that family. Global, per kur, and per watcher. |
+| `subnet_max_score` | unset | The accumulated score with in `subnet_find_time` at which a subnet bucket banishes its CIDR. Unset, the per-IP `max_score` applies. Only meaningful with a `ban_subnet_v4`/`ban_subnet_v6` set. Global, per kur, and per watcher. |
+| `subnet_find_time` | unset | The window in seconds a subnet bucket counts across. Unset, the per-IP `find_time` applies. Global, per kur, and per watcher. |
 | `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_score`/`find_time`/`ban_time`/`weight` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
 | `eve_only` | `false` | Observe mode... the rules under this scope match and write to EVE but never banish, a would-be ban surfacing as an `alert` and each match as `noted`. A rule's own `eve_only` layers over this. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `observe_ignored` | `false` | When observing, also process IPs `ignore_ips` would otherwise drop, so they too are scored and can `alert`. Only meaningful with `eve_only`. Global, per kur, and per watcher. |
@@ -174,6 +178,7 @@ Watcher keys...
 | `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. With an array, rules are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `parser` (journal) | A journal watcher's parser defaults to `journal`. |
 | `max_score` / `find_time` / `ban_time` | Optional overrides for this watcher. |
+| `ban_subnet_v4` / `ban_subnet_v6` / `subnet_max_score` / `subnet_find_time` | Optional subnet-ban overrides for this watcher. |
 | `allow_per_rule_thresholds` | Whether this watcher honors thresholds and weights a rule carries. |
 | `eve_only` | Put this watcher in observe mode... match and write to EVE but never banish. |
 | `observe_ignored` | When observing, also process what `ignore_ips` would drop. |
@@ -182,7 +187,8 @@ Watcher keys...
 | `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
 | `active_time` | Named time windows overriding the kur's and global's for this watcher's rules. A hash. |
 
-`max_score`, `find_time`, `ban_time`, `allow_per_rule_thresholds`,
+`max_score`, `find_time`, `ban_time`, `ban_subnet_v4`, `ban_subnet_v6`,
+`subnet_max_score`, `subnet_find_time`, `allow_per_rule_thresholds`,
 `eve_only`, `observe_ignored`, and `default_severity` layer watcher over kur
 over global over default.
 
@@ -195,6 +201,40 @@ overriding how counting works gets its own counter bucket, so a
 strict rule crossing its threshold does not eat the shared count other
 rules are building against the same IP... `baphomet accused` breaks such
 buckets out per rule.
+
+## Subnet banning
+
+Alongside the per-IP count, a watcher can bucket offenders by network, so a
+spread of hosts probing from one `/24` is caught even when no single one
+crosses `max_score`. Naming a prefix for a family turns it on:
+
+    [kur.ids]
+    max_score        = 5     # a single IP: 5 offenses in find_time
+    ban_subnet_v4    = 24    # also bucket IPv4 offenders by /24
+    ban_subnet_v6    = 64    # and IPv6 offenders by /64
+    subnet_max_score = 20    # a /24 or /64: 20 offenses across its members
+    subnet_find_time = 3600  # counted across this window
+
+Every offender that would feed the per-IP count also feeds its network's
+bucket, keyed by the masked CIDR (`65.49.1.118` under a `/24` becomes
+`65.49.1.0/24`). When a network's bucket crosses `subnet_max_score` with in
+`subnet_find_time`, the whole CIDR is banished through Ereshkigal's `cidr_ban`,
+which the target kur must have `enable_cidr` on to honor.
+
+The per-IP ban is untouched... a member can still cross `max_score` and be
+banished on its own. IPv4 and IPv6 keep wholly separate buckets, and only a
+family given a prefix buckets at all... setting only `ban_subnet_v4` leaves
+IPv6 offenders counted per-IP alone. Your own space (`internal`) is never
+subnet-bucketed. `subnet_max_score`/`subnet_find_time` fall back to the per-IP
+`max_score`/`find_time` when unset, but a `/24` aggregates many hosts, so a
+higher subnet bar is usually wanted. The banish event lists the CIDR as its
+`ip`, the last triggering line as its `raw`, and a `bucket` field naming the
+members that fed it (see [eve](eve)).
+
+A subnet ban is chiseled into the shared banishment ledger under its own CIDR
+key, so a network banished `[recidive]`'s `max_score` times drags through to
+the recidive kur just as a repeat-offender IP would, re-banished there as a
+`cidr_ban`. That recidive kur must also have `enable_cidr` on.
 
 ## The Neti gate
 
