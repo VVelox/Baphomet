@@ -155,7 +155,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:status|method|gate|selections|condition|keywords|match|ignore|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:status|method|gate|selections|condition|keywords|match|ignore|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -167,6 +167,7 @@ sub new {
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
+	$self->_check_ip_vars($def);
 
 	# an http rule banishes host by default, but naming a detection_var (a URI,
 	# a user-agent) makes it detection-only, counting by that instead

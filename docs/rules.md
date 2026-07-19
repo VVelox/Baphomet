@@ -215,6 +215,23 @@ Together with `msg` these are the Suricata/Sagan `alert` metadata set,
 flattened to top-level EVE fields so a stream of matches becomes triageable
 detections. Every shipped rule carries a `severity` and `classtype`.
 
+### src_ip_var / dest_ip_var
+
+Optional, on every rule type, inert to matching. Each names the found var
+holding an endpoint of the flow, whose value is lifted to a top-level EVE
+field so a consumer reads the source and destination addresses without
+digging through `found` (see [eve](eve)):
+
+- `src_ip_var` — the var promoted to `.src_ip`. Defaults to the found var
+  literally named `src_ip`.
+- `dest_ip_var` — the var promoted to `.dest_ip`. Defaults to `dest_ip`.
+
+Point either at whatever a schema uses, `flow.src_ip` for a Suricata eve
+line say, since `found` flattens nesting to dotted paths. Both `.src_ip` and
+`.dest_ip` are always emitted, `null` when the named var is absent, so the
+fields can be leaned on. This only shapes the EVE event; who gets banished is
+still [`ban_var`](#ban_var) / [`ban_not_internal`](#ban_not_internal).
+
 ## Tests
 
 Positive tests are lines the rule must match, negative tests are lines it
@@ -268,6 +285,7 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `country` / `namtar_list` / `active_time` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `src_ip_var` / `dest_ip_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `tests` / `test_parser` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ¹ the http and http_error types have no `ban_var`... their offender is the

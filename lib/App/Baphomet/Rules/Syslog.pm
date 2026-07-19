@@ -228,7 +228,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -240,6 +240,7 @@ sub new {
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
 	$self->_check_distinct($def);
+	$self->_check_ip_vars($def);
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var... daemons is required either way

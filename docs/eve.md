@@ -54,6 +54,8 @@ Every record carries these fields...
 | `classtype` | the rule's category, Snort/Sagan/Suricata classtype... present only when the rule sets one. |
 | `references` | the rule's references (URLs, CVE ids)... an array, present only when set. |
 | `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
+| `src_ip` | the flow's source IP, lifted from the found var the rule's `src_ip_var` names (default `src_ip`)... always present, `null` when that var is absent. |
+| `dest_ip` | the flow's destination IP, lifted from the found var the rule's `dest_ip_var` names (default `dest_ip`)... always present, `null` when that var is absent. |
 | `raw` | the line as received, or, when that line is itself a JSON object or array, the decoded structure rather than a escaped string. |
 | `parsed` | the parser's output, or the parsed JSON itself for a JSON log. |
 | `found` | all the found hash keys, what the rule captured. |
@@ -67,7 +69,10 @@ escalation is the bare banishment. With a `geoip_db` loaded, the
 banished IP's `.country` rides along too. An **alert** carries the same
 `.ip`, `.ban_time`, `.score`, and envelope a banish would, being its
 observe-mode stand-in. A **found** or **noted** event carries `.marks_set`
-and `.unmarked` when the rule branded or lifted marks.
+and `.unmarked` when the rule branded or lifted marks, and `.ip`, the
+offender the match would pass for banning (the first `ban_var` candidate to
+survive the per-IP gates)... absent when the rule branded only, banished
+nobody, or every candidate was internal.
 
 A **sighted** event adds `.subject`, the value of the `detection_var` that
 crossed the threshold... a username, a hostname, a URI, or a IP when that is

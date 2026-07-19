@@ -1791,6 +1791,11 @@ sub _handle_line {
 				} ## end foreach my $detection_var ( $rule_obj->detection_var)
 				$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
 			} else {
+				# the offender this match would pass for banning, the first to
+				# survive the per-IP gates and reach the ban path... promoted to
+				# the match event's top-level ip, the way a banish carries it,
+				# undef and so absent when nothing was passed for banning
+				my $ban_ip;
 				if ( !$mark_only ) {
 					# a firing non-mark_only rule consumes the line, same as
 					# before marks, whichever offenders the gates then let count
@@ -1805,6 +1810,9 @@ sub _handle_line {
 						if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
 							next;
 						}
+						if ( !defined($ban_ip) ) {
+							$ban_ip = $ip;
+						}
 						my $registered
 							= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
 						if ( !defined($score) && defined($registered) ) {
@@ -1814,8 +1822,11 @@ sub _handle_line {
 				} ## end if ( !$mark_only )
 
 				# observe mode colors the match event noted, not found
-				$self->_eve_emit( $eve_only ? 'noted' : 'found',
-					$self->_eve_fields( $context, $score, $set, $lifted ) );
+				my $fields = $self->_eve_fields( $context, $score, $set, $lifted );
+				if ( defined($ban_ip) ) {
+					$fields->{ip} = $ban_ip;
+				}
+				$self->_eve_emit( $eve_only ? 'noted' : 'found', $fields );
 			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
@@ -1838,12 +1849,22 @@ sub _eve_fields {
 		return {};
 	}
 
+	# the flow's src and dest addresses lifted to the top level from the found
+	# data, under the vars the rule names or the src_ip / dest_ip defaults...
+	# always emitted, null when the named var is absent, so a consumer can
+	# lean on them being there
+	my $found   = ref( $context->{found} ) eq 'HASH' ? $context->{found} : {};
+	my $src_ip  = $found->{ $context->{rule}->src_ip_var };
+	my $dest_ip = $found->{ $context->{rule}->dest_ip_var };
+
 	return {
 		defined( $context->{source} ) ? ( 'path' => $context->{source} ) : (),
-		'raw'    => $self->_eve_raw( $context->{raw} ),
-		'parsed' => $self->_eve_parsed( $context->{parsed} ),
-		'found'  => $context->{found},
-		'msg'    => $context->{rule}->msg,
+		'raw'     => $self->_eve_raw( $context->{raw} ),
+		'parsed'  => $self->_eve_parsed( $context->{parsed} ),
+		'found'   => $context->{found},
+		'src_ip'  => $src_ip,
+		'dest_ip' => $dest_ip,
+		'msg'     => $context->{rule}->msg,
 		'rule'   => $context->{rule}->info,
 		defined( $context->{severity} )         ? ( 'severity'   => $context->{severity} )         : (),
 		defined( $context->{rule}->classtype )  ? ( 'classtype'  => $context->{rule}->classtype )  : (),

@@ -926,6 +926,41 @@ sub distinct {
 	return ( ref( $self->{def}{distinct} ) eq 'HASH' ) ? $self->{def}{distinct} : undef;
 }
 
+=head2 src_ip_var
+
+Returns the name of the found var holding the flow's source IP, defaulting to
+C<src_ip> when the def names none. The galla reads this var out of the found
+data and promotes its value to the EVE event's top-level C<src_ip>, so a hit
+carries the source address beside the offender no matter how the rule captured
+or flattened it. Naming the var, C<flow.src_ip> say, points it at whatever
+dotted path a schema puts the source under.
+
+    my $src_ip_var = $rule->src_ip_var;   # 'src_ip' or the named var
+
+=cut
+
+sub src_ip_var {
+	my ($self) = @_;
+
+	return defined( $self->{def}{src_ip_var} ) ? $self->{def}{src_ip_var} : 'src_ip';
+}
+
+=head2 dest_ip_var
+
+Returns the name of the found var holding the flow's destination IP, defaulting
+to C<dest_ip> when the def names none. The parallel of L</src_ip_var>, promoted
+to the EVE event's top-level C<dest_ip>.
+
+    my $dest_ip_var = $rule->dest_ip_var;   # 'dest_ip' or the named var
+
+=cut
+
+sub dest_ip_var {
+	my ($self) = @_;
+
+	return defined( $self->{def}{dest_ip_var} ) ? $self->{def}{dest_ip_var} : 'dest_ip';
+}
+
 =head2 info
 
 Returns the rule's name and def with the embedded tests stripped, for the
@@ -1556,6 +1591,26 @@ sub _check_distinct {
 
 	return;
 } ## end sub _check_distinct
+
+# dies if the def's src_ip_var or dest_ip_var is set to anything but a
+# non-empty string... each names the found var whose value the galla
+# promotes to the EVE top level. absent is fine, they default to the
+# literal src_ip and dest_ip fields
+sub _check_ip_vars {
+	my ( $self, $def ) = @_;
+
+	my $name = $self->{name};
+	foreach my $item ( 'src_ip_var', 'dest_ip_var' ) {
+		if ( !exists( $def->{$item} ) ) {
+			next;
+		}
+		if ( !defined( $def->{$item} ) || ref( $def->{$item} ) ne '' || $def->{$item} eq '' ) {
+			die( 'The ' . $item . ' of the rule "' . $name . '" is not a non-empty string' );
+		}
+	}
+
+	return;
+} ## end sub _check_ip_vars
 
 # compiles the message_regexp and ignore_regexp of the passed def,
 # expanding %%%%TOKEN%%%% tokens into named captures, and populates
