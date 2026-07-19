@@ -1136,6 +1136,24 @@ sub _eve_parsed {
 	return $parsed;
 }
 
+# the raw match line for a EVE event... normally the log line verbatim,
+# but when that line is itself a JSON object or array it rides along
+# decoded, so the eve stream carries the structure and not a escaped
+# string blob. anything that does not decode stays the line as received
+sub _eve_raw {
+	my ( $self, $raw ) = @_;
+
+	if ( defined($raw) && $raw =~ /^\s*[\{\[]/ ) {
+		my $decoded;
+		eval { $decoded = decode_json($raw); };
+		if ( !$@ && ref($decoded) ) {
+			return $decoded;
+		}
+	}
+
+	return $raw;
+}
+
 =head2 start_server
 
 Starts following the logs and brings up the
@@ -1822,7 +1840,7 @@ sub _eve_fields {
 
 	return {
 		defined( $context->{source} ) ? ( 'path' => $context->{source} ) : (),
-		'raw'    => $context->{raw},
+		'raw'    => $self->_eve_raw( $context->{raw} ),
 		'parsed' => $self->_eve_parsed( $context->{parsed} ),
 		'found'  => $context->{found},
 		'msg'    => $context->{rule}->msg,

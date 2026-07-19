@@ -54,7 +54,7 @@ Every record carries these fields...
 | `classtype` | the rule's category, Snort/Sagan/Suricata classtype... present only when the rule sets one. |
 | `references` | the rule's references (URLs, CVE ids)... an array, present only when set. |
 | `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
-| `raw` | the line as received. |
+| `raw` | the line as received, or, when that line is itself a JSON object or array, the decoded structure rather than a escaped string. |
 | `parsed` | the parser's output, or the parsed JSON itself for a JSON log. |
 | `found` | all the found hash keys, what the rule captured. |
 | `rule` | the rule's name and def, with its tests stripped to save space. |
