@@ -1169,6 +1169,12 @@ The JSON commands handled are as below.
           each with its expiry and, when the rule harvested one, the
           stored value.
 
+    - watching :: Per watcher, what it is set to watch and what it is
+          watching now... for a file watcher the log specs (literal paths
+          and globs) under globs and the concrete files currently followed
+          under following, and for a journal watcher the journalctl matches
+          under journal with journal_running saying whether the wheel is up.
+
     - stop :: Stop following the logs and exit. Pending bans that could
           not be delivered are lost.
 
@@ -1199,6 +1205,9 @@ sub start_server {
 			},
 			'marked' => sub {
 				return $self->_cmd_marked;
+			},
+			'watching' => sub {
+				return $self->_cmd_watching;
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -3129,6 +3138,36 @@ sub _cmd_marked {
 		'marks' => $marks,
 	};
 } ## end sub _cmd_marked
+
+sub _cmd_watching {
+	my ($self) = @_;
+
+	# per watcher, what it was set to watch versus what it is watching now...
+	# for file watchers the log specs are the literal paths and globs it hunts
+	# by, while following is the concrete files a spec has resolved to and has
+	# a tail wheel on right now. for journal watchers the journalctl matches
+	# stand in for the specs, with journal_running saying whether the wheel is up
+	my $watchers = {};
+	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+		my $watcher = $self->{watchers}{$watcher_name};
+		$watchers->{$watcher_name} = {
+			$watcher->{is_journal}
+			? (
+				'journal'         => $watcher->{journal_matches},
+				'journal_running' => defined( $watcher->{journal_wheel} ) ? 1 : 0,
+				)
+			: (
+				'globs'     => $watcher->{log_spec},
+				'following' => [ sort( keys( %{ $watcher->{wheels} } ) ) ],
+			),
+		};
+	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+
+	return {
+		'name'     => $self->{name},
+		'watchers' => $watchers,
+	};
+} ## end sub _cmd_watching
 
 sub _cmd_stop {
 	my ( $self, $ctx ) = @_;

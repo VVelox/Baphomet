@@ -21,6 +21,7 @@ lib/App/Baphomet/App/Command/start.pm
 lib/App/Baphomet/App/Command/status.pm
 lib/App/Baphomet/App/Command/stop.pm
 lib/App/Baphomet/App/Command/test_line.pm
+lib/App/Baphomet/App/Command/watching.pm
 lib/App/Baphomet/ClayTablet.pm
 lib/App/Baphomet/ClayTablet/File.pm
 lib/App/Baphomet/ClayTablet/Redis.pm

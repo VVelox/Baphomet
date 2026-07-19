@@ -295,6 +295,11 @@ The JSON commands handled are as below.
           args.name if given. Per mark name a hash of the branded keys
           with their expiries and stored values.
 
+    - watching :: What each galla watches... every galla, or just
+          args.name if given. Per watcher the log specs and globs it is
+          set to watch and the concrete files it is following now, or the
+          journalctl matches for a journal watcher.
+
     - stop :: Stop all the gallas and then the manager. Returns
           C<stopping> and the manager's C<pid>, so the caller can wait for
           the process to actually die before it returns... a restart's
@@ -356,6 +361,11 @@ sub start_server {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
 				return $self->_cmd_marked($request);
+			},
+			'watching' => sub {
+				my ( undef, $request, $ctx ) = @_;
+				$self->_authorize($ctx);
+				return $self->_cmd_watching($request);
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -758,6 +768,39 @@ sub _cmd_marked {
 
 	return { 'gallas' => $gallas };
 } ## end sub _cmd_marked
+
+sub _cmd_watching {
+	my ( $self, $request ) = @_;
+
+	my $args = defined( $request->{args} ) ? $request->{args} : {};
+
+	my @names;
+	if ( defined( $args->{name} ) ) {
+		if ( !defined( $self->{gallas}{ $args->{name} } ) ) {
+			die( 'No such galla, "' . $args->{name} . '"' );
+		}
+		@names = ( $args->{name} );
+	} else {
+		@names = sort( keys( %{ $self->{gallas} } ) );
+	}
+
+	my $gallas = {};
+	foreach my $name (@names) {
+		if ( !defined( $self->{gallas}{$name}{pid} ) ) {
+			$gallas->{$name} = { 'error' => 'not running' };
+			next;
+		}
+		my $result;
+		eval { $result = $self->_galla_client($name)->call_ok('watching'); };
+		if ($@) {
+			$gallas->{$name} = { 'error' => $@ };
+		} else {
+			$gallas->{$name} = $result;
+		}
+	} ## end foreach my $name (@names)
+
+	return { 'gallas' => $gallas };
+} ## end sub _cmd_watching
 
 =head1 ERRORS CODES / ERROR FLAGS
 
