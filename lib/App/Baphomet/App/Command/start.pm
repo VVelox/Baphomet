@@ -4,8 +4,8 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use App::Baphomet          ();
-use Net::Server::Daemonize qw( daemonize );
+use App::Baphomet         ();
+use App::Baphomet::Config qw( pidfile_or_daemonize );
 
 =head1 NAME
 
@@ -60,14 +60,7 @@ sub execute {
 
 	my $baphomet = App::Baphomet->new( 'config' => $opt->config );
 
-	if ( $opt->foreground ) {
-		open( my $pid_fh, '>', $baphomet->pid_path )
-			|| die( 'Failed to open the PID file "' . $baphomet->pid_path . '"... ' . $! );
-		print $pid_fh $$;
-		close($pid_fh);
-	} else {
-		daemonize( $>, ( split( /\s+/, $) ) )[0], $baphomet->pid_path );
-	}
+	pidfile_or_daemonize( $baphomet->pid_path, $opt->foreground );
 
 	$baphomet->start_server;
 

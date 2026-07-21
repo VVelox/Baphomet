@@ -4,8 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use Ereshkigal::Client ();
-use JSON::MaybeXS      ();
+use App::Baphomet::App::FanoutCmd qw( fanout_validate_args fanout_execute );
 
 =head1 NAME
 
@@ -48,29 +47,14 @@ sub usage_desc { return '%c watching %o [galla]'; }
 sub validate_args {
 	my ( $self, $opt, $args ) = @_;
 
-	if ( @{$args} > 1 ) {
-		$self->usage_error('watching takes at most one arg, a galla name');
-	}
-
-	return;
+	return fanout_validate_args( $self, $args, 'watching' );
 }
 
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $client = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );
-
-	my $result;
-	if ( @{$args} ) {
-		$result = $client->call_ok( 'watching', { 'name' => $args->[0] } );
-	} else {
-		$result = $client->call_ok('watching');
-	}
-
-	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);
-
-	return;
-} ## end sub execute
+	return fanout_execute( $self, $args, 'watching', undef, undef );
+}
 
 =head1 AUTHOR
 

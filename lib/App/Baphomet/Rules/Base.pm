@@ -2078,6 +2078,12 @@ sub _check_stages {
 		if ( !defined($slot) || $slot->{stage} != $stage_int ) {
 			next;
 		}
+		# a slot past its expiry is dead even if the sweeper has not gotten
+		# to it yet, same as the context and pending stores judge at read
+		if ( $slot->{expires} <= $now ) {
+			delete( $store->{$key_value} );
+			next;
+		}
 
 		my $stage  = $stages->[$stage_int];
 		my $gap_ok = 1;
@@ -2590,6 +2596,41 @@ sub _compile_matchers {
 	return $matchers;
 } ## end sub _compile_matchers
 
+# compiles a def's match and ignore arrays onto matches and ignores,
+# validating the shared field-and-regexp shape... the per-entry compile
+# differs by type (tokened for json, plain and field-checked for http), so
+# the caller hands one in
+sub _compile_match_ignore {
+	my ( $self, $def, $name, $compile_entry ) = @_;
+
+	foreach my $sort ( 'match', 'ignore' ) {
+		if ( !defined( $def->{$sort} ) ) {
+			next;
+		}
+		if ( ref( $def->{$sort} ) ne 'ARRAY' || !@{ $def->{$sort} } ) {
+			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array or is empty' );
+		}
+
+		my $entry_int = 0;
+		foreach my $entry ( @{ $def->{$sort} } ) {
+			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
+			if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
+				die( $where . ' is not a hash with a field and a regexp' );
+			}
+			foreach my $key ( keys( %{$entry} ) ) {
+				if ( $key !~ /^(?:field|regexp)$/ ) {
+					die( $where . ' has the unknown key "' . $key . '"' );
+				}
+			}
+
+			push( @{ $self->{ $sort eq 'match' ? 'matches' : 'ignores' } }, $compile_entry->( $entry, $where ) );
+			$entry_int++;
+		} ## end foreach my $entry ( @{ $def->{$sort} } )
+	} ## end foreach my $sort ( 'match', 'ignore' )
+
+	return;
+} ## end sub _compile_match_ignore
+
 # checks a value against a matcher hash from _compile_matchers... a undef
 # value never matches
 sub _matchers_hit {
@@ -3051,6 +3092,11 @@ sub _compile_gates {
 		} elsif ( $entry->{field} =~ /^%%%ANY:(.+)%%%$/ ) {
 			$gate->{keyword} = 1;
 			$gate->{prefix}  = $1;
+		}
+		# the keyword fan carries no referenced value, so a fieldref under it
+		# would compile and then silently never match
+		if ( $gate->{keyword} && defined( $gate->{predicate} ) && defined( $gate->{predicate}{fieldref} ) ) {
+			die( $where . ' pairs fieldref with a keyword field, which can never match' );
 		}
 		push( @gates, $gate );
 		$entry_int++;

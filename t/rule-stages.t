@@ -164,6 +164,14 @@ $timed->check( raw_line('open k2'), 't', ctx() );
 $found = $timed->check( raw_line('boom k2 from 192.0.2.21'), 't', ctx() );
 ok( defined($found), 'a fresh sequence fires normally after the reset' );
 
+# a slot past its expires is dead at read, even before any sweep... the
+# same judged-at-read rule the context and pending stores follow
+$timed->check( raw_line('open k3'), 't', ctx() );
+$timed->{stage_state}{t}{k3}{expires} = time - 1;
+$found = $timed->check( raw_line('boom k3 from 192.0.2.22'), 't', ctx() );
+ok( !defined($found),                         'a hit on an expired slot did not fire' );
+ok( !defined( $timed->{stage_state}{t}{k3} ), 'and the expired slot is dropped' );
+
 #
 # skip... too many intervening lines kills the sequence
 #

@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use App::Baphomet::Config qw( load_config );
+use App::Baphomet::Config ();
 use Ereshkigal::Client    ();
 use JSON::MaybeXS         ();
 use Time::HiRes           qw( usleep );
@@ -94,15 +94,24 @@ sub execute {
 } ## end sub execute
 
 # the effective wait timeout... the config's socket timeout, or 30 seconds
-# when the config can not be read, since stop is often run with out a config
+# when the config can not be read, since stop is often run with out a
+# config. a raw TOML read rather than load_config, as one integer does not
+# warrant the full validation pass and a config broken in some other way
+# should not break stopping
 sub _config_timeout {
 	my ($config_path) = @_;
 
 	my $timeout;
-	eval { $timeout = load_config($config_path)->{timeout}; };
+	eval {
+		open( my $fh, '<', $config_path ) || die($!);
+		my $raw = do { local $/; <$fh> };
+		close($fh);
+		require TOML::Tiny;
+		$timeout = TOML::Tiny::from_toml($raw)->{timeout};
+	};
 
 	return ( defined($timeout) && $timeout =~ /^[0-9]+$/ ) ? $timeout : 30;
-}
+} ## end sub _config_timeout
 
 # polls until the passed PID is gone or the timeout elapses, 100ms a poll...
 # returns true if it died, false on timeout. a timeout of 0 does not wait

@@ -114,10 +114,10 @@ subtest '_load_counters' => sub {
 }; ## end '_load_counters' => sub
 
 #
-# _prune_counter_buckets... sort, stale drop, and the empty rule bucket sweep,
-# driven straight off pre-seeded buckets
+# _prune_restored_counters... sort, stale drop, and the empty rule bucket
+# sweep, driven straight off pre-seeded buckets
 #
-subtest '_prune_counter_buckets' => sub {
+subtest '_prune_restored_counters' => sub {
 	$galla->{counters} = {
 		'keep' => [ [ $now - 50,    1 ], [ $now - 100, 1 ] ],    # recent, out of order
 		'drop' => [ [ $now - 90000, 1 ] ],                       # nothing recent
@@ -127,13 +127,13 @@ subtest '_prune_counter_buckets' => sub {
 		'r/b' => { 'ip2' => [ [ $now - 99999, 1 ] ] },           # its only ip is stale
 	};
 
-	$galla->_prune_counter_buckets($now);
+	$galla->_prune_restored_counters($now);
 
 	is( $galla->{counters}{'keep'}[0][0], $now - 100, 'surviving bucket sorted ascending' );
 	ok( !exists( $galla->{counters}{'drop'} ),           'bucket with nothing recent dropped' );
 	ok( exists( $galla->{rule_counters}{'r/a'}{'ip1'} ), 'live per-rule ip kept' );
 	ok( !exists( $galla->{rule_counters}{'r/b'} ),       'per-rule bucket left empty is removed' );
-}; ## end '_prune_counter_buckets' => sub
+}; ## end '_prune_restored_counters' => sub
 
 #
 # _load_distinct... valid restore, stale skip, missing field, bad json

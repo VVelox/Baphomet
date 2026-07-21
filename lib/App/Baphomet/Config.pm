@@ -22,7 +22,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize );
 
 =head1 SYNOPSIS
 
@@ -1135,6 +1135,36 @@ sub watcher_journal {
 
 	return ();
 } ## end sub watcher_journal
+
+=head2 pidfile_or_daemonize
+
+The shared startup step of the baphomet and galla bins... with foreground
+set, just chisels the current PID into the passed PID file, as something
+else is supervising. Else daemonizes via L<Net::Server::Daemonize> as the
+current user and group, writing the PID file along the way. Dies on a PID
+file that will not open.
+
+    pidfile_or_daemonize( $pid_path, $foreground );
+
+=cut
+
+sub pidfile_or_daemonize {
+	my ( $pid_path, $foreground ) = @_;
+
+	if ($foreground) {
+		open( my $pid_fh, '>', $pid_path )
+			|| die( 'Failed to open the PID file "' . $pid_path . '"... ' . $! );
+		print $pid_fh $$;
+		close($pid_fh);
+		return;
+	}
+
+	# only the two entry points ever daemonize, so the dep loads lazily
+	require Net::Server::Daemonize;
+	Net::Server::Daemonize::daemonize( $>, ( split( /\s+/, $) ) )[0], $pid_path );
+
+	return;
+} ## end sub pidfile_or_daemonize
 
 =head2 watcher_is_journal
 

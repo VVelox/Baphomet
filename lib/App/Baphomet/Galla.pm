@@ -903,7 +903,7 @@ sub _load_counters {
 		}
 	} ## end foreach my $line ( $self->_read_tablet('counters'...))
 
-	$self->_prune_counter_buckets($now);
+	$self->_prune_restored_counters($now);
 
 	return;
 } ## end sub _load_counters
@@ -940,10 +940,11 @@ sub _load_subnet {
 	return;
 } ## end sub _load_subnet
 
-# sort each restored counter bucket by epoch and drop entries with nothing
-# recent, then drop any per-rule bucket left empty... the register path
-# re-prunes per the effective find_time on the next hit
-sub _prune_counter_buckets {
+# sort each restored counter bucket by epoch, per-IP and subnet stores
+# alike, and drop entries with nothing recent, then drop any per-rule
+# bucket left empty... the register path re-prunes per the effective
+# find_time on the next hit, and relies on the time-ordering settled here
+sub _prune_restored_counters {
 	my ( $self, $now ) = @_;
 
 	foreach my $bucket ( $self->{counters}, values( %{ $self->{rule_counters} } ) ) {
@@ -977,7 +978,7 @@ sub _prune_counter_buckets {
 	} ## end foreach my $family ( keys( %{ $self->{subnet_counters...}}))
 
 	return;
-} ## end sub _prune_counter_buckets
+} ## end sub _prune_restored_counters
 
 # distinct-cardinality sets, restored per (rule, ip, value) and pruned of
 # anything more than a day stale... the register path re-prunes to the
@@ -3833,7 +3834,7 @@ sub _recidive_check {
 		}
 	};
 	if ($@) {
-		$self->{stats}{ban_errors}++;
+		$self->_tick('ban_errors');
 		log_drek( 'err', 'banishing recidivist ' . $subject . ' failed... ' . $@, undef, 'galla-' . $self->{name} );
 		return;
 	}
@@ -4170,6 +4171,24 @@ sub _sweep {
 # JSONUnix command handlers
 #
 
+# the per-watcher journal-or-files rendering shared by status and
+# watching... status names the file specs logs where watching names them
+# globs, a wire shape kept as chiseled, so the key is the caller's
+sub _watcher_following {
+	my ( $self, $watcher, $spec_key ) = @_;
+
+	if ( $watcher->{is_journal} ) {
+		return (
+			'journal'         => $watcher->{journal_matches},
+			'journal_running' => defined( $watcher->{journal_wheel} ) ? 1 : 0,
+		);
+	}
+	return (
+		$spec_key   => $watcher->{log_spec},
+		'following' => [ sort( keys( %{ $watcher->{wheels} } ) ) ],
+	);
+} ## end sub _watcher_following
+
 sub _cmd_status {
 	my ($self) = @_;
 
@@ -4180,17 +4199,9 @@ sub _cmd_status {
 			'parser'   => $watcher->{parser},
 			'rules'    => $watcher->{rules},
 			'settings' => $watcher->{settings},
-			$watcher->{is_journal}
-			? (
-				'journal'         => $watcher->{journal_matches},
-				'journal_running' => defined( $watcher->{journal_wheel} ) ? 1 : 0,
-				)
-			: (
-				'logs'      => $watcher->{log_spec},
-				'following' => [ sort( keys( %{ $watcher->{wheels} } ) ) ],
-			),
+			$self->_watcher_following( $watcher, 'logs' ),
 		};
-	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+	}
 
 	# a IP may live in the shared bucket and per-rule buckets at once...
 	# count each defendant once
@@ -4329,18 +4340,8 @@ sub _cmd_watching {
 	my $watchers = {};
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
 		my $watcher = $self->{watchers}{$watcher_name};
-		$watchers->{$watcher_name} = {
-			$watcher->{is_journal}
-			? (
-				'journal'         => $watcher->{journal_matches},
-				'journal_running' => defined( $watcher->{journal_wheel} ) ? 1 : 0,
-				)
-			: (
-				'globs'     => $watcher->{log_spec},
-				'following' => [ sort( keys( %{ $watcher->{wheels} } ) ) ],
-			),
-		};
-	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+		$watchers->{$watcher_name} = { $self->_watcher_following( $watcher, 'globs' ) };
+	}
 
 	return {
 		'name'     => $self->{name},

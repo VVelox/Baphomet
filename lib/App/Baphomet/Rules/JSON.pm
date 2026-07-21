@@ -210,36 +210,16 @@ sub new {
 	# base class and shared with the syslog and raw types
 	$self->_compile_boolean( $def, $name );
 
-	foreach my $sort ( 'match', 'ignore' ) {
-		if ( !defined( $def->{$sort} ) ) {
-			next;
+	$self->_compile_match_ignore(
+		$def, $name,
+		sub {
+			my ( $entry, $where ) = @_;
+			return {
+				'field' => $entry->{field},
+				'entry' => $self->_compile_tokened_regexp( $entry->{regexp}, $where ),
+			};
 		}
-		if ( ref( $def->{$sort} ) ne 'ARRAY' || !@{ $def->{$sort} } ) {
-			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array or is empty' );
-		}
-
-		my $entry_int = 0;
-		foreach my $entry ( @{ $def->{$sort} } ) {
-			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
-				die( $where . ' is not a hash with a field and a regexp' );
-			}
-			foreach my $key ( keys( %{$entry} ) ) {
-				if ( $key !~ /^(?:field|regexp)$/ ) {
-					die( $where . ' has the unknown key "' . $key . '"' );
-				}
-			}
-
-			push(
-				@{ $self->{ $sort eq 'match' ? 'matches' : 'ignores' } },
-				{
-					'field' => $entry->{field},
-					'entry' => $self->_compile_tokened_regexp( $entry->{regexp}, $where ),
-				}
-			);
-			$entry_int++;
-		} ## end foreach my $entry ( @{ $def->{$sort} } )
-	} ## end foreach my $sort ( 'match', 'ignore' )
+	);
 
 	if (   !@{ $self->{gates} }
 		&& !defined( $self->{condition_ast} )

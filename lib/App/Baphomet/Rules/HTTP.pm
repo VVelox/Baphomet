@@ -182,43 +182,22 @@ sub new {
 	# operator, decode, and boolean machinery the json type uses
 	$self->_compile_boolean( $def, $name );
 
-	foreach my $sort ( 'match', 'ignore' ) {
-		if ( !defined( $def->{$sort} ) ) {
-			next;
-		}
-		if ( ref( $def->{$sort} ) ne 'ARRAY' || !@{ $def->{$sort} } ) {
-			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array or is empty' );
-		}
-
-		my $entry_int = 0;
-		foreach my $entry ( @{ $def->{$sort} } ) {
-			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
-				die( $where . ' is not a hash with a field and a regexp' );
-			}
-			foreach my $key ( keys( %{$entry} ) ) {
-				if ( $key !~ /^(?:field|regexp)$/ ) {
-					die( $where . ' has the unknown key "' . $key . '"' );
-				}
-			}
+	$self->_compile_match_ignore(
+		$def, $name,
+		sub {
+			my ( $entry, $where ) = @_;
 			if ( !defined( $fields{ $entry->{field} } ) ) {
 				die( $where . ' names the unknown field "' . $entry->{field} . '"' );
 			}
-
 			my $regexp = $entry->{regexp};
 			my $compiled;
 			eval { $compiled = qr/$regexp/; };
 			if ($@) {
 				die( $where . ', "' . $regexp . '", does not compile... ' . $@ );
 			}
-
-			push(
-				@{ $self->{ $sort eq 'match' ? 'matches' : 'ignores' } },
-				{ 'field' => $entry->{field}, 'regexp' => $compiled }
-			);
-			$entry_int++;
-		} ## end foreach my $entry ( @{ $def->{$sort} } )
-	} ## end foreach my $sort ( 'match', 'ignore' )
+			return { 'field' => $entry->{field}, 'regexp' => $compiled };
+		}
+	);
 
 	if (   !keys( %{ $self->{field_gates} } )
 		&& !( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )

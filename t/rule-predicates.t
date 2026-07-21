@@ -254,4 +254,9 @@ write_rule( 'json/exdec', $head . "  - field: a\n    op: exists\n    decode: [ b
 ok( !eval { $rules->load('json/exval'); 1 }, 'exists with a value is a load error' );
 ok( !eval { $rules->load('json/exdec'); 1 }, 'exists with a decode is a load error' );
 
+# --- fieldref under a keyword field can never match, so it may not load ---
+write_rule( 'json/frkw', $head . "  - field: '%%%ANY%%%'\n    op: eq\n    fieldref: cert_user\n" );
+ok( !eval { $rules->load('json/frkw'); 1 }, 'fieldref under a keyword field is a load error' );
+like( $@, qr/keyword field/, 'and the error names the pairing' );
+
 done_testing;
