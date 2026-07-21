@@ -106,7 +106,7 @@ sub new {
 		rules_dir => $opts{rules_dir},
 		cache     => {},
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	return $self;
 } ## end sub new
@@ -137,6 +137,12 @@ sub load {
 	}
 
 	if ( defined( $self->{cache}{$name} ) ) {
+		# a rule first loaded with skip_tests may be cached untested... a
+		# caller wanting the tests still gets the must-pass guarantee
+		if ( !$opts{skip_tests} && !$self->{tested}{$name} ) {
+			$self->_run_load_tests( $name, $self->{cache}{$name} );
+			$self->{tested}{$name} = 1;
+		}
 		return $self->{cache}{$name};
 	}
 
@@ -162,23 +168,33 @@ sub load {
 	my $rule = $types{$type}->new( 'name' => $name, 'def' => $def );
 
 	if ( !$opts{skip_tests} ) {
-		my $results = $rule->run_tests;
-		if ( $results->{fail} ) {
-			die(      'The rule "'
-					. $name
-					. '" failed '
-					. $results->{fail} . ' of '
-					. ( $results->{pass} + $results->{fail} )
-					. ' of its own tests...' . "\n"
-					. join( "\n", @{ $results->{failures} } )
-					. "\n" );
-		} ## end if ( $results->{fail} )
-	} ## end if ( !$opts{skip_tests} )
+		$self->_run_load_tests( $name, $rule );
+		$self->{tested}{$name} = 1;
+	}
 
 	$self->{cache}{$name} = $rule;
 
 	return $rule;
 } ## end sub load
+
+# runs a rule's embedded tests, dying in the load style when any fail
+sub _run_load_tests {
+	my ( $self, $name, $rule ) = @_;
+
+	my $results = $rule->run_tests;
+	if ( $results->{fail} ) {
+		die(      'The rule "'
+				. $name
+				. '" failed '
+				. $results->{fail} . ' of '
+				. ( $results->{pass} + $results->{fail} )
+				. ' of its own tests...' . "\n"
+				. join( "\n", @{ $results->{failures} } )
+				. "\n" );
+	} ## end if ( $results->{fail} )
+
+	return;
+} ## end sub _run_load_tests
 
 =head2 rule_path
 

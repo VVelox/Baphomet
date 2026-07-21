@@ -130,7 +130,7 @@ sub new {
 		regexps        => [],
 		ignore_regexps => [],
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	my $name = $self->{name};
 	my $def  = $opts{def};

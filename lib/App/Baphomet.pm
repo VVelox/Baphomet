@@ -115,7 +115,7 @@ sub new {
 		started        => undef,
 		server         => undef,
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	if ( defined( $opts{config} ) ) {
 		$self->{config} = $opts{config};
@@ -697,7 +697,15 @@ sub _cmd_status_galla {
 	};
 
 	if ( $status->{running} ) {
-		$status->{status} = $self->_galla_client($name)->call_ok('status');
+		# trapped like the other fan-out handlers, so a dead-but-unreaped
+		# galla yields a partial status with a error rather than a raw die
+		my $galla_status;
+		eval { $galla_status = $self->_galla_client($name)->call_ok('status'); };
+		if ($@) {
+			$status->{error} = $@;
+		} else {
+			$status->{status} = $galla_status;
+		}
 	}
 
 	return $status;

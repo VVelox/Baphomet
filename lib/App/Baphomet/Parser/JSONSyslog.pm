@@ -101,14 +101,26 @@ sub parse {
 
 	# case folded lookup, empty strings counting as absent
 	my %fields;
+	my $message_key_present = 0;
 	foreach my $key ( keys( %{$decoded} ) ) {
-		if ( defined( $decoded->{$key} ) && ref( $decoded->{$key} ) eq '' && $decoded->{$key} ne '' ) {
-			$fields{ uc($key) } = $decoded->{$key};
+		if ( defined( $decoded->{$key} ) && ref( $decoded->{$key} ) eq '' ) {
+			if ( uc($key) eq 'MESSAGE' ) {
+				$message_key_present = 1;
+			}
+			if ( $decoded->{$key} ne '' ) {
+				$fields{ uc($key) } = $decoded->{$key};
+			}
 		}
 	}
 
+	# the MESSAGE key is the evidence this JSON is syslog shaped at all, so
+	# its absence is unparsed... but present-and-empty is a parsed line with
+	# a empty message, matching the text grammars
 	if ( !defined( $fields{MESSAGE} ) ) {
-		return undef;
+		if ( !$message_key_present ) {
+			return undef;
+		}
+		$fields{MESSAGE} = '';
 	}
 
 	my $severity;

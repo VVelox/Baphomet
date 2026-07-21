@@ -88,10 +88,13 @@ $rule->check( App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen
 # a log position... pretend we followed to a byte offset
 $galla->{positions}{ $dir . '/thelog' } = { inode => ( stat( $dir . '/thelog' ) )[1], offset => 18 };
 
-# some stats, galla-wide and broken down, to survive the respawn
+# some stats, galla-wide and broken down, to survive the respawn... alerts
+# is one of the counters born at runtime rather than in the template, which
+# once made it vanish across a respawn
 $galla->_tick( 'lines',   'authlog' );
 $galla->_tick( 'lines',   'authlog' );
 $galla->_tick( 'matched', 'authlog', 'syslog/sshd' );
+$galla->_tick( 'alerts',  'authlog', 'syslog/sshd' );
 
 $galla->checkpoint;
 
@@ -112,6 +115,7 @@ is( scalar( @{ $reborn->{counters}{'8.8.8.8'} } ), 1, 'counter for 8.8.8.8 resto
 is( $reborn->{pending_bans}{'7.7.7.7'}, 300, 'pending ban restored' );
 is( $reborn->{positions}{ $dir . '/thelog' }{offset}, 18, 'log position restored' );
 is( $reborn->{stats}{lines}, 2, 'stats totals restored' );
+is( $reborn->{stats}{alerts}, 1, 'a runtime-born counter is restored too' );
 is( $reborn->{stats}{per_watcher}{authlog}{lines},      2, 'per watcher stats restored' );
 is( $reborn->{stats}{per_rule}{'syslog/sshd'}{matched}, 1, 'per rule stats restored' );
 

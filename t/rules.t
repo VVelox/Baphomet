@@ -206,6 +206,26 @@ ok( defined($failing), 'skip_tests loads it anyway' );
 my $results = $failing->run_tests;
 is( $results->{fail}, 1, 'run_tests reports the failure' );
 
+# the cache must not hand the untested copy to a caller wanting the tests
+ok( !eval { $rules->load('syslog/failing'); 1 }, 'a cached skip_tests load does not bypass the tests' );
+
+# a typo'd tests section must not mean zero tests and a clean load
+write_rule( 'syslog/typotests', <<'EOR' );
+---
+daemons:
+  - sshd
+message_regexp:
+  - 'bad thing from %%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  postive:
+    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+      found: 1
+EOR
+ok( !eval { $rules->load('syslog/typotests'); 1 }, 'a misspelled tests section refuses to load' );
+like( $@, qr/unknown tests section/, 'and names the unknown section' );
+
 write_rule( 'syslog/badtoken', <<'EOR' );
 ---
 daemons:

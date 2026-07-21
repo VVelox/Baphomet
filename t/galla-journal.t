@@ -14,7 +14,8 @@ BEGIN {
 }
 
 use App::Baphomet::Galla  ();
-use App::Baphomet::Config qw( check_kur_def watcher_journal );
+use App::Baphomet::Config qw( check_kur_def watcher_journal watcher_is_journal );
+use JSON::PP              ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/syslog', $dir . '/run', $dir . '/cache' );
@@ -121,5 +122,26 @@ ok( !eval { check_kur_def( 'sshd', $neither ); 1 }, 'neither log nor journal is 
 # a http rule can not pair with the journal (journal is a syslog parser)
 my $mismatch = { 'j' => { 'journal' => ['X=y'], 'rule' => 'http/badbots' } };
 ok( !eval { check_kur_def( 'sshd', $mismatch ); 1 }, 'a non-syslog rule on the journal is a error' );
+
+# a watcher-only key at the kur level was once silently accepted and ignored
+my $kur_level_log = { 'log' => '/var/log/x', 'j' => { 'log' => '/var/log/y', 'rule' => 'syslog/sshd' } };
+ok( !eval { check_kur_def( 'sshd', $kur_level_log ); 1 }, 'a kur-level log is a error' );
+my $kur_level_parser = { 'parser' => 'bsd_syslog', 'j' => { 'log' => '/var/log/y', 'rule' => 'syslog/sshd' } };
+ok( !eval { check_kur_def( 'sshd', $kur_level_parser ); 1 }, 'a kur-level parser is a error' );
+
+# journal = false disables the journal rather than following the whole of it
+my $false_with_log = {
+	'j' => { 'journal' => JSON::PP::false(), 'log' => '/var/log/x', 'rule' => 'syslog/sshd' } };
+ok( eval { check_kur_def( 'sshd', $false_with_log ); 1 }, 'journal = false beside a log validates' ) || diag($@);
+ok( !watcher_is_journal( $false_with_log->{j} ), 'and the watcher is not a journal one' );
+
+my $false_alone = { 'j' => { 'journal' => JSON::PP::false(), 'rule' => 'syslog/sshd' } };
+ok( !eval { check_kur_def( 'sshd', $false_alone ); 1 }, 'journal = false with no log is a error' );
+
+my $true_journal = { 'j' => { 'journal' => JSON::PP::true(), 'rule' => 'syslog/sshd' } };
+ok( eval { check_kur_def( 'sshd', $true_journal ); 1 }, 'journal = true validates' ) || diag($@);
+ok( watcher_is_journal( $true_journal->{j} ), 'journal = true is a journal watcher' );
+my @whole_journal_matches = watcher_journal( $true_journal->{j} );
+is( scalar(@whole_journal_matches), 0, 'and follows the whole journal' );
 
 done_testing;

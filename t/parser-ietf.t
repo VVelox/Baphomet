@@ -40,6 +40,17 @@ $parsed = App::Baphomet::Parser::parse( 'ietf_syslog', '<165>1 2026-07-12T08:15:
 ok( defined($parsed), 'messageless line parsed' );
 is( $parsed->{message}, '', 'message empty' );
 
+# structured data with a escaped quote inside a param value, as the RFC
+# requires a quote be written
+$parsed = App::Baphomet::Parser::parse( 'ietf_syslog',
+	'<38>1 2026-07-12T08:15:50Z host app 123 ID47 [id a="b\\"c"] hello world' );
+ok( defined($parsed), 'escaped quote in structured data parsed' );
+is( $parsed->{message}, 'hello world', 'message past the escaped quote' );
+
+# a PRI past 191 is not syslog
+is( App::Baphomet::Parser::parse( 'ietf_syslog', '<999>1 2026-07-12T08:15:50Z host app 123 ID47 - foo' ),
+	undef, 'out of range PRI returns undef' );
+
 # garbage
 is( App::Baphomet::Parser::parse( 'ietf_syslog', 'Jul 12 08:15:50 vixen42 sshd[123]: foo' ),
 	undef, 'bsd line returns undef' );

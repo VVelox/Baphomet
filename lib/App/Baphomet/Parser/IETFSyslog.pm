@@ -73,14 +73,18 @@ sub parse {
 		\s+
 		(?:\S+)                                  # MSGID
 		\s+
-		(?:-|(?:\[(?:[^\]\\"]|\\.|"[^"]*")*\])+) # STRUCTURED-DATA
+		(?:-|(?:\[(?:[^\]\\"]|\\.|"(?:[^"\\]|\\.)*")*\])+) # STRUCTURED-DATA
 		(?:\s+(.*))?                             # MSG
 		$/x
 		)
 	{
 		my ( $pri, $time, $hostname, $daemon, $pid, $message ) = ( $1, $2, $3, $4, $5, $6 );
 
-		my $severity = $pri % 8;
+		my ( $facility, $severity, $level ) = App::Baphomet::Parser::pri_decompose($pri);
+		# a PRI past 191 is not syslog, so the line is not either
+		if ( !defined($facility) ) {
+			return undef;
+		}
 
 		return {
 			'format'   => 'ietf_syslog',
@@ -88,9 +92,9 @@ sub parse {
 			'hostname' => $hostname eq '-' ? undef : $hostname,
 			'daemon'   => $daemon eq '-'   ? undef : $daemon,
 			'pid'      => $pid eq '-'      ? undef : $pid,
-			'facility' => int( $pri / 8 ),
+			'facility' => $facility,
 			'severity' => $severity,
-			'level'    => App::Baphomet::Parser::severity_name($severity),
+			'level'    => $level,
 			'message'  => defined($message) ? $message : '',
 		};
 	} ## end if ( $line =~ /^ )

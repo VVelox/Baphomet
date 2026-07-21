@@ -13,7 +13,7 @@ use Socket                           qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                    ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::ClayTablet ();
@@ -116,19 +116,26 @@ sub new {
 		stopping                 => 0,
 		server                   => undef,
 		stats                    => {
-			lines       => 0,
-			unparsed    => 0,
-			matched     => 0,
-			ignored     => 0,
-			bans        => 0,
-			ban_errors  => 0,
-			recidivists => 0,
-			sightings   => 0,
-			per_watcher => {},
-			per_rule    => {},
+			lines            => 0,
+			unparsed         => 0,
+			matched          => 0,
+			ignored          => 0,
+			joined           => 0,
+			bans             => 0,
+			ban_errors       => 0,
+			recidivists      => 0,
+			sightings        => 0,
+			alerts           => 0,
+			subnet_bans      => 0,
+			subnet_alerts    => 0,
+			hostname_dropped => 0,
+			dns_failures     => 0,
+			rdns_failures    => 0,
+			per_watcher      => {},
+			per_rule         => {},
 		},
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	if ( defined( $opts{config} ) ) {
 		$self->{config} = $opts{config};
@@ -383,7 +390,7 @@ sub new {
 			$self->warn;
 		}
 
-		my $is_journal = defined( $watcher->{journal} );
+		my $is_journal = watcher_is_journal($watcher);
 		$self->{watchers}{$watcher_name} = {
 			'is_journal'      => $is_journal,
 			'log_spec'        => $is_journal          ? []                            : [ watcher_logs($watcher) ],
@@ -856,9 +863,11 @@ sub checkpoint {
 sub _snapshot_positions {
 	my ($self) = @_;
 
+	my %wheeled;
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
 		my $watcher = $self->{watchers}{$watcher_name};
 		foreach my $file ( keys( %{ $watcher->{wheels} } ) ) {
+			$wheeled{$file} = 1;
 			my $wheel = $watcher->{wheels}{$file};
 			my $offset;
 			eval { $offset = $wheel->tell; };
@@ -868,6 +877,14 @@ sub _snapshot_positions {
 			}
 		}
 	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+
+	# a position for a file gone from disk and no longer followed is dead
+	# weight... dated glob logs would otherwise pile up in the tablet forever
+	foreach my $file ( keys( %{ $self->{positions} } ) ) {
+		if ( !$wheeled{$file} && !-e $file ) {
+			delete( $self->{positions}{$file} );
+		}
+	}
 
 	return;
 } ## end sub _snapshot_positions
@@ -1121,9 +1138,12 @@ sub _load_cursors {
 		if ( ( $line_int == 1 && $line =~ /^watcher,/ ) || $line eq '' ) {
 			next;
 		}
-		my ( $watcher_name, $cursor ) = split( /,/, $line, 2 );
-		$watcher_name = _csv_unescape($watcher_name);
-		$cursor       = _csv_unescape($cursor);
+		# the watcher column may carry a comma inside quotes, so a plain
+		# first-comma split would shear a quoted name in half
+		if ( $line !~ /^("(?:[^"]|"")*"|[^,]*),(.*)$/ ) {
+			next;
+		}
+		my ( $watcher_name, $cursor ) = ( _csv_unescape($1), _csv_unescape($2) );
 		# only for a watcher that still exists and is still a journal one
 		if (   defined($watcher_name)
 			&& defined($cursor)
@@ -1267,8 +1287,12 @@ sub _seek_for {
 sub _csv_escape {
 	my ($value) = @_;
 
-	# file paths with a comma or newline would break the simple CSV
-	if ( $value =~ /[,"\n]/ ) {
+	# a newline can not survive the line-based tablets no matter the
+	# quoting, as the writer splits the buffer on them and the loaders
+	# read line-wise, so it is dropped rather than chiseled broken
+	$value =~ s/[\r\n]//g;
+	# file paths with a comma or quote would break the simple CSV
+	if ( $value =~ /[,"]/ ) {
 		$value =~ s/"/""/g;
 		return '"' . $value . '"';
 	}
@@ -3126,26 +3150,40 @@ sub _ingest_mark_event {
 	}
 
 	if ( $op eq 'set' ) {
-		my $expires = $event->{expires};
-		if ( !defined($expires) || $expires !~ /^[0-9]+$/ || $expires <= $now ) {
+		my $event_expires = $event->{expires};
+		if ( !defined($event_expires) || $event_expires !~ /^[0-9]+$/ || $event_expires <= $now ) {
 			return;
 		}
-		$expires += 0;
-		my $held = $self->{marks}{$name}{$key};
+		$event_expires += 0;
+		my $held    = $self->{marks}{$name}{$key};
+		my $expires = $event_expires;
 		if ( defined($held) && $held->{expires} > $expires ) {
 			$expires = $held->{expires};
 		}
 		# the set time folds to the earliest, so the whole fleet agrees on when
 		# a stage first fired regardless of drain order... expires max, set min,
-		# both order-independent so the fold converges
+		# and the value rides with whichever expiry won (ties folding to the
+		# lexically greater value), all order-independent so the fold converges
 		my $set = ( defined( $event->{set} ) && $event->{set} =~ /^[0-9]+$/ ) ? $event->{set} + 0 : undef;
 		if ( defined($held) && defined( $held->{set} ) && ( !defined($set) || $held->{set} < $set ) ) {
 			$set = $held->{set};
 		}
+		my $value_source = $event;
+		if ( defined($held) ) {
+			if ( $held->{expires} > $event_expires ) {
+				$value_source = $held;
+			} elsif ( $held->{expires} == $event_expires ) {
+				my $held_value  = defined( $held->{value} )  ? $held->{value}  : '';
+				my $event_value = defined( $event->{value} ) ? $event->{value} : '';
+				if ( $held_value gt $event_value ) {
+					$value_source = $held;
+				}
+			}
+		}
 		$self->{marks}{$name}{$key} = {
 			'expires' => $expires,
-			defined($set)             ? ( 'set'   => $set )            : (),
-			exists( $event->{value} ) ? ( 'value' => $event->{value} ) : ()
+			defined($set)                    ? ( 'set'   => $set )                   : (),
+			exists( $value_source->{value} ) ? ( 'value' => $value_source->{value} ) : ()
 		};
 	} ## end if ( $op eq 'set' )
 
@@ -3255,6 +3293,13 @@ sub _register_hit {
 				$self->_ban_ip( $ip, $ban_time, $context, $score );
 			}
 		} ## end if ( $score >= $max_score )
+
+		# a distinct-counted offender still feeds its subnet bucket... the
+		# subnet family is its own per-hit tally with its own threshold,
+		# regardless of how the per-IP judgment is scored
+		if ( !$detection ) {
+			$self->_register_subnet_hit( $watcher_name, $ip, $context, $eve_only, $weight, $now );
+		}
 
 		return $score;
 	} ## end if ( defined($distinct) )

@@ -177,8 +177,9 @@ sub new {
 	if ( defined( $options->{password} ) ) {
 		$args{password} = $options->{password};
 	}
-	if ( defined( $options->{name} ) ) {
-		$args{name} = $options->{name};
+	# CLIENT SETNAME, so a CLIENT LIST on the server names the galla
+	if ( defined( $opts{name} ) ) {
+		$args{name} = 'baphomet-galla-' . $opts{name};
 	}
 	$self->{redis_args} = \%args;
 	$self->{reconnect_throttle}
@@ -384,7 +385,14 @@ sub read {
 		return ();
 	}
 
-	return split( /\n/, $blob );
+	# strip the write's terminating newline, then split keeping trailing
+	# empties, so a tablet round-trips the same through this backend as
+	# through the file one
+	$blob =~ s/\n\z//;
+	if ( $blob eq '' ) {
+		return ('');
+	}
+	return split( /\n/, $blob, -1 );
 } ## end sub read
 
 =head2 mark_sync
@@ -484,7 +492,10 @@ sub _flush_outbox {
 		};
 		if ( !$sent ) {
 			# the link went away... keep the rest for the next flush and drop
-			# the handle so the next attempt reconnects
+			# the handle so the next attempt reconnects. logged, as a
+			# persistent refusal (a ACL, say) would otherwise be invisible
+			# until the outbox overflows
+			log_drek( 'err', 'publishing a mark to "' . $stream . '" failed... ' . $@, undef, $self->{log_tag} );
 			$self->{redis} = undef;
 			last;
 		}

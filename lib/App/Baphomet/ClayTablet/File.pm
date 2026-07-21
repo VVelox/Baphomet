@@ -123,9 +123,11 @@ sub write {
 		my $tmp = $path . '.tmp';
 		open( my $fh, '>', $tmp ) || die( 'open failed... ' . $! );
 		foreach my $line ( @{$lines} ) {
-			print $fh $line . "\n";
+			print( $fh $line . "\n" ) || die( 'write failed... ' . $! );
 		}
-		close($fh);
+		# print is buffered, so a full disk often only surfaces here... an
+		# unchecked close would rename a truncated tablet over the good one
+		close($fh) || die( 'close failed... ' . $! );
 		rename( $tmp, $path ) || die( 'rename failed... ' . $! );
 	};
 	if ($@) {

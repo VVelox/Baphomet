@@ -1159,6 +1159,15 @@ sub run_tests {
 		return $results;
 	}
 
+	# a typo'd section name would otherwise mean zero tests and a clean
+	# load, quietly defeating the prove-itself-at-load design
+	foreach my $section ( keys( %{$tests} ) ) {
+		if ( $section !~ /^(?:positive|negative)$/ ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, 'unknown tests section "' . $section . '"' );
+		}
+	}
+
 	foreach my $sort ( 'positive', 'negative' ) {
 		if ( !defined( $tests->{$sort} ) ) {
 			next;
@@ -2068,7 +2077,10 @@ sub _stage_hit {
 	if ( $stage_int == scalar( @{ $self->{stages} } ) - 1 ) {
 		delete( $store->{$key_value} );
 		my $found = { 'data' => $slot->{data}, 'regexp' => undef, 'stages' => $slot->{hits} };
-		if ( ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) || defined( $self->{condition_ast} ) ) {
+		if (   ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
+			|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
+			|| defined( $self->{condition_ast} ) )
+		{
 			if ( !$self->_boolean_pass( $found->{data}, $message ) ) {
 				return undef;
 			}
@@ -2379,10 +2391,14 @@ sub _check_message {
 		}
 	}
 
-	# the rule's boolean matcher (the gate or the selections+condition, over the
-	# captures, and the json fields when message_json) filters the offense and
-	# each completion, dropping those that do not pass... none skips this
-	if ( ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) || defined( $self->{condition_ast} ) ) {
+	# the rule's boolean matcher (the keywords, the gate, or the
+	# selections+condition, over the captures, and the json fields when
+	# message_json) filters the offense and each completion, dropping those
+	# that do not pass... none skips this
+	if (   ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
+		|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
+		|| defined( $self->{condition_ast} ) )
+	{
 		if ( defined($found) && !$self->_boolean_pass( $found->{data}, $message ) ) {
 			$found = undef;
 		}
@@ -3216,8 +3232,23 @@ sub _compile_condition {
 			if ( !defined($target) ) {
 				die( $where . ' has an "of" with no target' );
 			}
-			my @names     = $self->_cond_resolve( $target, $selections, $where );
+			my @names = $self->_cond_resolve( $target, $selections, $where );
+			# a *-pattern matching nothing would make "all of" vacuously
+			# true, turning a typo into match-everything
+			if ( !@names ) {
+				die( $where . ' has an "of" target "' . $target . '" that covers no selections' );
+			}
 			my $threshold = ( lc($qty) eq 'all' ) ? scalar(@names) : $qty + 0;
+			if ( $threshold < 1 ) {
+				die( $where . ' asks for 0 of, which is vacuously true' );
+			}
+			if ( $threshold > scalar(@names) ) {
+				die(      $where
+						. ' asks for '
+						. $threshold . ' of '
+						. scalar(@names)
+						. ' selections, which can never be met' );
+			}
 			return [ 'count', $threshold, \@names ];
 		} ## end if ( ( lc($tok) eq 'all' || $tok =~ /^[0-9]+$/...))
 		my $name = $next->();

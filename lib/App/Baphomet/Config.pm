@@ -22,7 +22,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 
 =head1 SYNOPSIS
 
@@ -73,9 +73,11 @@ Top level keys are as below.
     - ClayTablet :: The pluggable store the per-galla state tablets go to.
           A table with two keys, both optional. Absent, the file backend
           is used, which is the current on-disk system.
-        - backend :: The backend name, resolved to the module
-              C<App::Baphomet::ClayTablet::E<lt>UcfirstE<gt>>. C<file> is
-              the default and C<redis> ships. Matches /^[A-Za-z][A-Za-z0-9]*$/.
+        - backend :: The backend name, resolved to a module under
+              C<App::Baphomet::ClayTablet::>, ucfirst'd when all
+              lowercase and used as written when carrying capitals.
+              C<file> is the default and C<redis> ships. Matches
+              /^[A-Za-z][A-Za-z0-9]*$/.
         - options :: A free-form table the chosen backend interprets. The
               file backend takes an optional C<base_dir> (else
               tablet_base_dir); the redis backend takes its own set, from
@@ -124,6 +126,45 @@ Top level keys are as below.
           meaning never time out. If not set anywhere, it is left out of
           the request and the Ereshkigal side default applies. May be
           overridden per kur and per watcher.
+        Default :: undef
+
+    - allow_per_rule_thresholds :: Whether the thresholds a rule carries
+          (max_score/find_time/ban_time and weight) are honored. May be
+          overridden per kur and per watcher.
+        Default :: 0
+
+    - ban_subnet_v4 :: A IPv4 prefix length, turning on subnet bucketing
+          for v4 offenders... beside its own tally each offender also
+          feeds a bucket for its /prefix CIDR, and the bucket crossing
+          subnet_max_score with in subnet_find_time banishes the whole
+          CIDR. May be overridden per kur and per watcher.
+        Default :: undef, off
+
+    - ban_subnet_v6 :: The same for IPv6 offenders.
+        Default :: undef, off
+
+    - subnet_max_score :: The score a subnet bucket must reach for its
+          CIDR to be banished. May be overridden per kur and per watcher.
+        Default :: undef, meaning the effective max_score
+
+    - subnet_find_time :: The window in seconds subnet deposits are
+          counted across. May be overridden per kur and per watcher.
+        Default :: undef, meaning the effective find_time
+
+    - eve_only :: Observe mode... a matching rule writes EVE and counts
+          into shadow buckets, alerting where it would banish, but nothing
+          is ever sent to Kur. May be overridden per kur, per watcher, and
+          per rule, most specific winning, so a deployment can observe
+          globally while trusted rules opt back in.
+        Default :: 0
+
+    - observe_ignored :: Whether observe mode also scores what ignore_ips
+          would drop. May be overridden per kur and per watcher.
+        Default :: 0
+
+    - default_severity :: The severity stamped on EVE events for rules
+          that do not carry their own... one of info, low, medium, high,
+          or critical. May be overridden per kur and per watcher.
         Default :: undef
 
     - ignore_ips :: A array of IPv4/IPv6 addresses and CIDRs that are
@@ -286,10 +327,31 @@ Watcher hashes take the keys below.
           wins, which suits logs carrying several daemons, like a maillog.
           See L<App::Baphomet::Rules>.
 
+    - journal :: Follow the journal instead of a log... a journalctl
+          match, a array of them, or true to follow the whole journal.
+          False means no journal at all. Mutually exclusive with log. The
+          parser defaults to C<journal> for a journal watcher.
+
+    - join :: A table describing the joining of physical continuation
+          lines onto their head line ahead of the parser. See
+          L</watcher_join> for the keys.
+
     - max_score / find_time / ban_time :: Optional per watcher overrides.
+
+    - ban_subnet_v4 / ban_subnet_v6 / subnet_max_score / subnet_find_time ::
+          Optional per watcher subnet bucketing overrides.
 
     - allow_per_rule_thresholds :: Whether this watcher honors thresholds a
           rule carries. Per watcher, kur, and global.
+
+    - eve_only / observe_ignored :: Optional per watcher observe mode
+          overrides.
+
+    - usedns :: Optional per watcher override of the hostname offender
+          handling.
+
+    - default_severity :: Optional per watcher override of the EVE
+          severity fallback.
 
     - country_codes :: Named country-code lists overriding the kur's and
           global's for this watcher's rules.
@@ -568,6 +630,20 @@ watchers, everything else is a setting.
 # are hashes of named things
 my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' => 1 );
 
+# the allowed keys, built once from a shared core so the kur-level and
+# watcher-level checks can not drift apart... the kur level adds ignore_ips
+# and internal, the watcher level adds the follow keys. a watcher-only key
+# sliding into the kur set once let kur-level log/parser/rule pass
+# validation silently unapplied
+my @shared_setting_keys = qw(
+	max_score find_time ban_time ban_subnet_v4 ban_subnet_v6
+	subnet_max_score subnet_find_time allow_per_rule_thresholds eve_only
+	observe_ignored default_severity usedns country_codes namtar_lists
+	active_time
+);
+my %kur_setting_keys     = map { $_ => 1 } ( @shared_setting_keys, qw( ignore_ips internal ) );
+my %watcher_setting_keys = map { $_ => 1 } ( @shared_setting_keys, qw( log journal parser rule join ) );
+
 # the severity levels a default_severity may name... matches the rule-side
 # set in App::Baphomet::Rules::Base, kept local to avoid a load-order coupling
 my %valid_severity = map { $_ => 1 } qw( info low medium high critical );
@@ -622,7 +698,7 @@ sub check_kur_def {
 
 	my ( $settings, $watchers ) = kur_split($def);
 
-	my $settings_error = _settings_error($settings);
+	my $settings_error = _settings_error( $settings, \%kur_setting_keys );
 	if ( defined($settings_error) ) {
 		die( 'The kur "' . $name . '" has ' . $settings_error );
 	}
@@ -646,10 +722,7 @@ sub check_kur_def {
 		my $where   = 'The watcher "' . $watcher_name . '" of the kur "' . $name . '" ';
 
 		foreach my $key ( keys( %{$watcher} ) ) {
-			if ( $key
-				!~ /^(?:log|journal|parser|rule|join|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|usedns|country_codes|namtar_lists|active_time)$/
-				)
-			{
+			if ( !$watcher_setting_keys{$key} ) {
 				die( $where . 'has the unknown key "' . $key . '"' );
 			}
 			# rule, log, and journal may be arrays, join, country_codes,
@@ -672,14 +745,14 @@ sub check_kur_def {
 			} ## end if ( ref( $watcher->{$key} ) ne '' && !( $key...))
 		} ## end foreach my $key ( keys( %{$watcher} ) )
 
-		my $watcher_settings_error = _settings_error($watcher);
+		my $watcher_settings_error = _settings_error( $watcher, \%watcher_setting_keys );
 		if ( defined($watcher_settings_error) ) {
 			die( $where . 'has ' . $watcher_settings_error );
 		}
 
 		# a watcher follows either a log, one or more files, or the
 		# journal, a set of journalctl matches... exactly one of the two
-		my $is_journal = defined( $watcher->{journal} );
+		my $is_journal = watcher_is_journal($watcher);
 		if ( defined( $watcher->{log} ) && $is_journal ) {
 			die( $where . 'has both a log and a journal, which are mutually exclusive' );
 		}
@@ -1063,6 +1136,32 @@ sub watcher_journal {
 	return ();
 } ## end sub watcher_journal
 
+=head2 watcher_is_journal
+
+Returns true when a watcher follows the journal rather than a log. A
+journal key of TOML false counts as no journal at all, not as follow the
+whole journal, so disabling with false does what it says.
+
+    if ( watcher_is_journal($watcher) ) { ... }
+
+=cut
+
+sub watcher_is_journal {
+	my ($watcher) = @_;
+
+	if ( !defined( $watcher->{journal} ) ) {
+		return 0;
+	}
+
+	# TOML booleans arrive as defined blessed objects, so a bare defined
+	# check would read journal = false as a journal watcher
+	if ( ref( $watcher->{journal} ) eq 'JSON::PP::Boolean' && !$watcher->{journal} ) {
+		return 0;
+	}
+
+	return 1;
+} ## end sub watcher_is_journal
+
 =head2 watcher_join
 
 Validates and compiles the join of a watcher, the joiner gluing physical
@@ -1153,13 +1252,13 @@ sub _authed_list_error {
 # returns a error string if any of max_score/find_time/ban_time present in
 # the passed hash is invalid, undef otherwise
 sub _settings_error {
-	my ($settings) = @_;
+	my ( $settings, $allowed_keys ) = @_;
 
+	if ( ref($allowed_keys) ne 'HASH' ) {
+		$allowed_keys = \%kur_setting_keys;
+	}
 	foreach my $key ( keys( %{$settings} ) ) {
-		if ( $key
-			!~ /^(?:log|journal|parser|rule|join|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|usedns|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
-			)
-		{
+		if ( !$allowed_keys->{$key} ) {
 			return 'the unknown setting "' . $key . '"';
 		}
 	}

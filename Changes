@@ -1,5 +1,72 @@
 Revision history for App-Baphomet
 
+        - The bsd_syslog grammar now reads a relayed IPv6 hostname instead
+          of mangling it into the daemon slot, and reads the RFC 3339
+          timestamp form rsyslog's default file format chisels. The
+          ietf_syslog grammar accepts RFC-valid escaped quotes inside
+          structured data param values. Both grammars reject a PRI past
+          191 as not syslog at all, via the new shared pri_decompose in
+          App::Baphomet::Parser. The json_syslog and journal parsers now
+          read a present-but-empty MESSAGE as a parsed line with a empty
+          message, matching the text grammars... a missing MESSAGE is
+          still unparsed, being the evidence the line is syslog shaped.
+        - baphomet stop no longer misreads a root-owned manager as dead
+          when run as non-root... kill 0 answering EPERM now counts as
+          alive.
+        - Load-time condition checks... a *-pattern quantifier target
+          covering no selections, a N of threshold past the selection
+          count, and 0 of are all load errors now instead of silently
+          vacuous or unfireable conditions. A unknown tests section name
+          (a typo'd positive, say) is a load error rather than zero tests
+          and a clean load, and the rules cache no longer hands a rule
+          first loaded with skip_tests to a caller wanting the tests
+          without running them.
+        - Galla state keeping... positions for files gone from disk and no
+          longer followed are pruned at snapshot, so dated glob logs do
+          not pile up in the tablet forever. The CSV escaper drops
+          newlines rather than chiseling rows its loaders can not read
+          back, and the cursors loader honors quoting instead of shearing
+          at the first comma. The mark fold's value now rides with
+          whichever expiry won, ties folding lexically, so gallas draining
+          the same events in different orders converge on one value. A
+          distinct-counted offender feeds its subnet bucket like any
+          other.
+        - The redis clay tablet logs a failed mark publish instead of
+          swallowing it, sets its Redis client name from the galla name as
+          intended, and round-trips trailing empty tablet lines the same
+          as the file backend. A CamelCase ClayTablet backend name is used
+          as written, so a third-party SQLite stays reachable.
+        - galla --help and --version exit 0 and a missing --name is a
+          clean usage error. baphomet status of one galla traps a dead
+          socket like the other commands, answering partial status with a
+          error instead of a raw die. Constructors bless into the class
+          they were called as, so subclassing works.
+        - Kur-level log/parser/rule/join keys are errors now instead of
+          silently accepted and unapplied... the kur and watcher allowed
+          key sets are built from one shared list so they can not drift
+          apart again. The config POD gained the missing top-level keys
+          (the subnet four, allow_per_rule_thresholds, eve_only,
+          observe_ignored, default_severity) and watcher keys (journal,
+          join, the overrides).
+
+        - Keywords standing alone as a rule's whole boolean matcher now
+          actually judge the found on the syslog and raw types... the guard
+          before the matcher only knew gates and conditions, so a rule with
+          only keywords silently skipped them, on flat and staged rules both.
+          The message_json banish-every-line load check likewise now counts
+          keywords as a matcher, matching its json and http siblings.
+        - A watcher key of journal = false now means no journal at all
+          rather than follow-the-whole-journal... TOML false is a defined
+          value, so it once classified the watcher as a journal one with no
+          matches. New watcher_is_journal in App::Baphomet::Config.
+        - The file clay tablet checks its writes and its close before the
+          rename, so a full disk fails the write loudly instead of swapping
+          a truncated tablet in over the good one.
+        - The stats counters born at runtime (joined, alerts, subnet_bans,
+          subnet_alerts, hostname_dropped, dns_failures, rdns_failures) are
+          now in the stats template, so a respawned galla restores them from
+          the tablet instead of silently dropping them to zero.
+
 0.0.1	2026-07-12
         - The gate, selections/condition, and keywords/%%%ANY%%% boolean
           matcher reaches the http and http_error types too, so the operators,

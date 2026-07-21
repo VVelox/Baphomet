@@ -44,10 +44,11 @@ a backend never has to understand what it is storing... only how to hold a list
 of lines under a (galla, kind) name and hand it back.
 
 A backend is a plain object under C<App::Baphomet::ClayTablet::> named for the
-lower-cased, ucfirst'd backend name, so C<backend = "file"> loads
+backend name, ucfirst'd when all lowercase, so C<backend = "file"> loads
 L<App::Baphomet::ClayTablet::File> and C<backend = "redis"> loads
-L<App::Baphomet::ClayTablet::Redis>. A third party can drop its own alongside
-and select it the same way.
+L<App::Baphomet::ClayTablet::Redis>. A name already carrying capitals is used
+as written, so a third party can drop a CamelCase backend alongside and select
+it the same way.
 
 =head1 METHODS
 
@@ -82,7 +83,12 @@ sub new {
 				. '" is not a plain backend name matching /^[A-Za-z][A-Za-z0-9]*$/' );
 	}
 
-	my $backend_class = 'App::Baphomet::ClayTablet::' . ucfirst( lc($backend_name) );
+	# an all-lowercase name is ucfirst'd (file -> File), but a name already
+	# carrying capitals is taken as chiseled, so a third-party CamelCase
+	# backend like SQLite stays reachable
+	my $backend_class
+		= 'App::Baphomet::ClayTablet::'
+		. ( $backend_name =~ /[A-Z]/ ? $backend_name : ucfirst($backend_name) );
 	eval "require $backend_class; 1;"    ## no critic (ProhibitStringyEval)
 		or die( 'ClayTablet could not load the backend "' . $backend_name . '" (' . $backend_class . ')... ' . $@ );
 

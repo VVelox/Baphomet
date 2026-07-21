@@ -139,4 +139,15 @@ ok( !eval { $rules->load('json/nosel');   1 }, 'a condition without selections i
 ok( !eval { $rules->load('json/unknown'); 1 }, 'a condition referencing an unknown selection is a load error' );
 ok( !eval { $rules->load('json/unbal');   1 }, 'an unbalanced paren is a load error' );
 
+# quantifier edge cases... each would be vacuously true or never true
+write_rule( 'json/star0',
+	"---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"all of typo_*\"\n" );
+write_rule( 'json/toomany',
+	"---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"3 of them\"\n" );
+write_rule( 'json/zeroof',
+	"---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"0 of them\"\n" );
+ok( !eval { $rules->load('json/star0');   1 }, 'a *-pattern covering no selections is a load error' );
+ok( !eval { $rules->load('json/toomany'); 1 }, 'asking for more than the selection count is a load error' );
+ok( !eval { $rules->load('json/zeroof');  1 }, '0 of is a load error' );
+
 done_testing;

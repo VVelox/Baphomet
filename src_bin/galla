@@ -62,11 +62,11 @@ use App::Baphomet::Galla;
 
 sub main::VERSION_MESSAGE {
 	print 'galla v. ' . $App::Baphomet::Galla::VERSION . "\n";
-	exit 255;
+	exit 0;
 }
 
 sub main::HELP_MESSAGE {
-	pod2usage( -exitval => 255, -verbose => 2, -output => \*STDOUT, );
+	pod2usage( -exitval => 0, -verbose => 2, -output => \*STDOUT, );
 }
 
 my $name;
@@ -82,14 +82,21 @@ GetOptions(
 	'foreground|f' => \$foreground,
 ) || pod2usage( -exitval => 255, -verbose => 1, -output => \*STDERR, );
 
-# print version or help if requested
+# print version or help if requested... both exit themselves
 if ($help) {
 	main::HELP_MESSAGE;
-	exit 42;
 }
 if ($version) {
 	main::VERSION_MESSAGE;
-	exit 42;
+}
+
+if ( !defined($name) || $name eq '' ) {
+	pod2usage(
+		-exitval => 255,
+		-verbose => 1,
+		-output  => \*STDERR,
+		-message => '--name must be specified',
+	);
 }
 
 my $galla = App::Baphomet::Galla->new(

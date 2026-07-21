@@ -274,7 +274,7 @@ sub new {
 		gates          => [],
 		message_json   => 0,
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	my $name = $self->{name};
 	my $def  = $opts{def};
@@ -379,11 +379,15 @@ sub new {
 
 	# a message_json rule with no message_regexp must match on something, else
 	# it would regard every JSON line from the daemon as a offense
-	if ( $self->{message_json} && !@{ $self->{regexps} } && !@{ $self->{gates} } && !defined( $self->{condition_ast} ) )
+	if (   $self->{message_json}
+		&& !@{ $self->{regexps} }
+		&& !@{ $self->{gates} }
+		&& !defined( $self->{condition_ast} )
+		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } ) )
 	{
 		die(      'The rule "'
 				. $name
-				. '" is message_json with no message_regexp and no gate or selections, so it would banish every line' );
+				. '" is message_json with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
 	}
 
 	return $self;

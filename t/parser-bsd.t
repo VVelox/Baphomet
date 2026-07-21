@@ -61,8 +61,27 @@ ok( defined($parsed), 'colonful message parsed' );
 is( $parsed->{daemon}, 'sshd-session', 'daemon with colonful message' );
 like( $parsed->{message}, qr/^Accepted publickey/, 'message with colonful message' );
 
+# a relayed IPv6 hostname must not slide into the daemon slot
+$parsed = App::Baphomet::Parser::parse( q(bsd_syslog),
+	q(Jul 12 08:15:50 2001:db8::1 sshd[66891]: Invalid user moth3r from 216.137.179.214) );
+ok( defined($parsed), q(ipv6 hostname line parsed) );
+is( $parsed->{hostname}, q(2001:db8::1), q(ipv6 hostname captured) );
+is( $parsed->{daemon},   q(sshd),        q(daemon beside a ipv6 hostname) );
+like( $parsed->{message}, qr/^Invalid user/, q(message beside a ipv6 hostname) );
+
+# the RFC 3339 form rsyslog chisels by default
+$parsed = App::Baphomet::Parser::parse( q(bsd_syslog),
+	q(2026-07-12T08:15:50.123456+00:00 vixen42 sshd[66891]: Invalid user moth3r from 216.137.179.214) );
+ok( defined($parsed), q(rfc3339 line parsed) );
+is( $parsed->{time},   q(2026-07-12T08:15:50.123456+00:00), q(rfc3339 timestamp captured) );
+is( $parsed->{daemon}, q(sshd),                             q(daemon on a rfc3339 line) );
+
+# a PRI past 191 is not syslog
+is( App::Baphomet::Parser::parse( q(bsd_syslog), q(<999> Jul 12 08:15:50 vixen42 sshd[1]: foo) ),
+	undef, q(out of range PRI returns undef) );
+
 # garbage
-is( App::Baphomet::Parser::parse( 'bsd_syslog', 'this is not a syslog line' ), undef, 'garbage returns undef' );
+is( App::Baphomet::Parser::parse( q(bsd_syslog), q(this is not a syslog line) ), undef, q(garbage returns undef) );
 is( App::Baphomet::Parser::parse( 'bsd_syslog', undef ),                       undef, 'undef returns undef' );
 
 # dispatch

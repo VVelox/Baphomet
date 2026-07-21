@@ -44,6 +44,13 @@ SKIP: {
 # no MESSAGE means not usable
 is( App::Baphomet::Parser::parse( 'journal', '{"SYSLOG_IDENTIFIER":"sshd"}' ), undef, 'no MESSAGE returns undef' );
 
+# a present but empty MESSAGE is still a parsed record, like the text grammars
+{
+	my $empty = App::Baphomet::Parser::parse( 'journal', '{"SYSLOG_IDENTIFIER":"sshd","MESSAGE":""}' );
+	ok( defined($empty), 'empty MESSAGE still parses' );
+	is( $empty->{message}, '', 'and carries a empty message' );
+}
+
 # garbage
 is( App::Baphomet::Parser::parse( 'journal', 'Jul 12 08:15:50 vixen42 sshd[1]: foo' ), undef, 'syslog line undef' );
 is( App::Baphomet::Parser::parse( 'journal', '{"truncated":' ), undef, 'truncated JSON undef' );

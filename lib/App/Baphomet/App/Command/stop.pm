@@ -111,15 +111,27 @@ sub _wait_for_exit {
 
 	my $polls = $timeout * 10;
 	for ( my $i = 0; $i < $polls; $i++ ) {
-		# kill 0 tests liveness without signalling... a dead PID gives 0
-		if ( !kill( 0, $pid ) ) {
+		if ( !_pid_alive($pid) ) {
 			return 1;
 		}
 		usleep(100_000);
 	}
 
-	return !kill( 0, $pid );
+	return !_pid_alive($pid);
 } ## end sub _wait_for_exit
+
+# kill 0 tests liveness without signalling... a dead PID gives 0, but so
+# does a live one owned by somebody else, with EPERM, and a non-root stop
+# of a root-owned manager must not read that as it having died
+sub _pid_alive {
+	my ($pid) = @_;
+
+	if ( kill( 0, $pid ) ) {
+		return 1;
+	}
+
+	return $!{EPERM} ? 1 : 0;
+} ## end sub _pid_alive
 
 =head1 AUTHOR
 

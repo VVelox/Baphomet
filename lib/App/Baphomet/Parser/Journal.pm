@@ -83,9 +83,16 @@ sub parse {
 		return undef;
 	}
 
+	# a record with no MESSAGE at all is not a log line... but one carrying
+	# a explicitly empty MESSAGE is, matching the text grammars, so that one
+	# case is caught before _journal_scalar's empty-counts-absent fold
 	my $message = _journal_scalar( $decoded->{MESSAGE} );
-	if ( !defined($message) || $message eq '' ) {
-		return undef;
+	if ( !defined($message) ) {
+		if ( defined( $decoded->{MESSAGE} ) && ref( $decoded->{MESSAGE} ) eq '' && $decoded->{MESSAGE} eq '' ) {
+			$message = '';
+		} else {
+			return undef;
+		}
 	}
 
 	my $daemon = _journal_scalar( $decoded->{SYSLOG_IDENTIFIER} );

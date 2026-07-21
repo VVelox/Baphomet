@@ -144,7 +144,7 @@ sub new {
 		matches     => [],
 		ignores     => [],
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	my $name = $self->{name};
 	my $def  = $opts{def};

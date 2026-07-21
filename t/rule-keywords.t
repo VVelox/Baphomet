@@ -79,4 +79,61 @@ is( matches( 'json/kwgate', '{"msg":"clean","level":"high","id":"a"}' ),    0, '
 write_rule( 'json/kwbad', $head . "keywords:\n  in: process\n" );
 ok( !eval { $rules->load('json/kwbad'); 1 }, 'keywords with no values is a load error' );
 
+# --- keywords standing alone on the syslog type ... with no gate or
+# selections the keyword filter must still judge the found ---
+make_path( $dir . '/syslog' );
+
+sub syslog_matches {
+	my ( $name, $message ) = @_;
+	my $parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen42 sshd[123]: ' . $message );
+	my $rule   = $rules->load($name);
+	return defined( $rule->check($parsed) ) ? 1 : 0;
+}
+
+write_rule( 'syslog/kwonly', <<'EOR' );
+---
+daemons:
+  - sshd
+message_regexp:
+  - 'bad thing from %%%%SRC%%%%'
+ban_var:
+  - SRC
+keywords: [ mimikatz ]
+EOR
+is( syslog_matches( 'syslog/kwonly', 'bad thing from 1.2.3.4 ran mimikatz' ),
+	1, 'syslog: lone keywords pass a regexp match carrying the string' );
+is( syslog_matches( 'syslog/kwonly', 'bad thing from 1.2.3.4' ),
+	0, 'syslog: lone keywords veto a regexp match lacking the string' );
+
+# --- keywords standing alone as the whole matcher of a message_json rule,
+# which must load (the banish-every-line check knows keywords count) and
+# must filter on them ---
+write_rule( 'syslog/kwjson', <<'EOR' );
+---
+daemons:
+  - sshd
+message_json: true
+ban_var:
+  - src_ip
+keywords: [ mimikatz ]
+EOR
+ok( eval { $rules->load('syslog/kwjson'); 1 }, 'message_json with only keywords loads' )
+	|| diag($@);
+is( syslog_matches( 'syslog/kwjson', '{"src_ip":"1.2.3.4","note":"ran mimikatz"}' ),
+	1, 'message_json: lone keywords match on a json field' );
+is( syslog_matches( 'syslog/kwjson', '{"src_ip":"1.2.3.4","note":"clean"}' ),
+	0, 'message_json: lone keywords veto a line lacking the string' );
+
+# --- and a message_json rule with no matcher at all still refuses to load ---
+write_rule( 'syslog/kwjson-none', <<'EOR' );
+---
+daemons:
+  - sshd
+message_json: true
+ban_var:
+  - src_ip
+EOR
+ok( !eval { $rules->load('syslog/kwjson-none'); 1 },
+	'message_json with no matcher at all is still a load error' );
+
 done_testing;

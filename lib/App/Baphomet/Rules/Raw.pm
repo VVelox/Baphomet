@@ -83,7 +83,7 @@ sub new {
 		def   => $opts{def},
 		gates => [],
 	};
-	bless $self;
+	bless( $self, ref($blank) || $blank );
 
 	my $name = $self->{name};
 	my $def  = $opts{def};

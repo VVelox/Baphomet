@@ -43,6 +43,11 @@ Handled variations...
 
     - A missing hostname, as some syslogds write local files with out one.
 
+    - A RFC 3339 timestamp in place of the month-name form, as rsyslog's
+      default file format chisels.
+
+    - A relayed hostname that is a bare IPv6 address.
+
     - A missing [pid].
 
 facility and severity will not always be available as most log files carry
@@ -50,8 +55,14 @@ neither a <PRI> nor the verbose form.
 
 =cut
 
-my $month_re     = qr/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/;
-my $timestamp_re = qr/$month_re\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}/;
+my $month_re = qr/(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/;
+# the classic month-name form, or the RFC 3339 form rsyslog's default file
+# format chisels
+my $timestamp_re
+	= qr/(?:$month_re\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)/;
+# a relayed hostname may be a bare IPv6 address, all hex and colons, which
+# the plain colon-free token would otherwise mangle into the daemon slot
+my $hostname_re = qr/(?:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]+|[0-9A-Fa-f:.]+:|[^\s:\[\]]+)/;
 
 =head1 FUNCTIONS
 
@@ -79,7 +90,7 @@ sub parse {
 		\s*
 		($timestamp_re)                      # timestamp
 		(?:\s+<([a-z0-9]+)\.([a-z]+)>)?      # optional FreeBSD verbose facility.level
-		(?:\s+([^\s:\[\]]+))?                # optional hostname
+		(?:\s+($hostname_re))?               # optional hostname
 		\s+
 		([^\s:\[\]]+)                        # daemon
 		(?:\[(\d+)\])?                       # optional pid
@@ -95,9 +106,11 @@ sub parse {
 		my $severity;
 		my $level;
 		if ( defined($pri) ) {
-			$facility = int( $pri / 8 );
-			$severity = $pri % 8;
-			$level    = App::Baphomet::Parser::severity_name($severity);
+			( $facility, $severity, $level ) = App::Baphomet::Parser::pri_decompose($pri);
+			# a PRI past 191 is not syslog, so the line is not either
+			if ( !defined($facility) ) {
+				return undef;
+			}
 		}
 		if ( defined($verbose_facility) ) {
 			$facility = $verbose_facility;

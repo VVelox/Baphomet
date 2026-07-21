@@ -56,6 +56,11 @@ is( $parsed->{message}, 'foo', 'extras ignored' );
 is( App::Baphomet::Parser::parse( 'json_syslog', '{"event":"login","user":"kitsune"}' ),
 	undef, 'JSON with out a MESSAGE returns undef' );
 
+# a present but empty MESSAGE is still a parsed line, like the text grammars
+$parsed = App::Baphomet::Parser::parse( 'json_syslog', '{"PROGRAM":"sshd","MESSAGE":""}' );
+ok( defined($parsed), 'empty MESSAGE still parses' );
+is( $parsed->{message}, '', 'and carries a empty message' );
+
 # garbage
 is( App::Baphomet::Parser::parse( 'json_syslog', '{"PROGRAM":"sshd","MESSAGE":' ), undef,
 	'truncated JSON returns undef' );

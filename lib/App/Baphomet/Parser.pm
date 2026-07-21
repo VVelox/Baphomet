@@ -204,6 +204,29 @@ sub severity_number {
 	return $severity_numbers{ lc($level) };
 }
 
+=head2 pri_decompose
+
+Decomposes a syslog PRI into its facility, severity, and level name.
+Returns the empty list for anything out of range... the RFC caps the
+facility at 23, so a PRI past 191 is not syslog at all and the caller
+should regard the line as unparsed. Shared by the syslog family of
+parsers.
+
+    my ( $facility, $severity, $level ) = App::Baphomet::Parser::pri_decompose($pri);
+
+=cut
+
+sub pri_decompose {
+	my ($pri) = @_;
+
+	if ( !defined($pri) || $pri !~ /^\d+$/ || $pri > 191 ) {
+		return ();
+	}
+
+	my $severity = $pri % 8;
+	return ( int( $pri / 8 ), $severity, severity_name($severity) );
+} ## end sub pri_decompose
+
 =head2 known_parsers
 
 Returns a sorted list of the known parser names.
