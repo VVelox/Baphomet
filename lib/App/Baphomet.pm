@@ -96,7 +96,10 @@ sub new {
 		errorFilename => undef,
 		errorString   => "",
 		errorExtra    => {
+			# the installed Error::Helper reads all_fatal where its POD says
+			# all_errors_fatal... both are set so the contract holds either way
 			all_errors_fatal => 1,
+			all_fatal        => 1,
 			flags            => {
 				1 => 'configLoadFailed',
 				2 => 'invalidKurDef',
@@ -211,13 +214,14 @@ sub new {
 	# written prior to start_server being called
 	foreach my $dir ( $self->{run_base_dir}, $self->{run_base_dir} . '/galla' ) {
 		if ( !-e $dir ) {
-			# don't need to check if this worked failed or not here as the next if statement will handle that
-			eval { mkdir($dir); };
+			# a failure here surfaces via the usability check below
+			mkdir($dir);
 		}
-		if ( !-d $dir || !-r $dir || !-w $dir ) {
+		# sockets and PID files land under here, so it must be traversable too
+		if ( !-d $dir || !-r $dir || !-w $dir || !-x $dir ) {
 			$self->{perror}      = 1;
 			$self->{error}       = 4;
-			$self->{errorString} = 'The dir "' . $dir . '" is not a directory or is not read/writable';
+			$self->{errorString} = 'The dir "' . $dir . '" is not a directory or is not read/write/traversable';
 			$self->warn;
 		}
 	} ## end foreach my $dir ( $self->{run_base_dir}, $self->...)
@@ -322,6 +326,7 @@ sub start_server {
 				'galla_stderr'  => '_poe_galla_stderr',
 				'galla_reaped'  => '_poe_galla_reaped',
 				'stop_all'      => '_poe_stop_all',
+				'stop_escalate' => '_poe_stop_escalate',
 			},
 		],
 	);
@@ -619,8 +624,29 @@ sub _poe_stop_all {
 	$kernel->alarm_remove_all;
 	$kernel->alias_remove('baphomet_manager');
 
+	# a galla that acknowledged the stop but never exits would leave the
+	# manager waiting on its sig_child forever... after a grace period any
+	# still-running galla is TERMed. set after the alarm sweep so it survives
+	$kernel->delay( 'stop_escalate', $self->{timeout} );
+
 	return;
 } ## end sub _poe_stop_all
+
+# the stop escalation... TERM whoever is still alive after the grace period
+sub _poe_stop_escalate {
+	my ($self) = @_[OBJECT];
+
+	foreach my $name ( sort( keys( %{ $self->{gallas} } ) ) ) {
+		my $entry = $self->{gallas}{$name};
+		if ( !defined( $entry->{pid} ) || !defined( $entry->{wheel} ) ) {
+			next;
+		}
+		log_drek( 'err', 'galla "' . $name . '" is still running past the stop grace period, sending TERM' );
+		$entry->{wheel}->kill('TERM');
+	}
+
+	return;
+} ## end sub _poe_stop_escalate
 
 #
 # JSONUnix command handlers

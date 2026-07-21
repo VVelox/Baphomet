@@ -232,15 +232,15 @@ sub check {
 
 	# the generic gate / selections / keywords over the parsed scalar fields
 	# (the message included, so keywords search the error text), a pre-filter
-	# ANDed ahead of the message_regexp match
-	my %field_data;
-	foreach my $field ( keys( %{$parsed} ) ) {
-		if ( defined( $parsed->{$field} ) && ref( $parsed->{$field} ) eq '' ) {
-			$field_data{$field} = $parsed->{$field};
+	# ANDed ahead of the message_regexp match... the field space is only
+	# built when the rule carries a boolean filter, and reused for the
+	# matched data below rather than rebuilt
+	my $field_data;
+	if ( $self->{has_boolean} ) {
+		$field_data = _scalar_fields($parsed);
+		if ( !$self->_boolean_pass( $field_data, undef ) ) {
+			return undef;
 		}
-	}
-	if ( !$self->_boolean_pass( \%field_data, undef ) ) {
-		return undef;
 	}
 
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
@@ -254,12 +254,7 @@ sub check {
 		if ( $parsed->{message} =~ $regexp ) {
 			my %caps = %+;
 
-			my %data;
-			foreach my $field ( keys( %{$parsed} ) ) {
-				if ( defined( $parsed->{$field} ) && ref( $parsed->{$field} ) eq '' ) {
-					$data{$field} = $parsed->{$field};
-				}
-			}
+			my %data = %{ defined($field_data) ? $field_data : _scalar_fields($parsed) };
 			# the parsed fields are authoritative over captures
 			foreach my $cap ( keys(%caps) ) {
 				if ( !exists( $data{$cap} ) ) {
@@ -274,6 +269,20 @@ sub check {
 
 	return undef;
 } ## end sub check
+
+# the defined scalar fields of a parsed line as a fresh hashref
+sub _scalar_fields {
+	my ($parsed) = @_;
+
+	my %fields;
+	foreach my $field ( keys( %{$parsed} ) ) {
+		if ( defined( $parsed->{$field} ) && ref( $parsed->{$field} ) eq '' ) {
+			$fields{$field} = $parsed->{$field};
+		}
+	}
+
+	return \%fields;
+} ## end sub _scalar_fields
 
 =head2 ban_var
 

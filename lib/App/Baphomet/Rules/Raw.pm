@@ -157,7 +157,7 @@ sub check {
 		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, undef );
 	}
 
-	return $self->_check_message( $parsed->{message}, $scope );
+	return $self->_check_message( $parsed->{message}, $scope, undef, undef, $line_ctx );
 } ## end sub check
 
 =head2 ban_var

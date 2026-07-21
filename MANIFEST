@@ -12,6 +12,7 @@ docs/rules.md
 docs/usage.md
 lib/App/Baphomet.pm
 lib/App/Baphomet/App.pm
+lib/App/Baphomet/App/FanoutCmd.pm
 lib/App/Baphomet/App/Command/accused.pm
 lib/App/Baphomet/App/Command/check_rules.pm
 lib/App/Baphomet/App/Command/banished.pm

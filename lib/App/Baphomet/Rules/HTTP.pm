@@ -263,17 +263,15 @@ sub check {
 	}
 
 	# the field space, the parsed access-log fields, for the generic gate and
-	# for the returned data
-	my %data;
-	foreach my $field ( keys(%fields) ) {
-		if ( defined( $parsed->{$field} ) ) {
-			$data{$field} = $parsed->{$field};
+	# for the returned data... only built ahead of the vetoes when a boolean
+	# filter needs it, else deferred until the line has actually matched
+	my $data;
+	if ( $self->{has_boolean} ) {
+		$data = $self->_field_data($parsed);
+		# the generic gate / selections / keywords, ANDed ahead of the matches
+		if ( !$self->_boolean_pass( $data, undef ) ) {
+			return undef;
 		}
-	}
-
-	# the generic gate / selections / keywords, ANDed ahead of the matches
-	if ( !$self->_boolean_pass( \%data, undef ) ) {
-		return undef;
 	}
 
 	foreach my $ignore ( @{ $self->{ignores} } ) {
@@ -299,8 +297,26 @@ sub check {
 		}
 	} ## end if ( @{ $self->{matches} } )
 
-	return { 'data' => \%data, 'regexp' => $matched };
+	if ( !defined($data) ) {
+		$data = $self->_field_data($parsed);
+	}
+
+	return { 'data' => $data, 'regexp' => $matched };
 } ## end sub check
+
+# the known access-log fields of a parsed line as a fresh hashref
+sub _field_data {
+	my ( $self, $parsed ) = @_;
+
+	my %data;
+	foreach my $field ( keys(%fields) ) {
+		if ( defined( $parsed->{$field} ) ) {
+			$data{$field} = $parsed->{$field};
+		}
+	}
+
+	return \%data;
+} ## end sub _field_data
 
 =head2 ban_var
 

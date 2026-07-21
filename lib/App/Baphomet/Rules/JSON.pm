@@ -357,7 +357,7 @@ another's.
 =cut
 
 sub check {
-	my ( $self, $parsed, $scope ) = @_;
+	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
 	if ( ref($parsed) ne 'HASH' || ref( $parsed->{fields} ) ne 'HASH' ) {
 		return undef;
@@ -366,7 +366,7 @@ sub check {
 	if ( !defined($scope) ) {
 		$scope = '';
 	}
-	my $now = time;
+	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
 
 	# a ignore hit vetoes the line entirely, context harvest included
 	foreach my $ignore ( @{ $self->{ignores} } ) {

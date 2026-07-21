@@ -160,4 +160,33 @@ open( $fh, '<', $dir . '/cache2/banishments.csv' ) || die($!);
 close($fh);
 is( scalar( grep { m{,2\.2\.2\.2,syslog/sshd,authlog$} } @rows ), 1, 'rule and watcher chiseled into the row' );
 
+#
+# compaction... rows past ledger_keep are pruned, rows inside the recidive
+# window survive, and a fresh galla folding the compacted ledger still
+# counts the history
+#
+
+my $ancient = time - ( 2592000 * 2 );    # far past the default ledger_keep
+my $recent  = time - 3600;               # inside the recidive window
+open( $fh, '>>', $dir . '/cache/banishments.csv' ) || die($!);
+print $fh $ancient . ",sshd,5.5.5.5,syslog/sshd,authlog\n";
+print $fh $recent . ",sshd,4.4.4.4,syslog/sshd,authlog\n";
+close($fh);
+
+$galla->_ledger_compact;
+
+open( $fh, '<', $dir . '/cache/banishments.csv' ) || die($!);
+@rows = <$fh>;
+close($fh);
+like( $rows[0], qr/^epoch,kur,ip,rule,watcher$/, 'the compacted ledger keeps its header' );
+is( scalar( grep { /,5\.5\.5\.5,/ } @rows ), 0, 'a row past ledger_keep is pruned' );
+is( scalar( grep { /,4\.4\.4\.4,/ } @rows ), 1, 'a row inside the recidive window survives' );
+is( scalar( grep { /,7\.7\.7\.7,/ } @rows ), 3, 'the recidivist history survives compaction' );
+
+@sent = ();
+my $galla3 = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'sshd' );
+$galla3->_ban_ip( '7.7.7.7', 300 );
+is( scalar( grep { $_->{kur} eq 'recidive' && $_->{ip} eq '7.7.7.7' } @sent ),
+	1, 'a fresh galla folding the compacted ledger still sees the history' );
+
 done_testing;

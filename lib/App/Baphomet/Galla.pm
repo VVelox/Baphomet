@@ -79,7 +79,10 @@ sub new {
 		errorFilename => undef,
 		errorString   => "",
 		errorExtra    => {
+			# the installed Error::Helper reads all_fatal where its POD says
+			# all_errors_fatal... both are set so the contract holds either way
 			all_errors_fatal => 1,
+			all_fatal        => 1,
 			flags            => {
 				1 => 'configLoadFailed',
 				2 => 'noSuchKur',
@@ -793,6 +796,10 @@ sub checkpoint {
 			}
 		);
 	} ## end if ( $self->{mark_sync} )
+
+	# the shared ledger is pruned here rather than per ban, so a busy galla
+	# never pays O(ledger) on the ban path
+	$self->_ledger_compact;
 
 	$self->{last_checkpoint} = $now;
 
@@ -1949,7 +1956,12 @@ sub _process_record {
 	# skip bound counts intervening lines... keyless staging slots by the
 	# source too
 	my $seq_source = defined($source) ? $source : '';
-	my $line_ctx   = { 'seq' => ++$self->{line_seqs}{$watcher_name}{$seq_source}, 'source' => $seq_source };
+	my $line_ctx   = {
+		'seq'    => ++$self->{line_seqs}{$watcher_name}{$seq_source},
+		'source' => $seq_source,
+		# carried so the rules do not each call time per line
+		'now'    => $now,
+	};
 
 	# rules are checked in order and the first to match wins, so a line
 	# matching more than one rule only counts once... except a rule whose
@@ -3298,8 +3310,11 @@ sub _register_hit {
 	}
 	push( @{ $bucket->{$ip} }, [ $now, $weight ] );
 
-	# matches older than find_time no longer count
-	@{ $bucket->{$ip} } = grep { ( $now - $_->[0] ) < $find_time } @{ $bucket->{$ip} };
+	# matches older than find_time no longer count... entries arrive in time
+	# order, so shifting the expired off the front beats rebuilding the array
+	while ( @{ $bucket->{$ip} } && ( $now - $bucket->{$ip}[0][0] ) >= $find_time ) {
+		shift( @{ $bucket->{$ip} } );
+	}
 
 	my $score = _score_of( $bucket->{$ip} );
 
@@ -3366,8 +3381,11 @@ sub _register_subnet_hit {
 	}
 	push( @{ $bucket->{$network} }, [ $now, $weight, $ip ] );
 
-	# deposits older than the subnet find_time no longer count
-	@{ $bucket->{$network} } = grep { ( $now - $_->[0] ) < $find_time } @{ $bucket->{$network} };
+	# deposits older than the subnet find_time no longer count... time
+	# ordered, so the expired shift off the front
+	while ( @{ $bucket->{$network} } && ( $now - $bucket->{$network}[0][0] ) >= $find_time ) {
+		shift( @{ $bucket->{$network} } );
+	}
 
 	my $score = _score_of( $bucket->{$network} );
 	if ( $score < $max_score ) {
@@ -3839,71 +3857,92 @@ sub _recidive_check {
 	return;
 } ## end sub _recidive_check
 
+# the recidive window in seconds, 0 when recidive is off
+sub _recidive_find_time {
+	my ($self) = @_;
+
+	if ( !defined( $self->{recidive} ) ) {
+		return 0;
+	}
+	return defined( $self->{recidive}{find_time} ) ? $self->{recidive}{find_time} : 604800;
+}
+
+# folds ledger rows from the folded-to offset onward into the in-memory
+# recidive tally, subject => [epochs]... rows landing on the recidive kur
+# it's self are never counted, as a escalation's landing is not a offense.
+# expects the caller to hold the ledger lock
+sub _ledger_fold {
+	my ( $self, $fh, $now, $find_time, $recidive_kur ) = @_;
+
+	# a ledger smaller than the folded-to offset was compacted by somebody,
+	# so the tally starts over from the top
+	my $size = ( stat($fh) )[7];
+	if ( !defined( $self->{ledger_offset} ) || $size < $self->{ledger_offset} ) {
+		$self->{ledger_offset} = 0;
+		$self->{ledger_tally}  = {};
+	}
+
+	seek( $fh, $self->{ledger_offset}, 0 ) || die( 'seek failed... ' . $! );
+	while ( my $line = <$fh> ) {
+		chomp($line);
+		my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 4 );
+		if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) || $row_ip eq '' ) {
+			next;
+		}
+		if ( $kur eq $recidive_kur || ( $now - $epoch ) >= $find_time ) {
+			next;
+		}
+		push( @{ $self->{ledger_tally}{$row_ip} }, $epoch + 0 );
+	} ## end while ( my $line = <$fh> )
+	$self->{ledger_offset} = tell($fh);
+
+	return;
+} ## end sub _ledger_fold
+
 # chisels a banishment row into the shared ledger under a exclusive lock
-# and returns how many times this IP appears with in the recidive window...
-# the lock serializes the several gallas sharing the one ledger. Rows are
-# epoch,kur,ip,rule,watcher, pruned to ledger_keep but never inside the
-# recidive window, and rows landing on the recidive kur it's self are never
-# counted, as a escalation's landing is not a offense
+# and returns how many times this IP appears with in the recidive window.
+# Rows are epoch,kur,ip,rule,watcher. only rows appended since the last
+# look are read, folded into a live tally, so a ban costs O(new rows)
+# rather than O(ledger)... the whole-ledger pruning to ledger_keep lives in
+# _ledger_compact, off the ban path, on the checkpoint cadence
 sub _ledger_append_and_count {
 	my ( $self, $ip, $context ) = @_;
 
-	my $now = time;
-	my $find_time
-		= defined( $self->{recidive} )
-		? ( defined( $self->{recidive}{find_time} ) ? $self->{recidive}{find_time} : 604800 )
-		: 0;
+	my $now          = time;
+	my $find_time    = $self->_recidive_find_time;
 	my $recidive_kur = defined( $self->{recidive} ) ? $self->{recidive}{kur} : '';
-
-	# rows still inside the recidive window must survive whatever
-	# ledger_keep says... 0 means keep forever
-	my $keep = $self->{ledger_keep};
-	if ( $keep && $keep < $find_time ) {
-		$keep = $find_time;
-	}
 
 	my $rule    = defined($context) && defined( $context->{rule_name} ) ? $context->{rule_name} : '';
 	my $watcher = defined($context) && defined( $context->{watcher} )   ? $context->{watcher}   : '';
 
-	my $path  = $self->ledger_path;
-	my $count = 0;
+	my $path = $self->ledger_path;
 	eval {
 		open( my $fh, '+>>', $path ) || die( 'open failed... ' . $! );
 		flock( $fh, 2 )              || die( 'lock failed... ' . $! );    # LOCK_EX
 
-		print $fh $now . ','
-			. $self->{name} . ','
-			. $ip . ','
-			. _csv_escape($rule) . ','
-			. _csv_escape($watcher) . "\n";
+		# with recidive off nothing ever reads the tally, so the row is
+		# purely appended and the ledger is never even read here
+		if ($find_time) {
+			$self->_ledger_fold( $fh, $now, $find_time, $recidive_kur );
+		}
 
-		# read the whole ledger back and count this IP with in the window,
-		# rewriting it pruned so it does not grow past ledger_keep... the
-		# header is skipped by the epoch check and rewritten fresh
-		seek( $fh, 0, 0 );
-		my @kept;
-		while ( my $line = <$fh> ) {
-			chomp($line);
-			my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 4 );
-			if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) || $row_ip eq '' ) {
-				next;
-			}
-			if ( $keep && ( $now - $epoch ) >= $keep ) {
-				next;
-			}
-			push( @kept, $line );
-			if ( $row_ip eq $ip && $find_time && ( $now - $epoch ) < $find_time && $kur ne $recidive_kur ) {
-				$count++;
-			}
-		} ## end while ( my $line = <$fh> )
+		# a fresh ledger gets its header ahead of the first row... the
+		# append mode writes land at EOF regardless of the read position
+		if ( ( stat($fh) )[7] == 0 ) {
+			print( $fh "epoch,kur,ip,rule,watcher\n" ) || die( 'write failed... ' . $! );
+		}
+		print( $fh $now . ','
+				. $self->{name} . ','
+				. $ip . ','
+				. _csv_escape($rule) . ','
+				. _csv_escape($watcher)
+				. "\n" )
+			|| die( 'write failed... ' . $! );
+		if ($find_time) {
+			$self->{ledger_offset} = tell($fh);
+		}
 
-		# rewrite pruned
-		seek( $fh, 0, 0 );
-		truncate( $fh, 0 );
-		print $fh "epoch,kur,ip,rule,watcher\n";
-		print $fh join( "\n", @kept ) . ( @kept ? "\n" : '' );
-
-		close($fh);
+		close($fh) || die( 'close failed... ' . $! );
 	};
 	if ($@) {
 		log_drek( 'err', 'the banishment ledger "' . $path . '" could not be updated... ' . $@,
@@ -3911,8 +3950,92 @@ sub _ledger_append_and_count {
 		return undef;
 	}
 
+	if ( !$find_time ) {
+		return 0;
+	}
+
+	# the just-chiseled row counts too, folded straight into the tally...
+	# unless this galla is the recidive kur, whose rows never count
+	if ( $self->{name} ne $recidive_kur ) {
+		push( @{ $self->{ledger_tally}{$ip} }, $now );
+	}
+
+	my $count = 0;
+	if ( defined( $self->{ledger_tally}{$ip} ) ) {
+		@{ $self->{ledger_tally}{$ip} } = grep { ( $now - $_ ) < $find_time } @{ $self->{ledger_tally}{$ip} };
+		$count = scalar( @{ $self->{ledger_tally}{$ip} } );
+		if ( !$count ) {
+			delete( $self->{ledger_tally}{$ip} );
+		}
+	}
+
 	return $count;
 } ## end sub _ledger_append_and_count
+
+# prunes the shared ledger to ledger_keep under the exclusive lock, rows
+# inside the recidive window surviving whatever ledger_keep says... ran on
+# the checkpoint cadence rather than per ban, and a no-op when ledger_keep
+# is 0, keep forever. unfolded rows are folded first so the offset landing
+# at the rewritten EOF loses nothing
+sub _ledger_compact {
+	my ($self) = @_;
+
+	if ( !$self->{ledger_keep} ) {
+		return;
+	}
+
+	my $now          = time;
+	my $find_time    = $self->_recidive_find_time;
+	my $recidive_kur = defined( $self->{recidive} ) ? $self->{recidive}{kur} : '';
+
+	my $keep = $self->{ledger_keep};
+	if ( $keep < $find_time ) {
+		$keep = $find_time;
+	}
+
+	my $path = $self->ledger_path;
+	if ( !-f $path ) {
+		return;
+	}
+	eval {
+		open( my $fh, '+<', $path ) || die( 'open failed... ' . $! );
+		flock( $fh, 2 )             || die( 'lock failed... ' . $! );    # LOCK_EX
+
+		if ($find_time) {
+			$self->_ledger_fold( $fh, $now, $find_time, $recidive_kur );
+		}
+
+		seek( $fh, 0, 0 ) || die( 'seek failed... ' . $! );
+		my @kept;
+		while ( my $line = <$fh> ) {
+			chomp($line);
+			my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 4 );
+			if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) || $row_ip eq '' ) {
+				next;
+			}
+			if ( ( $now - $epoch ) >= $keep ) {
+				next;
+			}
+			push( @kept, $line );
+		} ## end while ( my $line = <$fh> )
+
+		seek( $fh, 0, 0 )  || die( 'seek failed... ' . $! );
+		truncate( $fh, 0 ) || die( 'truncate failed... ' . $! );
+		print( $fh "epoch,kur,ip,rule,watcher\n" )                   || die( 'write failed... ' . $! );
+		print( $fh join( "\n", @kept ) . ( @kept ? "\n" : '' ) )     || die( 'write failed... ' . $! );
+		if ($find_time) {
+			$self->{ledger_offset} = tell($fh);
+		}
+
+		close($fh) || die( 'close failed... ' . $! );
+	};
+	if ($@) {
+		log_drek( 'err', 'compacting the banishment ledger "' . $path . '" failed... ' . $@,
+			undef, 'galla-' . $self->{name} );
+	}
+
+	return;
+} ## end sub _ledger_compact
 
 # ran every ten seconds via the sweeper... retries pending bans and drops
 # counter entries that have entirely aged out
@@ -3984,6 +4107,19 @@ sub _sweep {
 			}
 		} ## end foreach my $rule_name ( keys( %{$dcounters} ) )
 	} ## end foreach my $dcounters ( $self->{distinct_counters...})
+
+	# the recidive tally the same way... a subject whose banishments have
+	# all aged past the window is dropped rather than lingering
+	if ( defined( $self->{recidive} ) && ref( $self->{ledger_tally} ) eq 'HASH' ) {
+		my $find_time = $self->_recidive_find_time;
+		foreach my $subject ( keys( %{ $self->{ledger_tally} } ) ) {
+			@{ $self->{ledger_tally}{$subject} }
+				= grep { ( $now - $_ ) < $find_time } @{ $self->{ledger_tally}{$subject} };
+			if ( !@{ $self->{ledger_tally}{$subject} } ) {
+				delete( $self->{ledger_tally}{$subject} );
+			}
+		}
+	} ## end if ( defined( $self->{recidive} ) && ref( $self...))
 
 	# reload any namtar list slot whose file mtime changed, appeared, or
 	# vanished, so a updated feed takes effect with in a sweep... _load keys

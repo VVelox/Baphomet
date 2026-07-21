@@ -4,8 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use Ereshkigal::Client ();
-use JSON::MaybeXS      ();
+use App::Baphomet::App::FanoutCmd qw( fanout_validate_args fanout_execute );
 
 =head1 NAME
 
@@ -52,42 +51,16 @@ sub opt_spec {
 sub validate_args {
 	my ( $self, $opt, $args ) = @_;
 
-	if ( @{$args} > 1 ) {
-		$self->usage_error('marked takes at most one arg, a galla name');
-	}
-
-	return;
+	return fanout_validate_args( $self, $args, 'marked' );
 }
 
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $client = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );
-
-	my $result;
-	if ( @{$args} ) {
-		$result = $client->call_ok( 'marked', { 'name' => $args->[0] } );
-	} else {
-		$result = $client->call_ok('marked');
-	}
-
 	# --name pares each galla down to the one mark, dropping gallas not
 	# holding it at all
-	if ( defined( $opt->name ) && ref( $result->{gallas} ) eq 'HASH' ) {
-		foreach my $galla ( keys( %{ $result->{gallas} } ) ) {
-			my $marks = $result->{gallas}{$galla}{marks};
-			if ( ref($marks) ne 'HASH' || !defined( $marks->{ $opt->name } ) ) {
-				delete( $result->{gallas}{$galla} );
-				next;
-			}
-			$result->{gallas}{$galla}{marks} = { $opt->name => $marks->{ $opt->name } };
-		}
-	} ## end if ( defined( $opt->name ) && ref( $result...))
-
-	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);
-
-	return;
-} ## end sub execute
+	return fanout_execute( $self, $args, 'marked', $opt->name, 'marks' );
+}
 
 =head1 AUTHOR
 

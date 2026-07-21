@@ -1365,7 +1365,8 @@ sub run_tests {
 	return $results;
 } ## end sub run_tests
 
-my $dns_re = qr/(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z][a-zA-Z0-9\-]{0,62}/;
+# the TLD atom, like the label atoms ahead of it, may not end on a hyphen
+my $dns_re = qr/(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?/;
 
 my %tokens = (
 	'IP4'    => qr/$IPv4_re/,
@@ -1373,7 +1374,7 @@ my %tokens = (
 	'ADDR'   => qr/(?:$IPv4_re|$IPv6_re)/,
 	'DNS'    => $dns_re,
 	'HOST'   => qr/(?:$IPv4_re|$IPv6_re|$dns_re)/,
-	'SUBNET' => qr/(?:$IPv4_re|$IPv6_re)(?:\/[0-9]{1,3})?/,
+	'SUBNET' => qr/(?:$IPv4_re|$IPv6_re)(?:\/(?:12[0-8]|1[01][0-9]|[1-9]?[0-9])(?![0-9]))?/,
 	'SRC'    => qr/(?:$IPv4_re|$IPv6_re)/,
 	'DEST'   => qr/(?:$IPv4_re|$IPv6_re)/,
 );
@@ -2019,7 +2020,7 @@ sub _check_stages {
 	if ( !defined($scope) ) {
 		$scope = '';
 	}
-	my $now = time;
+	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
 	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} ) ? $line_ctx->{seq} : undef;
 
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
@@ -2138,10 +2139,7 @@ sub _stage_hit {
 	if ( $stage_int == scalar( @{ $self->{stages} } ) - 1 ) {
 		delete( $store->{$key_value} );
 		my $found = { 'data' => $slot->{data}, 'regexp' => undef, 'stages' => $slot->{hits} };
-		if (   ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
-			|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
-			|| defined( $self->{condition_ast} ) )
-		{
+		if ( $self->{has_boolean} ) {
 			if ( !$self->_boolean_pass( $found->{data}, $message ) ) {
 				return undef;
 			}
@@ -2359,7 +2357,7 @@ sub _expand_token {
 # possibly carrying a more array of further completions when a capture
 # line resolved deferred offenses
 sub _check_message {
-	my ( $self, $message, $scope, $extra, $envelope ) = @_;
+	my ( $self, $message, $scope, $extra, $envelope, $line_ctx ) = @_;
 
 	if ( !defined($message) ) {
 		return undef;
@@ -2367,7 +2365,7 @@ sub _check_message {
 	if ( !defined($scope) ) {
 		$scope = '';
 	}
-	my $now = time;
+	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
 
 	# a ignore_regexp match vetoes the line entirely
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
@@ -2475,10 +2473,7 @@ sub _check_message {
 	# selections+condition, over the captures, and the json fields when
 	# message_json) filters the offense and each completion, dropping those
 	# that do not pass... none skips this
-	if (   ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
-		|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
-		|| defined( $self->{condition_ast} ) )
-	{
+	if ( $self->{has_boolean} ) {
 		if ( defined($found) && !$self->_boolean_pass( $found->{data}, $message ) ) {
 			$found = undef;
 		}
@@ -3102,6 +3097,13 @@ sub _compile_boolean {
 	}
 
 	$self->_compile_keywords( $def, $name );
+
+	# whether any boolean filter exists at all, judged once here so the
+	# per-line paths can skip building the field space for a rule with none
+	$self->{has_boolean}
+		= (    ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
+			|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
+			|| defined( $self->{condition_ast} ) ) ? 1 : 0;
 
 	return;
 } ## end sub _compile_boolean

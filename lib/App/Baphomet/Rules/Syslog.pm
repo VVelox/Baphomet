@@ -401,10 +401,11 @@ sub check {
 	}
 
 	if ( $self->{message_json} ) {
-		return $self->_check_message( $parsed->{message}, $scope, $self->_message_json_extra($parsed), $envelope );
+		return $self->_check_message( $parsed->{message}, $scope, $self->_message_json_extra($parsed),
+			$envelope, $line_ctx );
 	}
 
-	return $self->_check_message( $parsed->{message}, $scope, undef, $envelope );
+	return $self->_check_message( $parsed->{message}, $scope, undef, $envelope, $line_ctx );
 } ## end sub check
 
 # builds the extra field space a message_json rule gates over... the JSON body

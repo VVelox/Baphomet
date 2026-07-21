@@ -85,6 +85,16 @@ $found = $rule->check( parsed_line( 'sshd', 'subnet 10.0.0.0/8' ) );
 ok( defined($found), 'SUBNET matched' );
 is( $found->{data}{SUBNET}, '10.0.0.0/8', 'SUBNET captured with the mask' );
 
+# an impossible prefix is not part of the subnet
+$found = $rule->check( parsed_line( 'sshd', 'subnet 10.0.0.0/999' ) );
+ok( defined($found), 'SUBNET with a out of range prefix still matches the address' );
+is( $found->{data}{SUBNET}, '10.0.0.0', 'but the impossible prefix is not captured' );
+
+# a DNS name may not end on a hyphen
+$found = $rule->check( parsed_line( 'sshd', 'addr 1.2.3.4 host b.example.net dns example.org-' ) );
+ok( defined($found), 'DNS beside a trailing hyphen still matched' );
+is( $found->{data}{DNS}, 'example.org', 'the trailing hyphen is not captured' );
+
 # no match
 ok( !defined( $rule->check( parsed_line( 'sshd', 'nothing of note' ) ) ), 'non-matching message not found' );
 
