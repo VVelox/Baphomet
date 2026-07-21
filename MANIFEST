@@ -53,6 +53,7 @@ rc/systemd/baphomet.service
 README.md
 rules/http/apache-pass.yaml
 rules/http/badbots.yaml
+rules/http/fakegooglebot.yaml
 rules/http/botsearch.yaml
 rules/http/openhab.yaml
 rules/http/php-url-fopen.yaml
@@ -183,9 +184,14 @@ rules/syslog/sendmail-reject.yaml
 rules/syslog/sieve.yaml
 rules/syslog/slapd.yaml
 rules/syslog/solid-pop3d.yaml
+rules/syslog/sshd-aggressive.yaml
+rules/syslog/sshd-ddos.yaml
+rules/syslog/sshd-extra.yaml
 rules/syslog/sshd-mark-users.yaml
 rules/syslog/sshd-spray.yaml
+rules/syslog/sshd-worked.yaml
 rules/syslog/sshd.yaml
+rules/syslog/systemd-flap.yaml
 rules/syslog/sudo-policy.yaml
 rules/syslog/suhosin.yaml
 rules/syslog/uwimap-auth.yaml
@@ -206,6 +212,7 @@ t/country.t
 t/detection.t
 t/eve-log.t
 t/eve-only.t
+t/galla-join.t
 t/galla-journal.t
 t/galla.t
 t/ignore-ips.t
@@ -229,6 +236,7 @@ t/parser-nginx-error.t
 t/parser-raw.t
 t/parser-syslog.t
 t/per-rule-thresholds.t
+t/rdns.t
 t/pod-coverage.t
 t/pod.t
 t/recidive.t
@@ -239,6 +247,7 @@ t/rule-keywords.t
 t/rule-message-json.t
 t/rule-predicates.t
 t/rule-selections.t
+t/rule-stages.t
 t/rule-sequence.t
 t/rule-value-count.t
 t/rules-http-error.t
@@ -250,4 +259,5 @@ t/rules-shipped.t
 t/rules.t
 t/state-tablets.t
 t/stop-wait.t
+t/usedns.t
 t/weighted.t

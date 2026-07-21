@@ -34,9 +34,10 @@ Normally not used directly but via L<App::Baphomet::Rules>.
 A raw rule works on lines from the C<raw> parser, where the whole line is
 the message. It is a syslog rule with out the daemon gate... the same
 matcher, the C<message_regexp> with its C<%%%%TOKEN%%%%> tokens, the
-C<ignore_regexp>, the C<capture_regexp> correlation, and the C<gate> over the
-captures (the reserved C<MESSAGE> being the whole line). See
-L<App::Baphomet::Rules::Syslog> for that matcher. C<ban_var> and every common
+C<ignore_regexp>, the C<capture_regexp> correlation, the C<stages>/C<per>
+staged sequences (with no envelope, a raw C<per> keys on captures only),
+and the C<gate> over the captures (the reserved C<MESSAGE> being the
+whole line). See L<App::Baphomet::Rules::Syslog> for that matcher. C<ban_var> and every common
 key... C<detection_var>, the counting knobs, the metadata, the marks, the
 C<country>/C<namtar_list>/C<active_time> gates, and C<tests> (defaulting to
 the C<raw> parser)... are documented under
@@ -93,7 +94,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -104,6 +105,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_reverse_dns($def);
 	$self->_check_distinct($def);
 	$self->_check_ip_vars($def);
 
@@ -122,6 +124,24 @@ sub new {
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
+	}
+
+	# a staged rule... its stages are the whole matcher, exclusive with the
+	# per-line matchers and the keyed correlation. the raw type has no
+	# envelope, so a per naming syslog.* refuses in the shared compile
+	if ( defined( $def->{stages} ) ) {
+		if ( defined( $def->{message_regexp} ) || defined( $def->{capture_regexp} ) ) {
+			die(      'The rule "'
+					. $name
+					. '" has stages beside message_regexp or capture_regexp... stages are the whole matcher' );
+		}
+		$self->_compile_ignore_regexps($def);
+		$self->_compile_stages($def);
+		$self->_compile_boolean( $def, $name );
+		return $self;
+	} ## end if ( defined( $def->{stages} ) )
+	if ( defined( $def->{per} ) ) {
+		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
 	}
 
 	# the token and regexp machinery lives in the base class
@@ -147,14 +167,18 @@ match, returns a hash as below, same as syslog rules.
 =cut
 
 sub check {
-	my ( $self, $parsed, $scope ) = @_;
+	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
 	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{message} ) ) {
 		return undef;
 	}
 
+	if ( defined( $self->{stages} ) ) {
+		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, undef );
+	}
+
 	return $self->_check_message( $parsed->{message}, $scope );
-}
+} ## end sub check
 
 =head2 ban_var
 

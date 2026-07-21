@@ -41,8 +41,13 @@ see [configuration](configuration) and [rules](rules).
 | `syslog/sieve` | Sieve (timsieved) login failures | `sieved`/`timsieved` |
 | `syslog/solid-pop3d` | Solid POP3 auth failures | `solid-pop3d` |
 | `syslog/sshd` | OpenSSH auth failures | `sshd`, `sshd-session` |
+| `syslog/sshd-ddos` | pre-auth abuse... preauth disconnects and hostless kex banner failures resolved by session (fail2ban's ddos mode, opt-in beside `syslog/sshd`) | `sshd`, `sshd-session` |
+| `syslog/sshd-extra` | algorithm negotiation probes, hostless shapes resolved by session (fail2ban's extra mode, opt-in) | `sshd`, `sshd-session` |
+| `syslog/sshd-aggressive` | the union of sshd-ddos and sshd-extra as one rule (fail2ban's aggressive mode)... enable instead of those two | `sshd`, `sshd-session` |
 | `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
 | `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_score 1`) | `sshd`, `sshd-session` |
+| `syslog/sshd-worked` | a brute force that landed... counted password failures then an Accepted from the same source (staged, detection-only, excludes agent publickey walks) | `sshd`, `sshd-session` |
+| `syslog/systemd-flap` | a service crash loop... three scheduled restarts of one unit inside two minutes (staged, detection-only, counts by unit per host) | `systemd` |
 | `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
@@ -71,6 +76,7 @@ field, and the daemon gate column does not apply.
 | rule | watches for |
 | --- | --- |
 | `http/badbots` | requests from known bad bots by user agent... from fail2ban apache-badbots, list trimmed to the still recognizable plus modern scanners, meant to be extended locally |
+| `http/fakegooglebot` | a user agent claiming Googlebot whose client does not reverse into Google's domains, forward-confirmed... needs `enable_rdns` and Net::DNS, the gate failing closed with out them (from fail2ban apache-fakegooglebot) |
 | `http/botsearch` | probes for admin panels and login pages that 40x... adapted from fail2ban's botsearch-common path vocabulary into access log form |
 | `http/apache-pass` | from fail2ban apache-pass... note fail2ban uses it to allowlist a knocker, so point its path at a honeypot to repurpose it as an offense |
 | `http/openhab` | 401s against the openHAB UI and REST API |
@@ -188,10 +194,18 @@ daemons fail2ban leaves uncovered... `syslog/openvpn`, `syslog/postgresql`,
 syslog, and postgresql additionally needs `%h` in its `log_line_prefix` for
 the client address to reach the failure line (see its header comment).
 
+Two more go beyond any ported corpus, built on staged sequences (see
+[rules](rules)): `syslog/sshd-worked`, the brute force that landed, and
+`syslog/systemd-flap`, the service crash loop. Both are detection-only...
+they surface as `sighting`/`sighted` in EVE and banish nobody, so loading
+either turns EVE on.
+
 ## Not ported, and why
 
-- **apache-fakegooglebot**... its trick is a reverse DNS check, not a
-  regexp, and Baphomet does not resolve at match time.
+- **apache-fakegooglebot**... ported at last as `http/fakegooglebot`,
+  once the `reverse_dns` gate existed... its trick was always a
+  forward-confirmed reverse lookup, not a regexp. It needs `enable_rdns`
+  (on by default) and the optional `Net::DNS` module.
 - **recidive**... fail2ban watching its own log to escalate repeat
   offenders. Baphomet does this natively instead, via the `[recidive]`
   config table, across all kurs at once.
@@ -203,11 +217,18 @@ the client address to reach the failure line (see its header comment).
   cross-line backreferences) as a general mechanism... Baphomet correlates
   by key instead, via capture_regexp, which covered every case that
   actually needed it (slapd, mongodb-auth-legacy, sendmail-reject).
+  Envelope keys (`syslog.daemon`/`syslog.pid`) cover the F-MLFID session
+  shape, and a watcher's `join` glues physically multi-line records, so
+  what remains unported is only the arbitrary cross-line backreference.
 
 ## Caveats worth knowing
 
 - Baphomet does not strip `::ffff:` IPv4-mapped prefixes the way fail2ban
   does. Rules whose daemons log that form match it outside the capture
   (`(?:::ffff:)?`) so the bare IPv4 is what goes to Ereshkigal.
-- `pam-generic` bans whatever PAM logged as rhost, which may be a
-  hostname rather than a IP.
+- `pam-generic`'s offender is whatever PAM logged as rhost, which may be
+  a hostname rather than a IP. Under the default `usedns = "no"` a
+  hostname offender counts and banishes nothing (the match still writes
+  to EVE); a resolve mode banishes its addresses instead... see the
+  hostname offenders section of [configuration](configuration) before
+  turning one on.

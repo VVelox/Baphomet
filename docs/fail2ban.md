@@ -95,16 +95,24 @@ Honesty section, roughly in order of how much it matters...
   The EVE event log ([eve](eve)) is the stream carrying the raw line,
   the rule, and the count for driving a SIEM or notifications with
   full context.
-- **Keyless multiline.** Correlation needs a shared key. fail2ban's
-  F-MLFID session tracking, mostly feeding its aggressive/ddos filter
-  modes, has no equivalent... shipped rules port the normal modes.
-- **`usedns`.** Hostname offenders (pam-generic, mysqld) are handed to
-  Ereshkigal verbatim, neither resolved nor refused.
+- **Cross-line backreferences.** fail2ban's buffer-join rematching
+  (maxlines with SKIPLINES between arbitrary failregex fragments) has no
+  general equivalent. Its two real uses are covered by sharper tools...
+  F-MLFID session tracking by envelope-keyed correlation
+  (`key: [ syslog.host, syslog.daemon, syslog.pid ]`, see [rules](rules)),
+  and physically multi-line records by a watcher's `join` table (see
+  [configuration](configuration)). The sshd ddos/extra/aggressive modes
+  that ride F-MLFID ship as the opt-in `syslog/sshd-ddos`,
+  `syslog/sshd-extra`, and `syslog/sshd-aggressive` rules.
+- **`usedns` differs on purpose.** Hostname offenders (pam-generic,
+  mysqld) are covered by `usedns` = `no` / `resolve_seen` / `resolve_ban`
+  behind an `enable_dns` consent (see [configuration](configuration)),
+  but fail2ban's `raw` mode does not exist... Ereshkigal takes addresses,
+  not names... and the default is `no`, so a hostname banishes nothing
+  until an operator opts into resolution knowingly.
 - **Per-IP escalating bans (`bantime.increment`).** A repeat offender is
   escalated by banishing it to a longer-held recidive kur, not by growing
   its own individual ban time.
-- **apache-fakegooglebot.** The one filter deliberately not ported... its
-  trick is a reverse DNS check (the `usedns` point above), not a regexp.
 
 The filter library is otherwise essentially complete... every fail2ban
 filter that is a regexp over a log line is ported, across the syslog, raw,
@@ -213,7 +221,9 @@ mechanical...
 
 What does not port one-to-one: `journalmatch` is a watcher's `journal` key,
 not a rule key; `datepattern` is the parser's job, chosen by the rule type;
-and fail2ban's keyless `maxlines` multiline has no equivalent, though keyed
-offense-and-address correlation does (see [rules](rules)). The
+and fail2ban's `maxlines` buffer splits into two sharper tools... keyed
+correlation, envelope keys included, for lines sharing a session or id, and
+a watcher's `join` for records that are physically one event (see
+[rules](rules) and [configuration](configuration)). The
 [rules-catalog](rules-catalog) lists what already ships, and the handful
 deliberately not ported and why.

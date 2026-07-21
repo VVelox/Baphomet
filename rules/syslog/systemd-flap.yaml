@@ -1,0 +1,56 @@
+---
+# Matches a service crash loop... a unit dying and being rescheduled
+# repeatedly in tight succession, a config error after a deploy, an OOM
+# loop, or someone repeatedly triggering a crash in a network-facing
+# daemon. A single counted stage over systemd's own restart bookkeeping,
+# keyed per unit per host, so two services each restarting once across a
+# fleet-shared log never sum into a phantom loop. A lone restart is an
+# upgrade or an operator and passes silently... three inside two minutes
+# with no human that fast is a loop. Detection-only, the subject being
+# the unit... there is no address to banish. Units that legitimately
+# restart on a tight timer will trip it; ignore those per deployment.
+# The max_score of 1 makes one loop the alert where the watcher sets
+# allow_per_rule_thresholds.
+msg: "[SYSTEMD] service crash loop / flapping"
+severity: high
+classtype: program-error
+daemons:
+  - systemd
+stages:
+  - message_regexp:
+      - '^(?<UNIT>\S+\.service): Scheduled restart job, restart counter is at \d+'
+    count: 3
+    within: 120
+per: [ syslog.host, UNIT ]
+detection_var: [ UNIT ]
+max_score: 1
+tests:
+  positive:
+    - messages:
+        - "Jul 12 08:15:50 vixen42 systemd[1]: myapp.service: Scheduled restart job, restart counter is at 1."
+        - "Jul 12 08:15:55 vixen42 systemd[1]: myapp.service: Scheduled restart job, restart counter is at 2."
+        - "Jul 12 08:16:00 vixen42 systemd[1]: myapp.service: Scheduled restart job, restart counter is at 3."
+      found: 1
+      data:
+        UNIT: "myapp.service"
+  negative:
+    # two restarts is an upgrade, not a loop
+    - messages:
+        - "Jul 12 08:15:50 vixen42 systemd[1]: myapp.service: Scheduled restart job, restart counter is at 1."
+        - "Jul 12 08:15:55 vixen42 systemd[1]: myapp.service: Scheduled restart job, restart counter is at 2."
+      found: 0
+    # three different units each restarting once is not a loop anywhere
+    - messages:
+        - "Jul 12 08:15:50 vixen42 systemd[1]: aaa.service: Scheduled restart job, restart counter is at 1."
+        - "Jul 12 08:15:55 vixen42 systemd[1]: bbb.service: Scheduled restart job, restart counter is at 1."
+        - "Jul 12 08:16:00 vixen42 systemd[1]: ccc.service: Scheduled restart job, restart counter is at 1."
+      found: 0
+    # the same unit on different hosts is counted apart
+    - messages:
+        - "Jul 12 08:15:50 hostA systemd[1]: myapp.service: Scheduled restart job, restart counter is at 1."
+        - "Jul 12 08:15:55 hostB systemd[1]: myapp.service: Scheduled restart job, restart counter is at 2."
+        - "Jul 12 08:16:00 hostA systemd[1]: myapp.service: Scheduled restart job, restart counter is at 2."
+      found: 0
+    # a unit stopping normally says nothing here
+    - message: "Jul 12 08:15:50 vixen42 systemd[1]: myapp.service: Deactivated successfully."
+      found: 0

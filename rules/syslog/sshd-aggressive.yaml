@@ -1,0 +1,74 @@
+---
+# The union of syslog/sshd-ddos and syslog/sshd-extra as one rule...
+# fail2ban's mode=aggressive. Enable this INSTEAD of those two, beside
+# syslog/sshd, when both the pre-auth abuse and the negotiation probes
+# should accrue to one count. See those two rules for the annotated
+# regexps... this file only unions them. Noisy by nature, so opt in
+# knowingly.
+msg: "[SSHD] pre-auth abuse / negotiation probe (aggressive)"
+severity: medium
+classtype: network-scan
+daemons:
+  - sshd
+  - sshd-session
+capture_regexp:
+  - regexp: '^Connection from %%%%SRC%%%% port \d+'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    ttl: 120
+  - regexp: '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*$'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    ttl: 120
+message_regexp:
+  - '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]'
+  - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
+  - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
+  - regexp: '^(?:(?:error|fatal): )?kex_exchange_identification: (?:read: )?(?:[cC]lient sent invalid protocol identifier|[cC]onnection (?:closed by remote host|reset by peer))'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+  - regexp: '^(?:(?:error|fatal): )?Read from socket failed: Connection reset by peer'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+  - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+  - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+ban_var:
+  - SRC
+tests:
+  positive:
+    # one from each half... the annotated coverage lives in the two rules
+    - messages:
+        - 'Feb 17 17:40:17 host sshd[19725]: Connection from 192.0.2.10 port 62004 on 192.0.2.10 port 22'
+        - 'Feb 17 17:40:17 host sshd[19725]: error: kex_exchange_identification: client sent invalid protocol identifier ""'
+      found: 1
+      data:
+        SRC: "192.0.2.10"
+    - message: "Mar 15 09:21:01 host sshd[2717]: Connection closed by 192.0.2.212 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.212"
+    - message: "Nov 26 13:03:29 srv sshd[45]: Unable to negotiate with 192.0.2.1 port 55419: no matching cipher found. Their offer: aes256-cbc [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+    - messages:
+        - 'Nov 26 15:03:30 host sshd[22440]: Connection from 192.0.2.3 port 39678 on 192.168.1.9 port 22'
+        - 'Nov 26 15:03:31 host sshd[22440]: fatal: Unable to negotiate a key exchange method [preauth]'
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+    - message: "Nov 25 01:34:12 srv sshd[123]: Received disconnect from 127.0.0.1: 14: No supported authentication methods available [preauth]"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+  negative:
+    - message: "Jun  7 04:29:10 host sshd[649921]: Connection reset by 192.0.2.16 port 51280"
+      found: 0
+    - message: "Mar  1 18:59:33 hostname sshd[1189575]: error: kex_exchange_identification: banner line too long"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      found: 0
+      undefed: ["SRC"]

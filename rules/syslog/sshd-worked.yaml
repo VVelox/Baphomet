@@ -1,0 +1,87 @@
+---
+# Matches a brute force that landed... several failed password attempts
+# from one source, then an Accepted for that same source shortly after,
+# the compromised-credential alarm one typo never trips. A staged rule...
+# the failure stage deliberately does NOT match "Failed publickey", since
+# an ssh agent offering several keys before the right one produces
+# exactly failed-failed-accepted for legitimate users. Detection-only...
+# the false positive shape is a real person fat-fingering five times and
+# then getting in, and banning them locks out a now-authenticated user.
+# Surfaces as sighting/sighted in EVE; flip detection_var to ban_var
+# knowingly on a host where no such person exists. The max_score of 1
+# makes one completed sequence the alert where the watcher sets
+# allow_per_rule_thresholds... with out that consent the watcher's own
+# threshold applies, in completed sequences.
+msg: "[SSHD] brute force succeeded... possible credential compromise"
+severity: critical
+classtype: successful-user
+daemons:
+  - sshd
+  - sshd-session
+stages:
+  - message_regexp:
+      - '^Failed (?:password|keyboard-interactive\S*) for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
+    count: 5
+    within: 300
+  - message_regexp:
+      - '^Accepted \w+ for (?<USER>\S+) from %%%%SRC%%%%'
+    within: 600
+per: [ SRC ]
+detection_var: [ SRC ]
+max_score: 1
+tests:
+  positive:
+    - messages:
+        - "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for root from 192.0.2.7 port 4711 ssh2"
+        - "Jul 12 08:15:51 vixen42 sshd[2280]: Failed password for root from 192.0.2.7 port 4712 ssh2"
+        - "Jul 12 08:15:52 vixen42 sshd[2282]: Failed password for root from 192.0.2.7 port 4713 ssh2"
+        - "Jul 12 08:15:53 vixen42 sshd[2284]: Failed password for root from 192.0.2.7 port 4714 ssh2"
+        - "Jul 12 08:15:54 vixen42 sshd[2286]: Failed password for root from 192.0.2.7 port 4715 ssh2"
+        - "Jul 12 08:15:57 vixen42 sshd[2288]: Accepted password for root from 192.0.2.7 port 4716 ssh2"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+        USER: "root"
+    # a spray... failures across accounts, the success on one, still one
+    # source. the reported USER is the account that worked
+    - messages:
+        - "Jul 12 08:15:50 vixen42 sshd[3278]: Failed password for invalid user admin from 192.0.2.8 port 4711 ssh2"
+        - "Jul 12 08:15:51 vixen42 sshd[3280]: Failed password for invalid user oracle from 192.0.2.8 port 4712 ssh2"
+        - "Jul 12 08:15:52 vixen42 sshd[3282]: Failed keyboard-interactive/pam for root from 192.0.2.8 port 4713 ssh2"
+        - "Jul 12 08:15:53 vixen42 sshd[3284]: Failed password for invalid user git from 192.0.2.8 port 4714 ssh2"
+        - "Jul 12 08:15:54 vixen42 sshd[3286]: Failed password for backup from 192.0.2.8 port 4715 ssh2"
+        - "Jul 12 08:15:57 vixen42 sshd-session[3288]: Accepted publickey for backup from 192.0.2.8 port 4716 ssh2"
+      found: 1
+      data:
+        SRC: "192.0.2.8"
+        USER: "backup"
+  negative:
+    # an ssh agent walking its keyring is not a brute force
+    - messages:
+        - "Jul 12 08:15:50 vixen42 sshd[4278]: Failed publickey for kitsune from 192.0.2.9 port 4711 ssh2"
+        - "Jul 12 08:15:50 vixen42 sshd[4278]: Failed publickey for kitsune from 192.0.2.9 port 4711 ssh2"
+        - "Jul 12 08:15:50 vixen42 sshd[4278]: Failed publickey for kitsune from 192.0.2.9 port 4711 ssh2"
+        - "Jul 12 08:15:50 vixen42 sshd[4278]: Failed publickey for kitsune from 192.0.2.9 port 4711 ssh2"
+        - "Jul 12 08:15:50 vixen42 sshd[4278]: Failed publickey for kitsune from 192.0.2.9 port 4711 ssh2"
+        - "Jul 12 08:15:51 vixen42 sshd[4278]: Accepted publickey for kitsune from 192.0.2.9 port 4711 ssh2"
+      found: 0
+    # four failures then the success... under the count, a person
+    - messages:
+        - "Jul 12 08:15:50 vixen42 sshd[5278]: Failed password for root from 192.0.2.10 port 4711 ssh2"
+        - "Jul 12 08:15:51 vixen42 sshd[5280]: Failed password for root from 192.0.2.10 port 4712 ssh2"
+        - "Jul 12 08:15:52 vixen42 sshd[5282]: Failed password for root from 192.0.2.10 port 4713 ssh2"
+        - "Jul 12 08:15:53 vixen42 sshd[5284]: Failed password for root from 192.0.2.10 port 4714 ssh2"
+        - "Jul 12 08:15:57 vixen42 sshd[5286]: Accepted password for root from 192.0.2.10 port 4715 ssh2"
+      found: 0
+    # another source's success completes nothing here
+    - messages:
+        - "Jul 12 08:15:50 vixen42 sshd[6278]: Failed password for root from 192.0.2.11 port 4711 ssh2"
+        - "Jul 12 08:15:51 vixen42 sshd[6280]: Failed password for root from 192.0.2.11 port 4712 ssh2"
+        - "Jul 12 08:15:52 vixen42 sshd[6282]: Failed password for root from 192.0.2.11 port 4713 ssh2"
+        - "Jul 12 08:15:53 vixen42 sshd[6284]: Failed password for root from 192.0.2.11 port 4714 ssh2"
+        - "Jul 12 08:15:54 vixen42 sshd[6286]: Failed password for root from 192.0.2.11 port 4715 ssh2"
+        - "Jul 12 08:15:57 vixen42 sshd[6288]: Accepted password for root from 192.0.2.12 port 4716 ssh2"
+      found: 0
+    # failures alone are syslog/sshd's business, not this rule's
+    - message: "Jul 12 08:15:50 vixen42 sshd[7278]: Failed password for root from 192.0.2.13 port 4711 ssh2"
+      found: 0

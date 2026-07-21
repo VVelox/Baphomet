@@ -59,6 +59,7 @@ Every record carries these fields...
 | `raw` | the line as received, or, when that line is itself a JSON object or array, the decoded structure rather than a escaped string. |
 | `parsed` | the parser's output, or the parsed JSON itself for a JSON log. |
 | `found` | all the found hash keys, what the rule captured. |
+| `stages` | a staged rule's whole story... an array of every stage hit (`stage` index, `time` epoch, `line`), `raw` above being only the final line. Present only on staged-rule events. |
 | `rule` | the rule's name and def, with its tests stripped to save space. |
 
 A **banish** event adds `.ip` and `.ban_time`, and `.recidive` is true

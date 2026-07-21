@@ -40,8 +40,8 @@ Every rule, whatever its type, is a YAML hash that does four things:
    for EVE, and its own [tests](#tests).
 
 Optionally it also carries [gates](#refining-a-match-the-gates) that refine a
-match after the fact... marks, geography, blocklists, time of day. Those are
-shared by every type.
+match after the fact... marks, geography, blocklists, time of day, reverse
+DNS. Those are shared by every type.
 
 Here is a whole syslog rule. Everything but the `daemons`/`message_regexp`
 matcher is common to all five types:
@@ -271,7 +271,8 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `daemons` | ✓ | — | — | — | — |
 | `message_regexp` | ✓ | ✓ | — | ✓ | — |
 | `ignore_regexp` | ✓ | ✓ | — | ✓ | — |
-| `capture_regexp` (correlation) | ✓ | ✓ | — | — | — |
+| `capture_regexp` / `capture`+`key`+`defer` (correlation) | ✓ | ✓ | — | — | ✓ |
+| `stages` / `per` (staged sequences) | ✓ | ✓ | — | — | — |
 | `message_json` | ✓ | — | — | — | — |
 | `status` / `method` | — | — | ✓ | — | — |
 | `level` / `module` | — | — | — | ✓ | — |
@@ -282,7 +283,7 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `gate` / `selections` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `marked` / `not_marked` / `mark_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `sequence` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `country` / `namtar_list` / `active_time` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -508,6 +509,63 @@ property of the line, so the gate is checked once per result and vetoes the
 whole result. Times are the system's local time. There is no shipped
 active_time rule, since which hours matter is your policy.
 
+### reverse_dns... the client is who its address says
+
+A `reverse_dns` gate compares the PTR names of an address against a regexp
+or against another found value, negatable... how a claim in the log is
+checked against what DNS says about the client. The gate that finally
+ports `apache-fakegooglebot` (shipped as `http/fakegooglebot`): a
+user-agent claiming Googlebot whose client does not reverse into Google's
+domains is a pretender.
+
+```yaml
+reverse_dns:
+  - matches: '\.google(?:bot)?\.com$'   # regexp over the PTR names
+    negate: true                        # count when it does NOT hold
+  - var: SRC                            # gate a named found value instead
+    matches_var: HELO                   # ... against another found value
+    forward_confirm: false              # default true, see below
+```
+
+An array of entries, every one required to hold. Each names exactly one of
+`matches` (a Perl regexp any PTR name must satisfy) or `matches_var`
+(equality against another found value, case-folded, trailing dots
+stripped). A `var` entry checks that found value's address once per result,
+vetoing the whole result; a var-less entry checks each offender in the ban
+loop, like `country`. `negate` inverts the comparison.
+
+**Forward confirmation is on by default.** An attacker controls their own
+PTR, so with out it a negated Google pattern is evaded by pointing your
+PTR at `anything.googlebot.com`. A PTR name only participates when it
+resolves back to the address it came from... a spoofed PTR is as good as
+absent. `forward_confirm: false` is for cheap heuristics only.
+
+**Absence is an answer; failure is not... by default, and per rule.** An
+authoritative empty PTR set compares false... so `negate` counts the
+client with no reverse DNS at all, which is most fake bots. A timeout or
+SERVFAIL vetoes the count regardless of `negate`, so an outage can never
+get the real Googlebot banned. Both verdicts are the entry's to override:
+
+| key | default | values |
+| --- | --- | --- |
+| `on_nxdomain` | `compare` | `compare` runs the comparison over the (empty) name set, `pass` satisfies the entry outright, `fail` vetoes outright |
+| `on_servfail` | `fail` | the same three, governing any lookup failure in the entry... during forward confirmation, `compare` leaves that one name unconfirmed and carries on |
+
+`pass` and `fail` are terminal... `negate` never touches them, so "on
+SERVFAIL, pass" means let through on both a positive and a negated gate.
+`on_nxdomain: pass` on a positive gate spells "in my domain, or no PTR at
+all" in one entry. And beware `on_servfail: pass`-or-`compare` on a
+negated gate... it trades the outage-can-not-misaim guarantee for
+coverage, meaning a DNS outage counts everyone, which is fail2ban's flaw
+made opt-in and labeled. Everything else always fails closed: no
+resolver, `enable_rdns` off (see [configuration](configuration)), a
+non-address value, a missing `matches_var`.
+
+Lookups happen per match, not per line, bounded by `rdns_timeout` and
+cached... still, keep the gate behind a cheap matcher, never on a rule
+that matches everything. Like the other galla-state gates, a rule's
+embedded tests can not exercise it... they prove the matching layer only.
+
 ## How the types differ
 
 Everything above is shared. What each type changes is the **matcher** ... how
@@ -539,8 +597,13 @@ The axes underneath that table:
   http field matches and http_error `message_regexp` are plain Perl regexps,
   not tokened (http_error still merges a winning regexp's named captures into
   the data).
-- **Correlation.** Offense-and-address-on-different-lines correlation
-  (`capture_regexp`, keyed `message_regexp`) is a syslog and raw feature.
+- **Correlation.** Offense-and-address-on-different-lines correlation is a
+  syslog, raw, and json feature... `capture_regexp` and keyed
+  `message_regexp` on the text types, `capture` entries and a rule-level
+  `key`/`defer` keyed on fields for json. The http and http_error types
+  have no need of it, every line already carrying its offender.
+- **Staging.** In-rule ordered sequences... counted stages with time and
+  line bounds (`stages`/`per`)... are a syslog and raw feature.
 - **JSON in a syslog envelope.** `message_json` decodes a JSON message inside
   a syslog line into gateable fields, a syslog-only bridge to the json
   machinery.
@@ -634,6 +697,92 @@ watcher and in memory only. Test these with the `messages:` array form (see
 [tests](#tests)); `raw/mongodb-auth-legacy` and the No such user pair in
 `syslog/sendmail-reject` are shipped examples.
 
+A `key` may also be a array of components, and on the syslog type a
+component may name a reserved envelope field... `syslog.daemon`,
+`syslog.host`, or `syslog.pid`... in place of a capture. So a daemon whose
+lines share nothing but the logging process itself, the fail2ban F-MLFID
+shape, correlates by its session with no key in the message at all:
+
+```yaml
+capture_regexp:
+  - regexp: '^Connection from %%%%SRC%%%% port \d+'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    ttl: 120
+message_regexp:
+  - regexp: '^Too many authentication failures'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 60
+ban_var:
+  - SRC
+```
+
+Every component must resolve for a key to hold... a keyed offense any of
+whose components is missing (a daemon logging with no pid, say) is judged a
+plain unkeyed offense, and a capture line harvests nothing. `syslog.pid`
+alone scopes to one process life; include `syslog.host` when several hosts
+share the log. The raw type has no envelope, so envelope components are a
+load error there.
+
+### stages... ordered sequences with in one rule
+
+Correlation merges data across lines but knows no order and counts
+nothing. A **staged rule** matches a *sequence*... ordered stages, each a
+`message_regexp` list with an optional hit `count` (default 1), a `within`
+bound in seconds on the gap since the previous hit, and a `skip` bound on
+the log lines allowed between hits. The final stage completing is the
+offense, its data the captures of every hit merged, later stages
+authoritative. `stages` replaces `message_regexp`/`capture_regexp`
+entirely... a staged rule's stages are its whole matcher, with
+`ignore_regexp` still vetoing lines ahead of them.
+
+The brute-force-that-worked shape... failures, then a success, the
+compromised-credential alarm one typo never trips:
+
+```yaml
+stages:
+  - message_regexp:
+      - '^Failed (?:password|publickey) for .* from %%%%SRC%%%%'
+    count: 5
+    within: 300
+  - message_regexp:
+      - '^Accepted \w+ for .* from %%%%SRC%%%%'
+    within: 60
+per: [ SRC ]
+detection_var: [ SRC ]
+```
+
+`per` names the key the sequence state lives under... captures, and on
+the syslog type the `syslog.host`/`syslog.daemon`/`syslog.pid` envelope
+fields, so a single counted stage keyed
+`per: [ syslog.host, syslog.daemon, syslog.pid ]` counts repetition
+*with in one daemon session*, a far sharper signal than per-IP counting
+across the whole window. Every `per` component must resolve on a hit or
+the line joins nothing.
+
+The mechanics worth knowing... a hit landing past its stage's `within` or
+`skip` kills the sequence (the line may then head a fresh one); a line
+matching the *first* stage never tramples a sequence already in flight
+for its key, so failures past the count do not reset a
+waiting-for-success rule; intermediate hits do not consume the line, so
+the plain rules beside a staged one still count what it watches. State is
+per watcher, memory only, bounded, and swept... a restart forgets a
+half-built sequence. The found's EVE event carries a `stages` array of
+every hit (stage index, epoch, line) beside the usual fields, the `raw`
+being the final line.
+
+With out `per` the state is one slot per followed file... pure adjacency.
+That is only sound for serialized logs, a single-worker daemon or a
+one-connection-at-a-time service... any multi-client daemon interleaves
+sessions and adjacency would stitch one client's stage to another's, so
+prefer `per` wherever a key exists and say so loudly in a keyless rule's
+header.
+
+Sequences prove themselves through the `messages:` test form, whose line
+order also drives `skip`. A `within` bound is time and can not be
+exercised from embedded tests... prove the order and counts there, and
+the gap behavior in a `.t` against the rule object (see
+`t/rule-stages.t`).
+
 See
 [`App::Baphomet::Rules::Syslog`](https://metacpan.org/pod/App::Baphomet::Rules::Syslog)
 for the full reference.
@@ -643,9 +792,12 @@ for the full reference.
 Rules of the `raw` type work on lines from the `raw` parser, the no-op escape
 hatch where the whole line is the message. A raw rule is a syslog rule with
 out the daemons gate... the same `message_regexp` with the same
-[tokens](#message_regexp), the same `ignore_regexp`, the same `ban_var`, and
-the same [correlation](#correlation-offense-and-address-on-different-lines).
-Tests default to the `raw` parser.
+[tokens](#message_regexp), the same `ignore_regexp`, the same `ban_var`,
+the same
+[correlation](#correlation-offense-and-address-on-different-lines), and
+the same [staging](#stages-ordered-sequences-with-in-one-rule), though
+with no envelope a raw `per` keys on captures only. Tests default to the
+`raw` parser.
 
 ```yaml
 ---
@@ -792,6 +944,47 @@ full [predicate gate](#gate--selections--condition--keywords) vocabulary,
 where the Sigma-style boolean model earns its keep. See
 [`App::Baphomet::Rules::JSON`](https://metacpan.org/pod/App::Baphomet::Rules::JSON)
 for the full reference.
+
+### correlation on json... capture, key, defer
+
+Structured logs split events too... mongod 4.4+ logs the auth failure and
+the connection's address as separate JSON events sharing a `ctx` conn id,
+the same shape its old text logs had. The json type carries the same
+two-phase [correlation](#correlation-offense-and-address-on-different-lines)
+as syslog and raw, keyed on fields instead of an envelope: `capture`
+entries (their own `gate`/`match`, a `key`, a `ttl`) harvest context
+without being offenses, and a rule-level `key`, with an optional `defer`,
+makes the rule's own match resolve through it, whichever order the events
+arrive in.
+
+```yaml
+gate:
+  - field: c
+    values: [ ACCESS ]
+  - field: msg
+    values: [ "Authentication failed" ]
+key: [ ctx ]
+defer: 60
+capture:
+  - gate:
+      - field: msg
+        values: [ "Connection ended" ]
+    match:
+      - field: attr.remote
+        regexp: '^%%%%SRC%%%%:\d+$'
+    key: [ ctx ]
+    ttl: 120
+ban_var:
+  - SRC
+```
+
+A `key` is a field path or capture name, or an array of them compounding
+into one key, every component required to resolve. An unresolved offense
+with `defer` waits that many seconds for its capture; with out `defer` it
+is not judged an offense at all. State is per watcher and in memory only,
+as on the other types, and the `messages:` test form proves it. The
+`syslog.*` namespace is reserved (it is the [message_json](#message_json)
+envelope), so keying on it here is a load error.
 
 ## Writing one
 

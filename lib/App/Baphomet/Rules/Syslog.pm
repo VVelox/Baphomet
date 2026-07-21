@@ -124,8 +124,65 @@ found plus C<defer> parks the offense for that many seconds awaiting a
 capture line with the key, several of which may complete at once. Not
 found with out defer falls through to the next entry.
 
+A C<key> may also be a array of components, and a component may name a
+reserved envelope field... C<syslog.daemon>, C<syslog.host>, or
+C<syslog.pid>... in place of a capture. So a daemon whose lines share
+nothing but the logging process itself, the fail2ban F-MLFID shape,
+correlates by its session with no key in the message at all:
+
+    capture_regexp:
+      - regexp: '^Connection from %%%%SRC%%%%'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        ttl: 120
+    message_regexp:
+      - regexp: '^Too many authentication failures'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 60
+
+Components resolve captures first and envelope fields by their reserved
+names, and every component must resolve... a message_regexp entry any of
+whose components is missing (a daemon logging with no pid, say) is judged
+as a plain unkeyed offense, and a capture_regexp entry harvests nothing.
+Keying on C<syslog.pid> alone correlates lines of one process life...
+include C<syslog.host> when several hosts share the log.
+
 Correlation state is per watcher, in memory only, and bounded... a galla
 restart forgets pending correlations.
+
+=head2 stages / per... ordered sequences with in one rule
+
+A staged rule matches a sequence rather than a line... ordered stages,
+each a tokened C<message_regexp> list with an optional hit C<count>
+(default 1), a C<within> bound in seconds on the gap since the previous
+hit, and a C<skip> bound on the log lines allowed between hits. The final
+stage completing is the offense, its data every hit's captures merged,
+later stages authoritative. C<stages> is the whole matcher... it refuses
+to load beside C<message_regexp>, C<capture_regexp>, or C<message_json>,
+while C<ignore_regexp> still vetoes lines ahead of the stages and the
+predicate gate still filters the completed offense.
+
+    stages:
+      - message_regexp:
+          - '^Failed (?:password|publickey) for .* from %%%%SRC%%%%'
+        count: 5
+        within: 300
+      - message_regexp:
+          - '^Accepted \w+ for .* from %%%%SRC%%%%'
+        within: 60
+    per: [ SRC ]
+    detection_var: [ SRC ]
+
+C<per> keys the sequence state... captures and the envelope fields
+(C<syslog.host>/C<syslog.daemon>/C<syslog.pid>), every component required
+to resolve for a line to join. With out C<per> the state is one slot per
+followed file, pure adjacency... only sound for serialized logs, since a
+multi-client daemon interleaves sessions. A hit landing past C<within> or
+C<skip> kills the sequence (the line may then head a fresh one); a line
+matching the first stage never tramples a sequence already in flight for
+its key; intermediate hits do not consume the line, so plain rules beside
+a staged one still see it. State is per watcher, memory only, and
+bounded. The found carries a C<stages> array of every hit (stage index,
+epoch, line), written to EVE beside the usual fields.
 
 =head2 message_json
 
@@ -228,7 +285,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -239,6 +296,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_reverse_dns($def);
 	$self->_check_distinct($def);
 	$self->_check_ip_vars($def);
 
@@ -284,6 +342,32 @@ sub new {
 	}
 	$self->{message_json} = $def->{message_json} ? 1 : 0;
 
+	# the envelope fields a correlation key may name beside the captures...
+	# how a session-scoped daemon correlates lines carrying no key of their own
+	$self->{envelope_key_fields} = {
+		'syslog.daemon' => 1,
+		'syslog.host'   => 1,
+		'syslog.pid'    => 1,
+	};
+
+	# a staged rule... its stages are the whole matcher, exclusive with the
+	# per-line matchers and the keyed correlation
+	if ( defined( $def->{stages} ) ) {
+		if ( defined( $def->{message_regexp} ) || defined( $def->{capture_regexp} ) || $self->{message_json} ) {
+			die(      'The rule "'
+					. $name
+					. '" has stages beside message_regexp, capture_regexp, or message_json... stages are the whole matcher'
+			);
+		}
+		$self->_compile_ignore_regexps($def);
+		$self->_compile_stages($def);
+		$self->_compile_boolean( $def, $name );
+		return $self;
+	} ## end if ( defined( $def->{stages} ) )
+	if ( defined( $def->{per} ) ) {
+		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
+	}
+
 	# the token and regexp machinery lives in the base class
 	$self->_compile_message_regexps( $def, $self->{message_json} );
 	$self->_compile_capture_regexps($def);
@@ -319,7 +403,7 @@ the plain token name.
 =cut
 
 sub check {
-	my ( $self, $parsed, $scope ) = @_;
+	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
 	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{message} ) ) {
 		return undef;
@@ -345,11 +429,25 @@ sub check {
 		return undef;
 	}
 
-	if ( $self->{message_json} ) {
-		return $self->_check_message( $parsed->{message}, $scope, $self->_message_json_extra($parsed) );
+	# only built for rules whose correlation or per keys name envelope fields
+	my $envelope;
+	if ( $self->{wants_envelope} ) {
+		$envelope = {
+			'syslog.daemon' => $parsed->{daemon},
+			'syslog.host'   => $parsed->{hostname},
+			'syslog.pid'    => $parsed->{pid},
+		};
 	}
 
-	return $self->_check_message( $parsed->{message}, $scope );
+	if ( defined( $self->{stages} ) ) {
+		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, $envelope );
+	}
+
+	if ( $self->{message_json} ) {
+		return $self->_check_message( $parsed->{message}, $scope, $self->_message_json_extra($parsed), $envelope );
+	}
+
+	return $self->_check_message( $parsed->{message}, $scope, undef, $envelope );
 } ## end sub check
 
 # builds the extra field space a message_json rule gates over... the JSON body

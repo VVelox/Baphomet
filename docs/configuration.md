@@ -40,6 +40,12 @@ The config file is TOML, by default
 | `eve_log` | `/var/log/baphomet/eve.json` | Path of the EVE event log. |
 | `eve_enable` | `false` | Whether to write the EVE log. The path is set by default but stays silent until this is on. See [eve](eve). |
 | `geoip_db` | unset | Path to a MaxMind GeoIP2/GeoLite2 country database, for rules with a `country` gate. Read via the optional `IP::Geolocation::MMDB` module. Unset, or unloadable, and every country gate fails closed (banishes nobody), with a loud warning at galla start. |
+| `enable_dns` | `false` | The consent for DNS resolution. With out it, any `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS` module... set but unloadable, and `usedns` behaves as `no`, also loudly. See [hostname offenders](#hostname-offenders-usedns). |
+| `usedns` | `no` | How a hostname offender... a `ban_var` value that is not an IP... is handled: `no`, `resolve_seen`, or `resolve_ban`. Global, per kur, and per watcher. See [hostname offenders](#hostname-offenders-usedns). |
+| `usedns_timeout` | `2` | Seconds a DNS query may take before being given up on. Resolution is blocking, so this bounds how long a hostile name can stall the galla. |
+| `usedns_max_addrs` | `4` | The most addresses a hostname may resolve to and still be acted on... more and the whole resolution is refused rather than trimmed, failing closed. |
+| `enable_rdns` | `true` | Whether the `reverse_dns` rule gate may look things up. A separate consent from `enable_dns` on purpose... the gate only refines matches and never redirects a ban, so it is safe by default. Off, reverse_dns gates fail closed and count nothing, loudly. Rides the optional `Net::DNS` module, loaded only when some rule carries the gate. |
+| `rdns_timeout` | `2` | Seconds a `reverse_dns` gate query may take before being given up on. A failed lookup vetoes the count regardless of the gate's `negate`, so a slow resolver slows detection, never misaims it. |
 | `country_codes` | `{}` | Named lists of ISO 3166 country codes a `country` gate can import. A hash of arrays. Global, per kur, and per watcher, merged per name. See below. |
 | `namtar_lists` | `{}` | Named lists of CIDR files a `namtar_list` gate checks against, each a path or array of paths. A hash. Global, per kur, and per watcher, merged per name. Reloaded on mtime change. See below. |
 | `active_time` | `{}` | Named time windows a `active_time` gate references, each a `{days, hours}` spec or array of them. A hash. Global, per kur, and per watcher, merged per name. See below. |
@@ -186,6 +192,7 @@ Watcher keys...
 | `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
 | `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
 | `active_time` | Named time windows overriding the kur's and global's for this watcher's rules. A hash. |
+| `join` | A joiner gluing physical continuation lines onto their head line ahead of the parser, for one-event-many-lines logs like stack traces. A hash, see [below](#joining-multi-line-records). Not on journal watchers, whose messages arrive whole. |
 
 `max_score`, `find_time`, `ban_time`, `ban_subnet_v4`, `ban_subnet_v6`,
 `subnet_max_score`, `subnet_find_time`, `allow_per_rule_thresholds`,
@@ -201,6 +208,102 @@ overriding how counting works gets its own counter bucket, so a
 strict rule crossing its threshold does not eat the shared count other
 rules are building against the same IP... `baphomet accused` breaks such
 buckets out per rule.
+
+## Joining multi-line records
+
+Some logs print one event across several physical lines... a stack trace, a
+wrapped panic, a report whose detail lines only mean anything under their
+head. No amount of per-line matching reaches those, so a watcher may carry a
+`join` table, a joiner gluing continuation lines onto their head line ahead
+of the parser. What the parser, and so the rules, see is one record, the
+physical lines joined with newlines... a regexp spans them with `(?s)` or
+explicit `\n`.
+
+```toml
+[kur.app.errorlog]
+log = "/var/log/app/error.log"
+parser = "raw"
+rule = "raw/app-trace"
+
+[kur.app.errorlog.join]
+continuation = '^\s+(?:at |Caused by)'
+max_lines = 50
+flush_after = 2
+```
+
+| key | what |
+| --- | --- |
+| `continuation` | A regexp... a line matching it is glued to the record being built rather than starting one of its own. Required. |
+| `max_lines` | The most physical lines one record may gather before being flushed regardless. Default 50. |
+| `flush_after` | How many seconds a record waits for another continuation line before being flushed... also the longest a quiet log holds detection back, so keep it short. Default 2. |
+
+A record is flushed whole when the next head line arrives, when it reaches
+`max_lines`, when `flush_after` seconds pass with no further line, and on a
+clean stop. The buffering is per followed file, so several files feeding one
+watcher never interleave into one record, and only watchers carrying a
+`join` pay any of this. The buffer is memory only... a crash mid-record can
+lose that one partial record, the same class of loss as pending correlation.
+A continuation line with no head to glue to, like starting mid-record,
+heads its own record. The `joined` stat counts the multi-line records a
+watcher flushed.
+
+For offense-and-address-on-different-lines cases with a shared key, keyed
+[correlation](rules) is the sharper tool... the joiner is for records that
+are physically one event, where the continuation lines are not
+independently parseable at all.
+
+## Hostname offenders... usedns
+
+Some daemons log a hostname where an offense wants an address... PAM's
+rhost above all, whatever the client claimed, and mysqld when it resolves
+clients itself. Ereshkigal banishes addresses, not names, so what becomes
+of a hostname offender is the `usedns` setting, layered global over kur
+over watcher:
+
+- **`no`** (the default) ... the hostname is dropped. The match still
+  writes to EVE, so the sighting is not lost, but it counts and banishes
+  nothing.
+- **`resolve_seen`** ... the hostname is resolved when seen and the
+  offense buckets under its addresses, beside any direct hits from the
+  same client... one attacker, one count, however the daemon spelled
+  them. Resolution happens at match volume, so the cache and the timeout
+  below are what stand between a hostile log and your resolver.
+- **`resolve_ban`** ... the offense counts under the name itself, and
+  resolution happens once, at the moment the threshold trips. The
+  cheapest and quietest mode... one lookup per would-be ban, and the
+  attacker's nameserver hears nothing until you have already decided to
+  act.
+
+Nothing resolves at all unless the top-level **`enable_dns`** consents...
+with out it any `usedns` is treated as `no` and the galla says so loudly
+at start. Resolution rides the optional `Net::DNS` module, bounded by
+`usedns_timeout`.
+
+**Read this part before turning a resolve mode on.** A logged hostname is
+hostile input... PAM's rhost is whatever the attacker typed, and whoever
+controls a name controls what it resolves to. Under a resolve mode an
+attacker who can put a name into your log gets a say in what your
+firewall bans... point a name at a victim's address, fail auth until the
+threshold, and Baphomet would aim Kur at whomever they chose. The fences:
+resolved addresses that are in `ignore_ips` or `internal` are dropped
+absolutely, whatever the rule says... a name can never aim Kur at your
+own hosts, so keep `internal` honest. A name resolving to more than
+`usedns_max_addrs` addresses is refused whole rather than trimmed... a
+wide answer is a CDN or a deliberate spray, and the failure mode is
+always no ban, never a wrong one. Unresolvable names, timeouts, and
+refusals likewise banish nobody, logged and ticked (`dns_failures`,
+`hostname_dropped` under `no`). A hostname is never queued for a ban
+retry... what a name means changes with whoever controls it.
+
+A banish that came through a name carries `hostname` beside `ip` in its
+EVE event, so the chain of custody from name to address is on the record.
+fail2ban's `raw` mode... hand the name over verbatim... does not exist
+here, because the other side does not take names.
+
+The [`reverse_dns` rule gate](rules) is the other direction... PTR lookups
+refining a match rather than resolving an offender... and rides its own
+consent, `enable_rdns`, on by default since a gate can only veto a count,
+never aim one. The two are deliberately separate switches.
 
 ## Subnet banning
 

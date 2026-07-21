@@ -1,0 +1,84 @@
+---
+# Matches pre-auth algorithm negotiation failures... clients probing for
+# weak ciphers, kex methods, host key types, or MACs, and disconnects
+# refusing the offered authentication methods. Based on the fail2ban sshd
+# filter's extra mode. The negotiate failures that name no address
+# resolve through the session, keyed on the logging sshd[pid], the
+# address harvested from the connect announcement. Run this beside
+# syslog/sshd, not instead... and see syslog/sshd-aggressive for this and
+# syslog/sshd-ddos as one rule.
+msg: "[SSHD] algorithm negotiation probe"
+severity: medium
+classtype: attempted-recon
+daemons:
+  - sshd
+  - sshd-session
+capture_regexp:
+  - regexp: '^Connection from %%%%SRC%%%% port \d+'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    ttl: 120
+message_regexp:
+  - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
+  - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
+  - '^Disconnected(?: from)? (?:invalid|authenticating) user .*? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]'
+  # the older log shapes name no address... the session's is used
+  - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+  - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Nov 25 01:34:12 srv sshd[123]: Received disconnect from 127.0.0.1: 14: No supported authentication methods available [preauth]"
+      found: 1
+      data:
+        SRC: "127.0.0.1"
+    - message: "Nov 25 01:35:14 srv sshd[3625]: error: Received disconnect from 192.168.2.92 port 1684:14: No supported authentication methods available [preauth]"
+      found: 1
+      data:
+        SRC: "192.168.2.92"
+    - message: "Nov 25 01:35:15 srv sshd[3626]: error: Received disconnect from 192.168.2.93 port 1883:14: No authentication methods available [preauth]"
+      found: 1
+      data:
+        SRC: "192.168.2.93"
+    - message: "Nov 26 13:03:29 srv sshd[45]: Unable to negotiate with 192.0.2.1 port 55419: no matching cipher found. Their offer: aes256-cbc,rijndael-cbc@lysator.liu.se,aes192-cbc,aes128-cbc,arcfour128,arcfour,3des-cbc,none [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+    - message: "Nov 26 13:03:30 srv sshd[45]: fatal: Unable to negotiate with 192.0.2.2 port 55419: no matching key exchange method found. Their offer: diffie-hellman-group1-sha1"
+      found: 1
+      data:
+        SRC: "192.0.2.2"
+    - message: "Nov 26 16:47:51 srv sshd[19320]: Disconnected from authenticating user root 192.0.2.6 port 33553 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.6"
+    # the older hostless shapes resolve through the session... and a second
+    # probe on the same connection counts again
+    - messages:
+        - 'Nov 26 15:03:30 host sshd[22440]: Connection from 192.0.2.3 port 39678 on 192.168.1.9 port 22'
+        - 'Nov 26 15:03:31 host sshd[22440]: fatal: Unable to negotiate a key exchange method [preauth]'
+        - 'Nov 26 15:03:32 host sshd[22440]: fatal: Unable to negotiate a key exchange method [preauth]'
+      found: 2
+      data:
+        SRC: "192.0.2.3"
+    - messages:
+        - 'Oct 25 19:37:08 hostname sshd[22477]: Connection from 192.0.2.1 port 31309 on 192.0.2.8 port 22'
+        - 'Oct 25 19:37:09 hostname sshd[22477]: fatal: no matching mac found: client hmac-xxx,hmac-xxx server hmac-xxx,umac-xxx [preauth]'
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+  negative:
+    # a negotiate failure with no session context resolves nothing
+    - message: "Nov 26 15:03:31 host sshd[22440]: fatal: Unable to negotiate a key exchange method [preauth]"
+      found: 0
+    # a post-auth disconnect refusing nothing
+    - message: "Jul 12 08:25:49 host sshd[8232]: Received disconnect from 192.0.2.55 port 48372: 11: disconnected by user"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      found: 0
+      undefed: ["SRC"]

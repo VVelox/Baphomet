@@ -83,8 +83,59 @@ gates nor matches is a error.
 
 =head2 ignore
 
-Optional. Same shape as L</match>, but a hit vetoes the line entirely.
-Checked after the gates and before the matches.
+Optional. Same shape as L</match>, but a hit vetoes the line entirely...
+context harvest included, so an ignored line neither offends nor remembers.
+
+=head2 capture / key / defer... correlation
+
+For applications that log the offense and the offender's address on
+separate events sharing a field, like a connection or request id...
+mongod 4.4+ structured logs being the canonical case. The same two-phase
+machinery as the syslog and raw types
+(L<App::Baphomet::Rules::Syslog/"capture_regexp / keyed message_regexp entries">),
+with the key resolved from fields instead of an envelope.
+
+    gate:
+      - field: c
+        values: [ ACCESS ]
+      - field: msg
+        values: [ "Authentication failed" ]
+    key: [ ctx ]
+    defer: 60
+    capture:
+      - gate:
+          - field: msg
+            values: [ "Connection ended" ]
+        match:
+          - field: attr.remote
+            regexp: '^%%%%SRC%%%%:\d+$'
+        key: [ ctx ]
+        ttl: 120
+    ban_var:
+      - SRC
+
+C<capture> entries harvest context rather than being offenses. Each is a
+hash of an optional C<gate> (ANDed predicates, the shapes L</gate> takes),
+an optional tokened C<match> list (first hit wins, at least one of the two
+required), a required C<key>, and a C<ttl> in seconds context lives
+(default 60). A hit stores the event's data... fields merged with the
+match's captures... under the key.
+
+The rule-level C<key> makes the rule's own offense a keyed one. On a
+match the key is looked up and any stored context merges into the data,
+the offense's own values winning. Not found plus C<defer> parks the
+offense for that many seconds awaiting a capture with the key, several of
+which may complete at once; not found with out defer, the line is not
+judged an offense at all, the syslog type's fall-through.
+
+A C<key>, here and on a capture entry, is a field path or a token capture,
+or an array of them ANDed into one compound key... every component must
+resolve or the entry does nothing (a capture harvests nothing, an offense
+stands plain on its own data). There is no envelope on this type, so
+C<syslog.*> components are a load error, those names being reserved.
+Correlation state is per watcher, in memory only, and bounded... a galla
+restart forgets pending correlations. Test with the C<messages:> array
+form (see L<App::Baphomet::Rules::Base/tests>).
 
 =head2 ban_var
 
@@ -143,7 +194,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:gate|selections|condition|keywords|match|ignore|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:gate|selections|condition|keywords|match|ignore|capture|key|defer|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -154,6 +205,7 @@ sub new {
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
+	$self->_check_reverse_dns($def);
 	$self->_check_distinct($def);
 	$self->_check_ip_vars($def);
 
@@ -219,6 +271,90 @@ sub new {
 				. '" has no gates, selections, keywords, or matches... it would regard nothing as a offense' );
 	}
 
+	# the correlation layer... capture entries harvest context under a key,
+	# and a rule-level key makes the offense resolve through it. the stores,
+	# the sweeping, and the key helpers are the base class's, shared with the
+	# syslog and raw types... here a key component is a flattened field path
+	# or a capture, there being no envelope
+	$self->{captures} = [];
+	if ( defined( $def->{capture} ) ) {
+		if ( ref( $def->{capture} ) ne 'ARRAY' || !@{ $def->{capture} } ) {
+			die( 'The capture of the rule "' . $name . '" is not a array or is empty' );
+		}
+		my $entry_int = 0;
+		foreach my $entry ( @{ $def->{capture} } ) {
+			my $where = 'The capture entry ' . $entry_int . ' of the rule "' . $name . '"';
+			if ( ref($entry) ne 'HASH' ) {
+				die( $where . ' is not a hash' );
+			}
+			foreach my $key ( keys( %{$entry} ) ) {
+				if ( $key !~ /^(?:gate|match|key|ttl)$/ ) {
+					die( $where . ' has the unknown key "' . $key . '"' );
+				}
+			}
+			if ( !defined( $entry->{key} ) ) {
+				die( $where . ' lacks a key' );
+			}
+			if ( !defined( $entry->{gate} ) && !defined( $entry->{match} ) ) {
+				die( $where . ' has neither a gate nor a match... it would harvest every line' );
+			}
+			if ( defined( $entry->{ttl} ) && ( $entry->{ttl} !~ /^[0-9]+$/ || !$entry->{ttl} ) ) {
+				die( $where . ' has a ttl that is not a positive int of seconds' );
+			}
+
+			my $compiled = {
+				'key'     => $self->_correlation_key_components( $entry->{key}, $where ),
+				'ttl'     => defined( $entry->{ttl} ) ? $entry->{ttl} : 60,
+				'gates'   => undef,
+				'matches' => [],
+			};
+			if ( defined( $entry->{gate} ) ) {
+				$compiled->{gates} = $self->_compile_gates( $entry->{gate}, $where . ' gate' );
+			}
+			if ( defined( $entry->{match} ) ) {
+				if ( ref( $entry->{match} ) ne 'ARRAY' || !@{ $entry->{match} } ) {
+					die( $where . ' has a match that is not a array or is empty' );
+				}
+				my $match_int = 0;
+				foreach my $match ( @{ $entry->{match} } ) {
+					my $match_where = $where . ' match entry ' . $match_int;
+					if ( ref($match) ne 'HASH' || !defined( $match->{field} ) || !defined( $match->{regexp} ) ) {
+						die( $match_where . ' is not a hash with a field and a regexp' );
+					}
+					foreach my $key ( keys( %{$match} ) ) {
+						if ( $key !~ /^(?:field|regexp)$/ ) {
+							die( $match_where . ' has the unknown key "' . $key . '"' );
+						}
+					}
+					push(
+						@{ $compiled->{matches} },
+						{
+							'field' => $match->{field},
+							'entry' => $self->_compile_tokened_regexp( $match->{regexp}, $match_where ),
+						}
+					);
+					$match_int++;
+				} ## end foreach my $match ( @{ $entry->{match} } )
+			} ## end if ( defined( $entry->{match} ) )
+			push( @{ $self->{captures} }, $compiled );
+			$entry_int++;
+		} ## end foreach my $entry ( @{ $def->{capture} } )
+	} ## end if ( defined( $def->{capture} ) )
+
+	if ( defined( $def->{key} ) ) {
+		$self->{correlation_key}
+			= { 'key' => $self->_correlation_key_components( $def->{key}, 'The key of the rule "' . $name . '"' ) };
+	}
+	if ( defined( $def->{defer} ) ) {
+		if ( !defined( $def->{key} ) ) {
+			die( 'The rule "' . $name . '" has a defer but no key for it to wait on' );
+		}
+		if ( ref( $def->{defer} ) ne '' || $def->{defer} !~ /^[0-9]+$/ || !$def->{defer} ) {
+			die( 'The defer of the rule "' . $name . '" is not a positive int of seconds' );
+		}
+		$self->{defer} = $def->{defer};
+	}
+
 	return $self;
 } ## end sub new
 
@@ -228,59 +364,161 @@ Checks a parsed line, as returned by L<App::Baphomet::Parser::JSON>,
 against the rule. Returns undef for no match. For a match, returns a hash
 as below, with data being the flattened fields merged with the captures of
 the winning match entry, fields authoritative, and regexp being the index
-of the match entry that hit, or undef for a gates only rule.
+of the match entry that hit, or undef for a gates only rule. For a
+correlating rule the data may carry the merged stored context, a C<more>
+array holds any further completed deferred offenses, and the passed scope
+(the watcher name) walls one watcher's correlation state off from
+another's.
 
     { 'data' => { 'SRC' => '192.0.2.5', 'msg' => '...', ... }, 'regexp' => 0 }
 
-    my $found = $rule->check($parsed);
+    my $found = $rule->check( $parsed, $scope );
 
 =cut
 
 sub check {
-	my ( $self, $parsed ) = @_;
+	my ( $self, $parsed, $scope ) = @_;
 
 	if ( ref($parsed) ne 'HASH' || ref( $parsed->{fields} ) ne 'HASH' ) {
 		return undef;
 	}
 	my $fields = $parsed->{fields};
-
-	# the boolean pre-filter... the gate or the selections+condition, ANDed
-	# ahead of the matches
-	if ( !$self->_boolean_pass( $fields, undef ) ) {
-		return undef;
+	if ( !defined($scope) ) {
+		$scope = '';
 	}
+	my $now = time;
 
+	# a ignore hit vetoes the line entirely, context harvest included
 	foreach my $ignore ( @{ $self->{ignores} } ) {
 		if ( defined( $self->_match_tokened( $ignore->{entry}, $fields->{ $ignore->{field} } ) ) ) {
 			return undef;
 		}
 	}
 
-	my $matched;
-	my $caps = {};
-	if ( @{ $self->{matches} } ) {
-		my $entry_int = 0;
-		foreach my $match ( @{ $self->{matches} } ) {
-			my $match_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
-			if ( defined($match_caps) ) {
-				$matched = $entry_int;
-				$caps    = $match_caps;
-				last;
+	# capture entries harvest context and may complete deferred offenses...
+	# judged on their own gates and matches, not the rule's, since a context
+	# event is rarely shaped like the offense
+	my @completions;
+	foreach my $capture ( @{ $self->{captures} } ) {
+		if ( defined( $capture->{gates} ) && !$self->_gates_pass( $capture->{gates}, $fields, undef ) ) {
+			next;
+		}
+		my $capture_caps;
+		if ( @{ $capture->{matches} } ) {
+			foreach my $match ( @{ $capture->{matches} } ) {
+				$capture_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
+				if ( defined($capture_caps) ) {
+					last;
+				}
 			}
-			$entry_int++;
+			if ( !defined($capture_caps) ) {
+				next;
+			}
+		} else {
+			$capture_caps = {};
 		}
-		if ( !defined($matched) ) {
-			return undef;
-		}
-	} ## end if ( @{ $self->{matches} } )
 
-	# the flattened fields merged with the captures, fields authoritative
-	my %data = %{$caps};
-	foreach my $field ( keys( %{$fields} ) ) {
-		$data{$field} = $fields->{$field};
+		# the stored context is the whole event... captures merged with the
+		# flattened fields, fields authoritative, same as a found's data
+		my %context = %{$capture_caps};
+		foreach my $field ( keys( %{$fields} ) ) {
+			$context{$field} = $fields->{$field};
+		}
+
+		my $key_value = $self->_correlation_key_value( $capture, \%context, undef );
+		if ( !defined($key_value) ) {
+			next;
+		}
+		$self->_context_store( $scope, $key_value, \%context, $capture->{ttl}, $now );
+
+		my $pendings = delete( $self->{pending}{$scope}{$key_value} );
+		if ( defined($pendings) ) {
+			foreach my $pending ( @{$pendings} ) {
+				if ( $pending->{expires} <= $now ) {
+					next;
+				}
+				# the offense's own data is authoritative
+				my %data = ( %context, %{ $pending->{caps} } );
+				push( @completions, { 'data' => \%data, 'regexp' => $pending->{regexp} } );
+			}
+		} ## end if ( defined($pendings) )
+	} ## end foreach my $capture ( @{ $self->{captures} } )
+
+	# the offense itself... the boolean pre-filter, then the matches
+	my $found;
+	if ( $self->_boolean_pass( $fields, undef ) ) {
+		my $matched;
+		my $caps   = {};
+		my $missed = 0;
+		if ( @{ $self->{matches} } ) {
+			my $entry_int = 0;
+			foreach my $match ( @{ $self->{matches} } ) {
+				my $match_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
+				if ( defined($match_caps) ) {
+					$matched = $entry_int;
+					$caps    = $match_caps;
+					last;
+				}
+				$entry_int++;
+			}
+			if ( !defined($matched) ) {
+				$missed = 1;
+			}
+		} ## end if ( @{ $self->{matches} } )
+
+		if ( !$missed ) {
+			# the flattened fields merged with the captures, fields authoritative
+			my %data = %{$caps};
+			foreach my $field ( keys( %{$fields} ) ) {
+				$data{$field} = $fields->{$field};
+			}
+			$found = { 'data' => \%data, 'regexp' => $matched };
+		}
+	} ## end if ( $self->_boolean_pass( $fields, undef ...))
+
+	# a keyed offense resolves through the stored context of a capture with
+	# the same key... a key component that does not resolve leaves the
+	# offense standing plain, mirroring the syslog type
+	if ( defined($found) && defined( $self->{correlation_key} ) ) {
+		my $key_value = $self->_correlation_key_value( $self->{correlation_key}, $found->{data}, undef );
+		if ( defined($key_value) ) {
+			my $stored = $self->{context}{$scope}{$key_value};
+			if ( defined($stored) && $stored->{expires} > $now ) {
+				my %data = ( %{ $stored->{data} }, %{ $found->{data} } );
+				$found->{data} = \%data;
+			} elsif ( $self->{defer} ) {
+				# park it awaiting a capture with this key... the line was a
+				# offense, just one that can not be resolved yet
+				my $pendings = $self->{pending}{$scope}{$key_value};
+				if ( !defined($pendings) ) {
+					$pendings = $self->{pending}{$scope}{$key_value} = [];
+				}
+				push(
+					@{$pendings},
+					{ 'caps' => $found->{data}, 'regexp' => $found->{regexp}, 'expires' => $now + $self->{defer} }
+				);
+				# bound runaway pendings per key
+				if ( scalar( @{$pendings} ) > 100 ) {
+					shift( @{$pendings} );
+				}
+				$found = undef;
+			} else {
+				# unresolved and undeferred... not judged an offense, the
+				# syslog type's fall-through
+				$found = undef;
+			}
+		} ## end if ( defined($key_value) )
+	} ## end if ( defined($found) && defined( $self->{correlation_key...}))
+
+	my $primary = $found;
+	if ( !defined($primary) && @completions ) {
+		$primary = shift(@completions);
+	}
+	if ( defined($primary) && @completions ) {
+		$primary->{more} = \@completions;
 	}
 
-	return { 'data' => \%data, 'regexp' => $matched };
+	return $primary;
 } ## end sub check
 
 =head2 ban_var

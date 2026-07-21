@@ -22,7 +22,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored ip_network ip_family );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 
 =head1 SYNOPSIS
 
@@ -206,6 +206,48 @@ Top level keys are as below.
           country gate fails closed.
         Default :: undef
 
+    - enable_dns :: The consent for DNS resolution. With out it any
+          usedns is treated as no, loudly. Resolution rides the optional
+          Net::DNS module... set but unloadable, and usedns behaves as no,
+          also loudly.
+        Default :: 0
+
+    - usedns :: How a hostname offender, a ban_var value that is not an
+          IP, is handled. C<no> drops it (it still writes to EVE, it
+          counts and banishes nothing), C<resolve_seen> resolves it at
+          match time and buckets by the addresses beside direct hits, and
+          C<resolve_ban> buckets by the name and resolves only when the
+          threshold trips. May be overridden per kur and per watcher.
+          The names are hostile input... see the usedns section of the
+          configuration doc before turning a resolve mode on.
+        Default :: no
+
+    - usedns_timeout :: Seconds a DNS query may take before being given
+          up on. Resolution is blocking, so this bounds how long a
+          hostile name can stall the galla.
+        Default :: 2
+
+    - usedns_max_addrs :: The most addresses a hostname may resolve to
+          and still be acted on... more and the whole resolution is
+          refused rather than trimmed, failing closed. A name resolving
+          wide is a CDN or a deliberate spray, neither of which should be
+          banished on a hostname's word.
+        Default :: 4
+
+    - enable_rdns :: Whether the reverse_dns rule gate may look things
+          up. A separate consent from enable_dns on purpose... the gate
+          only refines matches and never redirects a ban, so it is safe
+          by default. Off, reverse_dns gates fail closed and count
+          nothing, loudly. Rides the optional Net::DNS module, only
+          loaded when some rule carries the gate.
+        Default :: 1
+
+    - rdns_timeout :: Seconds a reverse_dns gate query may take before
+          being given up on. A lookup that fails vetoes the count
+          regardless of the gate's negate, so a slow resolver slows
+          detection, never misaims it.
+        Default :: 2
+
     - country_codes :: A hash of named ISO 3166 code lists a rule's country
           gate can import. Global here, and also per kur and per watcher,
           merged per name.
@@ -320,6 +362,12 @@ sub load_config {
 		'allow_per_rule_thresholds' => 0,
 		'eve_only'                  => 0,
 		'observe_ignored'           => 0,
+		'enable_dns'                => 0,
+		'usedns'                    => 'no',
+		'usedns_timeout'            => 2,
+		'usedns_max_addrs'          => 4,
+		'enable_rdns'               => 1,
+		'rdns_timeout'              => 2,
 		'default_severity'          => undef,
 		'ignore_ips'                => [],
 		'internal'                  => undef,
@@ -408,6 +456,19 @@ sub load_config {
 	$config->{allow_per_rule_thresholds} = $config->{allow_per_rule_thresholds} ? 1 : 0;
 	$config->{eve_only}                  = $config->{eve_only}                  ? 1 : 0;
 	$config->{observe_ignored}           = $config->{observe_ignored}           ? 1 : 0;
+	$config->{enable_dns}                = $config->{enable_dns}                ? 1 : 0;
+	$config->{enable_rdns}               = $config->{enable_rdns}               ? 1 : 0;
+
+	# usedns... how a hostname offender is handled, gated behind enable_dns
+	my $usedns_error = _usedns_error( $config->{usedns} );
+	if ( defined($usedns_error) ) {
+		die( 'The top level ' . $usedns_error );
+	}
+	foreach my $item ( 'usedns_timeout', 'usedns_max_addrs', 'rdns_timeout' ) {
+		if ( ref( $config->{$item} ) ne '' || $config->{$item} !~ /^[0-9]+$/ || !$config->{$item} ) {
+			die( $item . ', "' . $config->{$item} . '", is not a positive int' );
+		}
+	}
 	my $severity_error = _severity_error( $config->{default_severity} );
 	if ( defined($severity_error) ) {
 		die( 'The top level ' . $severity_error );
@@ -586,18 +647,21 @@ sub check_kur_def {
 
 		foreach my $key ( keys( %{$watcher} ) ) {
 			if ( $key
-				!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|country_codes|namtar_lists|active_time)$/
+				!~ /^(?:log|journal|parser|rule|join|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|usedns|country_codes|namtar_lists|active_time)$/
 				)
 			{
 				die( $where . 'has the unknown key "' . $key . '"' );
 			}
-			# rule, log, and journal may be arrays, country_codes,
+			# rule, log, and journal may be arrays, join, country_codes,
 			# namtar_lists, and active_time hashes, TOML booleans are
 			# blessed... else a scalar
 			if (
 				   ref( $watcher->{$key} ) ne ''
-				&& !( $key =~ /^(?:rule|log|journal)$/                       && ref( $watcher->{$key} ) eq 'ARRAY' )
-				&& !( $key =~ /^(?:country_codes|namtar_lists|active_time)$/ && ref( $watcher->{$key} ) eq 'HASH' )
+				&& !( $key =~ /^(?:rule|log|journal)$/ && ref( $watcher->{$key} ) eq 'ARRAY' )
+				&& !(
+					$key =~ /^(?:join|country_codes|namtar_lists|active_time)$/
+					&& ref( $watcher->{$key} ) eq 'HASH'
+				)
 				&& !(
 					$key =~ /^(?:journal|allow_per_rule_thresholds|eve_only|observe_ignored)$/
 					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean'
@@ -641,6 +705,16 @@ sub check_kur_def {
 				}
 			}
 		} ## end else [ if ($is_journal) ]
+
+		# a joiner glues physical continuation lines onto their head line
+		# ahead of the parser... the journal hands messages over whole, so
+		# there is nothing there to glue
+		if ( defined( $watcher->{join} ) ) {
+			if ($is_journal) {
+				die( $where . 'has a join, which a journal watcher can not carry... journal messages arrive whole' );
+			}
+			watcher_join( $watcher, $where );
+		}
 
 		if ( defined( $watcher->{parser} ) && !App::Baphomet::Parser::is_known( $watcher->{parser} ) ) {
 			die( $where . 'has the unknown parser "' . $watcher->{parser} . '"' );
@@ -706,7 +780,7 @@ sub resolve_settings {
 	foreach my $item (
 		'max_score',     'find_time',        'ban_time',         'allow_per_rule_thresholds',
 		'eve_only',      'observe_ignored',  'default_severity', 'ban_subnet_v4',
-		'ban_subnet_v6', 'subnet_max_score', 'subnet_find_time'
+		'ban_subnet_v6', 'subnet_max_score', 'subnet_find_time', 'usedns'
 		)
 	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
@@ -989,6 +1063,76 @@ sub watcher_journal {
 	return ();
 } ## end sub watcher_journal
 
+=head2 watcher_join
+
+Validates and compiles the join of a watcher, the joiner gluing physical
+continuation lines onto their head line ahead of the parser... how a stack
+trace or any other one-event-many-lines record becomes a single record for
+the rules to judge. Returns undef when the watcher carries none, a hash of
+the compiled continuation regexp and the resolved max_lines and flush_after
+otherwise. Will die on anything unusable, with the passed $where leading
+the error message.
+
+    my $join = watcher_join( $watcher, $where );
+
+The keys of a join table...
+
+    - continuation :: A regexp... a physical line matching it is glued to
+          the record being built rather than starting one of its own.
+          Required.
+
+    - max_lines :: The most physical lines one record may gather before
+          being flushed regardless.
+        Default :: 50
+
+    - flush_after :: How many seconds a record waits for another
+          continuation line before being flushed... also the longest a
+          quiet log holds detection back, so keep it short.
+        Default :: 2
+
+=cut
+
+sub watcher_join {
+	my ( $watcher, $where ) = @_;
+
+	if ( !defined($where) ) {
+		$where = 'The watcher ';
+	}
+	my $join = $watcher->{join};
+	if ( !defined($join) ) {
+		return undef;
+	}
+	if ( ref($join) ne 'HASH' ) {
+		die( $where . 'has a join that is not a hash' );
+	}
+	foreach my $key ( keys( %{$join} ) ) {
+		if ( $key !~ /^(?:continuation|max_lines|flush_after)$/ ) {
+			die( $where . 'has the unknown join key "' . $key . '"' );
+		}
+	}
+	if ( !defined( $join->{continuation} ) || ref( $join->{continuation} ) ne '' || $join->{continuation} eq '' ) {
+		die( $where . 'has a join lacking a continuation regexp string' );
+	}
+	my $continuation;
+	eval { $continuation = qr/$join->{continuation}/; };
+	if ($@) {
+		die( $where . 'has a join continuation that does not compile... ' . $@ );
+	}
+	foreach my $key ( 'max_lines', 'flush_after' ) {
+		if ( defined( $join->{$key} )
+			&& ( ref( $join->{$key} ) ne '' || $join->{$key} !~ /^[0-9]+$/ || !$join->{$key} ) )
+		{
+			die( $where . 'has a join ' . $key . ' that is not a positive int' );
+		}
+	}
+
+	return {
+		'continuation' => $continuation,
+		'max_lines'    => defined( $join->{max_lines} )   ? $join->{max_lines} + 0   : 50,
+		'flush_after'  => defined( $join->{flush_after} ) ? $join->{flush_after} + 0 : 2,
+	};
+} ## end sub watcher_join
+
 # returns a error string if the passed value is not a array of strings,
 # undef otherwise... for the authed_users/authed_groups lists
 sub _authed_list_error {
@@ -1013,7 +1157,7 @@ sub _settings_error {
 
 	foreach my $key ( keys( %{$settings} ) ) {
 		if ( $key
-			!~ /^(?:log|journal|parser|rule|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
+			!~ /^(?:log|journal|parser|rule|join|max_score|find_time|ban_time|ban_subnet_v4|ban_subnet_v6|subnet_max_score|subnet_find_time|allow_per_rule_thresholds|eve_only|observe_ignored|default_severity|usedns|ignore_ips|internal|country_codes|namtar_lists|active_time)$/
 			)
 		{
 			return 'the unknown setting "' . $key . '"';
@@ -1042,9 +1186,30 @@ sub _settings_error {
 	if ( defined($severity_error) ) {
 		return $severity_error;
 	}
+	my $usedns_error = _usedns_error( $settings->{usedns} );
+	if ( defined($usedns_error) ) {
+		return $usedns_error;
+	}
 
 	return _times_error($settings);
 } ## end sub _settings_error
+
+# returns a error string if the passed value is not a usable usedns mode,
+# undef otherwise... no drops hostname offenders, resolve_seen resolves at
+# match time and buckets by the addresses, resolve_ban buckets by the name
+# and resolves at the threshold
+sub _usedns_error {
+	my ($usedns) = @_;
+
+	if ( !defined($usedns) ) {
+		return undef;
+	}
+	if ( ref($usedns) ne '' || $usedns !~ /^(?:no|resolve_ban|resolve_seen)$/ ) {
+		return 'a usedns that is not one of no, resolve_ban, or resolve_seen';
+	}
+
+	return undef;
+} ## end sub _usedns_error
 
 =head2 resolve_country_codes
 

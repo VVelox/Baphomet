@@ -330,7 +330,7 @@ bus, so a fleet-shared sequence correlates stages seen on different machines.
 Unordered correlation (all stages present, any order) is the plain C<marked>
 gate over the same brands.
 
-=head2 The geography, blocklist, and time gates
+=head2 The geography, blocklist, time, and reverse DNS gates
 
 =head3 country
 
@@ -392,6 +392,53 @@ windows from the config's C<active_time>, resolved per watcher. A hash of:
 Unlike the other gates active_time is never per-offender... time is a property
 of the line, so it is checked once per result and vetoes the whole result.
 Times are local.
+
+=head3 reverse_dns
+
+A gate comparing the PTR names of an address against a regexp or another
+found value, negatable... behind the galla's C<enable_rdns> consent (on by
+default) and the optional Net::DNS module. A array of entries, all
+required to hold:
+
+    reverse_dns:
+      - matches: '\.google(?:bot)?\.com$'
+        negate: true
+      - var: SRC
+        matches_var: CLAIM
+        forward_confirm: false
+
+    - var :: The found value holding the address to reverse. With out it
+          the gate checks each offender in the ban loop; with it, once
+          per result, vetoing the whole result.
+
+    - matches / matches_var :: Exactly one. A Perl regexp any PTR name
+          must satisfy, or another found value the PTR must equal
+          (case-folded, trailing dots stripped).
+
+    - negate :: Invert the comparison.
+
+    - forward_confirm :: On by default... a PTR name only participates
+          when it resolves back to the address, a spoofed PTR being as
+          good as absent.
+
+    - on_nxdomain / on_servfail :: What an authoritative empty PTR set
+          (on_nxdomain, default C<compare>) or a lookup failure anywhere
+          in the entry (on_servfail, default C<fail>) becomes...
+          C<compare> runs the comparison over whatever names there are,
+          C<pass> satisfies the entry outright, C<fail> vetoes outright.
+          pass and fail are terminal verdicts... negate never touches
+          them. A servfail during forward confirmation under C<compare>
+          leaves that one name unconfirmed and carries on.
+
+Under the defaults, authoritative absence is data... an empty PTR set
+compares false, so negate counts the client with no reverse DNS... while
+a lookup failure vetoes regardless of negate. Everything else always
+fails closed... no resolver, a non-address value, a missing matches_var.
+Beware C<on_servfail: pass> or C<compare> on a negated gate... it means
+a DNS outage counts everyone, the trade being coverage over the
+outage-can-not-misaim guarantee. Lookups are per match, bounded and
+cached galla-side, so a rule's embedded tests can not exercise this
+gate.
 
 =head2 tests
 
@@ -475,6 +522,19 @@ sub sweep_state {
 			delete( $self->{pending}{$scope} );
 		}
 	} ## end foreach my $scope ( keys( %{ $self->{pending} }...))
+
+	# staged rule slots... a sequence nothing has fed since its stage's
+	# within (or the default hold) is dead
+	foreach my $scope ( keys( %{ $self->{stage_state} } ) ) {
+		foreach my $key ( keys( %{ $self->{stage_state}{$scope} } ) ) {
+			if ( $self->{stage_state}{$scope}{$key}{expires} <= $now ) {
+				delete( $self->{stage_state}{$scope}{$key} );
+			}
+		}
+		if ( !keys( %{ $self->{stage_state}{$scope} } ) ) {
+			delete( $self->{stage_state}{$scope} );
+		}
+	} ## end foreach my $scope ( keys( %{ $self->{stage_state...}}))
 
 	return;
 } ## end sub sweep_state
@@ -835,6 +895,24 @@ sub country {
 	return $self->{country_parsed};
 } ## end sub country
 
+=head2 reverse_dns
+
+Returns the rule's reverse_dns gate compiled, or undef when it has none...
+a array of entries, each a hash of C<var> (the found var holding the
+address, or undef for the offender), C<regexp> (the compiled matches) or
+C<matches_var>, C<negate>, and C<forward_confirm>. The galla does the
+lookups.
+
+    my $reverse_dns = $rule->reverse_dns;
+
+=cut
+
+sub reverse_dns {
+	my ($self) = @_;
+
+	return $self->{reverse_dns_gate};
+}
+
 =head2 namtar_list
 
 Returns the rule's namtar_list gate normalized, or undef when it has none.
@@ -1114,6 +1192,7 @@ sub run_tests {
 
 			my @found_all;
 			my $parse_failed = 0;
+			my $message_int  = 0;
 			foreach my $message (@messages) {
 				my $parsed;
 				eval { $parsed = App::Baphomet::Parser::parse( $parser, $message ); };
@@ -1133,7 +1212,10 @@ sub run_tests {
 					last;
 				}
 
-				my $found = $self->check( $parsed, $test_scope );
+				# the line context a staged rule's skip bound reads... the
+				# message index is the sequence with in the test entry
+				my $found = $self->check( $parsed, $test_scope, { 'seq' => $message_int, 'source' => '' } );
+				$message_int++;
 				if ( defined($found) ) {
 					push( @found_all, $found );
 					if ( ref( $found->{more} ) eq 'ARRAY' ) {
@@ -1453,6 +1535,80 @@ sub _check_country {
 	return;
 } ## end sub _check_country
 
+# dies if the def's reverse_dns gate is malformed, compiling it onto the
+# object... a array of entries, each comparing the PTR names of an address
+# (a named found var, or var-less the offender) against a regexp (matches)
+# or another found value (matches_var), optionally negated, with forward
+# confirmation on unless refused. the galla owns the lookups and the
+# fail-closed rules, this only the shape
+sub _check_reverse_dns {
+	my ( $self, $def ) = @_;
+
+	if ( !defined( $def->{reverse_dns} ) ) {
+		return;
+	}
+
+	my $name  = $self->{name};
+	my $where = 'The reverse_dns gate of the rule "' . $name . '"';
+
+	if ( ref( $def->{reverse_dns} ) ne 'ARRAY' || !@{ $def->{reverse_dns} } ) {
+		die( $where . ' is not a array or is empty' );
+	}
+
+	my @compiled;
+	my $entry_int = 0;
+	foreach my $entry ( @{ $def->{reverse_dns} } ) {
+		my $entry_where = $where . ' entry ' . $entry_int;
+		if ( ref($entry) ne 'HASH' ) {
+			die( $entry_where . ' is not a hash' );
+		}
+		foreach my $key ( keys( %{$entry} ) ) {
+			if ( $key !~ /^(?:var|matches|matches_var|negate|forward_confirm|on_nxdomain|on_servfail)$/ ) {
+				die( $entry_where . ' has the unknown key "' . $key . '"' );
+			}
+		}
+		if ( defined( $entry->{matches} ) && defined( $entry->{matches_var} ) ) {
+			die( $entry_where . ' carries both matches and matches_var' );
+		}
+		if ( !defined( $entry->{matches} ) && !defined( $entry->{matches_var} ) ) {
+			die( $entry_where . ' has neither matches nor matches_var' );
+		}
+		foreach my $key ( 'var', 'matches', 'matches_var' ) {
+			if ( defined( $entry->{$key} ) && ( ref( $entry->{$key} ) ne '' || $entry->{$key} eq '' ) ) {
+				die( $entry_where . ' has a ' . $key . ' that is not a non-empty string' );
+			}
+		}
+		foreach my $key ( 'on_nxdomain', 'on_servfail' ) {
+			if ( defined( $entry->{$key} )
+				&& ( ref( $entry->{$key} ) ne '' || $entry->{$key} !~ /^(?:pass|fail|compare)$/ ) )
+			{
+				die( $entry_where . ' has a ' . $key . ' that is not one of pass, fail, or compare' );
+			}
+		}
+
+		my $compiled_entry = {
+			'var'             => $entry->{var},
+			'matches_var'     => $entry->{matches_var},
+			'negate'          => $entry->{negate}                                                       ? 1 : 0,
+			'forward_confirm' => ( defined( $entry->{forward_confirm} ) && !$entry->{forward_confirm} ) ? 0 : 1,
+			'on_nxdomain'     => defined( $entry->{on_nxdomain} ) ? $entry->{on_nxdomain}                   : 'compare',
+			'on_servfail'     => defined( $entry->{on_servfail} ) ? $entry->{on_servfail}                   : 'fail',
+		};
+		if ( defined( $entry->{matches} ) ) {
+			my $regexp = $entry->{matches};
+			eval { $compiled_entry->{regexp} = qr/$regexp/; };
+			if ($@) {
+				die( $entry_where . ' matches does not compile... ' . $@ );
+			}
+		}
+		push( @compiled, $compiled_entry );
+		$entry_int++;
+	} ## end foreach my $entry ( @{ $def->{reverse_dns} } )
+	$self->{reverse_dns_gate} = \@compiled;
+
+	return;
+} ## end sub _check_reverse_dns
+
 # dies if the def's namtar_list gate is malformed... a array of entries,
 # each naming one or more lists (list or lists) and a optional var to check
 # instead of the offender. the list names are resolved against the config
@@ -1621,13 +1777,13 @@ sub _compile_message_regexps {
 
 	my $name = $self->{name};
 
-	$self->{regexps}        = [];
-	$self->{ignore_regexps} = [];
+	$self->{regexps} = [];
 
 	# a message_json rule may have no message_regexp, the json fields being
 	# what it matches on, so the caller can allow an empty list. a missing key
 	# is fine then; a present but malformed one is still an error
 	if ( !defined( $def->{message_regexp} ) && $allow_empty ) {
+		$self->_compile_ignore_regexps($def);
 		return;
 	}
 	if ( ref( $def->{message_regexp} ) ne 'ARRAY' || !@{ $def->{message_regexp} } ) {
@@ -1649,9 +1805,10 @@ sub _compile_message_regexps {
 			if ( !defined( $item->{regexp} ) || ref( $item->{regexp} ) ne '' ) {
 				die( 'A message_regexp entry of the rule "' . $name . '" lacks a regexp string' );
 			}
-			if ( !defined( $item->{key} ) || ref( $item->{key} ) ne '' || $item->{key} eq '' ) {
+			if ( !defined( $item->{key} ) ) {
 				die( 'A message_regexp hash entry of the rule "' . $name . '" lacks a key' );
 			}
+			$self->_correlation_key_components( $item->{key}, 'A message_regexp entry of the rule "' . $name . '"' );
 			if ( defined( $item->{defer} ) && ( $item->{defer} !~ /^[0-9]+$/ || !$item->{defer} ) ) {
 				die(      'The defer of a message_regexp entry of the rule "'
 						. $name
@@ -1660,26 +1817,7 @@ sub _compile_message_regexps {
 		} ## end if ( ref($item) eq 'HASH' )
 	} ## end foreach my $item ( @{ $def->{message_regexp} } )
 
-	if ( defined( $def->{ignore_regexp} ) ) {
-		if ( ref( $def->{ignore_regexp} ) ne 'ARRAY' ) {
-			die( 'The ignore_regexp of the rule "' . $name . '" is not a array' );
-		}
-		foreach my $item ( @{ $def->{ignore_regexp} } ) {
-			if ( !defined($item) || ref($item) ne '' ) {
-				die( 'The ignore_regexp of the rule "' . $name . '" contains a non-string entry' );
-			}
-		}
-
-		# tokens work here too, but nothing is captured from them, so the
-		# aliases are just thrown away
-		my $ignore_int = 0;
-		foreach my $regexp ( @{ $def->{ignore_regexp} } ) {
-			my $entry = $self->_compile_tokened_regexp( $regexp,
-				'The ignore_regexp entry ' . $ignore_int . ' of the rule "' . $name . '"' );
-			push( @{ $self->{ignore_regexps} }, $entry->{regexp} );
-			$ignore_int++;
-		}
-	} ## end if ( defined( $def->{ignore_regexp} ) )
+	$self->_compile_ignore_regexps($def);
 
 	my $entry_int = 0;
 	foreach my $item ( @{ $def->{message_regexp} } ) {
@@ -1687,7 +1825,8 @@ sub _compile_message_regexps {
 		my $compiled = $self->_compile_tokened_regexp( $regexp,
 			'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
 		if ( ref($item) eq 'HASH' ) {
-			$compiled->{key}   = $item->{key};
+			$compiled->{key} = $self->_correlation_key_components( $item->{key},
+				'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
 			$compiled->{defer} = $item->{defer};
 		}
 		push( @{ $self->{regexps} }, $compiled );
@@ -1696,6 +1835,284 @@ sub _compile_message_regexps {
 
 	return;
 } ## end sub _compile_message_regexps
+
+# compiles the ignore_regexp of the passed def onto the object... tokens
+# work here too, but nothing is captured from them, so the aliases are
+# just thrown away. shared by the message_regexp and stages matchers
+sub _compile_ignore_regexps {
+	my ( $self, $def ) = @_;
+
+	my $name = $self->{name};
+
+	$self->{ignore_regexps} = [];
+
+	if ( !defined( $def->{ignore_regexp} ) ) {
+		return;
+	}
+	if ( ref( $def->{ignore_regexp} ) ne 'ARRAY' ) {
+		die( 'The ignore_regexp of the rule "' . $name . '" is not a array' );
+	}
+	foreach my $item ( @{ $def->{ignore_regexp} } ) {
+		if ( !defined($item) || ref($item) ne '' ) {
+			die( 'The ignore_regexp of the rule "' . $name . '" contains a non-string entry' );
+		}
+	}
+
+	my $ignore_int = 0;
+	foreach my $regexp ( @{ $def->{ignore_regexp} } ) {
+		my $entry = $self->_compile_tokened_regexp( $regexp,
+			'The ignore_regexp entry ' . $ignore_int . ' of the rule "' . $name . '"' );
+		push( @{ $self->{ignore_regexps} }, $entry->{regexp} );
+		$ignore_int++;
+	}
+
+	return;
+} ## end sub _compile_ignore_regexps
+
+# compiles the stages of a staged rule... ordered matchers with counted
+# hits and gap bounds, the in-rule temporal correlation. the per key
+# components ride the correlation key machinery, so envelope fields work
+# where the type carries them
+sub _compile_stages {
+	my ( $self, $def ) = @_;
+
+	my $name = $self->{name};
+
+	if ( ref( $def->{stages} ) ne 'ARRAY' || !@{ $def->{stages} } ) {
+		die( 'The stages of the rule "' . $name . '" is not a array or is empty' );
+	}
+
+	my @compiled_stages;
+	my $stage_int = 0;
+	foreach my $stage ( @{ $def->{stages} } ) {
+		my $where = 'The stage ' . $stage_int . ' of the rule "' . $name . '"';
+		if ( ref($stage) ne 'HASH' ) {
+			die( $where . ' is not a hash' );
+		}
+		foreach my $key ( keys( %{$stage} ) ) {
+			if ( $key !~ /^(?:message_regexp|count|within|skip)$/ ) {
+				die( $where . ' has the unknown key "' . $key . '"' );
+			}
+		}
+		if ( ref( $stage->{message_regexp} ) ne 'ARRAY' || !@{ $stage->{message_regexp} } ) {
+			die( $where . ' lacks a message_regexp array or it is empty' );
+		}
+		foreach my $item ( 'count', 'within', 'skip' ) {
+			if ( defined( $stage->{$item} )
+				&& ( ref( $stage->{$item} ) ne '' || $stage->{$item} !~ /^[0-9]+$/ || !$stage->{$item} ) )
+			{
+				die( $where . ' has a ' . $item . ' that is not a positive int' );
+			}
+		}
+
+		my @matchers;
+		my $entry_int = 0;
+		foreach my $regexp ( @{ $stage->{message_regexp} } ) {
+			if ( !defined($regexp) || ref($regexp) ne '' ) {
+				die( $where . ' has a message_regexp entry that is not a string' );
+			}
+			push( @matchers,
+				$self->_compile_tokened_regexp( $regexp, $where . ' message_regexp entry ' . $entry_int ) );
+			$entry_int++;
+		}
+
+		push(
+			@compiled_stages,
+			{
+				'matchers' => \@matchers,
+				'count'    => defined( $stage->{count} )  ? $stage->{count} + 0  : 1,
+				'within'   => defined( $stage->{within} ) ? $stage->{within} + 0 : undef,
+				'skip'     => defined( $stage->{skip} )   ? $stage->{skip} + 0   : undef,
+			}
+		);
+		$stage_int++;
+	} ## end foreach my $stage ( @{ $def->{stages} } )
+	$self->{stages} = \@compiled_stages;
+
+	if ( defined( $def->{per} ) ) {
+		$self->{per_key} = $self->_correlation_key_components( $def->{per}, 'The per of the rule "' . $name . '"' );
+	}
+
+	return;
+} ## end sub _compile_stages
+
+# checks a message against a staged rule... ordered stages, counted hits,
+# and gap bounds, the state per (scope, per key) and memory only. returns
+# undef until the final stage completes, then the found carrying the
+# merged captures and the stage hits
+sub _check_stages {
+	my ( $self, $message, $scope, $line_ctx, $envelope ) = @_;
+
+	if ( !defined($message) ) {
+		return undef;
+	}
+	if ( !defined($scope) ) {
+		$scope = '';
+	}
+	my $now = time;
+	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} ) ? $line_ctx->{seq} : undef;
+
+	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
+		if ( $message =~ $ignore ) {
+			return undef;
+		}
+	}
+
+	my $stages = $self->{stages};
+	my $store  = $self->{stage_state}{$scope};
+	if ( !defined($store) ) {
+		$store = $self->{stage_state}{$scope} = {};
+	}
+
+	# which stages this line hits, tried lazily and remembered
+	my @stage_caps;
+	my $stage_match = sub {
+		my ($stage_int) = @_;
+		if ( !exists( $stage_caps[$stage_int] ) ) {
+			my $caps;
+			foreach my $matcher ( @{ $stages->[$stage_int]{matchers} } ) {
+				$caps = $self->_match_tokened( $matcher, $message );
+				if ( defined($caps) ) {
+					last;
+				}
+			}
+			$stage_caps[$stage_int] = $caps;
+		} ## end if ( !exists( $stage_caps[$stage_int] ) )
+		return $stage_caps[$stage_int];
+	}; ## end $stage_match = sub
+
+	# the slot key... the per components off this line's captures and the
+	# envelope, or the source for the keyless adjacency form
+	my $slot_key = sub {
+		my ($caps) = @_;
+		if ( !defined( $self->{per_key} ) ) {
+			return ref($line_ctx) eq 'HASH' && defined( $line_ctx->{source} ) ? $line_ctx->{source} : '';
+		}
+		return $self->_correlation_key_value( { 'key' => $self->{per_key} }, $caps, $envelope );
+	};
+
+	# a hit on the stage a slot is awaiting advances it, gap bounds
+	# permitting... too late or too far kills the sequence, and the line
+	# may then head a fresh one below
+	for ( my $stage_int = 0; $stage_int < scalar( @{$stages} ); $stage_int++ ) {
+		my $caps = $stage_match->($stage_int);
+		if ( !defined($caps) ) {
+			next;
+		}
+		my $key_value = $slot_key->($caps);
+		if ( !defined($key_value) ) {
+			next;
+		}
+		my $slot = $store->{$key_value};
+		if ( !defined($slot) || $slot->{stage} != $stage_int ) {
+			next;
+		}
+
+		my $stage  = $stages->[$stage_int];
+		my $gap_ok = 1;
+		if ( defined( $stage->{within} ) && ( $now - $slot->{last_time} ) > $stage->{within} ) {
+			$gap_ok = 0;
+		}
+		if (   $gap_ok
+			&& defined( $stage->{skip} )
+			&& defined($seq)
+			&& defined( $slot->{last_seq} )
+			&& ( $seq - $slot->{last_seq} - 1 ) > $stage->{skip} )
+		{
+			$gap_ok = 0;
+		}
+		if ( !$gap_ok ) {
+			delete( $store->{$key_value} );
+			last;
+		}
+
+		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq );
+	} ## end for ( my $stage_int = 0; $stage_int < scalar...)
+
+	# no slot advanced... a line matching the first stage heads a fresh
+	# sequence, but never tramples one already in flight for its key
+	my $caps = $stage_match->(0);
+	if ( !defined($caps) ) {
+		return undef;
+	}
+	my $key_value = $slot_key->($caps);
+	if ( !defined($key_value) || defined( $store->{$key_value} ) ) {
+		return undef;
+	}
+	$self->_stage_slot_new( $store, $key_value, $now );
+
+	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq );
+} ## end sub _check_stages
+
+# lands a hit on a slot's awaited stage... counts, merges captures later
+# stages authoritative, and fires the found when the final stage completes
+sub _stage_hit {
+	my ( $self, $store, $key_value, $stage_int, $caps, $message, $now, $seq ) = @_;
+
+	my $slot  = $store->{$key_value};
+	my $stage = $self->{stages}[$stage_int];
+
+	$slot->{count}++;
+	$slot->{data} = { %{ $slot->{data} }, %{$caps} };
+	push( @{ $slot->{hits} }, { 'stage' => $stage_int, 'time' => $now, 'line' => $message } );
+	$slot->{last_time} = $now;
+	$slot->{last_seq}  = $seq;
+
+	if ( $slot->{count} < $stage->{count} ) {
+		$slot->{expires} = $now + ( defined( $stage->{within} ) ? $stage->{within} : 600 );
+		return undef;
+	}
+
+	# the final stage completing is the found... the rule's boolean matcher
+	# filters the completed sequence like any other found
+	if ( $stage_int == scalar( @{ $self->{stages} } ) - 1 ) {
+		delete( $store->{$key_value} );
+		my $found = { 'data' => $slot->{data}, 'regexp' => undef, 'stages' => $slot->{hits} };
+		if ( ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) || defined( $self->{condition_ast} ) ) {
+			if ( !$self->_boolean_pass( $found->{data}, $message ) ) {
+				return undef;
+			}
+		}
+		return $found;
+	} ## end if ( $stage_int == scalar( @{ $self->{stages...}}))
+
+	$slot->{stage}++;
+	$slot->{count} = 0;
+	my $next_stage = $self->{stages}[ $slot->{stage} ];
+	$slot->{expires} = $now + ( defined( $next_stage->{within} ) ? $next_stage->{within} : 600 );
+
+	return undef;
+} ## end sub _stage_hit
+
+# creates a fresh slot awaiting the first stage, bounding the per scope
+# slot count the way the correlation context is bounded
+sub _stage_slot_new {
+	my ( $self, $store, $key_value, $now ) = @_;
+
+	if ( !defined( $store->{$key_value} ) && scalar( keys( %{$store} ) ) >= 10000 ) {
+		foreach my $key ( keys( %{$store} ) ) {
+			if ( $store->{$key}{expires} <= $now ) {
+				delete( $store->{$key} );
+			}
+		}
+		if ( scalar( keys( %{$store} ) ) >= 10000 ) {
+			my ($soonest) = sort { $store->{$a}{expires} <=> $store->{$b}{expires} } keys( %{$store} );
+			delete( $store->{$soonest} );
+		}
+	} ## end if ( !defined( $store->{$key_value} ) && scalar...)
+
+	$store->{$key_value} = {
+		'stage'     => 0,
+		'count'     => 0,
+		'data'      => {},
+		'hits'      => [],
+		'last_time' => $now,
+		'last_seq'  => undef,
+		'expires'   => $now + 600,
+	};
+
+	return;
+} ## end sub _stage_slot_new
 
 # compiles the capture_regexp of the passed def... entries harvest
 # correlation context rather than being offenses, each a hash of a
@@ -1726,15 +2143,12 @@ sub _compile_capture_regexps {
 				die( $where . ' has the unknown key "' . $key . '"' );
 			}
 		}
-		if ( ref( $item->{key} ) ne '' || $item->{key} eq '' ) {
-			die( $where . ' has a invalid key' );
-		}
 		if ( defined( $item->{ttl} ) && ( $item->{ttl} !~ /^[0-9]+$/ || !$item->{ttl} ) ) {
 			die( $where . ' has a ttl that is not a positive int of seconds' );
 		}
 
 		my $compiled = $self->_compile_tokened_regexp( $item->{regexp}, $where );
-		$compiled->{key} = $item->{key};
+		$compiled->{key} = $self->_correlation_key_components( $item->{key}, $where );
 		$compiled->{ttl} = defined( $item->{ttl} ) ? $item->{ttl} : 60;
 
 		push( @{ $self->{capture_regexps} }, $compiled );
@@ -1743,6 +2157,64 @@ sub _compile_capture_regexps {
 
 	return;
 } ## end sub _compile_capture_regexps
+
+# validates a correlation key... a non-empty string or a non-empty array of
+# them, each component either a regexp capture name or a reserved envelope
+# field the type declared in envelope_key_fields... returns the components
+# as a array ref and notes on the object when the envelope is wanted, so
+# check only builds it for rules that key on it
+sub _correlation_key_components {
+	my ( $self, $key, $where ) = @_;
+
+	my @components;
+	if ( ref($key) eq 'ARRAY' ) {
+		@components = @{$key};
+	} elsif ( ref($key) eq '' ) {
+		@components = ($key);
+	} else {
+		die( $where . ' has a key that is not a string or a array' );
+	}
+	if ( !@components ) {
+		die( $where . ' has a empty key array' );
+	}
+	foreach my $component (@components) {
+		if ( !defined($component) || ref($component) ne '' || $component eq '' ) {
+			die( $where . ' has a key component that is not a non-empty string' );
+		}
+		if ( $component =~ /^syslog\./ ) {
+			if ( ref( $self->{envelope_key_fields} ) ne 'HASH' || !$self->{envelope_key_fields}{$component} ) {
+				die( $where . ' keys on "' . $component . '", which is not a envelope field this rule type carries' );
+			}
+			$self->{wants_envelope} = 1;
+		}
+	} ## end foreach my $component (@components)
+
+	return \@components;
+} ## end sub _correlation_key_components
+
+# resolves a compiled entry's correlation key against the folded captures
+# and the parsed envelope, captures never clashing with the syslog. names...
+# undef when any component is missing, several components joining under a
+# separator no log value can carry
+sub _correlation_key_value {
+	my ( $self, $entry, $caps, $envelope ) = @_;
+
+	my @values;
+	foreach my $component ( @{ $entry->{key} } ) {
+		my $value;
+		if ( $component =~ /^syslog\./ ) {
+			$value = defined($envelope) ? $envelope->{$component} : undef;
+		} else {
+			$value = $caps->{$component};
+		}
+		if ( !defined($value) ) {
+			return undef;
+		}
+		push( @values, $value );
+	} ## end foreach my $component ( @{ $entry->{key} } )
+
+	return join( "\x00", @values );
+} ## end sub _correlation_key_value
 
 # compiles a single regexp string, expanding %%%%TOKEN%%%% tokens into
 # named captures... returns a hash of the compiled regexp, the original,
@@ -1795,7 +2267,7 @@ sub _expand_token {
 # possibly carrying a more array of further completions when a capture
 # line resolved deferred offenses
 sub _check_message {
-	my ( $self, $message, $scope, $extra ) = @_;
+	my ( $self, $message, $scope, $extra, $envelope ) = @_;
 
 	if ( !defined($message) ) {
 		return undef;
@@ -1819,7 +2291,7 @@ sub _check_message {
 		if ( !defined($caps) ) {
 			next;
 		}
-		my $key_value = $caps->{ $capture->{key} };
+		my $key_value = $self->_correlation_key_value( $capture, $caps, $envelope );
 		if ( !defined($key_value) ) {
 			next;
 		}
@@ -1853,9 +2325,9 @@ sub _check_message {
 			last;
 		}
 
-		my $key_value = $caps->{ $entry->{key} };
+		my $key_value = $self->_correlation_key_value( $entry, $caps, $envelope );
 		if ( !defined($key_value) ) {
-			# the key capture did not participate, so nothing to correlate
+			# a key component did not participate, so nothing to correlate
 			$found = { 'data' => $caps, 'regexp' => $entry_int };
 			last;
 		}

@@ -1,0 +1,34 @@
+---
+# Matches requests claiming to be Googlebot whose client is not... the
+# one fail2ban filter that could not port until the reverse_dns gate,
+# its trick being a lookup rather than a regexp. The gate reverses the
+# client, forward-confirms the PTR (a spoofed PTR is as good as absent),
+# and counts only when no confirmed name is Google's... so the real
+# Googlebot passes and the pretenders are banished on the first request.
+# The gate needs enable_rdns (on by default) and the optional Net::DNS
+# module... with out either it fails closed and this rule counts
+# nothing, loudly at start. Gates are galla state, so the embedded tests
+# prove only the user-agent match. The max_score of 1 makes one faked
+# request the verdict where the watcher sets allow_per_rule_thresholds.
+# A resolver outage holds this rule back rather than misaiming it... to
+# keep counting through outages (fail2ban's stance) set
+# on_servfail: compare on the gate entry, knowingly.
+msg: "[HTTP] fake Googlebot"
+severity: medium
+classtype: network-scan
+match:
+  - field: user_agent
+    regexp: '(?i:Googlebot)'
+reverse_dns:
+  - matches: '\.google(?:bot)?\.com$'
+    negate: true
+max_score: 1
+tests:
+  positive:
+    - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+      found: 1
+      data:
+        host: "203.0.113.9"
+  negative:
+    - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET / HTTP/1.1" 200 5124 "-" "Mozilla/5.0 (X11; FreeBSD amd64; rv:109.0) Gecko/20100101 Firefox/115.0"'
+      found: 0

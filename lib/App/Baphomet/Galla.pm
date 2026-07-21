@@ -9,10 +9,11 @@ use POE::Component::Server::JSONUnix ();
 use File::Glob                       qw( bsd_glob );
 use JSON::MaybeXS                    qw( encode_json decode_json );
 use POSIX                            qw( strftime );
+use Socket                           qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                    ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal compile_ignore_ips ip_ignored ip_network ip_family );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::ClayTablet ();
@@ -153,9 +154,25 @@ sub new {
 	$self->{eve_log}           = $config->{eve_log};
 	$self->{eve_enable}        = $config->{eve_enable};
 	$self->_open_geoip( $config->{geoip_db} );
+	$self->{enable_dns}       = $config->{enable_dns};
+	$self->{usedns_timeout}   = $config->{usedns_timeout};
+	$self->{usedns_max_addrs} = $config->{usedns_max_addrs};
+	$self->{dns_cache}        = {};
+	$self->{dns_resolve}      = undef;
+
+	if ( $self->{enable_dns} ) {
+		$self->_open_dns;
+	}
+	$self->{enable_rdns}        = $config->{enable_rdns};
+	$self->{rdns_timeout}       = $config->{rdns_timeout};
+	$self->{rdns_cache}         = {};
+	$self->{dns_reverse}        = undef;
+	$self->{dns_forward}        = undef;
 	$self->{hostname}           = Sys::Hostname::hostname();
 	$self->{last_checkpoint}    = 0;
 	$self->{positions}          = {};
+	$self->{join_buffers}       = {};
+	$self->{line_seqs}          = {};
 	$self->{journal_cursors}    = {};
 	$self->{wheelid_to_journal} = {};
 	$self->{wheel_to_file}      = {};
@@ -355,12 +372,24 @@ sub new {
 			push( @active_gates, $gate );
 		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
 
+		# the joiner, compiled... check_kur_def already vetted it, so a die
+		# here is the same config error it already flagged
+		my $join_compiled;
+		eval { $join_compiled = watcher_join($watcher); };
+		if ($@) {
+			$self->{perror}      = 1;
+			$self->{error}       = 3;
+			$self->{errorString} = $@;
+			$self->warn;
+		}
+
 		my $is_journal = defined( $watcher->{journal} );
 		$self->{watchers}{$watcher_name} = {
 			'is_journal'      => $is_journal,
 			'log_spec'        => $is_journal          ? []                            : [ watcher_logs($watcher) ],
 			'journal_matches' => $is_journal          ? [ watcher_journal($watcher) ] : [],
 			'parser' => defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' ),
+			'join'            => $join_compiled,
 			'rules'           => \@rule_names,
 			'rule_objs'       => \@rule_objs,
 			'country_gates'   => \@country_gates,
@@ -397,6 +426,67 @@ sub new {
 				undef, 'galla-' . $self->{name} );
 		} ## end if ($has_detection)
 	} ## end if ( !$self->{eve_enable} )
+
+	# a resolve usedns with out the machinery behind it behaves as no...
+	# say so loudly rather than silently never banishing a hostname
+	my @dns_wanting;
+	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
+		my $watcher_settings = $self->{watchers}{$watcher_name}{settings};
+		if ( $watcher_settings->{usedns} ne 'no' && !defined( $self->{dns_resolve} ) ) {
+			push( @dns_wanting, $watcher_name );
+			$watcher_settings->{usedns} = 'no';
+		}
+	}
+	if (@dns_wanting) {
+		log_drek(
+			'err',
+			'usedns is configured on '
+				. join( ', ', @dns_wanting ) . ' but '
+				. (
+					$self->{enable_dns}
+					? 'Net::DNS is not loadable... ' . ( defined( $self->{dns_error} ) ? $self->{dns_error} : '' )
+					: 'enable_dns is off'
+				)
+				. '... treated as no, hostname offenders banish nobody',
+			undef,
+			'galla-' . $self->{name}
+		);
+	} ## end if (@dns_wanting)
+
+	# reverse_dns gates fail closed with out the machinery behind them, so
+	# those rules count nothing... a silent hole, so say so loudly. the
+	# resolver only stands up at all when some rule wants it
+	my $rdns_gated = 0;
+	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+		foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
+			if ( defined($rule_obj) && defined( $rule_obj->reverse_dns ) ) {
+				$rdns_gated = 1;
+			}
+		}
+	}
+	if ($rdns_gated) {
+		if ( !$self->{enable_rdns} ) {
+			log_drek(
+				'err',
+				'reverse_dns-gated rules are configured but enable_rdns is off...'
+					. ' those gates fail closed and will count nothing',
+				undef,
+				'galla-' . $self->{name}
+			);
+		} else {
+			$self->_open_rdns;
+			if ( defined( $self->{rdns_error} ) ) {
+				log_drek(
+					'err',
+					'reverse_dns-gated rules are configured but Net::DNS is not loadable...'
+						. ' those gates fail closed and will count nothing... '
+						. $self->{rdns_error},
+					undef,
+					'galla-' . $self->{name}
+				);
+			} ## end if ( defined( $self->{rdns_error} ) )
+		} ## end else [ if ( !$self->{enable_rdns} ) ]
+	} ## end if ($rdns_gated)
 
 	# a country gate with no GeoIP database behind it fails closed, so those
 	# rules banish nobody... that is a silent hole, so say so loudly. not a
@@ -1360,6 +1450,7 @@ sub start_server {
 				'journal_reaped'  => '_poe_journal_reaped',
 				'restart_journal' => '_poe_restart_journal',
 				'sweep'           => '_poe_sweep',
+				'join_flush'      => '_poe_join_flush',
 				'stop_tails'      => '_poe_stop_tails',
 			},
 		],
@@ -1415,6 +1506,15 @@ sub _poe_start {
 	} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
 
 	$kernel->delay( 'sweep', 10 );
+
+	# the joiner tick only runs when a watcher carries a joiner... a second
+	# is the flush_after resolution, far finer than the sweep's ten
+	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+		if ( defined( $self->{watchers}{$watcher_name}{join} ) ) {
+			$kernel->delay( 'join_flush', 1 );
+			last;
+		}
+	}
 
 	return;
 } ## end sub _poe_start
@@ -1726,9 +1826,26 @@ sub _poe_sweep {
 	return;
 } ## end sub _poe_sweep
 
+sub _poe_join_flush {
+	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
+
+	if ( $self->{stopping} ) {
+		return;
+	}
+
+	$self->_flush_stale_join_buffers;
+	$kernel->delay( 'join_flush', 1 );
+
+	return;
+} ## end sub _poe_join_flush
+
 # tears the tail wheels down so the session can end and the kernel can exit
 sub _poe_stop_tails {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
+
+	# whatever record a joiner is midway through gathering goes through the
+	# pipeline whole, so a clean stop drops nothing buffered
+	$self->_flush_stale_join_buffers(1);
 
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
 		my $watcher = $self->{watchers}{$watcher_name};
@@ -1770,7 +1887,9 @@ sub _tick {
 	return;
 } ## end sub _tick
 
-# handles a single line from the log of the specified watcher
+# handles a single physical line from the log of the specified watcher...
+# a watcher with a joiner glues continuation lines onto their head line
+# ahead of the parser, so what the rules judge is one logical record
 sub _handle_line {
 	my ( $self, $watcher_name, $line, $source ) = @_;
 
@@ -1781,6 +1900,81 @@ sub _handle_line {
 
 	$self->_tick( 'lines', $watcher_name );
 
+	my $join = $watcher->{join};
+	if ( !defined($join) ) {
+		return $self->_process_record( $watcher_name, $line, $source );
+	}
+
+	# buffers are per source as continuation only means adjacency with in
+	# one file, and several files may feed one watcher interleaved
+	my $source_key = defined($source) ? $source : '';
+	my $buffer     = $self->{join_buffers}{$watcher_name}{$source_key};
+
+	if ( defined($buffer) && $line =~ $join->{continuation} ) {
+		push( @{ $buffer->{lines} }, $line );
+		$buffer->{last_seen} = time;
+		if ( scalar( @{ $buffer->{lines} } ) >= $join->{max_lines} ) {
+			$self->_flush_join_buffer( $watcher_name, $source_key );
+		}
+		return;
+	}
+
+	# a head line... the record before it is whole, so flush it, then
+	# buffer this one awaiting its continuations... a continuation with
+	# no head to glue to, like starting mid record, heads its own
+	$self->_flush_join_buffer( $watcher_name, $source_key );
+	$self->{join_buffers}{$watcher_name}{$source_key}
+		= { 'lines' => [$line], 'source' => $source, 'last_seen' => time };
+
+	return;
+} ## end sub _handle_line
+
+# flushes one join buffer through the pipeline as a single record, the
+# physical lines glued with newlines
+sub _flush_join_buffer {
+	my ( $self, $watcher_name, $source_key ) = @_;
+
+	my $buffer = delete( $self->{join_buffers}{$watcher_name}{$source_key} );
+	if ( !defined($buffer) ) {
+		return;
+	}
+	if ( scalar( @{ $buffer->{lines} } ) > 1 ) {
+		$self->_tick( 'joined', $watcher_name );
+	}
+
+	return $self->_process_record( $watcher_name, join( "\n", @{ $buffer->{lines} } ), $buffer->{source} );
+} ## end sub _flush_join_buffer
+
+# flushes every join buffer not fed since its watcher's flush_after ago...
+# ran on the joiner tick, and forced by the stop path so nothing buffered
+# is dropped on a clean stop
+sub _flush_stale_join_buffers {
+	my ( $self, $force ) = @_;
+
+	my $now = time;
+	foreach my $watcher_name ( sort( keys( %{ $self->{join_buffers} } ) ) ) {
+		my $join = $self->{watchers}{$watcher_name}{join};
+		foreach my $source_key ( sort( keys( %{ $self->{join_buffers}{$watcher_name} } ) ) ) {
+			my $buffer = $self->{join_buffers}{$watcher_name}{$source_key};
+			if ( $force || !defined($join) || ( $now - $buffer->{last_seen} ) >= $join->{flush_after} ) {
+				$self->_flush_join_buffer( $watcher_name, $source_key );
+			}
+		}
+	}
+
+	return;
+} ## end sub _flush_stale_join_buffers
+
+# handles a single logical record... the whole line for most watchers, the
+# joined lines for one with a joiner
+sub _process_record {
+	my ( $self, $watcher_name, $line, $source ) = @_;
+
+	my $watcher = $self->{watchers}{$watcher_name};
+	if ( !defined($watcher) ) {
+		return;
+	}
+
 	my $parsed = App::Baphomet::Parser::parse( $watcher->{parser}, $line );
 	if ( !defined($parsed) ) {
 		$self->_tick( 'unparsed', $watcher_name );
@@ -1788,6 +1982,12 @@ sub _handle_line {
 	}
 
 	my $now = time;
+
+	# the record's position in its own file, for the staged rules whose
+	# skip bound counts intervening lines... keyless staging slots by the
+	# source too
+	my $seq_source = defined($source) ? $source : '';
+	my $line_ctx   = { 'seq' => ++$self->{line_seqs}{$watcher_name}{$seq_source}, 'source' => $seq_source };
 
 	# rules are checked in order and the first to match wins, so a line
 	# matching more than one rule only counts once... except a rule whose
@@ -1798,7 +1998,7 @@ sub _handle_line {
 	for ( my $rule_int = 0; $rule_int < scalar( @{ $watcher->{rule_objs} } ); $rule_int++ ) {
 		my $rule_obj  = $watcher->{rule_objs}[$rule_int];
 		my $rule_name = $watcher->{rules}[$rule_int];
-		my $found     = $rule_obj->check( $parsed, $watcher_name );
+		my $found     = $rule_obj->check( $parsed, $watcher_name, $line_ctx );
 		if ( !defined($found) ) {
 			next;
 		}
@@ -1834,6 +2034,9 @@ sub _handle_line {
 			if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef ) ) {
 				next;
 			}
+			if ( !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef ) ) {
+				next;
+			}
 			if ( !$self->_active_time_pass( $active_gate, $one->{data}, $now ) ) {
 				next;
 			}
@@ -1849,6 +2052,7 @@ sub _handle_line {
 				'raw'       => $line,
 				'parsed'    => $parsed,
 				'found'     => $one->{data},
+				'stages'    => $one->{stages},
 				'rule'      => $rule_obj,
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
@@ -1881,6 +2085,15 @@ sub _handle_line {
 					push( @offenders, $ip );
 				} ## end foreach my $ban_var ( $rule_obj->ban_var )
 			} ## end if ( !$is_detection )
+
+			# usedns... a ban_var value that is not a IP is a hostname the
+			# daemon logged, hostile input. under no it is dropped, under
+			# resolve_seen it becomes the addresses it resolves to, and
+			# under resolve_ban it counts by name, resolving at the
+			# threshold over in _ban_ip
+			if (@offenders) {
+				@offenders = $self->_usedns_offenders( $watcher_name, \@offenders );
+			}
 
 			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
 
@@ -1923,6 +2136,9 @@ sub _handle_line {
 						if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
 							next;
 						}
+						if ( !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip ) ) {
+							next;
+						}
 						if ( !defined($ban_ip) ) {
 							$ban_ip = $ip;
 						}
@@ -1949,7 +2165,7 @@ sub _handle_line {
 	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
 
 	return;
-} ## end sub _handle_line
+} ## end sub _process_record
 
 # builds the raw/parsed/found/rule/path/score fields of a EVE event from a
 # match context... only assembled when the EVE log is on. score is the
@@ -1972,9 +2188,12 @@ sub _eve_fields {
 
 	return {
 		defined( $context->{source} ) ? ( 'path' => $context->{source} ) : (),
-		'raw'     => $self->_eve_raw( $context->{raw} ),
-		'parsed'  => $self->_eve_parsed( $context->{parsed} ),
-		'found'   => $context->{found},
+		'raw'    => $self->_eve_raw( $context->{raw} ),
+		'parsed' => $self->_eve_parsed( $context->{parsed} ),
+		'found'  => $context->{found},
+		# a staged rule's whole story... each stage hit's index, epoch, and
+		# line, the raw above being only the final one
+		defined( $context->{stages} ) ? ( 'stages' => $context->{stages} ) : (),
 		'src_ip'  => $src_ip,
 		'dest_ip' => $dest_ip,
 		'msg'     => $context->{rule}->msg,
@@ -1988,6 +2207,103 @@ sub _eve_fields {
 		( defined($lifted) && @{$lifted} )      ? ( 'unmarked'   => $lifted )                      : (),
 	};
 } ## end sub _eve_fields
+
+# stands the optional DNS resolver up for usedns, if enable_dns consents...
+# stores a resolving closure on success, a error string otherwise. a set
+# enable_dns with no loadable Net::DNS leaves usedns behaving as no, which
+# the watcher build says loudly. the closure is the seam the tests inject
+# a mock resolver through
+sub _open_dns {
+	my ($self) = @_;
+
+	$self->{dns_error} = undef;
+	eval {
+		require Net::DNS::Resolver;
+		my $resolver = Net::DNS::Resolver->new(
+			'udp_timeout' => $self->{usedns_timeout},
+			'tcp_timeout' => $self->{usedns_timeout},
+			'retry'       => 1,
+		);
+		$self->{dns_resolve} = sub {
+			my ($hostname) = @_;
+			my @addrs;
+			foreach my $type ( 'A', 'AAAA' ) {
+				my $reply = $resolver->query( $hostname, $type );
+				if ( defined($reply) ) {
+					foreach my $rr ( $reply->answer ) {
+						if ( $rr->type eq $type ) {
+							push( @addrs, $rr->address );
+						}
+					}
+				}
+			} ## end foreach my $type ( 'A', 'AAAA' )
+			if ( !@addrs ) {
+				return undef;
+			}
+			return \@addrs;
+		}; ## end sub
+	};
+	if ($@) {
+		$self->{dns_error} = $@;
+	}
+
+	return;
+} ## end sub _open_dns
+
+# stands the reverse DNS machinery up for the reverse_dns gates... the PTR
+# and forward closures return a array ref (possibly empty... authoritative
+# absence is an answer) or undef (failure), the distinction the gate's
+# fail-closed logic leans on. only called when some rule carries the gate,
+# so Net::DNS stays optional for everyone else. the closures are the seam
+# the tests inject mocks through
+sub _open_rdns {
+	my ($self) = @_;
+
+	$self->{rdns_error} = undef;
+	eval {
+		require Net::DNS::Resolver;
+		my $resolver = Net::DNS::Resolver->new(
+			'udp_timeout' => $self->{rdns_timeout},
+			'tcp_timeout' => $self->{rdns_timeout},
+			'retry'       => 1,
+		);
+		my $ask = sub {
+			my ( $query_name, @types ) = @_;
+			my @found;
+			foreach my $type (@types) {
+				my $packet = $resolver->send( $query_name, $type );
+				if ( !defined($packet) ) {
+					return undef;
+				}
+				my $rcode = $packet->header->rcode;
+				if ( $rcode ne 'NOERROR' && $rcode ne 'NXDOMAIN' ) {
+					return undef;
+				}
+				foreach my $rr ( $packet->answer ) {
+					if ( $type eq 'PTR' && $rr->type eq 'PTR' ) {
+						push( @found, $rr->ptrdname );
+					} elsif ( $rr->type eq $type ) {
+						push( @found, $rr->address );
+					}
+				}
+			} ## end foreach my $type (@types)
+			return \@found;
+		}; ## end $ask = sub
+		$self->{dns_reverse} = sub {
+			my ($address) = @_;
+			return $ask->( $address, 'PTR' );
+		};
+		$self->{dns_forward} = sub {
+			my ($hostname) = @_;
+			return $ask->( $hostname, 'A', 'AAAA' );
+		};
+	};
+	if ($@) {
+		$self->{rdns_error} = $@;
+	}
+
+	return;
+} ## end sub _open_rdns
 
 # opens the GeoIP database for country gating, if one is configured...
 # stores the reader on success, a error string otherwise, both undef when
@@ -2110,6 +2426,204 @@ sub _country_gate_pass {
 
 	return 1;
 } ## end sub _country_gate_pass
+
+# the reverse_dns gate... a var entry is data-driven and ran once per found
+# result (ip undef), a var-less one is offender-keyed and ran per candidate
+# (ip set). every entry checked must hold
+sub _reverse_dns_gate_pass {
+	my ( $self, $gate, $data, $ip ) = @_;
+
+	if ( !defined($gate) ) {
+		return 1;
+	}
+
+	foreach my $entry ( @{$gate} ) {
+		if ( defined( $entry->{var} ) ) {
+			# a var entry belongs to the data pass... let the offender pass by
+			if ( defined($ip) ) {
+				next;
+			}
+			my $value = $data->{ $entry->{var} };
+			if ( !defined($value) || !$self->_rdns_entry_pass( $entry, $value, $data ) ) {
+				return 0;
+			}
+		} else {
+			# a var-less entry belongs to the offender pass... let the data
+			# pass by
+			if ( !defined($ip) ) {
+				next;
+			}
+			if ( !$self->_rdns_entry_pass( $entry, $ip, $data ) ) {
+				return 0;
+			}
+		} ## end else [ if ( defined( $entry->{var} ) ) ]
+	} ## end foreach my $entry ( @{$gate} )
+
+	return 1;
+} ## end sub _reverse_dns_gate_pass
+
+# runs one reverse_dns entry against one address... the PTR names, forward
+# confirmed unless refused, compared against the regexp or the named found
+# value, negated when asked. by default authoritative absence is data...
+# no names means the comparison is false and negate makes it count...
+# while inability to ask is not... a lookup failure vetoes regardless of
+# negate, so an outage can never get anyone counted by a negated gate.
+# the entry's on_nxdomain and on_servfail knobs override those defaults
+# per rule. always fails closed with out a resolver, on a non-address
+# value, and on a missing matches_var
+sub _rdns_entry_pass {
+	my ( $self, $entry, $address, $data ) = @_;
+
+	if ( !$self->{enable_rdns} || !defined( $self->{dns_reverse} ) ) {
+		return 0;
+	}
+	if ( !defined( ip_family($address) ) ) {
+		return 0;
+	}
+
+	# the lookup outcome knobs... pass and fail are terminal verdicts the
+	# comparison and negate never touch, compare proceeds over whatever
+	# names there are
+	my $names = $self->_rdns_names($address);
+	if ( !defined($names) ) {
+		if ( $entry->{on_servfail} eq 'pass' ) {
+			return 1;
+		}
+		if ( $entry->{on_servfail} eq 'fail' ) {
+			return 0;
+		}
+		$names = [];
+	} elsif ( !@{$names} ) {
+		if ( $entry->{on_nxdomain} eq 'pass' ) {
+			return 1;
+		}
+		if ( $entry->{on_nxdomain} eq 'fail' ) {
+			return 0;
+		}
+	}
+
+	# forward confirmation... a name only participates when it resolves
+	# back to the address, a spoofed PTR being as good as absent
+	my @confirmed;
+	if ( !$entry->{forward_confirm} ) {
+		@confirmed = @{$names};
+	} else {
+		foreach my $ptr_name ( @{$names} ) {
+			my $addrs = $self->_rdns_forward($ptr_name);
+			if ( !defined($addrs) ) {
+				if ( $entry->{on_servfail} eq 'pass' ) {
+					return 1;
+				}
+				if ( $entry->{on_servfail} eq 'fail' ) {
+					return 0;
+				}
+				# compare... this name is simply unconfirmed
+				next;
+			} ## end if ( !defined($addrs) )
+			if ( grep { $self->_rdns_addr_eq( $_, $address ) } @{$addrs} ) {
+				push( @confirmed, $ptr_name );
+			}
+		} ## end foreach my $ptr_name ( @{$names} )
+	} ## end else [ if ( !$entry->{forward_confirm} ) ]
+
+	my $hit = 0;
+	if ( defined( $entry->{regexp} ) ) {
+		foreach my $ptr_name (@confirmed) {
+			if ( $ptr_name =~ $entry->{regexp} ) {
+				$hit = 1;
+				last;
+			}
+		}
+	} else {
+		my $expected = $data->{ $entry->{matches_var} };
+		if ( !defined($expected) || $expected eq '' ) {
+			return 0;
+		}
+		$expected = lc($expected);
+		$expected =~ s/\.+$//;
+		foreach my $ptr_name (@confirmed) {
+			my $folded = lc($ptr_name);
+			$folded =~ s/\.+$//;
+			if ( $folded eq $expected ) {
+				$hit = 1;
+				last;
+			}
+		}
+	} ## end else [ if ( defined( $entry->{regexp} ) ) ]
+
+	if ( $entry->{negate} ) {
+		$hit = $hit ? 0 : 1;
+	}
+
+	return $hit;
+} ## end sub _rdns_entry_pass
+
+# the cached tri-state lookups behind the reverse_dns gate... a array ref
+# (possibly empty, authoritative absence) or undef (failure), both
+# remembered, so a hostile flood of matches asks each question once a
+# minute at most
+sub _rdns_cached {
+	my ( $self, $cache_key, $ask ) = @_;
+
+	my $now    = time;
+	my $cached = $self->{rdns_cache}{$cache_key};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{answer};
+	}
+
+	my $answer = eval { $ask->(); };
+	if ( $@ || ( defined($answer) && ref($answer) ne 'ARRAY' ) ) {
+		$answer = undef;
+	}
+	if ( !defined($answer) ) {
+		$self->_tick('rdns_failures');
+	}
+
+	# bound the cache the way the other stores are bounded
+	if ( !defined( $self->{rdns_cache}{$cache_key} ) && scalar( keys( %{ $self->{rdns_cache} } ) ) >= 10000 ) {
+		foreach my $key ( keys( %{ $self->{rdns_cache} } ) ) {
+			if ( $self->{rdns_cache}{$key}{expires} <= $now ) {
+				delete( $self->{rdns_cache}{$key} );
+			}
+		}
+		if ( scalar( keys( %{ $self->{rdns_cache} } ) ) >= 10000 ) {
+			my ($soonest) = sort { $self->{rdns_cache}{$a}{expires} <=> $self->{rdns_cache}{$b}{expires} }
+				keys( %{ $self->{rdns_cache} } );
+			delete( $self->{rdns_cache}{$soonest} );
+		}
+	} ## end if ( !defined( $self->{rdns_cache}{$cache_key...}))
+	$self->{rdns_cache}{$cache_key} = { 'answer' => $answer, 'expires' => $now + 60 };
+
+	return $answer;
+} ## end sub _rdns_cached
+
+sub _rdns_names {
+	my ( $self, $address ) = @_;
+
+	return $self->_rdns_cached( 'ptr:' . $address, sub { $self->{dns_reverse}->($address); } );
+}
+
+sub _rdns_forward {
+	my ( $self, $hostname ) = @_;
+
+	return $self->_rdns_cached( 'fwd:' . $hostname, sub { $self->{dns_forward}->($hostname); } );
+}
+
+# compares two addresses by packed value, so IPv6 spelling differences do
+# not defeat forward confirmation
+sub _rdns_addr_eq {
+	my ( $self, $left, $right ) = @_;
+
+	foreach my $family ( AF_INET, AF_INET6 ) {
+		my $left_packed  = inet_pton( $family, $left );
+		my $right_packed = inet_pton( $family, $right );
+		if ( defined($left_packed) && defined($right_packed) ) {
+			return $left_packed eq $right_packed ? 1 : 0;
+		}
+	}
+
+	return 0;
+} ## end sub _rdns_addr_eq
 
 # loads one namtar list slot into the galla's cache, keyed by (type, nocase,
 # path) so a file read as cidr and as strings stay independent... one entry
@@ -2885,10 +3399,143 @@ sub _register_subnet_hit {
 	return;
 } ## end sub _register_subnet_hit
 
+# filters and transforms a offender list per the watcher's usedns... IPs
+# pass untouched, hostnames are dropped (no), resolved into their
+# addresses (resolve_seen), or passed through to count by name
+# (resolve_ban)
+sub _usedns_offenders {
+	my ( $self, $watcher_name, $offenders ) = @_;
+
+	my $mode = $self->{watchers}{$watcher_name}{settings}{usedns};
+	my @kept;
+	foreach my $offender ( @{$offenders} ) {
+		if ( defined( ip_family($offender) ) || $mode eq 'resolve_ban' ) {
+			push( @kept, $offender );
+			next;
+		}
+		if ( $mode eq 'resolve_seen' ) {
+			my $addrs = $self->_resolve_hostname($offender);
+			if ( defined($addrs) ) {
+				push( @kept, @{$addrs} );
+			}
+			next;
+		}
+		# no... a hostname names nobody banishable, though the match still
+		# wrote to EVE
+		$self->_tick( 'hostname_dropped', $watcher_name );
+	} ## end foreach my $offender ( @{$offenders} )
+
+	return @kept;
+} ## end sub _usedns_offenders
+
+# resolves a hostname to its addresses through the optional resolver,
+# cached both ways, capped, and fenced... the ignored and the internal are
+# dropped post-resolution absolutely, since the name was hostile input and
+# must never aim Kur at your own, and a name resolving past
+# usedns_max_addrs is refused whole rather than trimmed. failing closed
+# every way... the failure mode is no ban, never a wrong one. returns a
+# array ref of addresses, possibly empty, or undef for unresolvable or
+# refused
+sub _resolve_hostname {
+	my ( $self, $hostname ) = @_;
+
+	my $now    = time;
+	my $cached = $self->{dns_cache}{$hostname};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{addrs};
+	}
+
+	my $addrs;
+	if ( defined( $self->{dns_resolve} ) ) {
+		$addrs = eval { $self->{dns_resolve}->($hostname); };
+		if ( $@ || ref($addrs) ne 'ARRAY' ) {
+			$addrs = undef;
+		}
+	}
+
+	if ( defined($addrs) && scalar( @{$addrs} ) > $self->{usedns_max_addrs} ) {
+		log_drek(
+			'err',
+			'"'
+				. $hostname
+				. '" resolves to '
+				. scalar( @{$addrs} )
+				. ' addresses, past usedns_max_addrs... refused whole, banishing nobody',
+			undef,
+			'galla-' . $self->{name}
+		);
+		$addrs = undef;
+	} ## end if ( defined($addrs) && scalar( @{$addrs} ...))
+
+	if ( defined($addrs) ) {
+		my @kept;
+		foreach my $addr ( @{$addrs} ) {
+			if ( !defined( ip_family($addr) ) ) {
+				next;
+			}
+			if ( ip_ignored( $self->{ignore_ips}, $addr ) || ip_ignored( $self->{internal}, $addr ) ) {
+				next;
+			}
+			push( @kept, $addr );
+		}
+		$addrs = \@kept;
+	} else {
+		$self->_tick('dns_failures');
+	}
+
+	# bound the cache the way the other stores are bounded
+	if ( !defined( $self->{dns_cache}{$hostname} ) && scalar( keys( %{ $self->{dns_cache} } ) ) >= 10000 ) {
+		foreach my $key ( keys( %{ $self->{dns_cache} } ) ) {
+			if ( $self->{dns_cache}{$key}{expires} <= $now ) {
+				delete( $self->{dns_cache}{$key} );
+			}
+		}
+		if ( scalar( keys( %{ $self->{dns_cache} } ) ) >= 10000 ) {
+			my ($soonest) = sort { $self->{dns_cache}{$a}{expires} <=> $self->{dns_cache}{$b}{expires} }
+				keys( %{ $self->{dns_cache} } );
+			delete( $self->{dns_cache}{$soonest} );
+		}
+	} ## end if ( !defined( $self->{dns_cache}{$hostname...}))
+	$self->{dns_cache}{$hostname} = { 'addrs' => $addrs, 'expires' => $now + 60 };
+
+	return $addrs;
+} ## end sub _resolve_hostname
+
+# banishes what a hostname names... the resolve_ban terminal. resolution
+# failing or refusing means no ban at all, said loudly... a hostname is
+# never queued for retry, since what a name means changes with whoever
+# controls it
+sub _ban_hostname {
+	my ( $self, $hostname, $ban_time, $context, $score ) = @_;
+
+	delete( $self->{pending_bans}{$hostname} );
+
+	my $addrs = $self->_resolve_hostname($hostname);
+	if ( !defined($addrs) || !@{$addrs} ) {
+		log_drek( 'err',
+			'"' . $hostname . '" crossed the threshold but resolved to nothing banishable... banishing nobody',
+			undef, 'galla-' . $self->{name} );
+		return;
+	}
+
+	foreach my $addr ( @{$addrs} ) {
+		my $addr_context = ref($context) eq 'HASH' ? { %{$context}, 'hostname' => $hostname } : undef;
+		$self->_ban_ip( $addr, $ban_time, $addr_context, $score );
+	}
+
+	return;
+} ## end sub _ban_hostname
+
 # banishes a IP to Kur, queueing it for retry by the sweeper if the
 # Ereshkigal manager could not be reached
 sub _ban_ip {
 	my ( $self, $ip, $ban_time, $context, $score ) = @_;
+
+	# a target that is not a IP is a hostname a resolve_ban rule counted
+	# by... resolve it now, at the threshold, and banish what survives
+	if ( !defined( ip_family($ip) ) ) {
+		return $self->_ban_hostname( $ip, $ban_time, $context, $score );
+	}
 
 	my $ident = 'galla-' . $self->{name};
 
@@ -2916,8 +3563,11 @@ sub _ban_ip {
 		'banish',
 		{
 			'ip' => $ip,
-			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
-			defined($country)  ? ( 'country'  => $country )  : (),
+			( defined($context) && defined( $context->{hostname} ) )
+			? ( 'hostname' => $context->{hostname} )
+			: (),
+			defined($ban_time) ? ( 'ban_time' => $ban_time )                 : (),
+			defined($country)  ? ( 'country' => $country )                   : (),
 			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
 		}
 	);

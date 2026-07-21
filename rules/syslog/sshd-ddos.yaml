@@ -1,0 +1,100 @@
+---
+# Matches pre-auth connection abuse... port scanners, banner probes, and
+# connect-disconnect floods that never try a credential. Based on the
+# fail2ban sshd filter's ddos mode. The kex banner failures name no
+# address, so they resolve through the session... keyed on the logging
+# sshd[pid] itself, the address harvested from the connect announcement
+# and the non-preauth closes fail2ban tags nofail. The offenses
+# syslog/sshd already carries (identification string, bad protocol
+# version, banner exchange) are not repeated here... run this beside it,
+# not instead. Preauth disconnects are routine noise on any public sshd,
+# so opt in knowingly.
+msg: "[SSHD] pre-auth abuse / scanner disconnect"
+severity: medium
+classtype: network-scan
+daemons:
+  - sshd
+  - sshd-session
+capture_regexp:
+  - regexp: '^Connection from %%%%SRC%%%% port \d+'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    ttl: 120
+  - regexp: '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*$'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    ttl: 120
+message_regexp:
+  # a preauth close is the offense itself and carries its address
+  - '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]'
+  # the kex banner failures... no address of their own, the session's is used
+  - regexp: '^(?:(?:error|fatal): )?kex_exchange_identification: (?:read: )?(?:[cC]lient sent invalid protocol identifier|[cC]onnection (?:closed by remote host|reset by peer))'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+  - regexp: '^(?:(?:error|fatal): )?Read from socket failed: Connection reset by peer'
+    key: [ syslog.host, syslog.daemon, syslog.pid ]
+    defer: 120
+ban_var:
+  - SRC
+tests:
+  positive:
+    # address first... the connect announcement resolves the kex failure
+    - messages:
+        - 'Feb 17 17:40:17 host sshd[19725]: Connection from 192.0.2.10 port 62004 on 192.0.2.10 port 22'
+        - 'Feb 17 17:40:17 host sshd[19725]: error: kex_exchange_identification: client sent invalid protocol identifier ""'
+      found: 1
+      data:
+        SRC: "192.0.2.10"
+    # offense first... the deferred kex failure completes on the close
+    - messages:
+        - 'Jun  7 04:10:35 host sshd[424228]: error: kex_exchange_identification: Connection closed by remote host'
+        - 'Jun  7 04:10:35 host sshd[424228]: Connection closed by 192.0.2.15 port 35352'
+      found: 1
+      data:
+        SRC: "192.0.2.15"
+    - messages:
+        - 'Jun  7 04:29:10 host sshd[649921]: Connection from 192.0.2.16 port 51280 on 192.0.2.16 port 22 rdomain ""'
+        - 'Jun  7 04:29:10 host sshd[649921]: error: kex_exchange_identification: read: Connection reset by peer'
+      found: 1
+      data:
+        SRC: "192.0.2.16"
+    - messages:
+        - 'Jul 12 08:15:50 host sshd[7311]: Connection from 198.51.100.7 port 40001'
+        - 'Jul 12 08:15:51 host sshd[7311]: Read from socket failed: Connection reset by peer'
+      found: 1
+      data:
+        SRC: "198.51.100.7"
+    # preauth closes carry their address and stand alone
+    - message: "Mar 15 09:21:01 host sshd[2717]: Connection closed by 192.0.2.212 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.212"
+    - message: "Jul 18 17:19:11 srv sshd[2101]: Disconnected from 192.0.2.4 port 36985 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    - message: "Mar 16 09:29:50 host sshd[19131]: Connection reset by authenticating user root 192.0.2.20 port 1558 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.20"
+    # a hostile username carrying an address must not fool the capture
+    - message: "Jul 17 23:04:01 srv sshd[1300]: Connection closed by authenticating user test 127.0.0.1 port 12345 192.0.2.11 port 46039 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.11"
+    # the empty username shape
+    - message: "Jun  6 04:17:09 host sshd[1189074]: Connection closed by invalid user  192.0.2.68 port 34916 [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.68"
+  negative:
+    # a non-preauth close is a session address, not an offense
+    - message: "Jun  7 04:29:10 host sshd[649921]: Connection reset by 192.0.2.16 port 51280"
+      found: 0
+    # a kex failure with no session context resolves nothing
+    - message: "Jun  7 04:10:35 host sshd[424228]: error: kex_exchange_identification: Connection closed by remote host"
+      found: 0
+    - message: "Mar  1 18:59:33 hostname sshd[1189575]: error: kex_exchange_identification: banner line too long"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      found: 0
+      undefed: ["SRC"]
