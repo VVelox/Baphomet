@@ -173,6 +173,7 @@ sub new {
 	$self->{enable_rdns}        = $config->{enable_rdns};
 	$self->{rdns_timeout}       = $config->{rdns_timeout};
 	$self->{rdns_cache}         = {};
+	$self->{country_cache}      = {};
 	$self->{dns_reverse}        = undef;
 	$self->{dns_forward}        = undef;
 	$self->{hostname}           = Sys::Hostname::hostname();
@@ -280,11 +281,7 @@ sub new {
 	# just for a missing dir... a unwritable one is only logged, as
 	# telemetry should never take the galla down
 	if ( $self->{eve_enable} ) {
-		my $eve_dir = $self->{eve_log};
-		$eve_dir =~ s{/[^/]*$}{};
-		if ( $eve_dir ne '' && !-e $eve_dir ) {
-			eval { mkdir($eve_dir); };
-		}
+		$self->_ensure_eve_dir;
 	}
 
 	eval { $self->{rules} = App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir} ); };
@@ -315,69 +312,40 @@ sub new {
 
 		# resolve each rule's country gate against this watcher's country
 		# code lists... rule objects are shared across watchers but the lists
-		# layer per watcher, so the resolved gate lives on the binding, not
-		# the rule. a import of a undefined list is fatal, like a bad rule
-		my $watcher_codes = resolve_country_codes( $config, $kur_settings, $watcher );
-		my @country_gates;
-		for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
-			my $gate;
-			if ( defined( $rule_objs[$i] ) ) {
-				eval {
-					$gate = $self->_resolve_country_gate( $rule_objs[$i], $watcher_codes,
-						'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
-				};
-				if ($@) {
-					$self->{perror}      = 1;
-					$self->{error}       = 6;
-					$self->{errorString} = $@;
-					$self->warn;
-				}
-			} ## end if ( defined( $rule_objs[$i] ) )
-			push( @country_gates, $gate );
-		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
-
-		# and the namtar_list gates the same way... the list names resolve to
-		# the watcher's file paths, the files themselves loaded and mtime
-		# refreshed on the galla, not frozen here
-		my $watcher_namtar = resolve_namtar_lists( $config, $kur_settings, $watcher );
-		my @namtar_gates;
-		for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
-			my $gate;
-			if ( defined( $rule_objs[$i] ) ) {
-				eval {
-					$gate = $self->_resolve_namtar_gate( $rule_objs[$i], $watcher_namtar,
-						'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
-				};
-				if ($@) {
-					$self->{perror}      = 1;
-					$self->{error}       = 6;
-					$self->{errorString} = $@;
-					$self->warn;
-				}
-			} ## end if ( defined( $rule_objs[$i] ) )
-			push( @namtar_gates, $gate );
-		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
-
-		# and the active_time gates... the window names resolve to the
-		# watcher's specs, compiled here as pure config that nothing reloads
-		my $watcher_active = resolve_active_time( $config, $kur_settings, $watcher );
-		my @active_gates;
-		for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
-			my $gate;
-			if ( defined( $rule_objs[$i] ) ) {
-				eval {
-					$gate = $self->_resolve_active_time_gate( $rule_objs[$i], $watcher_active,
-						'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
-				};
-				if ($@) {
-					$self->{perror}      = 1;
-					$self->{error}       = 6;
-					$self->{errorString} = $@;
-					$self->warn;
-				}
-			} ## end if ( defined( $rule_objs[$i] ) )
-			push( @active_gates, $gate );
-		} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
+		# layer per watcher, so each resolved gate lives on the binding, not
+		# the rule. a import of a undefined list is fatal, like a bad rule.
+		# country, namtar_list, and active_time resolve identically, so one
+		# loop over a dispatch list covers all three... the namtar files
+		# themselves are loaded and mtime refreshed on the galla, not frozen
+		# here, while active_time compiles to pure config nothing reloads
+		my @gate_families = (
+			[ '_resolve_country_gate',     resolve_country_codes( $config, $kur_settings, $watcher ) ],
+			[ '_resolve_namtar_gate',      resolve_namtar_lists( $config, $kur_settings, $watcher ) ],
+			[ '_resolve_active_time_gate', resolve_active_time( $config, $kur_settings, $watcher ) ],
+		);
+		my @resolved_gate_lists;
+		foreach my $family (@gate_families) {
+			my ( $resolver, $watcher_layered ) = @{$family};
+			my @gates;
+			for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
+				my $gate;
+				if ( defined( $rule_objs[$i] ) ) {
+					eval {
+						$gate = $self->$resolver( $rule_objs[$i], $watcher_layered,
+							'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
+					};
+					if ($@) {
+						$self->{perror}      = 1;
+						$self->{error}       = 6;
+						$self->{errorString} = $@;
+						$self->warn;
+					}
+				} ## end if ( defined( $rule_objs[$i] ) )
+				push( @gates, $gate );
+			} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
+			push( @resolved_gate_lists, \@gates );
+		} ## end foreach my $family (@gate_families)
+		my ( $country_gates, $namtar_gates, $active_gates ) = @resolved_gate_lists;
 
 		# the joiner, compiled... check_kur_def already vetted it, so a die
 		# here is the same config error it already flagged
@@ -399,9 +367,9 @@ sub new {
 			'join'            => $join_compiled,
 			'rules'           => \@rule_names,
 			'rule_objs'       => \@rule_objs,
-			'country_gates'   => \@country_gates,
-			'namtar_gates'    => \@namtar_gates,
-			'active_gates'    => \@active_gates,
+			'country_gates'   => $country_gates,
+			'namtar_gates'    => $namtar_gates,
+			'active_gates'    => $active_gates,
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
 			'wheels'          => {},
 			'journal_wheel'   => undef,
@@ -424,14 +392,10 @@ sub new {
 		}
 		if ($has_detection) {
 			$self->{eve_enable} = 1;
-			my $eve_dir = $self->{eve_log};
-			$eve_dir =~ s{/[^/]*$}{};
-			if ( $eve_dir ne '' && !-e $eve_dir ) {
-				eval { mkdir($eve_dir); };
-			}
+			$self->_ensure_eve_dir;
 			log_drek( 'info', 'a detection rule is loaded... EVE output enabled to ' . $self->{eve_log},
 				undef, 'galla-' . $self->{name} );
-		} ## end if ($has_detection)
+		}
 	} ## end if ( !$self->{eve_enable} )
 
 	# a resolve usedns with out the machinery behind it behaves as no...
@@ -721,33 +685,10 @@ sub checkpoint {
 		}
 	);
 
-	# pending bans... ip,ban_time, ban_time empty meaning undef
-	$self->_write_tablet(
-		'pending',
-		sub {
-			my ($fh) = @_;
-			print $fh "ip,ban_time\n";
-			foreach my $ip ( sort( keys( %{ $self->{pending_bans} } ) ) ) {
-				print $fh $ip . ','
-					. ( defined( $self->{pending_bans}{$ip} ) ? $self->{pending_bans}{$ip} : '' ) . "\n";
-			}
-		}
-	);
-
-	# pending CIDR bans... net,ban_time, ban_time empty meaning undef, the twin
-	# of pending for a subnet ban the manager could not be reached for
-	$self->_write_tablet(
-		'pending_cidr',
-		sub {
-			my ($fh) = @_;
-			print $fh "net,ban_time\n";
-			foreach my $network ( sort( keys( %{ $self->{pending_cidr_bans} } ) ) ) {
-				print $fh $network . ','
-					. ( defined( $self->{pending_cidr_bans}{$network} ) ? $self->{pending_cidr_bans}{$network} : '' )
-					. "\n";
-			}
-		}
-	);
+	# pending bans... ip,ban_time, and its CIDR twin net,ban_time, ban_time
+	# empty meaning undef, for bans the manager could not be reached for
+	$self->_write_pending_tablet( 'pending',      'ip',  $self->{pending_bans} );
+	$self->_write_pending_tablet( 'pending_cidr', 'net', $self->{pending_cidr_bans} );
 
 	# log positions... file,inode,offset
 	$self->_write_tablet(
@@ -902,8 +843,8 @@ sub _load_state {
 	$self->_load_subnet($now);
 	$self->_load_counters($now);
 	$self->_load_distinct($now);
-	$self->_load_pending_bans;
-	$self->_load_pending_cidr_bans;
+	$self->_load_pending_tablet( 'pending',      'ip',  $self->{pending_bans} );
+	$self->_load_pending_tablet( 'pending_cidr', 'net', $self->{pending_cidr_bans} );
 	$self->_load_positions;
 	$self->_load_cursors;
 	$self->_load_stats;
@@ -1059,47 +1000,44 @@ sub _load_distinct {
 	return;
 } ## end sub _load_distinct
 
-# pending bans... an ip and, optionally, the ban_time it is owed
-sub _load_pending_bans {
-	my ($self) = @_;
+# pending bans, the ip and cidr flavors alike... a subject and, optionally,
+# the ban_time it is owed
+sub _load_pending_tablet {
+	my ( $self, $kind, $key_column, $store ) = @_;
 
 	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet('pending') ) {
+	foreach my $line ( $self->_read_tablet($kind) ) {
 		$line_int++;
-		if ( ( $line_int == 1 && $line =~ /^ip,/ ) || $line eq '' ) {
+		if ( ( $line_int == 1 && $line =~ /^\Q$key_column\E,/ ) || $line eq '' ) {
 			next;
 		}
-		my ( $ip, $ban_time ) = split( /,/, $line );
-		if ( !defined($ip) || $ip eq '' ) {
+		my ( $subject, $ban_time ) = split( /,/, $line );
+		if ( !defined($subject) || $subject eq '' ) {
 			next;
 		}
-		$self->{pending_bans}{$ip} = ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
-	} ## end foreach my $line ( $self->_read_tablet('pending'...))
+		$store->{$subject} = ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
+	} ## end foreach my $line ( $self->_read_tablet($kind) )
 
 	return;
-} ## end sub _load_pending_bans
+} ## end sub _load_pending_tablet
 
-# pending CIDR bans... a network and, optionally, the ban_time it is owed. the
-# twin of _load_pending_bans for the subnet case
-sub _load_pending_cidr_bans {
-	my ($self) = @_;
+# the writer twin... subject,ban_time with a empty ban_time meaning undef
+sub _write_pending_tablet {
+	my ( $self, $kind, $key_column, $store ) = @_;
 
-	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet('pending_cidr') ) {
-		$line_int++;
-		if ( ( $line_int == 1 && $line =~ /^net,/ ) || $line eq '' ) {
-			next;
+	$self->_write_tablet(
+		$kind,
+		sub {
+			my ($fh) = @_;
+			print $fh $key_column . ",ban_time\n";
+			foreach my $subject ( sort( keys( %{$store} ) ) ) {
+				print $fh $subject . ',' . ( defined( $store->{$subject} ) ? $store->{$subject} : '' ) . "\n";
+			}
 		}
-		my ( $network, $ban_time ) = split( /,/, $line );
-		if ( !defined($network) || $network eq '' ) {
-			next;
-		}
-		$self->{pending_cidr_bans}{$network}
-			= ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
-	} ## end foreach my $line ( $self->_read_tablet('pending_cidr'...))
+	);
 
 	return;
-} ## end sub _load_pending_cidr_bans
+} ## end sub _write_pending_tablet
 
 # log positions... the saved inode and offset a file was last read to
 sub _load_positions {
@@ -2355,7 +2293,9 @@ sub _open_geoip {
 
 # the uppercased ISO country code of a IP per the GeoIP database, or undef
 # when there is no database, the value is not a locatable address, or it
-# carries no country... a country lookup dies on a bad address, so eval it
+# carries no country... a country lookup dies on a bad address, so eval it.
+# answers are cached 60 seconds like the DNS ones, as this was the one
+# uncached per-line gate lookup
 sub _country_of {
 	my ( $self, $ip ) = @_;
 
@@ -2363,15 +2303,23 @@ sub _country_of {
 		return undef;
 	}
 
-	my $record;
-	eval { $record = $self->{geoip}->record_for_address($ip); };
-	if ( $@ || ref($record) ne 'HASH' || ref( $record->{country} ) ne 'HASH' ) {
-		return undef;
+	my $now    = time;
+	my $cached = $self->{country_cache}{$ip};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{iso};
 	}
 
-	my $iso = $record->{country}{iso_code};
+	my $record;
+	eval { $record = $self->{geoip}->record_for_address($ip); };
+	my $iso;
+	if ( !$@ && ref($record) eq 'HASH' && ref( $record->{country} ) eq 'HASH' ) {
+		$iso = defined( $record->{country}{iso_code} ) ? uc( $record->{country}{iso_code} ) : undef;
+	}
 
-	return defined($iso) ? uc($iso) : undef;
+	$self->_bound_expiring_store( $self->{country_cache}, $ip, $now );
+	$self->{country_cache}{$ip} = { 'iso' => $iso, 'expires' => $now + 60 };
+
+	return $iso;
 } ## end sub _country_of
 
 # resolves a rule's country gate against a watcher's country code lists into
@@ -2604,18 +2552,7 @@ sub _rdns_cached {
 	}
 
 	# bound the cache the way the other stores are bounded
-	if ( !defined( $self->{rdns_cache}{$cache_key} ) && scalar( keys( %{ $self->{rdns_cache} } ) ) >= 10000 ) {
-		foreach my $key ( keys( %{ $self->{rdns_cache} } ) ) {
-			if ( $self->{rdns_cache}{$key}{expires} <= $now ) {
-				delete( $self->{rdns_cache}{$key} );
-			}
-		}
-		if ( scalar( keys( %{ $self->{rdns_cache} } ) ) >= 10000 ) {
-			my ($soonest) = sort { $self->{rdns_cache}{$a}{expires} <=> $self->{rdns_cache}{$b}{expires} }
-				keys( %{ $self->{rdns_cache} } );
-			delete( $self->{rdns_cache}{$soonest} );
-		}
-	} ## end if ( !defined( $self->{rdns_cache}{$cache_key...}))
+	$self->_bound_expiring_store( $self->{rdns_cache}, $cache_key, $now );
 	$self->{rdns_cache}{$cache_key} = { 'answer' => $answer, 'expires' => $now + 60 };
 
 	return $answer;
@@ -3019,6 +2956,36 @@ sub _mark_gates_pass {
 	return 1;
 } ## end sub _mark_gates_pass
 
+# bounds a store of expiring entries at the shared 10000 cap ahead of
+# inserting a new key... expired entries are pruned first, then the soonest
+# to expire is evicted, found by a linear min-scan rather than a sort, as
+# this can run per line under a deliberate key flood. the twin of the
+# rules-side store bound in App::Baphomet::Rules::Base
+sub _bound_expiring_store {
+	my ( $self, $store, $key_value, $now ) = @_;
+
+	if ( defined( $store->{$key_value} ) || scalar( keys( %{$store} ) ) < 10000 ) {
+		return;
+	}
+
+	foreach my $key ( keys( %{$store} ) ) {
+		if ( $store->{$key}{expires} <= $now ) {
+			delete( $store->{$key} );
+		}
+	}
+	if ( scalar( keys( %{$store} ) ) >= 10000 ) {
+		my $soonest;
+		foreach my $key ( keys( %{$store} ) ) {
+			if ( !defined($soonest) || $store->{$key}{expires} < $store->{$soonest}{expires} ) {
+				$soonest = $key;
+			}
+		}
+		delete( $store->{$soonest} );
+	}
+
+	return;
+} ## end sub _bound_expiring_store
+
 # brands a key into a mark name's store... setting refreshes the expiry,
 # and a full store first drops the expired, then the soonest-expiring,
 # same bounds as the rules' correlation stores
@@ -3030,17 +2997,7 @@ sub _mark_set {
 		$store = $self->{marks}{$name} = {};
 	}
 
-	if ( !defined( $store->{$key} ) && scalar( keys( %{$store} ) ) >= 10000 ) {
-		foreach my $held ( keys( %{$store} ) ) {
-			if ( $store->{$held}{expires} <= $now ) {
-				delete( $store->{$held} );
-			}
-		}
-		if ( scalar( keys( %{$store} ) ) >= 10000 ) {
-			my ($soonest) = sort { $store->{$a}{expires} <=> $store->{$b}{expires} } keys( %{$store} );
-			delete( $store->{$soonest} );
-		}
-	} ## end if ( !defined( $store->{$key} ) && scalar(...))
+	$self->_bound_expiring_store( $store, $key, $now );
 
 	# the set time is first-seen... a re-brand refreshes the expiry but keeps
 	# when the mark first appeared, so the sequence gate orders by when each
@@ -3067,10 +3024,19 @@ sub _mark_set {
 sub _apply_marks {
 	my ( $self, $rule_obj, $data, $offenders, $now ) = @_;
 
+	my $marks   = $rule_obj->marks;
+	my $unmarks = $rule_obj->unmarks;
+
+	# the overwhelmingly common rule carries neither, so it skips the
+	# per-offender ignore_ips walk entirely
+	if ( !@{$marks} && !@{$unmarks} ) {
+		return ( [], [] );
+	}
+
 	my @brandable = grep { !ip_ignored( $self->{ignore_ips}, $_ ) } @{$offenders};
 
 	my @set;
-	foreach my $entry ( @{ $rule_obj->marks } ) {
+	foreach my $entry ( @{$marks} ) {
 		my $value = defined( $entry->{value_var} ) ? $data->{ $entry->{value_var} } : undef;
 		my @keys
 			= defined( $entry->{var} )
@@ -3083,7 +3049,7 @@ sub _apply_marks {
 	} ## end foreach my $entry ( @{ $rule_obj->marks } )
 
 	my @lifted;
-	foreach my $entry ( @{ $rule_obj->unmarks } ) {
+	foreach my $entry ( @{$unmarks} ) {
 		my @keys
 			= defined( $entry->{var} )
 			? ( defined( $data->{ $entry->{var} } ) ? ( $data->{ $entry->{var} } ) : () )
@@ -3263,7 +3229,14 @@ sub _register_hit {
 					}
 				}
 				if ( scalar( keys( %{$set} ) ) >= 10000 ) {
-					my ($oldest) = sort { $set->{$a} <=> $set->{$b} } keys( %{$set} );
+					# a linear min-scan, not a sort... this is the per-line
+					# path under a deliberate value flood
+					my $oldest;
+					foreach my $held ( keys( %{$set} ) ) {
+						if ( !defined($oldest) || $set->{$held} < $set->{$oldest} ) {
+							$oldest = $held;
+						}
+					}
 					delete( $set->{$oldest} );
 				}
 			} ## end if ( !defined( $set->{$of_value} ) && scalar...)
@@ -3328,10 +3301,7 @@ sub _register_hit {
 	# matches older than find_time no longer count
 	@{ $bucket->{$ip} } = grep { ( $now - $_->[0] ) < $find_time } @{ $bucket->{$ip} };
 
-	my $score = 0;
-	foreach my $entry ( @{ $bucket->{$ip} } ) {
-		$score += $entry->[1];
-	}
+	my $score = _score_of( $bucket->{$ip} );
 
 	if ( $score >= $max_score ) {
 		delete( $bucket->{$ip} );
@@ -3399,10 +3369,7 @@ sub _register_subnet_hit {
 	# deposits older than the subnet find_time no longer count
 	@{ $bucket->{$network} } = grep { ( $now - $_->[0] ) < $find_time } @{ $bucket->{$network} };
 
-	my $score = 0;
-	foreach my $entry ( @{ $bucket->{$network} } ) {
-		$score += $entry->[1];
-	}
+	my $score = _score_of( $bucket->{$network} );
 	if ( $score < $max_score ) {
 		return;
 	}
@@ -3529,18 +3496,7 @@ sub _resolve_hostname {
 	}
 
 	# bound the cache the way the other stores are bounded
-	if ( !defined( $self->{dns_cache}{$hostname} ) && scalar( keys( %{ $self->{dns_cache} } ) ) >= 10000 ) {
-		foreach my $key ( keys( %{ $self->{dns_cache} } ) ) {
-			if ( $self->{dns_cache}{$key}{expires} <= $now ) {
-				delete( $self->{dns_cache}{$key} );
-			}
-		}
-		if ( scalar( keys( %{ $self->{dns_cache} } ) ) >= 10000 ) {
-			my ($soonest) = sort { $self->{dns_cache}{$a}{expires} <=> $self->{dns_cache}{$b}{expires} }
-				keys( %{ $self->{dns_cache} } );
-			delete( $self->{dns_cache}{$soonest} );
-		}
-	} ## end if ( !defined( $self->{dns_cache}{$hostname...}))
+	$self->_bound_expiring_store( $self->{dns_cache}, $hostname, $now );
 	$self->{dns_cache}{$hostname} = { 'addrs' => $addrs, 'expires' => $now + 60 };
 
 	return $addrs;
@@ -4123,6 +4079,20 @@ sub _cmd_status {
 		'recidive'          => defined( $self->{recidive} ) ? $self->{recidive}{kur} : undef,
 	};
 } ## end sub _cmd_status
+
+# makes the EVE log's dir if it is missing, best effort... telemetry
+# should never take the galla down
+sub _ensure_eve_dir {
+	my ($self) = @_;
+
+	my $eve_dir = $self->{eve_log};
+	$eve_dir =~ s{/[^/]*$}{};
+	if ( $eve_dir ne '' && !-e $eve_dir ) {
+		mkdir($eve_dir);
+	}
+
+	return;
+} ## end sub _ensure_eve_dir
 
 # sums the weights of a bucket's [epoch, weight] entries into its score
 sub _score_of {

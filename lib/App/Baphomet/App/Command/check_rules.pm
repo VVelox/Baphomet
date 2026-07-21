@@ -51,12 +51,6 @@ sub opt_spec {
 	);
 }
 
-sub validate_args {
-	my ( $self, $opt, $args ) = @_;
-
-	return;
-}
-
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 

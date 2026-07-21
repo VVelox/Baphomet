@@ -13,6 +13,7 @@ use App::Baphomet::Parser::JSONSyslog  ();
 use App::Baphomet::Parser::NginxError  ();
 use App::Baphomet::Parser::Raw         ();
 use App::Baphomet::Parser::Syslog      ();
+use JSON::MaybeXS                      qw( decode_json );
 
 =pod
 
@@ -226,6 +227,32 @@ sub pri_decompose {
 	my $severity = $pri % 8;
 	return ( int( $pri / 8 ), $severity, severity_name($severity) );
 } ## end sub pri_decompose
+
+=head2 decode_json_line
+
+Decodes a line expected to be a JSON object, returning the hash or undef
+for anything else... undef, not brace-led, unparsable, or parsing to a
+non-hash. The shared prologue of the JSON-shaped parsers.
+
+    my $decoded = App::Baphomet::Parser::decode_json_line($line);
+
+=cut
+
+sub decode_json_line {
+	my ($line) = @_;
+
+	if ( !defined($line) || $line !~ /^\s*\{/ ) {
+		return undef;
+	}
+
+	my $decoded;
+	eval { $decoded = decode_json($line); };
+	if ( $@ || ref($decoded) ne 'HASH' ) {
+		return undef;
+	}
+
+	return $decoded;
+} ## end sub decode_json_line
 
 =head2 known_parsers
 

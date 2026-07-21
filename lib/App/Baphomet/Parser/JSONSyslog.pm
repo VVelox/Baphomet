@@ -3,7 +3,6 @@ package App::Baphomet::Parser::JSONSyslog;
 use 5.006;
 use strict;
 use warnings;
-use JSON::MaybeXS qw( decode_json );
 # only used at runtime, so the circular use with the dispatcher is harmless
 use App::Baphomet::Parser ();
 
@@ -89,29 +88,31 @@ L<App::Baphomet::Parser>, or undef if the line could not be parsed.
 sub parse {
 	my ($line) = @_;
 
-	if ( !defined($line) || $line !~ /^\s*\{/ ) {
+	my $decoded = App::Baphomet::Parser::decode_json_line($line);
+	if ( !defined($decoded) ) {
 		return undef;
 	}
 
-	my $decoded;
-	eval { $decoded = decode_json($line); };
-	if ( $@ || ref($decoded) ne 'HASH' ) {
-		return undef;
-	}
-
-	# case folded lookup, empty strings counting as absent
+	# case folded lookup of just the envelope keys wanted below, empty
+	# strings counting as absent... a typical syslog-ng object carries many
+	# SDATA and custom pairs this has no use for, so only the wanted few are
+	# kept rather than copying the whole object per line
 	my %fields;
 	my $message_key_present = 0;
 	foreach my $key ( keys( %{$decoded} ) ) {
+		my $folded = uc($key);
+		if ( $folded !~ /^(?:MESSAGE|LEVEL_NUM|PRIORITY|FACILITY|FACILITY_NUM|ISODATE|DATE|HOST|PROGRAM|PID)$/ ) {
+			next;
+		}
 		if ( defined( $decoded->{$key} ) && ref( $decoded->{$key} ) eq '' ) {
-			if ( uc($key) eq 'MESSAGE' ) {
+			if ( $folded eq 'MESSAGE' ) {
 				$message_key_present = 1;
 			}
 			if ( $decoded->{$key} ne '' ) {
-				$fields{ uc($key) } = $decoded->{$key};
+				$fields{$folded} = $decoded->{$key};
 			}
 		}
-	}
+	} ## end foreach my $key ( keys( %{$decoded} ) )
 
 	# the MESSAGE key is the evidence this JSON is syslog shaped at all, so
 	# its absence is unparsed... but present-and-empty is a parsed line with

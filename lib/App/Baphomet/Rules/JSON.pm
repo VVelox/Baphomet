@@ -200,31 +200,11 @@ sub new {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
-	$self->_check_thresholds($def);
-	$self->_check_marks($def);
-	$self->_check_country($def);
-	$self->_check_namtar($def);
-	$self->_check_active_time($def);
-	$self->_check_reverse_dns($def);
-	$self->_check_distinct($def);
-	$self->_check_ip_vars($def);
+	$self->_check_common( $def, $name );
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var
-	if ( !$self->_check_detection_var( $def, $name ) ) {
-		if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
-			die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
-		}
-		foreach my $item ( @{ $def->{ban_var} } ) {
-			if ( !defined($item) || ref($item) ne '' ) {
-				die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
-			}
-		}
-	} ## end if ( !$self->_check_detection_var( $def, $name...))
-
-	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
-		die( 'The tests of the rule "' . $name . '" is not a hash' );
-	}
+	$self->_check_ban_var( $def, $name );
 
 	# the flat gate or the boolean selections+condition form, compiled in the
 	# base class and shared with the syslog and raw types
@@ -420,10 +400,7 @@ sub check {
 
 		# the stored context is the whole event... captures merged with the
 		# flattened fields, fields authoritative, same as a found's data
-		my %context = %{$capture_caps};
-		foreach my $field ( keys( %{$fields} ) ) {
-			$context{$field} = $fields->{$field};
-		}
+		my %context = ( %{$capture_caps}, %{$fields} );
 
 		my $key_value = $self->_correlation_key_value( $capture, \%context, undef );
 		if ( !defined($key_value) ) {
@@ -468,10 +445,7 @@ sub check {
 
 		if ( !$missed ) {
 			# the flattened fields merged with the captures, fields authoritative
-			my %data = %{$caps};
-			foreach my $field ( keys( %{$fields} ) ) {
-				$data{$field} = $fields->{$field};
-			}
+			my %data = ( %{$caps}, %{$fields} );
 			$found = { 'data' => \%data, 'regexp' => $matched };
 		}
 	} ## end if ( $self->_boolean_pass( $fields, undef ...))
@@ -523,17 +497,8 @@ sub check {
 
 =head2 ban_var
 
-Returns the list of data keys to use for bans.
-
-    my @ban_var = $rule->ban_var;
-
-=cut
-
-sub ban_var {
-	my ($self) = @_;
-
-	return @{ $self->{def}{ban_var} };
-}
+Returns the list of data keys to use for bans. Inherited from
+L<App::Baphomet::Rules::Base>.
 
 =head2 default_test_parser
 

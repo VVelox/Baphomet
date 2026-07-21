@@ -100,31 +100,11 @@ sub new {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
-	$self->_check_thresholds($def);
-	$self->_check_marks($def);
-	$self->_check_country($def);
-	$self->_check_namtar($def);
-	$self->_check_active_time($def);
-	$self->_check_reverse_dns($def);
-	$self->_check_distinct($def);
-	$self->_check_ip_vars($def);
+	$self->_check_common( $def, $name );
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var
-	if ( !$self->_check_detection_var( $def, $name ) ) {
-		if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
-			die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
-		}
-		foreach my $item ( @{ $def->{ban_var} } ) {
-			if ( !defined($item) || ref($item) ne '' ) {
-				die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
-			}
-		}
-	} ## end if ( !$self->_check_detection_var( $def, $name...))
-
-	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
-		die( 'The tests of the rule "' . $name . '" is not a hash' );
-	}
+	$self->_check_ban_var( $def, $name );
 
 	# a staged rule... its stages are the whole matcher, exclusive with the
 	# per-line matchers and the keyed correlation. the raw type has no
@@ -182,17 +162,8 @@ sub check {
 
 =head2 ban_var
 
-Returns the list of capture names to use for bans.
-
-    my @ban_var = $rule->ban_var;
-
-=cut
-
-sub ban_var {
-	my ($self) = @_;
-
-	return @{ $self->{def}{ban_var} };
-}
+Returns the list of capture names to use for bans. Inherited from
+L<App::Baphomet::Rules::Base>.
 
 =head2 default_test_parser
 

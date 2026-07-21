@@ -267,12 +267,11 @@ sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		name           => defined( $opts{name} ) ? $opts{name} : 'unnamed',
-		def            => $opts{def},
-		daemon_strings => {},
-		daemon_regexps => [],
-		gates          => [],
-		message_json   => 0,
+		name            => defined( $opts{name} ) ? $opts{name} : 'unnamed',
+		def             => $opts{def},
+		daemon_matchers => undef,
+		gates           => [],
+		message_json    => 0,
 	};
 	bless( $self, ref($blank) || $blank );
 
@@ -291,49 +290,18 @@ sub new {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
-	$self->_check_thresholds($def);
-	$self->_check_marks($def);
-	$self->_check_country($def);
-	$self->_check_namtar($def);
-	$self->_check_active_time($def);
-	$self->_check_reverse_dns($def);
-	$self->_check_distinct($def);
-	$self->_check_ip_vars($def);
+	$self->_check_common( $def, $name );
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var... daemons is required either way
-	my $is_detection = $self->_check_detection_var( $def, $name );
-	my @required     = $is_detection ? ('daemons') : ( 'daemons', 'ban_var' );
-	foreach my $key (@required) {
-		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
-			die( 'The rule "' . $name . '" lacks a ' . $key . ' array or it is empty' );
-		}
-		foreach my $item ( @{ $def->{$key} } ) {
-			if ( !defined($item) || ref($item) ne '' ) {
-				die( 'The ' . $key . ' of the rule "' . $name . '" contains a non-string entry' );
-			}
-		}
-	} ## end foreach my $key (@required)
-
-	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
-		die( 'The tests of the rule "' . $name . '" is not a hash' );
+	$self->_check_ban_var( $def, $name );
+	if ( ref( $def->{daemons} ) ne 'ARRAY' || !@{ $def->{daemons} } ) {
+		die( 'The rule "' . $name . '" lacks a daemons array or it is empty' );
 	}
 
 	# compile the daemons list... //...// entries are regexps, the rest are
-	# string equality checks
-	foreach my $daemon ( @{ $def->{daemons} } ) {
-		if ( $daemon =~ /^\/\/(.*)\/\/$/ ) {
-			my $regexp = $1;
-			my $compiled;
-			eval { $compiled = qr/$regexp/; };
-			if ($@) {
-				die( 'The daemons entry "' . $daemon . '" of the rule "' . $name . '" does not compile... ' . $@ );
-			}
-			push( @{ $self->{daemon_regexps} }, $compiled );
-		} else {
-			$self->{daemon_strings}{$daemon} = 1;
-		}
-	} ## end foreach my $daemon ( @{ $def->{daemons} } )
+	# string equality checks, the shared matcher shape
+	$self->{daemon_matchers} = $self->_compile_matchers( $def->{daemons}, 'The daemons of the rule "' . $name . '"' );
 
 	# when the daemon logs a JSON object as its message, decode it into fields
 	# the gate can test... message_regexp is then optional, the gate matching
@@ -414,22 +382,7 @@ sub check {
 	}
 
 	# the daemon gate
-	my $daemon = $parsed->{daemon};
-	if ( !defined($daemon) ) {
-		return undef;
-	}
-	my $daemon_matched = 0;
-	if ( defined( $self->{daemon_strings}{$daemon} ) ) {
-		$daemon_matched = 1;
-	} else {
-		foreach my $regexp ( @{ $self->{daemon_regexps} } ) {
-			if ( $daemon =~ $regexp ) {
-				$daemon_matched = 1;
-				last;
-			}
-		}
-	}
-	if ( !$daemon_matched ) {
+	if ( !$self->_matchers_hit( $self->{daemon_matchers}, $parsed->{daemon} ) ) {
 		return undef;
 	}
 
@@ -460,6 +413,13 @@ sub check {
 sub _message_json_extra {
 	my ( $self, $parsed ) = @_;
 
+	# the whole hash is memoised on the parsed line, not just the flatten...
+	# it is identical for every message_json rule on the watcher and only
+	# ever read, so one build serves them all
+	if ( exists( $parsed->{_message_json_extra} ) ) {
+		return $parsed->{_message_json_extra};
+	}
+
 	if ( !exists( $parsed->{_message_json_fields} ) ) {
 		$parsed->{_message_json_fields} = $self->_flatten_json_message( $parsed->{message} );
 	}
@@ -471,22 +431,14 @@ sub _message_json_extra {
 	if ( defined( $parsed->{time} ) )     { $extra{'syslog.time'}    = $parsed->{time}; }
 	if ( defined( $parsed->{message} ) )  { $extra{'syslog.message'} = $parsed->{message}; }
 
+	$parsed->{_message_json_extra} = \%extra;
 	return \%extra;
 } ## end sub _message_json_extra
 
 =head2 ban_var
 
-Returns the list of capture names to use for bans.
-
-    my @ban_var = $rule->ban_var;
-
-=cut
-
-sub ban_var {
-	my ($self) = @_;
-
-	return @{ $self->{def}{ban_var} };
-}
+Returns the list of capture names to use for bans. Inherited from
+L<App::Baphomet::Rules::Base>.
 
 =head2 run_tests
 

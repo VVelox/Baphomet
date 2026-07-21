@@ -57,6 +57,24 @@ either grammar.
 
 =cut
 
+# the three sniff orders, built once... this runs per line for every syslog
+# watcher, so no rebuilding the dispatch lists per call
+my $order_json = [
+	\&App::Baphomet::Parser::JSONSyslog::parse,
+	\&App::Baphomet::Parser::BSDSyslog::parse,
+	\&App::Baphomet::Parser::IETFSyslog::parse,
+];
+my $order_ietf = [
+	\&App::Baphomet::Parser::IETFSyslog::parse,
+	\&App::Baphomet::Parser::BSDSyslog::parse,
+	\&App::Baphomet::Parser::JSONSyslog::parse,
+];
+my $order_bsd = [
+	\&App::Baphomet::Parser::BSDSyslog::parse,
+	\&App::Baphomet::Parser::IETFSyslog::parse,
+	\&App::Baphomet::Parser::JSONSyslog::parse,
+];
+
 sub parse {
 	my ($line) = @_;
 
@@ -64,28 +82,16 @@ sub parse {
 		return undef;
 	}
 
-	my @order;
+	my $order;
 	if ( $line =~ /^\s*\{/ ) {
-		@order = (
-			\&App::Baphomet::Parser::JSONSyslog::parse,
-			\&App::Baphomet::Parser::BSDSyslog::parse,
-			\&App::Baphomet::Parser::IETFSyslog::parse,
-		);
+		$order = $order_json;
 	} elsif ( $line =~ /^\s*<\d{1,3}>\d/ ) {
-		@order = (
-			\&App::Baphomet::Parser::IETFSyslog::parse,
-			\&App::Baphomet::Parser::BSDSyslog::parse,
-			\&App::Baphomet::Parser::JSONSyslog::parse,
-		);
+		$order = $order_ietf;
 	} else {
-		@order = (
-			\&App::Baphomet::Parser::BSDSyslog::parse,
-			\&App::Baphomet::Parser::IETFSyslog::parse,
-			\&App::Baphomet::Parser::JSONSyslog::parse,
-		);
+		$order = $order_bsd;
 	}
 
-	foreach my $try (@order) {
+	foreach my $try ( @{$order} ) {
 		my $parsed = $try->($line);
 		if ( defined($parsed) ) {
 			return $parsed;

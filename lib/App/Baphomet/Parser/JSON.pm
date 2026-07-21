@@ -3,7 +3,8 @@ package App::Baphomet::Parser::JSON;
 use 5.006;
 use strict;
 use warnings;
-use JSON::MaybeXS qw( decode_json );
+# only used at runtime, so the circular use with the dispatcher is harmless
+use App::Baphomet::Parser ();
 
 =pod
 
@@ -85,13 +86,8 @@ not be parsed.
 sub parse {
 	my ($line) = @_;
 
-	if ( !defined($line) || $line !~ /^\s*\{/ ) {
-		return undef;
-	}
-
-	my $decoded;
-	eval { $decoded = decode_json($line); };
-	if ( $@ || ref($decoded) ne 'HASH' ) {
+	my $decoded = App::Baphomet::Parser::decode_json_line($line);
+	if ( !defined($decoded) ) {
 		return undef;
 	}
 

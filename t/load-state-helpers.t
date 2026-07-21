@@ -157,8 +157,8 @@ subtest '_load_distinct' => sub {
 }; ## end '_load_distinct' => sub
 
 #
-# _load_pending_bans... an ip with a ban_time, one without, header and empty
-# ip skipped
+# _load_pending_tablet... an ip with a ban_time, one without, header and
+# empty ip skipped
 #
 subtest '_load_pending_bans' => sub {
 	$galla->{pending_bans} = {};
@@ -172,7 +172,7 @@ subtest '_load_pending_bans' => sub {
 		],
 	);
 
-	$galla->_load_pending_bans;
+	$galla->_load_pending_tablet( 'pending', 'ip', $galla->{pending_bans} );
 
 	is( $galla->{pending_bans}{'7.7.7.7'}, 300, 'pending ban with duration restored' );
 	ok( exists( $galla->{pending_bans}{'6.6.6.6'} ),   'pending ban without duration recorded' );

@@ -800,11 +800,16 @@ counts if every gate holds.
 sub mark_gates {
 	my ($self) = @_;
 
-	return {
-		'marked'     => ref( $self->{def}{marked} ) eq 'ARRAY'     ? $self->{def}{marked}     : [],
-		'not_marked' => ref( $self->{def}{not_marked} ) eq 'ARRAY' ? $self->{def}{not_marked} : [],
-		'sequence'   => ref( $self->{def}{sequence} ) eq 'ARRAY'   ? $self->{def}{sequence}   : [],
-	};
+	# pure rule data, so built once... this is asked for on every match
+	if ( !defined( $self->{_mark_gates} ) ) {
+		$self->{_mark_gates} = {
+			'marked'     => ref( $self->{def}{marked} ) eq 'ARRAY'     ? $self->{def}{marked}     : [],
+			'not_marked' => ref( $self->{def}{not_marked} ) eq 'ARRAY' ? $self->{def}{not_marked} : [],
+			'sequence'   => ref( $self->{def}{sequence} ) eq 'ARRAY'   ? $self->{def}{sequence}   : [],
+		};
+	}
+
+	return $self->{_mark_gates};
 }
 
 =head2 mark_only
@@ -859,6 +864,65 @@ sub _check_detection_var {
 
 	return 1;
 } ## end sub _check_detection_var
+
+# the def checks every handler runs... the gate family, the thresholds,
+# and the tests shape, one call so a new gate check can not be forgotten
+# in one type
+sub _check_common {
+	my ( $self, $def, $name ) = @_;
+
+	$self->_check_thresholds($def);
+	$self->_check_marks($def);
+	$self->_check_country($def);
+	$self->_check_namtar($def);
+	$self->_check_active_time($def);
+	$self->_check_reverse_dns($def);
+	$self->_check_distinct($def);
+	$self->_check_ip_vars($def);
+
+	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
+		die( 'The tests of the rule "' . $name . '" is not a hash' );
+	}
+
+	return;
+} ## end sub _check_common
+
+# validates the ban_var of a def unless the rule is detection-only, and
+# says which it was... shared by the types with a free-form ban_var (the
+# http pair chisel theirs to a fixed field)
+sub _check_ban_var {
+	my ( $self, $def, $name ) = @_;
+
+	if ( $self->_check_detection_var( $def, $name ) ) {
+		return 1;
+	}
+
+	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
+		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
+	}
+	foreach my $item ( @{ $def->{ban_var} } ) {
+		if ( !defined($item) || ref($item) ne '' ) {
+			die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
+		}
+	}
+
+	return 0;
+} ## end sub _check_ban_var
+
+=head2 ban_var
+
+Returns the ban_var list of the rule... the vars whose values are the
+offenders. The http types override this with their fixed field.
+
+    my @ban_var = $rule->ban_var;
+
+=cut
+
+sub ban_var {
+	my ($self) = @_;
+
+	return @{ $self->{def}{ban_var} };
+}
 
 =head2 country
 
@@ -1796,9 +1860,6 @@ sub _compile_message_regexps {
 		return;
 	}
 	if ( ref( $def->{message_regexp} ) ne 'ARRAY' || !@{ $def->{message_regexp} } ) {
-		if ( $allow_empty && !defined( $def->{message_regexp} ) ) {
-			return;
-		}
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
 	}
 	foreach my $item ( @{ $def->{message_regexp} } ) {
@@ -2096,22 +2157,41 @@ sub _stage_hit {
 	return undef;
 } ## end sub _stage_hit
 
+# bounds a store of expiring entries at the shared 10000 cap ahead of
+# inserting a new key... expired entries are pruned first, then the soonest
+# to expire is evicted, found by a linear min-scan rather than a sort, as
+# this can run per line under a deliberate key flood
+sub _bound_expiring_store {
+	my ( $self, $store, $key_value, $now ) = @_;
+
+	if ( defined( $store->{$key_value} ) || scalar( keys( %{$store} ) ) < 10000 ) {
+		return;
+	}
+
+	foreach my $key ( keys( %{$store} ) ) {
+		if ( $store->{$key}{expires} <= $now ) {
+			delete( $store->{$key} );
+		}
+	}
+	if ( scalar( keys( %{$store} ) ) >= 10000 ) {
+		my $soonest;
+		foreach my $key ( keys( %{$store} ) ) {
+			if ( !defined($soonest) || $store->{$key}{expires} < $store->{$soonest}{expires} ) {
+				$soonest = $key;
+			}
+		}
+		delete( $store->{$soonest} );
+	}
+
+	return;
+} ## end sub _bound_expiring_store
+
 # creates a fresh slot awaiting the first stage, bounding the per scope
 # slot count the way the correlation context is bounded
 sub _stage_slot_new {
 	my ( $self, $store, $key_value, $now ) = @_;
 
-	if ( !defined( $store->{$key_value} ) && scalar( keys( %{$store} ) ) >= 10000 ) {
-		foreach my $key ( keys( %{$store} ) ) {
-			if ( $store->{$key}{expires} <= $now ) {
-				delete( $store->{$key} );
-			}
-		}
-		if ( scalar( keys( %{$store} ) ) >= 10000 ) {
-			my ($soonest) = sort { $store->{$a}{expires} <=> $store->{$b}{expires} } keys( %{$store} );
-			delete( $store->{$soonest} );
-		}
-	} ## end if ( !defined( $store->{$key_value} ) && scalar...)
+	$self->_bound_expiring_store( $store, $key_value, $now );
 
 	$store->{$key_value} = {
 		'stage'     => 0,
@@ -2445,17 +2525,7 @@ sub _context_store {
 		$context = $self->{context}{$scope} = {};
 	}
 
-	if ( !defined( $context->{$key_value} ) && scalar( keys( %{$context} ) ) >= 10000 ) {
-		foreach my $key ( keys( %{$context} ) ) {
-			if ( $context->{$key}{expires} <= $now ) {
-				delete( $context->{$key} );
-			}
-		}
-		if ( scalar( keys( %{$context} ) ) >= 10000 ) {
-			my ($soonest) = sort { $context->{$a}{expires} <=> $context->{$b}{expires} } keys( %{$context} );
-			delete( $context->{$soonest} );
-		}
-	} ## end if ( !defined( $context->{$key_value} ) &&...)
+	$self->_bound_expiring_store( $context, $key_value, $now );
 
 	$context->{$key_value} = { 'data' => $caps, 'expires' => $now + $ttl };
 
@@ -2551,6 +2621,25 @@ sub _matchers_hit {
 # entries (field + values, equality or //regex//) are untouched and never reach
 # here... this only fires for an entry carrying op/value/all/negate
 our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt lt ge le cidr exists );
+
+# the comparators, resolved once at compile time onto the predicate as
+# op_code so the per-line path dispatches straight to a static code ref
+# instead of re-matching the op name per candidate
+my %PREDICATE_NUM_OPS = (
+	'gt' => sub { return ( $_[0] > $_[1] ) ? 1 : 0; },
+	'lt' => sub { return ( $_[0] < $_[1] ) ? 1 : 0; },
+	'ge' => sub { return ( $_[0] >= $_[1] ) ? 1 : 0; },
+	'le' => sub { return ( $_[0] <= $_[1] ) ? 1 : 0; },
+);
+my %PREDICATE_STR_OPS = (
+	'eq'         => sub { return ( $_[0] eq $_[1] )              ? 1 : 0; },
+	'contains'   => sub { return ( index( $_[0], $_[1] ) >= 0 )  ? 1 : 0; },
+	'startswith' => sub { return ( substr( $_[0], 0, length( $_[1] ) ) eq $_[1] ) ? 1 : 0; },
+	'endswith'   => sub {
+		return ( length( $_[1] ) <= length( $_[0] )
+				&& substr( $_[0], length( $_[0] ) - length( $_[1] ) ) eq $_[1] ) ? 1 : 0;
+	},
+);
 
 # the decode transforms, each string -> zero or more candidate strings, run
 # left to right over a field value before the operator so an obfuscated payload
@@ -2741,7 +2830,8 @@ sub _compile_predicate {
 			push( @regexps, $self->_compile_tokened_regexp( $pat, $where )->{regexp} );
 		}
 		$predicate->{regexps} = \@regexps;
-	} elsif ( $op =~ /^(?:gt|lt|ge|le)$/ ) {
+		$predicate->{kind}    = 're';
+	} elsif ( defined( $PREDICATE_NUM_OPS{$op} ) ) {
 		my @numbers;
 		foreach my $v (@values) {
 			if ( $v !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
@@ -2750,16 +2840,23 @@ sub _compile_predicate {
 			push( @numbers, $v + 0 );
 		}
 		$predicate->{numbers} = \@numbers;
+		$predicate->{kind}    = 'num';
+		$predicate->{op_code} = $PREDICATE_NUM_OPS{$op};
 	} elsif ( $op eq 'cidr' ) {
 		# dies on a bad CIDR, exactly as the ignore/namtar lists do
 		$predicate->{cidr} = compile_ignore_ips( \@values, $where );
+		$predicate->{kind} = 'cidr';
 	} elsif ( defined($fieldref) ) {
 		# the needle is the referenced field, injected at match time, so there
 		# are no static strings to compile
+		$predicate->{kind}    = 'string';
+		$predicate->{op_code} = $PREDICATE_STR_OPS{$op};
 	} else {
 		# nocase folds the needles once here, the candidate folded to match at
 		# test time, so a case-insensitive compare costs no per-hit lc of these
 		$predicate->{strings} = $nocase ? [ map { lc } @values ] : \@values;
+		$predicate->{kind}    = 'string';
+		$predicate->{op_code} = $PREDICATE_STR_OPS{$op};
 	}
 
 	return $predicate;
@@ -2830,101 +2927,91 @@ sub _decode_candidates {
 } ## end sub _decode_candidates
 
 # tests one candidate string against a predicate's operator and values. $ref,
-# the referenced field's value, is the dynamic needle for a fieldref predicate
+# the referenced field's value, is the dynamic needle for a fieldref predicate.
+# the operator was resolved to kind and op_code at compile time and the any/all
+# folds are inlined, as this is the innermost per-line call
 sub _predicate_test_one {
 	my ( $self, $predicate, $value, $ref ) = @_;
 
-	my $op = $predicate->{op};
+	my $kind = $predicate->{kind};
 
-	if ( $op eq 'cidr' ) {
-		return ip_ignored( $predicate->{cidr}, $value ) ? 1 : 0;
-	}
+	# the string ops... eq/contains/startswith/endswith. under nocase the
+	# needle was folded at compile time, so folding the candidate here makes
+	# the compare case-insensitive
+	if ( $kind eq 'string' ) {
+		my $candidate = $predicate->{nocase} ? lc($value) : $value;
 
-	if ( $op =~ /^(?:gt|lt|ge|le)$/ ) {
+		# a fieldref predicate compares against another field's live value,
+		# injected as the needle here, folded to match under nocase since it
+		# was not folded at compile time... an absent referenced field is a
+		# non-match
+		my $needles = $predicate->{strings};
+		if ( defined( $predicate->{fieldref} ) ) {
+			if ( !defined($ref) ) {
+				return 0;
+			}
+			$needles = [ $predicate->{nocase} ? lc($ref) : $ref ];
+		}
+
+		my $test = $predicate->{op_code};
+		if ( $predicate->{all} ) {
+			foreach my $needle ( @{$needles} ) {
+				if ( !$test->( $candidate, $needle ) ) {
+					return 0;
+				}
+			}
+			return 1;
+		}
+		foreach my $needle ( @{$needles} ) {
+			if ( $test->( $candidate, $needle ) ) {
+				return 1;
+			}
+		}
+		return 0;
+	} ## end if ( $kind eq 'string' )
+
+	if ( $kind eq 're' ) {
+		if ( $predicate->{all} ) {
+			foreach my $regexp ( @{ $predicate->{regexps} } ) {
+				if ( $value !~ $regexp ) {
+					return 0;
+				}
+			}
+			return 1;
+		}
+		foreach my $regexp ( @{ $predicate->{regexps} } ) {
+			if ( $value =~ $regexp ) {
+				return 1;
+			}
+		}
+		return 0;
+	} ## end if ( $kind eq 're' )
+
+	if ( $kind eq 'num' ) {
 		if ( $value !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
 			return 0;
 		}
 		my $number = $value + 0;
-		return $self->_predicate_any_all(
-			$predicate->{all},
-			$predicate->{numbers},
-			sub {
-				my ($t) = @_;
-				return
-					  $op eq 'gt' ? ( $number > $t )
-					: $op eq 'lt' ? ( $number < $t )
-					: $op eq 'ge' ? ( $number >= $t )
-					:               ( $number <= $t );
+		my $test   = $predicate->{op_code};
+		if ( $predicate->{all} ) {
+			foreach my $threshold ( @{ $predicate->{numbers} } ) {
+				if ( !$test->( $number, $threshold ) ) {
+					return 0;
+				}
 			}
-		);
-	} ## end if ( $op =~ /^(?:gt|lt|ge|le)$/ )
-
-	if ( $op eq 're' ) {
-		return $self->_predicate_any_all( $predicate->{all}, $predicate->{regexps},
-			sub { my ($r) = @_; return ( $value =~ $r ) ? 1 : 0; } );
-	}
-
-	# the string ops... eq/contains/startswith/endswith. under nocase the needle
-	# was folded at compile time, so folding the candidate here makes the compare
-	# case-insensitive
-	my $candidate = $predicate->{nocase} ? lc($value) : $value;
-
-	# a fieldref predicate compares against another field's live value, injected
-	# as the needle here, folded to match under nocase since it was not folded at
-	# compile time... an absent referenced field is a non-match
-	my $needles = $predicate->{strings};
-	if ( defined( $predicate->{fieldref} ) ) {
-		if ( !defined($ref) ) {
-			return 0;
-		}
-		$needles = [ $predicate->{nocase} ? lc($ref) : $ref ];
-	}
-
-	return $self->_predicate_any_all(
-		$predicate->{all},
-		$needles,
-		sub {
-			my ($s) = @_;
-			if ( $op eq 'eq' ) {
-				return ( $candidate eq $s ) ? 1 : 0;
-			}
-			if ( $op eq 'contains' ) {
-				return ( index( $candidate, $s ) >= 0 ) ? 1 : 0;
-			}
-			if ( $op eq 'startswith' ) {
-				return ( substr( $candidate, 0, length($s) ) eq $s ) ? 1 : 0;
-			}
-			# endswith
-			return ( length($s) <= length($candidate)
-					&& substr( $candidate, length($candidate) - length($s) ) eq $s )
-				? 1
-				: 0;
-		}
-	);
-} ## end sub _predicate_test_one
-
-# folds a test over the values... any by default, all when the predicate's
-# all flag is set
-sub _predicate_any_all {
-	my ( $self, $all, $list, $test ) = @_;
-
-	if ($all) {
-		foreach my $item ( @{$list} ) {
-			if ( !$test->($item) ) {
-				return 0;
-			}
-		}
-		return 1;
-	}
-
-	foreach my $item ( @{$list} ) {
-		if ( $test->($item) ) {
 			return 1;
 		}
-	}
+		foreach my $threshold ( @{ $predicate->{numbers} } ) {
+			if ( $test->( $number, $threshold ) ) {
+				return 1;
+			}
+		}
+		return 0;
+	} ## end if ( $kind eq 'num' )
 
-	return 0;
-} ## end sub _predicate_any_all
+	# cidr
+	return ip_ignored( $predicate->{cidr}, $value ) ? 1 : 0;
+} ## end sub _predicate_test_one
 
 # compiles a rule's gate array into runnable entries, each either a legacy
 # field/values matcher set or a typed predicate. shared by every type that
@@ -2976,15 +3063,6 @@ sub _compile_gates {
 
 	return \@gates;
 } ## end sub _compile_gates
-
-# runs the rule's own gates over a data hash. the message, when passed, is
-# exposed under the reserved field MESSAGE for a gate that names it and no
-# capture already has, so a predicate can decode or test the whole message
-sub _gate_pass {
-	my ( $self, $data, $message ) = @_;
-
-	return $self->_gates_pass( $self->{gates}, $data, $message );
-}
 
 # compiles a rule's boolean matcher, the flat gate or the selections+condition
 # form, onto the object... they are mutually exclusive, a condition needs
@@ -3088,12 +3166,19 @@ sub _boolean_pass {
 	}
 
 	if ( defined( $self->{condition_ast} ) ) {
+		# selections evaluate lazily and memoized, so a condition that
+		# short-circuits (a failed and-arm, a satisfied or-arm) never pays
+		# for the selections it did not need
 		my %results;
-		foreach my $sel_name ( keys( %{ $self->{selections} } ) ) {
-			$results{$sel_name} = $self->_gates_pass( $self->{selections}{$sel_name}, $data, $message );
-		}
-		return $self->_eval_condition( $self->{condition_ast}, \%results );
-	}
+		my $eval_sel = sub {
+			my ($sel_name) = @_;
+			if ( !exists( $results{$sel_name} ) ) {
+				$results{$sel_name} = $self->_gates_pass( $self->{selections}{$sel_name}, $data, $message );
+			}
+			return $results{$sel_name};
+		};
+		return $self->_eval_condition( $self->{condition_ast}, $eval_sel );
+	} ## end if ( defined( $self->{condition_ast} ) )
 
 	if ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) {
 		return $self->_gates_pass( $self->{gates}, $data, $message );
@@ -3316,36 +3401,45 @@ sub _cond_resolve {
 	return ($target);
 } ## end sub _cond_resolve
 
-# folds a condition AST over a hash of selection name to boolean result
+# folds a condition AST, asking $eval_sel for each selection's boolean as
+# needed... the and/or arms short-circuit and the count fold bails as soon
+# as the threshold is met or unreachable
 sub _eval_condition {
-	my ( $self, $ast, $results ) = @_;
+	my ( $self, $ast, $eval_sel ) = @_;
 
 	my $op = $ast->[0];
 	if ( $op eq 'sel' ) {
-		return $results->{ $ast->[1] } ? 1 : 0;
+		return $eval_sel->( $ast->[1] ) ? 1 : 0;
 	}
 	if ( $op eq 'not' ) {
-		return $self->_eval_condition( $ast->[1], $results ) ? 0 : 1;
+		return $self->_eval_condition( $ast->[1], $eval_sel ) ? 0 : 1;
 	}
 	if ( $op eq 'and' ) {
-		return ( $self->_eval_condition( $ast->[1], $results ) && $self->_eval_condition( $ast->[2], $results ) )
+		return ( $self->_eval_condition( $ast->[1], $eval_sel ) && $self->_eval_condition( $ast->[2], $eval_sel ) )
 			? 1
 			: 0;
 	}
 	if ( $op eq 'or' ) {
-		return ( $self->_eval_condition( $ast->[1], $results ) || $self->_eval_condition( $ast->[2], $results ) )
+		return ( $self->_eval_condition( $ast->[1], $eval_sel ) || $self->_eval_condition( $ast->[2], $eval_sel ) )
 			? 1
 			: 0;
 	}
 	# count... at least threshold of the named selections are true
 	my ( $threshold, $names ) = ( $ast->[1], $ast->[2] );
-	my $hits = 0;
+	my $hits      = 0;
+	my $remaining = scalar( @{$names} );
 	foreach my $name ( @{$names} ) {
-		if ( $results->{$name} ) {
+		$remaining--;
+		if ( $eval_sel->($name) ) {
 			$hits++;
+			if ( $hits >= $threshold ) {
+				return 1;
+			}
+		} elsif ( ( $hits + $remaining ) < $threshold ) {
+			return 0;
 		}
 	}
-	return ( $hits >= $threshold ) ? 1 : 0;
+	return 0;
 } ## end sub _eval_condition
 
 =head1 AUTHOR

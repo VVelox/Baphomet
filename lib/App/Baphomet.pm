@@ -711,8 +711,11 @@ sub _cmd_status_galla {
 	return $status;
 } ## end sub _cmd_status_galla
 
-sub _cmd_accused {
-	my ( $self, $request ) = @_;
+# the shared shape of the per-galla fan-out commands... one galla when
+# args.name says so, else all, each asked over its socket with errors held
+# per galla so one dead worker never takes the whole reply down
+sub _cmd_fanout {
+	my ( $self, $request, $command ) = @_;
 
 	my $args = defined( $request->{args} ) ? $request->{args} : {};
 
@@ -733,7 +736,7 @@ sub _cmd_accused {
 			next;
 		}
 		my $result;
-		eval { $result = $self->_galla_client($name)->call_ok('accused'); };
+		eval { $result = $self->_galla_client($name)->call_ok($command); };
 		if ($@) {
 			$gallas->{$name} = { 'error' => $@ };
 		} else {
@@ -742,73 +745,25 @@ sub _cmd_accused {
 	} ## end foreach my $name (@names)
 
 	return { 'gallas' => $gallas };
-} ## end sub _cmd_accused
+} ## end sub _cmd_fanout
+
+sub _cmd_accused {
+	my ( $self, $request ) = @_;
+
+	return $self->_cmd_fanout( $request, 'accused' );
+}
 
 sub _cmd_marked {
 	my ( $self, $request ) = @_;
 
-	my $args = defined( $request->{args} ) ? $request->{args} : {};
-
-	my @names;
-	if ( defined( $args->{name} ) ) {
-		if ( !defined( $self->{gallas}{ $args->{name} } ) ) {
-			die( 'No such galla, "' . $args->{name} . '"' );
-		}
-		@names = ( $args->{name} );
-	} else {
-		@names = sort( keys( %{ $self->{gallas} } ) );
-	}
-
-	my $gallas = {};
-	foreach my $name (@names) {
-		if ( !defined( $self->{gallas}{$name}{pid} ) ) {
-			$gallas->{$name} = { 'error' => 'not running' };
-			next;
-		}
-		my $result;
-		eval { $result = $self->_galla_client($name)->call_ok('marked'); };
-		if ($@) {
-			$gallas->{$name} = { 'error' => $@ };
-		} else {
-			$gallas->{$name} = $result;
-		}
-	} ## end foreach my $name (@names)
-
-	return { 'gallas' => $gallas };
-} ## end sub _cmd_marked
+	return $self->_cmd_fanout( $request, 'marked' );
+}
 
 sub _cmd_watching {
 	my ( $self, $request ) = @_;
 
-	my $args = defined( $request->{args} ) ? $request->{args} : {};
-
-	my @names;
-	if ( defined( $args->{name} ) ) {
-		if ( !defined( $self->{gallas}{ $args->{name} } ) ) {
-			die( 'No such galla, "' . $args->{name} . '"' );
-		}
-		@names = ( $args->{name} );
-	} else {
-		@names = sort( keys( %{ $self->{gallas} } ) );
-	}
-
-	my $gallas = {};
-	foreach my $name (@names) {
-		if ( !defined( $self->{gallas}{$name}{pid} ) ) {
-			$gallas->{$name} = { 'error' => 'not running' };
-			next;
-		}
-		my $result;
-		eval { $result = $self->_galla_client($name)->call_ok('watching'); };
-		if ($@) {
-			$gallas->{$name} = { 'error' => $@ };
-		} else {
-			$gallas->{$name} = $result;
-		}
-	} ## end foreach my $name (@names)
-
-	return { 'gallas' => $gallas };
-} ## end sub _cmd_watching
+	return $self->_cmd_fanout( $request, 'watching' );
+}
 
 =head1 ERRORS CODES / ERROR FLAGS
 

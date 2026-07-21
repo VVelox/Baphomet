@@ -161,22 +161,11 @@ sub new {
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
-	$self->_check_thresholds($def);
-	$self->_check_marks($def);
-	$self->_check_country($def);
-	$self->_check_namtar($def);
-	$self->_check_active_time($def);
-	$self->_check_reverse_dns($def);
-	$self->_check_distinct($def);
-	$self->_check_ip_vars($def);
+	$self->_check_common( $def, $name );
 
 	# an http rule banishes host by default, but naming a detection_var (a URI,
 	# a user-agent) makes it detection-only, counting by that instead
 	$self->_check_detection_var( $def, $name );
-
-	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
-		die( 'The tests of the rule "' . $name . '" is not a hash' );
-	}
 
 	foreach my $gate ( 'status', 'method' ) {
 		if ( !defined( $def->{$gate} ) ) {
