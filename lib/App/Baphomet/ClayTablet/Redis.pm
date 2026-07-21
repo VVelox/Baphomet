@@ -385,10 +385,10 @@ sub read {
 		return ();
 	}
 
-	# strip the write's terminating newline, then split keeping trailing
+	# chomp the write's terminating newline, then split keeping trailing
 	# empties, so a tablet round-trips the same through this backend as
 	# through the file one
-	$blob =~ s/\n\z//;
+	chomp($blob);
 	if ( $blob eq '' ) {
 		return ('');
 	}

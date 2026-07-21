@@ -54,7 +54,7 @@ is( matches( 'syslog/jgate', "$stamp myapp[1]: {\"event\":\"auth_fail\",\"src\":
 is( matches( 'syslog/jgate', "$stamp myapp[1]: {\"event\":\"login\",\"src\":\"1.2.3.4\"}" ),
 	0, 'a json message that misses the gate is not an offense' );
 is( matches( 'syslog/jgate', "$stamp myapp[1]: just plain text, not json at all" ),
-	0, 'a non-json message yields no fields and falls through' );
+	0, 'a non-json message is refused outright' );
 
 # the offender comes out of a json field via ban_var
 my $f = found( 'syslog/jgate', "$stamp myapp[1]: {\"event\":\"auth_fail\",\"src\":\"9.9.9.9\"}" );
@@ -118,6 +118,28 @@ is( matches( 'syslog/jboth', "$stamp combined[1]: {\"msg\":\"authentication fail
 	0, 'the json-field gate can still veto a regexp match' );
 is( matches( 'syslog/jboth', "$stamp combined[1]: {\"msg\":\"login ok\",\"user\":\"admin\",\"src\":\"5.5.5.5\"}" ),
 	0, 'no regexp match means no offense even if the gate would pass' );
+
+# --- the decode is the first judgment after the daemon gate... a raw text
+# line never reaches a message_json rule's regexps or gates, even ones
+# that would hit it (the regexp on the raw text, the gate on the envelope)
+write_rule( 'syslog/jstrict', <<'EOR' );
+---
+daemons:
+  - combined
+message_json: true
+message_regexp:
+  - 'authentication'
+gate:
+  - field: syslog.daemon
+    op: eq
+    value: combined
+ban_var:
+  - src
+EOR
+is( matches( 'syslog/jstrict', "$stamp combined[1]: {\"msg\":\"authentication failed\",\"src\":\"6.6.6.6\"}" ),
+	1, 'a json line runs the regexp and envelope gate normally' );
+is( matches( 'syslog/jstrict', "$stamp combined[1]: authentication failed for admin" ),
+	0, 'a raw text line is not this rule\'s shape, whatever the regexp says' );
 
 # --- a gateless syslog rule is unchanged (message_json off) ---
 write_rule( 'syslog/plain', <<'EOR' );

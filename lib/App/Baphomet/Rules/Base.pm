@@ -2498,13 +2498,14 @@ sub _check_message {
 } ## end sub _check_message
 
 # flattens a message that is a JSON object into dotted-path fields, reusing
-# the json parser's flattener... a message that is not a JSON object gives a
-# empty hash, so a message_json rule simply finds no fields and falls through
+# the json parser's flattener... a message that is not a JSON object gives
+# undef, so a message_json rule can refuse the line outright rather than
+# matching raw text it was told would be JSON
 sub _flatten_json_message {
 	my ( $self, $message ) = @_;
 
 	if ( !defined($message) ) {
-		return {};
+		return undef;
 	}
 	my $parsed;
 	eval { $parsed = App::Baphomet::Parser::parse( 'json', $message ); };
@@ -2512,7 +2513,7 @@ sub _flatten_json_message {
 		return $parsed->{fields};
 	}
 
-	return {};
+	return undef;
 } ## end sub _flatten_json_message
 
 # stores harvested captures under (scope, key), bounding the per scope

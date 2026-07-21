@@ -203,13 +203,14 @@ C<syslog.message>), and C<ban_var> may name a json field or a capture.
       - src
 
 With message_json on, C<message_regexp> becomes optional... the gate is the
-matcher, so a rule may have none. A message that is not a JSON object yields
-no fields, so the gate falls through and the line is not an offense (and any
-C<message_regexp>, if present, still runs on the raw message as the matcher,
-the gate then refining over both its captures and the json fields). The decode
-is memoised per line, so several message_json rules on one watcher share the
-one parse. A rule with message_json, no message_regexp, and no gate is a error,
-as it would banish every line.
+matcher, so a rule may have none. The decode is the first judgment after the
+daemon gate... a message that is not a JSON object is simply not this rule's
+shape, so the line never reaches the regexps, keywords, or gate at all. With a
+C<message_regexp> present it still runs on the raw message as the matcher (of
+a line that did decode), the gate then refining over both its captures and the
+json fields. The decode is memoised per line, so several message_json rules on
+one watcher share the one parse. A rule with message_json, no message_regexp,
+and no gate or keywords is a error, as it would banish every line.
 
 =head2 gate
 
@@ -386,6 +387,17 @@ sub check {
 		return undef;
 	}
 
+	# with message_json the decode is the first judgment after the daemon
+	# gate... a message that is not a JSON object is simply not this rule's
+	# shape, so nothing later (regexps, keywords, gates) ever sees the line
+	my $extra;
+	if ( $self->{message_json} ) {
+		$extra = $self->_message_json_extra($parsed);
+		if ( !defined($extra) ) {
+			return undef;
+		}
+	}
+
 	# only built for rules whose correlation or per keys name envelope fields
 	my $envelope;
 	if ( $self->{wants_envelope} ) {
@@ -400,12 +412,7 @@ sub check {
 		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, $envelope );
 	}
 
-	if ( $self->{message_json} ) {
-		return $self->_check_message( $parsed->{message}, $scope, $self->_message_json_extra($parsed),
-			$envelope, $line_ctx );
-	}
-
-	return $self->_check_message( $parsed->{message}, $scope, undef, $envelope, $line_ctx );
+	return $self->_check_message( $parsed->{message}, $scope, $extra, $envelope, $line_ctx );
 } ## end sub check
 
 # builds the extra field space a message_json rule gates over... the JSON body
@@ -416,13 +423,18 @@ sub _message_json_extra {
 
 	# the whole hash is memoised on the parsed line, not just the flatten...
 	# it is identical for every message_json rule on the watcher and only
-	# ever read, so one build serves them all
+	# ever read, so one build serves them all. undef, also memoised, means
+	# the message is not a JSON object at all
 	if ( exists( $parsed->{_message_json_extra} ) ) {
 		return $parsed->{_message_json_extra};
 	}
 
 	if ( !exists( $parsed->{_message_json_fields} ) ) {
 		$parsed->{_message_json_fields} = $self->_flatten_json_message( $parsed->{message} );
+	}
+	if ( !defined( $parsed->{_message_json_fields} ) ) {
+		$parsed->{_message_json_extra} = undef;
+		return undef;
 	}
 	my %extra = %{ $parsed->{_message_json_fields} };
 

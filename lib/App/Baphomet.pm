@@ -634,7 +634,7 @@ sub _poe_stop_all {
 
 # the stop escalation... TERM whoever is still alive after the grace period
 sub _poe_stop_escalate {
-	my ($self) = @_[OBJECT];
+	my $self = $_[OBJECT];
 
 	foreach my $name ( sort( keys( %{ $self->{gallas} } ) ) ) {
 		my $entry = $self->{gallas}{$name};
