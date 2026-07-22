@@ -15,8 +15,9 @@ BEGIN {
 	}
 }
 
-use App::Baphomet::App::Command::ledger    ();
-use App::Baphomet::App::Command::banished ();
+use App::Baphomet::App::Command::ledger         ();
+use App::Baphomet::App::Command::banished       ();
+use App::Baphomet::App::Command::lnms_f2b_extend ();
 
 #
 # the ledger row parser
@@ -91,5 +92,60 @@ is( $pared->{kurs}{web}{members}{nginx}{banned}, 1, 'held on a fan_out member' )
 ok( !defined( $pared->{kurs}{web}{members}{apache} ), 'not on the other member' );
 is( $pared->{kurs}{smtp}{pending}, 1, 'pending counts as held' );
 ok( !defined( $pared->{kurs}{irc} ), 'a kur not holding it is dropped' );
+
+#
+# the lnms-f2b-extend structure builder
+#
+
+my $extend = App::Baphomet::App::Command::lnms_f2b_extend::_extend_structure( { 'sshd' => 4, 'smtp' => 1 }, 0, '' );
+is( $extend->{data}{total},        5, 'total sums the jails' );
+is( $extend->{data}{jails}{sshd},  4, 'the sshd jail count' );
+is( $extend->{data}{jails}{smtp},  1, 'the smtp jail count' );
+is( $extend->{error},              0, 'no error' );
+is( $extend->{errorString},        '', 'and no error string' );
+is( $extend->{version},            '1', 'the format version' );
+
+$extend = App::Baphomet::App::Command::lnms_f2b_extend::_extend_structure( {}, 1, 'Ereshkigal is down' );
+is( $extend->{data}{total},   0, 'a failed run tallies zero' );
+is_deeply( $extend->{data}{jails}, {}, 'with no jails' );
+is( $extend->{error},         1, 'the error rides out' );
+is( $extend->{errorString},   'Ereshkigal is down', 'and its string' );
+
+#
+# the per-kur tally... the held-list path needs no live client
+#
+
+my $held = {
+	'sshd' => { 'banned' => [ '1.2.3.4', '5.6.7.8' ] },
+	'smtp' => { 'banned' => [] },
+	'web'  => { 'banned' => ['9.9.9.9'] },
+};
+is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( undef, $held, 'sshd' ),
+	2, 'a held kur tallies its banned count' );
+is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( undef, $held, 'smtp' ),
+	0, 'a held kur with an empty list tallies zero' );
+
+# a fan_out gate with a client that answers status_kur... the union of its
+# members holdings, an IP on both members counted once
+{
+	package FakeEresh;
+	sub new { return bless( {}, shift ); }
+	sub call_ok {
+		my ( $self, $command, $args ) = @_;
+		if ( $command eq 'status_kur' && $args->{name} eq 'gate' ) {
+			return { 'fan_out' => [ 'nginx', 'apache' ] };
+		}
+		die( 'no such kur' );
+	}
+}
+my $fake       = FakeEresh->new;
+my $held_gate  = {
+	'nginx'  => { 'banned' => [ '1.1.1.1', '2.2.2.2' ] },
+	'apache' => { 'banned' => [ '2.2.2.2', '3.3.3.3' ] },
+};
+is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( $fake, $held_gate, 'gate' ),
+	3, 'a fan_out gate tallies the union of its members' );
+is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( $fake, $held_gate, 'nowhere' ),
+	0, 'a kur neither held nor a known gate tallies zero' );
 
 done_testing;

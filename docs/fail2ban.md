@@ -33,6 +33,7 @@ is how a jail with several actions maps over (see below).
 | `fail2ban-client banned <ip>` | `baphomet banished --ip <ip>` |
 | `fail2ban-client get <jail> banip --with-time` | `baphomet ledger`, filterable by kur, IP, and time |
 | `fail2ban-regex` | `baphomet check_rules` and `baphomet test_line` |
+| the fail2ban SNMP extend for LibreNMS | `baphomet lnms-f2b-extend`, emitting the same jail-tally JSON so a Baphomet host drops into the LibreNMS fail2ban application with no fail2ban present |
 | `recidive` jail | the `[recidive]` table, escalating across all kurs |
 | `bantime.increment` | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban |
 | sqlite persistence | the state tablets under `tablet_base_dir`, the ban history in the shared banishment ledger |

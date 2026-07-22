@@ -59,7 +59,11 @@ close($fh);
 
 my $result = App::Cmd::Tester->test_app( 'App::Baphomet::App', ['commands'] );
 is( $result->exit_code, 0, 'commands exits 0' );
-foreach my $command ( 'start', 'stop', 'status', 'check_rules', 'test_line', 'accused', 'banished', 'ledger' ) {
+foreach my $command (
+	'start',    'stop',     'status', 'check_rules',
+	'test_line', 'accused', 'banished', 'ledger', 'lnms-f2b-extend'
+	)
+{
 	like( $result->stdout, qr/$command/, 'commands lists ' . $command );
 }
 
@@ -150,5 +154,44 @@ $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
 $decoded = JSON::MaybeXS::decode_json( $result->stdout );
 is( scalar( @{ $decoded->{entries} } ), 1,         '--tail keeps just the last' );
 is( $decoded->{entries}[0]{ip},         '5.6.7.8', 'and it is the newest' );
+
+#
+# lnms-f2b-extend... Ereshkigal is not up here, so the error path is
+# exercised, but the emitted shape and its -b compression still hold
+#
+
+require IO::Uncompress::Gunzip;
+require MIME::Base64;
+
+open( $fh, '>', $dir . '/extend.toml' ) || die($!);
+print $fh <<"EOC";
+tablet_base_dir = "$dir/tablets"
+rules_dir = "$dir/rules"
+ereshkigal_socket = "$dir/nope.sock"
+[kur.sshd]
+max_score = 5
+[kur.sshd.authlog]
+log = "/var/log/auth.log"
+rule = "syslog/good"
+EOC
+close($fh);
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App', [ 'lnms-f2b-extend', '--config', $dir . '/extend.toml' ] );
+is( $result->exit_code, 0, 'lnms-f2b-extend exits 0 even with Ereshkigal down' );
+my $extend = JSON::MaybeXS::decode_json( $result->stdout );
+is( $extend->{version},     '1', 'the extend format version' );
+is( $extend->{error},       1,   'a down Ereshkigal is a non-zero error' );
+like( $extend->{errorString}, qr/Ereshkigal/, 'and the error string names it' );
+is_deeply( $extend->{data}, { 'total' => 0, 'jails' => {} }, 'with an empty jail set' );
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'lnms-f2b-extend', '--config', $dir . '/extend.toml', '-b' ] );
+is( $result->exit_code, 0, 'lnms-f2b-extend -b exits 0' );
+like( $result->stdout, qr/^[A-Za-z0-9+\/=]+\n\z/, '-b emits one line of Base64' );
+my $raw       = MIME::Base64::decode_base64( $result->stdout );
+my $inflated  = '';
+IO::Uncompress::Gunzip::gunzip( \$raw => \$inflated ) || die( 'gunzip failed' );
+my $roundtrip = JSON::MaybeXS::decode_json($inflated);
+is_deeply( $roundtrip, $extend, '-b GZip+Base64 round-trips to the same structure' );
 
 done_testing;

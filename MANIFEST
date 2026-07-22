@@ -17,6 +17,7 @@ lib/App/Baphomet/App/Command/accused.pm
 lib/App/Baphomet/App/Command/check_rules.pm
 lib/App/Baphomet/App/Command/banished.pm
 lib/App/Baphomet/App/Command/ledger.pm
+lib/App/Baphomet/App/Command/lnms_f2b_extend.pm
 lib/App/Baphomet/App/Command/marked.pm
 lib/App/Baphomet/App/Command/start.pm
 lib/App/Baphomet/App/Command/status.pm
@@ -215,10 +216,14 @@ t/eve-log.t
 t/eve-only.t
 t/galla-join.t
 t/galla-journal.t
+t/dns-async.t
+t/dns-async-live.t
 t/galla.t
 t/ignore-ips.t
+t/kur-client-async.t
 t/lib/BaphometTestRedis.pm
 t/load-state-helpers.t
+t/manager-fanout-async.t
 t/manager-new.t
 t/manifest.t
 t/marks.t

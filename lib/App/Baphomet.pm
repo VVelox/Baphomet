@@ -4,8 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 use base 'Error::Helper';
-use POE                              qw( Wheel::Run );
-use POE::Component::Server::JSONUnix ();
+use POE                                      qw( Wheel::Run );
+use POE::Component::Server::JSONUnix         ();
+use POE::Component::Server::JSONUnix::Client ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config            qw( load_config check_kur_def kur_split watcher_rules );
 use App::Baphomet::Rules             ();
@@ -112,6 +113,7 @@ sub new {
 		},
 		config         => '/usr/local/etc/baphomet/config.toml',
 		gallas         => {},
+		galla_clients  => {},
 		wheel_to_galla => {},
 		pid_to_galla   => {},
 		shutting_down  => 0,
@@ -350,27 +352,27 @@ sub start_server {
 			'status_all' => sub {
 				my ( undef, undef, $ctx ) = @_;
 				$self->_authorize($ctx);
-				return $self->_cmd_status_all;
+				return $self->_cmd_status_all($ctx);
 			},
 			'status_galla' => sub {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
-				return $self->_cmd_status_galla($request);
+				return $self->_cmd_status_galla( $request, $ctx );
 			},
 			'accused' => sub {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
-				return $self->_cmd_accused($request);
+				return $self->_cmd_accused( $request, $ctx );
 			},
 			'marked' => sub {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
-				return $self->_cmd_marked($request);
+				return $self->_cmd_marked( $request, $ctx );
 			},
 			'watching' => sub {
 				my ( undef, $request, $ctx ) = @_;
 				$self->_authorize($ctx);
-				return $self->_cmd_watching($request);
+				return $self->_cmd_watching( $request, $ctx );
 			},
 			'stop' => sub {
 				my ( undef, undef, $ctx ) = @_;
@@ -607,19 +609,29 @@ sub _poe_stop_all {
 
 	$self->{shutting_down} = 1;
 
-	foreach my $name ( sort( keys( %{ $self->{gallas} } ) ) ) {
-		my $entry = $self->{gallas}{$name};
-		if ( !defined( $entry->{pid} ) ) {
+	# the async galla clients hold aliases that would keep the kernel
+	# alive... drop them first, answering any in-flight fan-out per galla
+	# with an error, so a deferred reply still resolves
+	foreach my $name ( keys( %{ $self->{galla_clients} } ) ) {
+		$self->{galla_clients}{$name}->shutdown;
+	}
+	$self->{galla_clients} = {};
+
+	# one concurrent stop fan out bounded by a single deadline, so shutdown
+	# waits on the slowest galla once rather than on each in turn
+	my @running = grep { defined( $self->{gallas}{$_}{pid} ) } sort( keys( %{ $self->{gallas} } ) );
+	my $answers = $self->_galla_call_many( \@running, 'stop' );
+	foreach my $name (@running) {
+		my $answer = $answers->{$name};
+		if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
 			next;
 		}
-		eval { $self->_galla_client($name)->call_ok('stop'); };
-		if ($@) {
-			log_drek( 'err', 'stopping galla "' . $name . '" via it\'s socket failed, sending TERM... ' . $@ );
-			if ( defined( $entry->{wheel} ) ) {
-				$entry->{wheel}->kill('TERM');
-			}
+		my $error = ( ref($answer) eq 'HASH' && defined( $answer->{error} ) ) ? $answer->{error} : 'no answer';
+		log_drek( 'err', 'stopping galla "' . $name . '" via it\'s socket failed, sending TERM... ' . $error );
+		if ( defined( $self->{gallas}{$name}{wheel} ) ) {
+			$self->{gallas}{$name}{wheel}->kill('TERM');
 		}
-	} ## end foreach my $name ( sort( keys( %{ $self->{gallas...}})))
+	} ## end foreach my $name (@running)
 
 	$kernel->alarm_remove_all;
 	$kernel->alias_remove('baphomet_manager');
@@ -680,28 +692,132 @@ sub _cmd_status {
 	};
 } ## end sub _cmd_status
 
+# the persistent async client to one galla's socket, made on first use...
+# lazy-connecting, every request bounded by the config timeout and answered
+# locally past it, so a wedged galla can not stall the manager loop
+sub _galla_async_client {
+	my ( $self, $name ) = @_;
+
+	if ( !defined( $self->{galla_clients}{$name} ) ) {
+		$self->{galla_clients}{$name} = POE::Component::Server::JSONUnix::Client->spawn(
+			'socket_path'     => $self->galla_socket_path($name),
+			'alias'           => 'baphomet-galla-client-' . $name,
+			'auto_connect'    => 0,
+			'request_timeout' => $self->{timeout},
+			'on_error'        => sub {
+				my ( $operation, $errnum, $errstr ) = @_;
+				log_drek( 'err',
+					'galla client "' . $name . '" error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')' );
+			},
+		);
+	} ## end if ( !defined( $self->{galla_clients}{$name...}))
+
+	return $self->{galla_clients}{$name};
+} ## end sub _galla_async_client
+
+# fires one async call per named galla... each answer folds via
+# $fold->($name, $result, $error) (exactly one of the two defined), and
+# $finish runs once the last lands, which the per-request timeout
+# guarantees. the deferred half of the fan-out commands
+sub _galla_fanout_deferred {
+	my ( $self, $running, $command, $fold, $finish ) = @_;
+
+	my $outstanding = scalar( @{$running} );
+	foreach my $name ( @{$running} ) {
+		my $client = $self->_galla_async_client($name);
+		$client->connect;
+		$client->call(
+			'command'  => $command,
+			'callback' => sub {
+				my ($response) = @_;
+				if ( ref($response) eq 'HASH' && defined( $response->{status} ) && $response->{status} eq 'ok' ) {
+					$fold->( $name, $response->{result}, undef );
+				} else {
+					$fold->(
+						$name, undef,
+						( ref($response) eq 'HASH' && defined( $response->{error} ) )
+						? $response->{error}
+						: 'no answer'
+					);
+				}
+				$outstanding--;
+				if ( !$outstanding ) {
+					$finish->();
+				}
+				return;
+			},
+		);
+	} ## end foreach my $name ( @{$running} )
+
+	return;
+} ## end sub _galla_fanout_deferred
+
+# asks every named running galla the one command concurrently... a select
+# fan out against a single shared deadline, so the wall time is the slowest
+# galla capped at one timeout instead of the sum. galla sockets never
+# challenge, which is the case call_many is built for. returns the answers
+# hash, each value { result => ... } or { error => ... }
+sub _galla_call_many {
+	my ( $self, $names, $command ) = @_;
+
+	my %sockets;
+	foreach my $name ( @{$names} ) {
+		$sockets{$name} = $self->galla_socket_path($name);
+	}
+	if ( !%sockets ) {
+		return {};
+	}
+
+	return Ereshkigal::Client->call_many(
+		'sockets' => \%sockets,
+		'command' => $command,
+		'timeout' => $self->{timeout},
+	);
+} ## end sub _galla_call_many
+
 sub _cmd_status_all {
-	my ($self) = @_;
+	my ( $self, $ctx ) = @_;
 
 	my $status = $self->_cmd_status;
 
-	foreach my $name ( keys( %{ $status->{gallas} } ) ) {
-		if ( $status->{gallas}{$name}{running} ) {
-			my $galla_status;
-			eval { $galla_status = $self->_galla_client($name)->call_ok('status'); };
-			if ($@) {
-				$status->{gallas}{$name}{error} = $@;
+	my @running = grep { $status->{gallas}{$_}{running} } keys( %{ $status->{gallas} } );
+
+	if ( !defined($ctx) || !@running ) {
+		my $answers = $self->_galla_call_many( \@running, 'status' );
+		foreach my $name (@running) {
+			my $answer = $answers->{$name};
+			if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
+				$status->{gallas}{$name}{status} = $answer->{result};
 			} else {
-				$status->{gallas}{$name}{status} = $galla_status;
+				$status->{gallas}{$name}{error}
+					= ( ref($answer) eq 'HASH' && defined( $answer->{error} ) ) ? $answer->{error} : 'no answer';
 			}
 		}
-	} ## end foreach my $name ( keys( %{ $status->{gallas} }...))
+		return $status;
+	} ## end if ( !defined($ctx) || !@running )
 
-	return $status;
+	$self->_galla_fanout_deferred(
+		\@running, 'status',
+		sub {
+			my ( $name, $result, $error ) = @_;
+			if ( defined($error) ) {
+				$status->{gallas}{$name}{error} = $error;
+			} else {
+				$status->{gallas}{$name}{status} = $result;
+			}
+			return;
+		},
+		sub {
+			$ctx->respond_result($status);
+			return;
+		}
+	);
+
+	return undef;
 } ## end sub _cmd_status_all
 
 sub _cmd_status_galla {
-	my ( $self, $request ) = @_;
+	my ( $self, $request, $ctx ) = @_;
 
 	my $args = $request->{args};
 	if ( !defined($args) || !defined( $args->{name} ) ) {
@@ -722,9 +838,15 @@ sub _cmd_status_galla {
 		'enabled'  => $entry->{enabled} ? 1 : 0,
 	};
 
-	if ( $status->{running} ) {
-		# trapped like the other fan-out handlers, so a dead-but-unreaped
-		# galla yields a partial status with a error rather than a raw die
+	if ( !$status->{running} ) {
+		return $status;
+	}
+
+	# trapped like the other fan-out handlers, so a dead-but-unreaped
+	# galla yields a partial status with a error rather than a raw die...
+	# deferred through $ctx when there is one, so even the single ask
+	# never blocks the manager loop
+	if ( !defined($ctx) ) {
 		my $galla_status;
 		eval { $galla_status = $self->_galla_client($name)->call_ok('status'); };
 		if ($@) {
@@ -732,16 +854,37 @@ sub _cmd_status_galla {
 		} else {
 			$status->{status} = $galla_status;
 		}
+		return $status;
 	}
 
-	return $status;
+	$self->_galla_fanout_deferred(
+		[$name], 'status',
+		sub {
+			my ( undef, $result, $error ) = @_;
+			if ( defined($error) ) {
+				$status->{error} = $error;
+			} else {
+				$status->{status} = $result;
+			}
+			return;
+		},
+		sub {
+			$ctx->respond_result($status);
+			return;
+		}
+	);
+
+	return undef;
 } ## end sub _cmd_status_galla
 
 # the shared shape of the per-galla fan-out commands... one galla when
-# args.name says so, else all, each asked over its socket with errors held
-# per galla so one dead worker never takes the whole reply down
+# args.name says so, else all, asked concurrently with errors held per
+# galla so one dead or wedged worker never takes the whole reply down.
+# with a $ctx to defer through the reply is chiseled from the answers and
+# the manager loop never blocks at all... without one (a direct call in
+# the tests) call_many answers synchronously, bounded by one deadline
 sub _cmd_fanout {
-	my ( $self, $request, $command ) = @_;
+	my ( $self, $request, $command, $ctx ) = @_;
 
 	my $args = defined( $request->{args} ) ? $request->{args} : {};
 
@@ -756,39 +899,62 @@ sub _cmd_fanout {
 	}
 
 	my $gallas = {};
+	my @running;
 	foreach my $name (@names) {
 		if ( !defined( $self->{gallas}{$name}{pid} ) ) {
 			$gallas->{$name} = { 'error' => 'not running' };
 			next;
 		}
-		my $result;
-		eval { $result = $self->_galla_client($name)->call_ok($command); };
-		if ($@) {
-			$gallas->{$name} = { 'error' => $@ };
-		} else {
-			$gallas->{$name} = $result;
-		}
-	} ## end foreach my $name (@names)
+		push( @running, $name );
+	}
 
-	return { 'gallas' => $gallas };
+	if ( !defined($ctx) || !@running ) {
+		my $answers = $self->_galla_call_many( \@running, $command );
+		foreach my $name (@running) {
+			my $answer = $answers->{$name};
+			if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
+				$gallas->{$name} = $answer->{result};
+			} else {
+				$gallas->{$name}
+					= { 'error' => ( ref($answer) eq 'HASH' && defined( $answer->{error} ) ) ? $answer->{error} : 'no answer' };
+			}
+		}
+		return { 'gallas' => $gallas };
+	} ## end if ( !defined($ctx) || !@running )
+
+	$self->_galla_fanout_deferred(
+		\@running,
+		$command,
+		sub {
+			my ( $name, $result, $error ) = @_;
+			$gallas->{$name} = defined($error) ? { 'error' => $error } : $result;
+			return;
+		},
+		sub {
+			$ctx->respond_result( { 'gallas' => $gallas } );
+			return;
+		}
+	);
+
+	return undef;
 } ## end sub _cmd_fanout
 
 sub _cmd_accused {
-	my ( $self, $request ) = @_;
+	my ( $self, $request, $ctx ) = @_;
 
-	return $self->_cmd_fanout( $request, 'accused' );
+	return $self->_cmd_fanout( $request, 'accused', $ctx );
 }
 
 sub _cmd_marked {
-	my ( $self, $request ) = @_;
+	my ( $self, $request, $ctx ) = @_;
 
-	return $self->_cmd_fanout( $request, 'marked' );
+	return $self->_cmd_fanout( $request, 'marked', $ctx );
 }
 
 sub _cmd_watching {
-	my ( $self, $request ) = @_;
+	my ( $self, $request, $ctx ) = @_;
 
-	return $self->_cmd_fanout( $request, 'watching' );
+	return $self->_cmd_fanout( $request, 'watching', $ctx );
 }
 
 =head1 ERRORS CODES / ERROR FLAGS

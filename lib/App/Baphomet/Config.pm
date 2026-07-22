@@ -264,8 +264,12 @@ Top level keys are as below.
         Default :: no
 
     - usedns_timeout :: Seconds a DNS query may take before being given
-          up on. Resolution is blocking, so this bounds how long a
-          hostile name can stall the galla.
+          up on. Under a running galla queries go through a background
+          engine, so a hostile name never stalls the event loop at all...
+          with resolve_seen a cold name's first sighting counts nobody
+          (the fail-closed posture) and the answer is warm for the next,
+          while a resolve_ban threshold crossing simply banishes when the
+          answer lands. This bounds each query either way.
         Default :: 2
 
     - usedns_max_addrs :: The most addresses a hostname may resolve to
@@ -284,9 +288,13 @@ Top level keys are as below.
         Default :: 1
 
     - rdns_timeout :: Seconds a reverse_dns gate query may take before
-          being given up on. A lookup that fails vetoes the count
-          regardless of the gate's negate, so a slow resolver slows
-          detection, never misaims it.
+          being given up on. A lookup that fails is judged by the entry's
+          on_servfail knob (default fail), so a slow resolver slows
+          detection, never misaims it. Under a running galla the lookups
+          go through the background engine... a cold address's first line
+          is judged as a lookup failure while the PTR (and its forward
+          confirmations, warmed proactively) resolve, the chain answering
+          from the cache on the next line.
         Default :: 2
 
     - country_codes :: A hash of named ISO 3166 code lists a rule's country

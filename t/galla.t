@@ -159,6 +159,7 @@ is_deeply( \@resolved, [ $dir . '/log', $dir . '/glob/a.log' ], 'duplicate entri
 #
 
 my @sent;
+my $send_calls = 0;
 my $send_error;
 {
 	no warnings 'redefine';
@@ -167,7 +168,12 @@ my $send_error;
 		if ( defined($send_error) ) {
 			die($send_error);
 		}
-		push( @sent, { 'ip' => $ip, 'ban_time' => $ban_time } );
+		$send_calls++;
+		# the sweep drain sends a batch as one arrayref request... record it
+		# per ip so the assertions read the same either way
+		foreach my $one ( ref($ip) eq 'ARRAY' ? @{$ip} : ($ip) ) {
+			push( @sent, { 'ip' => $one, 'ban_time' => $ban_time } );
+		}
 		return;
 	};
 }
@@ -259,6 +265,15 @@ $galla->_sweep;
 is( scalar(@sent), $sent_before + 1, 'sweep retried the pending ban' );
 is( $sent[-1]{ip}, '9.9.9.9',        'retried the right IP' );
 ok( !defined( $galla->{pending_bans}{'9.9.9.9'} ), 'pending ban cleared' );
+
+# several pendings owed the same ban_time drain as one batched request
+$galla->{pending_bans}{'9.9.9.10'} = 300;
+$galla->{pending_bans}{'9.9.9.11'} = 300;
+my $calls_before = $send_calls;
+$galla->_sweep;
+is( $send_calls, $calls_before + 1, 'two pendings with one ban_time went out as one request' );
+is( scalar( grep { $_->{ip} =~ /^9\.9\.9\.1[01]$/ } @sent ), 2, 'and both were delivered' );
+ok( !%{ $galla->{pending_bans} }, 'the pending queue drained whole' );
 
 #
 # status

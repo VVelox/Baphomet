@@ -99,6 +99,40 @@ Ereshkigal both... `ledger` reads the shared ledger file straight from the
 tablet dir, so it works with everything down. How far back the ledger
 reaches is bounded by the `ledger_keep` setting, 30 days by default.
 
+## Feeding LibreNMS
+
+```shell
+# the same JSON the fail2ban SNMP extend emits, each kur a jail
+baphomet lnms-f2b-extend
+baphomet lnms-f2b-extend --pretty
+
+# GZip+Base64 compressed, for a fleet of jails
+baphomet lnms-f2b-extend -b
+```
+
+`lnms-f2b-extend` speaks the exact JSON the fail2ban SNMP extend for
+LibreNMS emits, each kur this Baphomet feeds standing in for a jail and its
+banned tally coming from Ereshkigal, so a Baphomet host drops straight into
+the LibreNMS fail2ban application with no fail2ban present. Point an snmpd
+extend at it...
+
+```
+extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend
+```
+
+With `-b` the reply is GZip compressed then Base64 encoded onto one line,
+the LibreNMS extend compression convention it decodes on its own by the
+GZip magic... worth it once a fleet has enough jails to strain the SNMP
+reply...
+
+```
+extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend -b
+```
+
+It wants Ereshkigal reachable for the tallies; unreachable, it still emits
+valid JSON with `error` set and `errorString` naming the fault, as the
+extend does.
+
 ## Working on rules
 
 ```shell

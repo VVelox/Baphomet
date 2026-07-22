@@ -4,8 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 use base 'Error::Helper';
-use POE                              qw( Wheel::FollowTail Wheel::Run );
-use POE::Component::Server::JSONUnix ();
+use POE                                      qw( Wheel::FollowTail Wheel::Run );
+use POE::Component::Server::JSONUnix         ();
+use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                       qw( bsd_glob );
 use JSON::MaybeXS                    qw( encode_json decode_json );
 use POSIX                            qw( strftime );
@@ -114,6 +115,11 @@ sub new {
 		namtar_files             => {},
 		pending_bans             => {},
 		pending_cidr_bans        => {},
+		kur_client               => undef,
+		inflight_bans            => {},
+		dns_async                => 0,
+		dns_inflight             => {},
+		dns_bg                   => undef,
 		wheel_to_watcher         => {},
 		started                  => undef,
 		stopping                 => 0,
@@ -1408,6 +1414,14 @@ sub start_server {
 	);
 	$self->{server} = $server;
 
+	# the persistent async client bans ride, so the event loop never blocks
+	# on Kur... a down Ereshkigal at start is a normal state, hence lazy
+	$self->_spawn_kur_client;
+
+	# under POE the DNS work goes through the background engine... the
+	# blocking closures stay the transport everywhere else
+	$self->{dns_async} = 1;
+
 	POE::Session->create(
 		object_states => [
 			$self => {
@@ -1422,6 +1436,9 @@ sub start_server {
 				'sweep'           => '_poe_sweep',
 				'join_flush'      => '_poe_join_flush',
 				'stop_tails'      => '_poe_stop_tails',
+				'dns_start'       => '_poe_dns_start',
+				'dns_answered'    => '_poe_dns_answered',
+				'dns_timed_out'   => '_poe_dns_timed_out',
 			},
 		],
 	);
@@ -1439,6 +1456,10 @@ sub start_server {
 	);
 
 	$poe_kernel->run;
+
+	# a final checkpoint... anything an in-flight ban answered into the
+	# pending queues while the loop was winding down persists too
+	$self->checkpoint;
 
 	log_drek( 'info', 'stopped', undef, $ident );
 
@@ -1830,6 +1851,15 @@ sub _poe_stop_tails {
 	$self->{wheelid_to_journal} = {};
 	$self->{pid_to_journal}     = {};
 
+	# in-flight DNS queries would hold this session alive... their alarms
+	# fall to the remove_all below, the selects are dropped here
+	foreach my $handle_key ( keys( %{ $self->{dns_inflight} } ) ) {
+		my $query = delete( $self->{dns_inflight}{$handle_key} );
+		if ( defined( $query->{handle} ) ) {
+			$kernel->select_read( $query->{handle} );
+		}
+	}
+
 	$kernel->alarm_remove_all;
 	$kernel->alias_remove( 'galla-tails-' . $self->{name} );
 
@@ -2199,7 +2229,10 @@ sub _open_dns {
 			'tcp_timeout' => $self->{usedns_timeout},
 			'retry'       => 1,
 		);
-		$self->{dns_resolve} = sub {
+		# kept for the background query engine, which bgsends on the same
+		# resolver the blocking closure wraps... one config, one behavior
+		$self->{dns_resolver} = $resolver;
+		$self->{dns_resolve}  = sub {
 			my ($hostname) = @_;
 			my @addrs;
 			foreach my $type ( 'A', 'AAAA' ) {
@@ -2242,6 +2275,8 @@ sub _open_rdns {
 			'tcp_timeout' => $self->{rdns_timeout},
 			'retry'       => 1,
 		);
+		# kept for the background query engine, as with dns_resolver
+		$self->{rdns_resolver} = $resolver;
 		my $ask = sub {
 			my ( $query_name, @types ) = @_;
 			my @found;
@@ -2279,6 +2314,138 @@ sub _open_rdns {
 
 	return;
 } ## end sub _open_rdns
+
+# folds a reply packet into the tri-valued outcome the blocking closures
+# return... an arrayref of extracted values for NOERROR/NXDOMAIN (possibly
+# empty, authoritative absence being an answer), undef for a failure
+sub _dns_fold {
+	my ( $packet, $qtype ) = @_;
+
+	if ( !defined($packet) ) {
+		return undef;
+	}
+	my $rcode = eval { $packet->header->rcode };
+	if ( !defined($rcode) || ( $rcode ne 'NOERROR' && $rcode ne 'NXDOMAIN' ) ) {
+		return undef;
+	}
+
+	my @found;
+	foreach my $rr ( $packet->answer ) {
+		if ( $qtype eq 'PTR' && $rr->type eq 'PTR' ) {
+			push( @found, $rr->ptrdname );
+		} elsif ( $rr->type eq $qtype ) {
+			push( @found, $rr->address );
+		}
+	}
+
+	return \@found;
+} ## end sub _dns_fold
+
+# whether background queries of the given kind can actually fly... the
+# galla must be under POE (dns_async, set by start_server) and hold either
+# the injectable seam or the kind's resolver. without this the blocking
+# closures stay the transport, which is what keeps run_tests and a galla
+# driven directly by the tests working with out an event loop
+sub _dns_async_ready {
+	my ( $self, $kind ) = @_;
+
+	if ( !$self->{dns_async} ) {
+		return 0;
+	}
+	if ( defined( $self->{dns_bg} ) ) {
+		return 1;
+	}
+	return defined( $kind eq 'rdns' ? $self->{rdns_resolver} : $self->{dns_resolver} ) ? 1 : 0;
+} ## end sub _dns_async_ready
+
+# fires one background query, $done receiving the folded tri-value...
+# routed through the tails session so the select and the timeout alarm
+# live there no matter which session initiated (a kur client completion,
+# say). the dns_bg closure is the test seam, standing in for the whole
+# wire engine when injected
+sub _dns_query_bg {
+	my ( $self, $kind, $qname, $qtype, $done ) = @_;
+
+	if ( defined( $self->{dns_bg} ) ) {
+		$self->{dns_bg}->( $kind, $qname, $qtype, $done );
+		return;
+	}
+
+	$poe_kernel->post(
+		'galla-tails-' . $self->{name},
+		'dns_start',
+		{
+			'kind'  => $kind,
+			'qname' => $qname,
+			'qtype' => $qtype,
+			'done'  => $done,
+		}
+	);
+
+	return;
+} ## end sub _dns_query_bg
+
+# the wire half of the engine... bgsend on the same resolver the blocking
+# closure wraps, the returned handle watched by the kernel and bounded by
+# the kind's configured timeout
+sub _poe_dns_start {
+	my ( $self, $kernel, $query ) = @_[ OBJECT, KERNEL, ARG0 ];
+
+	my $resolver = $query->{kind} eq 'rdns' ? $self->{rdns_resolver} : $self->{dns_resolver};
+	my $timeout  = $query->{kind} eq 'rdns' ? $self->{rdns_timeout}  : $self->{usedns_timeout};
+	if ( !defined($resolver) ) {
+		$query->{done}->(undef);
+		return;
+	}
+
+	my $handle = eval { $resolver->bgsend( $query->{qname}, $query->{qtype} ); };
+	if ( !defined($handle) ) {
+		$query->{done}->(undef);
+		return;
+	}
+
+	$query->{handle}                    = $handle;
+	$self->{dns_inflight}{"$handle"}    = $query;
+	$kernel->select_read( $handle, 'dns_answered' );
+	$query->{alarm_id} = $kernel->delay_set( 'dns_timed_out', $timeout, "$handle" );
+
+	return;
+} ## end sub _poe_dns_start
+
+sub _poe_dns_answered {
+	my ( $self, $kernel, $handle ) = @_[ OBJECT, KERNEL, ARG0 ];
+
+	$kernel->select_read($handle);
+	my $query = delete( $self->{dns_inflight}{"$handle"} );
+	if ( !defined($query) ) {
+		return;
+	}
+	if ( defined( $query->{alarm_id} ) ) {
+		$kernel->alarm_remove( $query->{alarm_id} );
+	}
+
+	my $resolver = $query->{kind} eq 'rdns' ? $self->{rdns_resolver} : $self->{dns_resolver};
+	my $packet   = eval { $resolver->bgread($handle); };
+	$query->{done}->( _dns_fold( $packet, $query->{qtype} ) );
+
+	return;
+} ## end sub _poe_dns_answered
+
+# a query past its deadline completes as a failure, the fail-closed
+# posture every DNS consumer already promises... the answer showing up
+# later is simply discarded, its select gone
+sub _poe_dns_timed_out {
+	my ( $self, $kernel, $handle_key ) = @_[ OBJECT, KERNEL, ARG0 ];
+
+	my $query = delete( $self->{dns_inflight}{$handle_key} );
+	if ( !defined($query) ) {
+		return;
+	}
+	$kernel->select_read( $query->{handle} );
+	$query->{done}->(undef);
+
+	return;
+} ## end sub _poe_dns_timed_out
 
 # opens the GeoIP database for country gating, if one is configured...
 # stores the reader on success, a error string otherwise, both undef when
@@ -2546,14 +2713,22 @@ sub _rdns_entry_pass {
 # the cached tri-state lookups behind the reverse_dns gate... a array ref
 # (possibly empty, authoritative absence) or undef (failure), both
 # remembered, so a hostile flood of matches asks each question once a
-# minute at most
+# minute at most. under the background engine a cold key fires its query
+# and answers undef for THIS line — a lookup failure, judged by the
+# entry's on_servfail knob like any other — the real answer warm in the
+# cache for the next line, and a flood on one cold key fires one query
 sub _rdns_cached {
 	my ( $self, $cache_key, $ask ) = @_;
 
 	my $now    = time;
 	my $cached = $self->{rdns_cache}{$cache_key};
 	if ( defined($cached) && $cached->{expires} > $now ) {
-		return $cached->{answer};
+		return $cached->{inflight} ? undef : $cached->{answer};
+	}
+
+	if ( $self->_dns_async_ready('rdns') ) {
+		$self->_rdns_fire( $cache_key, $now );
+		return undef;
 	}
 
 	my $answer = eval { $ask->(); };
@@ -2570,6 +2745,75 @@ sub _rdns_cached {
 
 	return $answer;
 } ## end sub _rdns_cached
+
+# fires the background lookup a cold rdns cache key names... ptr: keys ask
+# PTR of the address, fwd: keys ask A and AAAA of the name, either failing
+# whole if a family fails, matching the blocking $ask. a landed PTR answer
+# proactively warms the forward confirmations of its names, so the usual
+# cold-name cost is one line, not one per chain hop
+sub _rdns_fire {
+	my ( $self, $cache_key, $now ) = @_;
+
+	my ( $kind_prefix, $subject ) = split( /:/, $cache_key, 2 );
+
+	$self->_bound_expiring_store( $self->{rdns_cache}, $cache_key, $now );
+	$self->{rdns_cache}{$cache_key} = {
+		'inflight' => 1,
+		'expires'  => $now + ( $self->{rdns_timeout} * 2 ) + 1,
+	};
+
+	my $settle = sub {
+		my ($answer) = @_;
+		if ( !defined($answer) ) {
+			$self->_tick('rdns_failures');
+		}
+		$self->{rdns_cache}{$cache_key} = { 'answer' => $answer, 'expires' => time + 60 };
+		if ( $kind_prefix eq 'ptr' && defined($answer) ) {
+			# warm the forward confirmations... PTR sets are small, but a
+			# hostile one is capped rather than trusted
+			my $warmed = 0;
+			foreach my $ptr_name ( @{$answer} ) {
+				last if ++$warmed > 10;
+				my $fwd_key    = 'fwd:' . $ptr_name;
+				my $fwd_cached = $self->{rdns_cache}{$fwd_key};
+				if ( defined($fwd_cached) && $fwd_cached->{expires} > time ) {
+					next;
+				}
+				$self->_rdns_fire( $fwd_key, time );
+			}
+		} ## end if ( $kind_prefix eq 'ptr' && defined($answer...))
+		return;
+	};
+
+	if ( $kind_prefix eq 'ptr' ) {
+		$self->_dns_query_bg( 'rdns', $subject, 'PTR', $settle );
+		return;
+	}
+
+	# fwd... both families must answer, either failing fails the whole,
+	# exactly as the blocking $ask treats it
+	my @found;
+	my $failed;
+	my $outstanding = 2;
+	my $one_family  = sub {
+		my ($answer) = @_;
+		if ( !defined($answer) ) {
+			$failed = 1;
+		} else {
+			push( @found, @{$answer} );
+		}
+		$outstanding--;
+		if ( !$outstanding ) {
+			$settle->( $failed ? undef : \@found );
+		}
+		return;
+	};
+	foreach my $qtype ( 'A', 'AAAA' ) {
+		$self->_dns_query_bg( 'rdns', $subject, $qtype, $one_family );
+	}
+
+	return;
+} ## end sub _rdns_fire
 
 sub _rdns_names {
 	my ( $self, $address ) = @_;
@@ -3445,7 +3689,7 @@ sub _usedns_offenders {
 			next;
 		}
 		if ( $mode eq 'resolve_seen' ) {
-			my $addrs = $self->_resolve_hostname($offender);
+			my $addrs = $self->_resolve_hostname_seen($offender);
 			if ( defined($addrs) ) {
 				push( @kept, @{$addrs} );
 			}
@@ -3472,7 +3716,7 @@ sub _resolve_hostname {
 
 	my $now    = time;
 	my $cached = $self->{dns_cache}{$hostname};
-	if ( defined($cached) && $cached->{expires} > $now ) {
+	if ( defined($cached) && !$cached->{inflight} && $cached->{expires} > $now ) {
 		return $cached->{addrs};
 	}
 
@@ -3483,6 +3727,15 @@ sub _resolve_hostname {
 			$addrs = undef;
 		}
 	}
+
+	return $self->_resolve_hostname_fence( $hostname, $addrs, $now );
+} ## end sub _resolve_hostname
+
+# the fences and the cache write shared by the blocking and background
+# resolutions... max_addrs refusal, the absolute ignore/internal drops,
+# the failure tick, and the answered cache entry
+sub _resolve_hostname_fence {
+	my ( $self, $hostname, $addrs, $now ) = @_;
 
 	if ( defined($addrs) && scalar( @{$addrs} ) > $self->{usedns_max_addrs} ) {
 		log_drek(
@@ -3519,7 +3772,88 @@ sub _resolve_hostname {
 	$self->{dns_cache}{$hostname} = { 'addrs' => $addrs, 'expires' => $now + 60 };
 
 	return $addrs;
-} ## end sub _resolve_hostname
+} ## end sub _resolve_hostname_fence
+
+# the background form... a cache hit answers at once, a resolution already
+# in flight is joined as a waiter rather than re-asked, and a cold name
+# fires A and AAAA concurrently (the blocking closure asks them in turn),
+# every waiter answered from the one fenced fold. falls back to the
+# blocking path when the engine can not fly
+sub _resolve_hostname_async {
+	my ( $self, $hostname, $done ) = @_;
+
+	if ( !$self->_dns_async_ready('dns') ) {
+		$done->( $self->_resolve_hostname($hostname) );
+		return;
+	}
+
+	my $now    = time;
+	my $cached = $self->{dns_cache}{$hostname};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		if ( $cached->{inflight} ) {
+			push( @{ $cached->{waiters} }, $done );
+			return;
+		}
+		$done->( $cached->{addrs} );
+		return;
+	}
+
+	$self->_bound_expiring_store( $self->{dns_cache}, $hostname, $now );
+	my $entry = $self->{dns_cache}{$hostname} = {
+		'inflight' => 1,
+		'waiters'  => [$done],
+		# past the query deadline plus grace the entry is just stale
+		'expires' => $now + ( $self->{usedns_timeout} * 2 ) + 1,
+	};
+
+	my @addrs;
+	my $outstanding = 2;
+	my $one_family  = sub {
+		my ($found) = @_;
+		if ( defined($found) ) {
+			push( @addrs, @{$found} );
+		}
+		$outstanding--;
+		if ($outstanding) {
+			return;
+		}
+		# no addresses at all reads as a failure, matching the blocking
+		# closure... the fence ticks, caches, and drops the fences' share
+		my $fenced  = $self->_resolve_hostname_fence( $hostname, ( @addrs ? \@addrs : undef ), time );
+		my $waiters = $entry->{waiters};
+		foreach my $waiter ( @{$waiters} ) {
+			$waiter->($fenced);
+		}
+		return;
+	};
+	foreach my $qtype ( 'A', 'AAAA' ) {
+		$self->_dns_query_bg( 'dns', $hostname, $qtype, $one_family );
+	}
+
+	return;
+} ## end sub _resolve_hostname_async
+
+# the per-line form resolve_seen counts through... never blocks and never
+# waits. an answered cache is used, a cold name fires the background
+# resolution and counts nobody THIS line (the fail-closed posture the
+# feature already promises), the answer warm for the next line. without
+# the engine the blocking path stands, as it always did
+sub _resolve_hostname_seen {
+	my ( $self, $hostname ) = @_;
+
+	if ( !$self->_dns_async_ready('dns') ) {
+		return $self->_resolve_hostname($hostname);
+	}
+
+	my $cached = $self->{dns_cache}{$hostname};
+	if ( defined($cached) && $cached->{expires} > time ) {
+		return $cached->{inflight} ? undef : $cached->{addrs};
+	}
+
+	$self->_resolve_hostname_async( $hostname, sub { return; } );
+
+	return undef;
+} ## end sub _resolve_hostname_seen
 
 # banishes what a hostname names... the resolve_ban terminal. resolution
 # failing or refusing means no ban at all, said loudly... a hostname is
@@ -3530,24 +3864,37 @@ sub _ban_hostname {
 
 	delete( $self->{pending_bans}{$hostname} );
 
-	my $addrs = $self->_resolve_hostname($hostname);
-	if ( !defined($addrs) || !@{$addrs} ) {
-		log_drek( 'err',
-			'"' . $hostname . '" crossed the threshold but resolved to nothing banishable... banishing nobody',
-			undef, 'galla-' . $self->{name} );
+	# a resolution already underway for this name will banish on its own
+	if ( $self->{inflight_bans}{ 'host:' . $hostname } ) {
 		return;
 	}
+	$self->{inflight_bans}{ 'host:' . $hostname } = 1;
 
-	foreach my $addr ( @{$addrs} ) {
-		my $addr_context = ref($context) eq 'HASH' ? { %{$context}, 'hostname' => $hostname } : undef;
-		$self->_ban_ip( $addr, $ban_time, $addr_context, $score );
-	}
+	$self->_resolve_hostname_async(
+		$hostname,
+		sub {
+			my ($addrs) = @_;
+			delete( $self->{inflight_bans}{ 'host:' . $hostname } );
+			if ( !defined($addrs) || !@{$addrs} ) {
+				log_drek( 'err',
+					'"' . $hostname . '" crossed the threshold but resolved to nothing banishable... banishing nobody',
+					undef, 'galla-' . $self->{name} );
+				return;
+			}
+			foreach my $addr ( @{$addrs} ) {
+				my $addr_context = ref($context) eq 'HASH' ? { %{$context}, 'hostname' => $hostname } : undef;
+				$self->_ban_ip( $addr, $ban_time, $addr_context, $score );
+			}
+			return;
+		}
+	);
 
 	return;
 } ## end sub _ban_hostname
 
 # banishes a IP to Kur, queueing it for retry by the sweeper if the
-# Ereshkigal manager could not be reached
+# Ereshkigal manager could not be reached... the send completes async under
+# POE, so the judgment tail runs from the answer, not from here
 sub _ban_ip {
 	my ( $self, $ip, $ban_time, $context, $score ) = @_;
 
@@ -3557,23 +3904,49 @@ sub _ban_ip {
 		return $self->_ban_hostname( $ip, $ban_time, $context, $score );
 	}
 
-	my $ident = 'galla-' . $self->{name};
+	# a decision already in flight absorbs this crossing... it will either
+	# deliver or pend on its own
+	if ( $self->{inflight_bans}{ 'ip:' . $ip } ) {
+		return;
+	}
+	$self->{inflight_bans}{ 'ip:' . $ip } = 1;
 
 	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
 	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
-	eval { $self->_send_ban( $ip, $ban_time ); };
-	if ($@) {
-		$self->_tick( 'ban_errors', $watcher_name, $rule_name );
-		$self->{pending_bans}{$ip} = $ban_time;
-		log_drek( 'err', 'banishing ' . $ip . ' to Kur failed, will retry... ' . $@, undef, $ident );
-		return;
-	}
+	$self->_kur_ban(
+		$ip, $ban_time, undef,
+		sub {
+			my ($error) = @_;
+			delete( $self->{inflight_bans}{ 'ip:' . $ip } );
+			if ( defined($error) ) {
+				$self->_tick( 'ban_errors', $watcher_name, $rule_name );
+				$self->{pending_bans}{$ip} = $ban_time;
+				log_drek( 'err', 'banishing ' . $ip . ' to Kur failed, will retry... ' . $error,
+					undef, 'galla-' . $self->{name} );
+				return;
+			}
+			$self->_ban_delivered( $ip, $ban_time, $context, $score );
+			return;
+		}
+	);
+
+	return;
+} ## end sub _ban_ip
+
+# the tail of a landed IP ban... the tick, the log, the EVE banish, the
+# ledger chisel, and the recidive gate. split from the send so the batched
+# sweep drain (and one day an async completion) can run it per subject
+sub _ban_delivered {
+	my ( $self, $ip, $ban_time, $context, $score ) = @_;
+
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
 	$self->_tick( 'bans', $watcher_name, $rule_name );
 	delete( $self->{pending_bans}{$ip} );
 	log_drek( 'info', 'banished ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
-		undef, $ident );
+		undef, 'galla-' . $self->{name} );
 
 	# the banish event carries the triggering line's envelope when there
 	# was one... a pending retry banish has no context. with a GeoIP
@@ -3599,7 +3972,7 @@ sub _ban_ip {
 	$self->_recidive_check( $ip, $ledger_count );
 
 	return;
-} ## end sub _ban_ip
+} ## end sub _ban_delivered
 
 # the observe-mode twin of _ban_ip... an eve_only rule whose shadow score
 # reached max_score raises a alert instead of banishing. it writes the EVE
@@ -3668,23 +4041,45 @@ sub _sighted {
 sub _ban_subnet {
 	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
 
-	my $ident = 'galla-' . $self->{name};
+	if ( $self->{inflight_bans}{ 'net:' . $network } ) {
+		return;
+	}
+	$self->{inflight_bans}{ 'net:' . $network } = 1;
 
 	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
 	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
-	eval { $self->_send_cidr_ban( $network, $ban_time ); };
-	if ($@) {
-		$self->_tick( 'ban_errors', $watcher_name, $rule_name );
-		$self->{pending_cidr_bans}{$network} = $ban_time;
-		log_drek( 'err', 'banishing ' . $network . ' to Kur failed, will retry... ' . $@, undef, $ident );
-		return;
-	}
+	$self->_kur_cidr_ban(
+		$network, $ban_time, undef,
+		sub {
+			my ($error) = @_;
+			delete( $self->{inflight_bans}{ 'net:' . $network } );
+			if ( defined($error) ) {
+				$self->_tick( 'ban_errors', $watcher_name, $rule_name );
+				$self->{pending_cidr_bans}{$network} = $ban_time;
+				log_drek( 'err', 'banishing ' . $network . ' to Kur failed, will retry... ' . $error,
+					undef, 'galla-' . $self->{name} );
+				return;
+			}
+			$self->_subnet_ban_delivered( $network, $ban_time, $context, $score, $info );
+			return;
+		}
+	);
+
+	return;
+} ## end sub _ban_subnet
+
+# the tail of a landed CIDR ban, the twin of _ban_delivered
+sub _subnet_ban_delivered {
+	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
+
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
 	$self->_tick( 'subnet_bans', $watcher_name, $rule_name );
 	delete( $self->{pending_cidr_bans}{$network} );
 	log_drek( 'info', 'banished ' . $network . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
-		undef, $ident );
+		undef, 'galla-' . $self->{name} );
 
 	$self->_eve_emit(
 		'banish',
@@ -3702,7 +4097,7 @@ sub _ban_subnet {
 	$self->_recidive_check( $network, $ledger_count, 1 );
 
 	return;
-} ## end sub _ban_subnet
+} ## end sub _subnet_ban_delivered
 
 # the observe-mode twin of _ban_subnet... a crossed shadow subnet bucket raises
 # a alert instead of banishing, sending nothing to Kur
@@ -3736,9 +4131,158 @@ sub _alert_subnet {
 	return;
 } ## end sub _alert_subnet
 
+# spawns the persistent async client to the Ereshkigal manager socket...
+# lazy-connecting, every request bounded by the config timeout and answered
+# locally past it, so the galla's event loop never waits on Kur. only under
+# POE... without it (run_tests, a galla driven directly by the tests) the
+# blocking client stays the transport, via the _kur_ban fallbacks
+sub _spawn_kur_client {
+	my ($self) = @_;
+
+	my $ident = 'galla-' . $self->{name};
+	$self->{kur_client} = POE::Component::Server::JSONUnix::Client->spawn(
+		'socket_path'     => $self->{ereshkigal_socket},
+		'alias'           => $ident . '-kur-client',
+		'auto_connect'    => 0,
+		'request_timeout' => $self->{timeout},
+		'on_error'        => sub {
+			my ( $operation, $errnum, $errstr ) = @_;
+			log_drek( 'err', 'kur client error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')',
+				undef, $ident );
+		},
+		'on_disconnect' => sub {
+			my ( undef, $reason ) = @_;
+			log_drek( 'info', 'kur client disconnected... ' . $reason, undef, $ident );
+		},
+	);
+
+	return;
+} ## end sub _spawn_kur_client
+
+# one command over the async client, $done->($error) when answered, $error
+# undef on ok. reconnects lazily (calls made while connecting are queued by
+# the client) and, if the manager demands authentication, completes the
+# ownership challenge once on this connection and resends... the same dance
+# the blocking client does
+sub _kur_call {
+	my ( $self, $command, $args, $done ) = @_;
+
+	my $client = $self->{kur_client};
+	$client->connect;
+
+	my $answered = sub {
+		my ($response) = @_;
+		if ( ref($response) eq 'HASH' && defined( $response->{status} ) && $response->{status} eq 'ok' ) {
+			$done->(undef);
+			return 1;
+		}
+		return 0;
+	};
+
+	$client->call(
+		'command'  => $command,
+		'args'     => $args,
+		'callback' => sub {
+			my ($response) = @_;
+			if ( $answered->($response) ) {
+				return;
+			}
+			my $error
+				= ( ref($response) eq 'HASH' && defined( $response->{error} ) ) ? $response->{error} : 'unknown error';
+			if ( $error !~ /^authentication required/ ) {
+				$done->($error);
+				return;
+			}
+			# auth state lives on the connection, so challenge and resend
+			$client->authenticate(
+				'callback' => sub {
+					my ($verdict) = @_;
+					if ( !( ref($verdict) eq 'HASH' && defined( $verdict->{status} ) && $verdict->{status} eq 'ok' ) )
+					{
+						$done->( 'authentication failed... '
+								. ( ( ref($verdict) eq 'HASH' && defined( $verdict->{error} ) ) ? $verdict->{error} : 'unknown error' ) );
+						return;
+					}
+					$client->call(
+						'command'  => $command,
+						'args'     => $args,
+						'callback' => sub {
+							my ($again) = @_;
+							if ( $answered->($again) ) {
+								return;
+							}
+							$done->(
+								( ref($again) eq 'HASH' && defined( $again->{error} ) )
+								? $again->{error}
+								: 'unknown error'
+							);
+							return;
+						},
+					);
+					return;
+				},
+			);
+			return;
+		},
+	);
+
+	return;
+} ## end sub _kur_call
+
+# a ban to the Ereshkigal manager, one ip or an arrayref, $done->($error)
+# when answered... async over the kur client when it is up, else the
+# blocking _send_ban with $done called before this returns, which is what
+# keeps a galla usable without a event loop
+sub _kur_ban {
+	my ( $self, $ips, $ban_time, $kur, $done ) = @_;
+
+	if ( !defined( $self->{kur_client} ) ) {
+		eval { $self->_send_ban( $ips, $ban_time, $kur ); };
+		$done->( $@ ? $@ : undef );
+		return;
+	}
+
+	$self->_kur_call(
+		'ban',
+		{
+			'ips' => ref($ips) eq 'ARRAY' ? $ips : [$ips],
+			'kur' => defined($kur)        ? $kur : $self->{name},
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+		},
+		$done
+	);
+
+	return;
+} ## end sub _kur_ban
+
+# the CIDR twin of _kur_ban
+sub _kur_cidr_ban {
+	my ( $self, $networks, $ban_time, $kur, $done ) = @_;
+
+	if ( !defined( $self->{kur_client} ) ) {
+		eval { $self->_send_cidr_ban( $networks, $ban_time, $kur ); };
+		$done->( $@ ? $@ : undef );
+		return;
+	}
+
+	$self->_kur_call(
+		'cidr_ban',
+		{
+			'cidrs' => ref($networks) eq 'ARRAY' ? $networks : [$networks],
+			'kur'   => defined($kur)             ? $kur      : $self->{name},
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+		},
+		$done
+	);
+
+	return;
+} ## end sub _kur_cidr_ban
+
 # the CIDR ban request to the Ereshkigal manager, its cidr_ban command... the
 # manager masks the host bits, dedupes, and drops it on a kur that can not do
-# CIDR per its cidr_silent_drop. to this galla's kur by default
+# CIDR per its cidr_silent_drop. to this galla's kur by default. takes one
+# network or an arrayref of them, so the sweep drain sends a batch as one
+# request
 sub _send_cidr_ban {
 	my ( $self, $network, $ban_time, $kur ) = @_;
 
@@ -3750,8 +4294,8 @@ sub _send_cidr_ban {
 	$client->call_ok(
 		'cidr_ban',
 		{
-			'cidrs' => [$network],
-			'kur' => defined($kur) ? $kur : $self->{name},
+			'cidrs' => ref($network) eq 'ARRAY' ? $network : [$network],
+			'kur'   => defined($kur)            ? $kur     : $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		}
 	);
@@ -3760,7 +4304,8 @@ sub _send_cidr_ban {
 } ## end sub _send_cidr_ban
 
 # the actual ban request to the Ereshkigal manager, to this galla's kur by
-# default or the passed one for a recidive escalation
+# default or the passed one for a recidive escalation. takes one ip or an
+# arrayref of them, so the sweep drain sends a batch as one request
 sub _send_ban {
 	my ( $self, $ip, $ban_time, $kur ) = @_;
 
@@ -3772,14 +4317,86 @@ sub _send_ban {
 	$client->call_ok(
 		'ban',
 		{
-			'ips' => [$ip],
-			'kur' => defined($kur) ? $kur : $self->{name},
+			'ips' => ref($ip) eq 'ARRAY' ? $ip  : [$ip],
+			'kur' => defined($kur)       ? $kur : $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		}
 	);
 
 	return;
 } ## end sub _send_ban
+
+# drains the pending ban queues, IP and CIDR alike... the pendings are
+# grouped by owed ban_time and each group goes out as one batched request,
+# so a down Ereshkigal costs the sweep one timeout per group rather than
+# one per subject. a non-IP subject restored off an old tablet falls back
+# through _ban_ip, which resolves-or-drops it as always
+sub _drain_pending_bans {
+	my ($self) = @_;
+
+	$self->_drain_pending_group( $self->{pending_bans},      0 );
+	$self->_drain_pending_group( $self->{pending_cidr_bans}, 1 );
+
+	return;
+}
+
+sub _drain_pending_group {
+	my ( $self, $pending, $subnet ) = @_;
+
+	my $inflight_prefix = $subnet ? 'net:' : 'ip:';
+
+	my %groups;
+	foreach my $subject ( sort( keys( %{$pending} ) ) ) {
+		if ( !$subnet && !defined( ip_family($subject) ) ) {
+			$self->_ban_ip( $subject, $pending->{$subject} );
+			next;
+		}
+		# a subject already being answered for is left alone... the answer
+		# will deliver it or leave it pending for the next sweep
+		if ( $self->{inflight_bans}{ $inflight_prefix . $subject } ) {
+			next;
+		}
+		my $group_key = defined( $pending->{$subject} ) ? $pending->{$subject} : '';
+		push( @{ $groups{$group_key} }, $subject );
+	}
+
+	my $ident = 'galla-' . $self->{name};
+	foreach my $group_key ( sort( keys(%groups) ) ) {
+		my $subjects = $groups{$group_key};
+		my $ban_time = $group_key eq '' ? undef : $group_key + 0;
+		foreach my $subject ( @{$subjects} ) {
+			$self->{inflight_bans}{ $inflight_prefix . $subject } = 1;
+		}
+		my $answered = sub {
+			my ($error) = @_;
+			foreach my $subject ( @{$subjects} ) {
+				delete( $self->{inflight_bans}{ $inflight_prefix . $subject } );
+			}
+			if ( defined($error) ) {
+				$self->_tick('ban_errors');
+				log_drek( 'err',
+					'retrying ' . scalar( @{$subjects} ) . ' pending ban(s) failed, will retry again... ' . $error,
+					undef, $ident );
+				return;
+			}
+			foreach my $subject ( @{$subjects} ) {
+				if ($subnet) {
+					$self->_subnet_ban_delivered( $subject, $ban_time, undef, undef, undef );
+				} else {
+					$self->_ban_delivered( $subject, $ban_time, undef, undef );
+				}
+			}
+			return;
+		};
+		if ($subnet) {
+			$self->_kur_cidr_ban( $subjects, $ban_time, undef, $answered );
+		} else {
+			$self->_kur_ban( $subjects, $ban_time, undef, $answered );
+		}
+	} ## end foreach my $group_key ( sort( keys(%groups) ) )
+
+	return;
+} ## end sub _drain_pending_group
 
 # returns the path of the shared banishment ledger, under the tablet dir,
 # not per galla as every galla writes to the one ledger
@@ -3826,34 +4443,37 @@ sub _recidive_check {
 		'galla-' . $self->{name}
 	);
 
-	eval {
-		if ($subnet) {
-			$self->_send_cidr_ban( $subject, $ban_time, $self->{recidive}{kur} );
-		} else {
-			$self->_send_ban( $subject, $ban_time, $self->{recidive}{kur} );
+	my $escalated = sub {
+		my ($error) = @_;
+		if ( defined($error) ) {
+			$self->_tick('ban_errors');
+			log_drek( 'err', 'banishing recidivist ' . $subject . ' failed... ' . $error,
+				undef, 'galla-' . $self->{name} );
+			return;
 		}
-	};
-	if ($@) {
-		$self->_tick('ban_errors');
-		log_drek( 'err', 'banishing recidivist ' . $subject . ' failed... ' . $@, undef, 'galla-' . $self->{name} );
+		# a recidive escalation is its own banish event, to the recidive kur,
+		# with the ledger count and no single triggering line
+		my $country
+			= ( !$subnet && $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($subject) : undef;
+		$self->_eve_emit(
+			'banish',
+			{
+				'ip'       => $subject,
+				'kur'      => $self->{recidive}{kur},
+				'ban_time' => $ban_time,
+				'count'    => $count,
+				defined($country) ? ( 'country' => $country ) : (),
+				'recidive' => \1,
+			}
+		);
 		return;
-	}
+	};
 
-	# a recidive escalation is its own banish event, to the recidive kur,
-	# with the ledger count and no single triggering line
-	my $country
-		= ( !$subnet && $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($subject) : undef;
-	$self->_eve_emit(
-		'banish',
-		{
-			'ip'       => $subject,
-			'kur'      => $self->{recidive}{kur},
-			'ban_time' => $ban_time,
-			'count'    => $count,
-			defined($country) ? ( 'country' => $country ) : (),
-			'recidive' => \1,
-		}
-	);
+	if ($subnet) {
+		$self->_kur_cidr_ban( $subject, $ban_time, $self->{recidive}{kur}, $escalated );
+	} else {
+		$self->_kur_ban( $subject, $ban_time, $self->{recidive}{kur}, $escalated );
+	}
 
 	return;
 } ## end sub _recidive_check
@@ -4043,12 +4663,7 @@ sub _ledger_compact {
 sub _sweep {
 	my ($self) = @_;
 
-	foreach my $ip ( sort( keys( %{ $self->{pending_bans} } ) ) ) {
-		$self->_ban_ip( $ip, $self->{pending_bans}{$ip} );
-	}
-	foreach my $network ( sort( keys( %{ $self->{pending_cidr_bans} } ) ) ) {
-		$self->_ban_subnet( $network, $self->{pending_cidr_bans}{$network} );
-	}
+	$self->_drain_pending_bans;
 
 	# so counters for IPs never seen again don't linger forever... any
 	# still-relevant entry gets re-pruned properly on its next hit. the
@@ -4358,6 +4973,13 @@ sub _cmd_stop {
 
 	# keeps the sweeper from rescheduling so it's session can end
 	$self->{stopping} = 1;
+
+	# drop the kur client... every in-flight ban is answered with an error,
+	# landing back in the pending queues for the final checkpoint to persist
+	if ( defined( $self->{kur_client} ) ) {
+		$self->{kur_client}->shutdown;
+		$self->{kur_client} = undef;
+	}
 
 	# leave fresh tablets behind, while the wheels still exist to snapshot
 	# their positions from
