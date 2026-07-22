@@ -118,21 +118,148 @@ is( $authed->{enable_auth}, 1, 'enable_auth read as 1' );
 is_deeply( $authed->{authed_users},  ['alice'], 'authed_users read' );
 is_deeply( $authed->{authed_groups}, ['wheel'], 'authed_groups read' );
 
-# _authorize is a no-op when auth is off
+# the Neti gate is now a JSONUnix permission policy... no policy when auth is
+# off, so the manager spawns as it always did
 write_config('');
 my $plain = App::Baphomet->new( 'config' => $dir . '/config.toml' );
 is( $plain->{enable_auth}, 0, 'enable_auth defaults off' );
-ok( eval { $plain->_authorize( FakeCtx->new( 1000, 'nobody' ) ); 1 }, 'auth off... anyone passes' );
+is( $plain->_neti_permissions, undef, 'auth off... no permission policy' );
 
-# with auth on... UID 0 always passes, a listed user passes, others are refused
-ok( eval { $authed->_authorize( FakeCtx->new( 0,    'root' ) );   1 }, 'UID 0 passes the Neti gate' );
-ok( eval { $authed->_authorize( FakeCtx->new( 1001, 'alice' ) );  1 }, 'a authed user passes' );
-ok( !eval { $authed->_authorize( FakeCtx->new( 1002, 'mallory' ) ); 1 }, 'an unlisted user is refused' );
-like( $@, qr/Neti gate/, 'refusal names the Neti gate' );
+# with auth on... a single %DEFAULT% rule denying by default and allowing UID
+# 0 (root), the authed users, and the authed groups. JSONUnix does the actual
+# membership resolution and enforcement, tested in its own dist
+my $policy = $authed->_neti_permissions;
+is( $policy->{default}, 'deny', 'the policy denies by default' );
+is_deeply(
+	$policy->{commands}{'%DEFAULT%'},
+	{ 'users' => [ 0, 'alice' ], 'groups' => ['wheel'] },
+	'the %DEFAULT% rule allows root, the authed users, and the authed groups'
+);
 
 # a bad authed list is a config error
 write_config( '', "enable_auth = true\nauthed_users = \"notanarray\"" );
 ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a non-array authed_users is a error' );
+
+#
+# command_perms... per command rules laid over the baseline
+#
+
+my $perms_toplevel = <<'EOT';
+enable_auth = true
+authed_users = [ "nanni" ]
+authed_groups = [ "ops" ]
+
+[command_perms]
+default = "deny"
+
+[command_perms.commands.status]
+users = [ "nanni" ]
+
+[command_perms.commands.stop]
+users = [ "nanni" ]
+groups = [ "ops" ]
+deny_users = [ "ea-nasir" ]
+
+[command_perms.commands.watching]
+deny_users = [ "ea-nasir" ]
+EOT
+write_config( '', $perms_toplevel );
+my $cperms = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+ok( defined($cperms), 'a config with command_perms builds' ) || diag($@);
+my $cpolicy = $cperms->_neti_permissions;
+
+is( $cpolicy->{default}, 'deny', 'command_perms carries the default verdict through' );
+is_deeply(
+	$cpolicy->{commands}{'%DEFAULT%'},
+	{ 'users' => [ 0, 'nanni' ], 'groups' => ['ops'] },
+	'the %DEFAULT% baseline still allows root, authed users, and authed groups'
+);
+is_deeply(
+	$cpolicy->{commands}{status},
+	{ 'users' => [ 0, 'nanni' ] },
+	'a per-command allow-list gets root threaded in beside nanni'
+);
+is_deeply(
+	$cpolicy->{commands}{stop},
+	{ 'users' => [ 0, 'nanni' ], 'groups' => ['ops'], 'deny_users' => ['ea-nasir'] },
+	'stop allows root, nanni, and ops, and turns ea-nasir away'
+);
+is_deeply(
+	$cpolicy->{commands}{watching},
+	{ 'deny_users' => ['ea-nasir'] },
+	'a deny-only rule is left as written, no root threaded in, so it still falls through'
+);
+
+# the default verdict may open up, and a whole command may be a bare
+# allow/deny shorthand
+write_config( '',
+	"enable_auth = true\n\n[command_perms]\ndefault = \"allow\"\n\n[command_perms.commands]\nstatus = \"allow\"\nstop = \"deny\"\n"
+);
+my $cshort  = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+my $spolicy = $cshort->_neti_permissions;
+is( $spolicy->{default},           'allow', 'command_perms default may be allow' );
+is( $spolicy->{commands}{status},  'allow', 'a bare allow shorthand rides through' );
+is( $spolicy->{commands}{stop},    'deny',  'a bare deny shorthand rides through' );
+ok( defined( $spolicy->{commands}{'%DEFAULT%'} ), 'the baseline rule is still present alongside the shorthands' );
+
+# command_perms is validated even with auth off, but yields no policy then
+write_config( '', "enable_auth = false\n\n[command_perms]\ndefault = \"deny\"\n\n[command_perms.commands.status]\nusers = [ \"nanni\" ]\n" );
+my $coff = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+ok( defined($coff), 'command_perms validates with auth off' ) || diag($@);
+is( $coff->_neti_permissions, undef, 'auth off... command_perms yields no policy' );
+
+# command_perms config errors
+write_config( '', "enable_auth = true\n\n[command_perms.commands.frobnicate]\nusers = [ \"nanni\" ]\n" );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a rule naming an unknown command is a error' );
+
+write_config( '', "enable_auth = true\n\n[command_perms]\ndefault = \"maybe\"\n" );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a default that is not allow/deny is a error' );
+
+write_config( '', "enable_auth = true\n\n[command_perms.commands.stop]\nfolks = [ \"nanni\" ]\n" );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'an unknown rule key is a error' );
+
+write_config( '', "enable_auth = true\n\n[command_perms.commands.stop]\nusers = \"nanni\"\n" );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a non-array rule list is a error' );
+
+write_config( '', "enable_auth = true\n\n[command_perms.commands]\nstop = 5\n" );
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a rule that is neither string nor table is a error' );
+
+#
+# banished... the manager now gathers who Kur holds, so the CLI rides the
+# one socket. the kur set it answers over is testable without a live Ereshkigal
+#
+
+ok( App::Baphomet::Config::known_command('banished'), 'banished is a nameable, gateable command' );
+
+write_config( '', "[recidive]\nkur = \"recidive\"" );
+my $withrec = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+ok( defined($withrec), 'a manager with a recidive kur builds' ) || diag($@);
+
+# the watched kurs plus the recidive kur, which has no galla of it's own
+is_deeply(
+	[ sort( $withrec->_banished_kurs( {} ) ) ],
+	[ 'recidive', 'sshd' ],
+	'the fed kurs are the watched ones plus the recidive kur'
+);
+
+# a name narrows to the one kur
+is_deeply( [ $withrec->_banished_kurs( { 'args' => { 'name' => 'sshd' } } ) ], ['sshd'], 'a name narrows the set' );
+is_deeply(
+	[ $withrec->_banished_kurs( { 'args' => { 'name' => 'recidive' } } ) ],
+	['recidive'],
+	'the recidive kur may be named too'
+);
+
+# a name that is not one this Baphomet feeds is refused
+ok(
+	!eval { $withrec->_banished_kurs( { 'args' => { 'name' => 'nope' } } ); 1 },
+	'a kur this Baphomet does not feed is refused'
+);
+
+# with no recidive, just the watched kurs
+write_config('');
+my $norec = App::Baphomet->new( 'config' => $dir . '/config.toml' );
+is_deeply( [ $norec->_banished_kurs( {} ) ], ['sshd'], 'no recidive, just the watched kurs' );
 
 #
 # socket_mode / socket_group
@@ -148,13 +275,3 @@ write_config( '', 'socket_mode = "999"' );
 ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a non-octal-digit socket_mode is a error' );
 
 done_testing;
-
-# a stand in for the JSONUnix auth context, giving _authorize a uid and username
-package FakeCtx;
-
-sub new {
-	my ( $class, $uid, $username ) = @_;
-	return bless { uid => $uid, username => $username }, $class;
-}
-sub uid      { return $_[0]->{uid} }
-sub username { return $_[0]->{username} }

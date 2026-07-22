@@ -3,9 +3,8 @@ package App::Baphomet::App::FanoutCmd;
 use 5.006;
 use strict;
 use warnings;
-use Exporter qw( import );
-use Ereshkigal::Client ();
-use JSON::MaybeXS      ();
+use Exporter     qw( import );
+use JSON::MaybeXS ();
 
 our @EXPORT_OK = qw( fanout_validate_args fanout_execute );
 
@@ -79,13 +78,11 @@ result prints as pretty canonical JSON.
 sub fanout_execute {
 	my ( $self, $args, $command, $pare_value, $pare_key ) = @_;
 
-	my $client = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );
-
 	my $result;
 	if ( @{$args} ) {
-		$result = $client->call_ok( $command, { 'name' => $args->[0] } );
+		$result = $self->app->manager_call( $command, { 'name' => $args->[0] } );
 	} else {
-		$result = $client->call_ok($command);
+		$result = $self->app->manager_call($command);
 	}
 
 	if ( defined($pare_value) && ref( $result->{gallas} ) eq 'HASH' ) {

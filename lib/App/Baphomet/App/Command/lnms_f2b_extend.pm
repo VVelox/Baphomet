@@ -4,11 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use App::Baphomet::Config qw( load_config );
-use Ereshkigal::Client    ();
-use JSON::MaybeXS         ();
-use IO::Compress::Gzip    qw( gzip $GzipError );
-use MIME::Base64          qw( encode_base64 );
+use JSON::MaybeXS      ();
+use IO::Compress::Gzip qw( gzip $GzipError );
+use MIME::Base64       qw( encode_base64 );
 
 =head1 NAME
 
@@ -39,9 +37,10 @@ our $VERSION = '0.0.1';
 Speaks the same JSON the fail2ban SNMP extend for LibreNMS emits, so a
 Baphomet host drops straight into the LibreNMS fail2ban application without
 fail2ban itself being present. Each kur this Baphomet feeds stands in for a
-fail2ban jail, and its "currently banned" tally is the count Ereshkigal, the
-source of truth for who Kur holds, reports for that kur via the C<banned>
-command... exactly the source the C<banished> command draws on.
+fail2ban jail, and its "currently banned" tally comes from the Baphomet
+manager's C<banished> command... the same lists Ereshkigal, the source of
+truth for who Kur holds, reports, gathered by the manager rather than
+reached for around it.
 
 A kur this Baphomet targets that is a fan_out gate on the Ereshkigal side
 has no ban list of it's own... the banishments land on it's members, so
@@ -61,9 +60,9 @@ The emitted structure mirrors the extend exactly...
        "version" : "1"
     }
 
-Should Ereshkigal be unreachable, valid JSON is still emitted, with C<error>
-set non-zero and C<errorString> naming the fault, as the extend does... so
-LibreNMS records the fault rather than choking on a empty reply.
+Should the manager be unreachable, valid JSON is still emitted, with
+C<error> set non-zero and C<errorString> naming the fault, as the extend
+does... so LibreNMS records the fault rather than choking on a empty reply.
 
 With C<-b> the reply is GZip compressed then Base64 encoded onto one line,
 the LibreNMS SNMP extend compression convention, which LibreNMS decodes on
@@ -88,15 +87,14 @@ sub description {
 	return
 		  'Speaks the JSON the fail2ban SNMP extend for LibreNMS emits, each kur '
 		. 'this Baphomet feeds standing in for a jail and its banned tally coming '
-		. 'from Ereshkigal, so a Baphomet host drops into the LibreNMS fail2ban '
-		. 'application with no fail2ban present. Point an snmpd extend at it.';
+		. 'from the Baphomet manager, so a Baphomet host drops into the LibreNMS '
+		. 'fail2ban application with no fail2ban present. Point an snmpd extend at it.';
 }
 
 sub usage_desc { return '%c lnms-f2b-extend %o'; }
 
 sub opt_spec {
 	return (
-		[ 'config=s',   'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
 		[ 'pretty|p',   'pretty print the JSON' ],
 		[ 'compress|b', 'GZip+Base64 compress the output, the LibreNMS extend convention' ],
 	);
@@ -115,34 +113,19 @@ sub validate_args {
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $config = load_config( $opt->config );
-
-	# the kurs this Baphomet feeds... the watched ones plus the recidive kur,
-	# which banishments are escalated to, matching the banished command's reach
-	my @kurs = sort( keys( %{ $config->{kur} } ) );
-	if ( defined( $config->{recidive} ) && !grep { $_ eq $config->{recidive}{kur} } @kurs ) {
-		push( @kurs, $config->{recidive}{kur} );
-	}
-
-	# gather each jail's banned tally from Ereshkigal... a whole-run failure
-	# rides out as a non-zero error with a empty jail set, per the extend
+	# the manager gathers the banned lists now, the recidive kur and the
+	# fan_out expansions and all... this just tallies its answer. a whole-run
+	# failure rides out as a non-zero error with a empty jail set, per the
+	# extend, so LibreNMS records the fault rather than choking
 	my %tallies;
 	my ( $error, $error_string ) = ( 0, '' );
 	eval {
-		my $ereshkigal = Ereshkigal::Client->new(
-			'socket'  => $config->{ereshkigal_socket},
-			'timeout' => $config->{timeout},
-		);
-		my $banned = $ereshkigal->call_ok('banned');
-		my $held   = ref( $banned->{kurs} ) eq 'HASH' ? $banned->{kurs} : {};
-
-		foreach my $kur (@kurs) {
-			$tallies{$kur} = _kur_tally( $ereshkigal, $held, $kur );
-		}
+		my $banished = $self->app->manager_call('banished');
+		%tallies = _tallies_from_banished($banished);
 	};
 	if ($@) {
 		$error        = 1;
-		$error_string = 'asking Ereshkigal for the banned lists failed... ' . $@;
+		$error_string = 'asking the manager for the banished lists failed... ' . $@;
 		$error_string =~ s/\s+\z//;
 		%tallies = ();
 	}
@@ -170,34 +153,39 @@ sub execute {
 	return;
 } ## end sub execute
 
-# one kur's banned tally... its own count when Ereshkigal holds a list for
-# it, else the union of it's fan_out members holdings, since a banishment to
-# a gate lands on each member and the gate keeps no list of it's own. a kur
-# neither held nor a known gate tallies zero, an empty but present jail
-sub _kur_tally {
-	my ( $ereshkigal, $held, $kur ) = @_;
+# the per-jail tallies from the manager's banished answer... a real kur's own
+# banned count, a fan_out gate's the union of it's members holdings since a
+# banishment to a gate lands on each member and the gate keeps no list of it's
+# own, and a kur the manager could not read (an error entry) an empty jail of
+# zero, so every fed kur still shows as a jail
+sub _tallies_from_banished {
+	my ($banished) = @_;
 
-	if ( defined( $held->{$kur} ) ) {
-		return ref( $held->{$kur}{banned} ) eq 'ARRAY' ? scalar( @{ $held->{$kur}{banned} } ) : 0;
-	}
+	my $kurs = ( ref($banished) eq 'HASH' && ref( $banished->{kurs} ) eq 'HASH' ) ? $banished->{kurs} : {};
 
-	my $kur_status;
-	eval { $kur_status = $ereshkigal->call_ok( 'status_kur', { 'name' => $kur } ); };
-	if ( $@ || ref( $kur_status->{fan_out} ) ne 'ARRAY' ) {
-		return 0;
-	}
-
-	my %union;
-	foreach my $member ( @{ $kur_status->{fan_out} } ) {
-		if ( defined( $held->{$member} ) && ref( $held->{$member}{banned} ) eq 'ARRAY' ) {
-			foreach my $ip ( @{ $held->{$member}{banned} } ) {
-				$union{$ip} = 1;
+	my %tallies;
+	foreach my $kur ( keys( %{$kurs} ) ) {
+		my $entry = $kurs->{$kur};
+		if ( ref( $entry->{banned} ) eq 'ARRAY' ) {
+			$tallies{$kur} = scalar( @{ $entry->{banned} } );
+		} elsif ( ref( $entry->{members} ) eq 'HASH' ) {
+			my %union;
+			foreach my $member ( keys( %{ $entry->{members} } ) ) {
+				my $held = $entry->{members}{$member};
+				if ( ref( $held->{banned} ) eq 'ARRAY' ) {
+					foreach my $ip ( @{ $held->{banned} } ) {
+						$union{$ip} = 1;
+					}
+				}
 			}
+			$tallies{$kur} = scalar( keys(%union) );
+		} else {
+			$tallies{$kur} = 0;
 		}
-	}
+	} ## end foreach my $kur ( keys( %{$kurs...}))
 
-	return scalar( keys(%union) );
-} ## end sub _kur_tally
+	return %tallies;
+} ## end sub _tallies_from_banished
 
 # assembles the extend structure from the per-jail tallies... total is the
 # sum of the jail counts, an IP held in two jails counting in each, exactly

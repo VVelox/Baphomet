@@ -78,9 +78,9 @@ baphomet marked
 baphomet marked sshd
 baphomet marked --name sshd-account-src
 
-# who Kur holds right now, per kur this Baphomet feeds... asks
-# Ereshkigal, expands fan_out gates to their members, and marks bans
-# still pending delivery
+# who Kur holds right now, per kur this Baphomet feeds... the manager
+# asks Ereshkigal, expands fan_out gates to their members, and marks
+# bans still pending delivery
 baphomet banished
 baphomet banished sshd
 
@@ -94,10 +94,13 @@ baphomet ledger sshd --since 7d
 baphomet ledger --ip 1.2.3.4 --tail 20
 ```
 
-`accused` and `marked` want the manager up, `banished` the manager and
-Ereshkigal both... `ledger` reads the shared ledger file straight from the
-tablet dir, so it works with everything down. How far back the ledger
-reaches is bounded by the `ledger_keep` setting, 30 days by default.
+Every one of these rides the one manager socket... the CLI never reaches
+around the manager to Ereshkigal, the manager does that itself. So
+`accused`, `marked`, and `banished` all want the manager up; the manager
+in turn asks Ereshkigal for the `banished` lists. The lone exception is
+`ledger`, which reads the shared ledger file straight from the tablet dir,
+so it works with everything down. How far back the ledger reaches is
+bounded by the `ledger_keep` setting, 30 days by default.
 
 ## Feeding LibreNMS
 
@@ -112,9 +115,9 @@ baphomet lnms-f2b-extend -b
 
 `lnms-f2b-extend` speaks the exact JSON the fail2ban SNMP extend for
 LibreNMS emits, each kur this Baphomet feeds standing in for a jail and its
-banned tally coming from Ereshkigal, so a Baphomet host drops straight into
-the LibreNMS fail2ban application with no fail2ban present. Point an snmpd
-extend at it...
+banned tally coming from the manager's `banished` command, so a Baphomet
+host drops straight into the LibreNMS fail2ban application with no fail2ban
+present. Point an snmpd extend at it...
 
 ```
 extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend
@@ -129,9 +132,12 @@ reply...
 extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend -b
 ```
 
-It wants Ereshkigal reachable for the tallies; unreachable, it still emits
-valid JSON with `error` set and `errorString` naming the fault, as the
-extend does.
+It wants the manager up for the tallies, which is what reaches Ereshkigal;
+with the manager unreachable it still emits valid JSON with `error` set and
+`errorString` naming the fault, as the extend does. Since the snmpd user
+drives it over the manager socket, the Neti gate governs it... see the
+`command_perms` example in the [configuration](configuration) doc for
+letting `snmpd` run just this one command.
 
 ## Working on rules
 
@@ -158,17 +164,23 @@ printf '%s\n' '{"command":"status"}' | nc -U /var/run/baphomet/socket
 ```
 
 Or from Perl via
-[`Ereshkigal::Client`](https://metacpan.org/pod/Ereshkigal::Client), the
-same client the CLI uses... it handles the framing, timeouts, and — when
-`enable_auth` is on — the Neti gate challenge, transparently...
+[`POE::Component::Server::JSONUnix::BlockingClient`](https://metacpan.org/pod/POE::Component::Server::JSONUnix::BlockingClient),
+the same client the CLI drives the manager with... it handles the framing,
+the timeouts, and the Neti gate challenge...
 
 ```perl
-use Ereshkigal::Client;
-my $client = Ereshkigal::Client->new( socket => '/var/run/baphomet/socket' );
-my $status = $client->call_ok('status_all');
+use POE::Component::Server::JSONUnix::BlockingClient;
+my $client = POE::Component::Server::JSONUnix::BlockingClient->new(
+    socket_path => '/var/run/baphomet/socket',
+);
+# the ownership challenge... answers ok whether or not the gate is up
+$client->authenticate;
+my $response = $client->call( command => 'status_all' );
+die $response->{error} if $response->{status} ne 'ok';
+my $status = $response->{result};
 ```
 
 Note that with `enable_auth` on, a raw `nc` integration must complete
 the auth challenge itself (see the Neti gate section of
-[configuration](configuration))... using Ereshkigal::Client is much
-less bother.
+[configuration](configuration))... the blocking client's `authenticate`
+is much less bother.

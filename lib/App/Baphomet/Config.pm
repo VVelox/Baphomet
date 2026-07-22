@@ -22,7 +22,14 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
+
+# the manager commands a per-command authorization rule may name... the one
+# authority the config checks validate against, so the config and the
+# manager can not drift on what commands exist. App::Baphomet guards its own
+# handler table against this list at startup
+our @COMMANDS = qw( status status_all status_galla accused marked watching banished stop );
+my %command_set = map { $_ => 1 } @COMMANDS;
 
 =head1 SYNOPSIS
 
@@ -201,16 +208,59 @@ Top level keys are as below.
           access.
         Default :: 0
 
-    - authed_users :: A array of users allowed past the Neti gate.
+    - authed_users :: A array of users allowed past the Neti gate. An
+          all-digit entry matches by UID rather than by name.
         Default :: []
 
     - authed_groups :: A array of groups whose members are allowed past
-          the Neti gate. Membership is resolved at request time.
+          the Neti gate, secondary group memberships included. An all-digit
+          entry matches by GID rather than by name. Membership is resolved
+          once per connection, so a database change applies on the next
+          connection... which, for the one-shot CLI clients, is the next
+          command.
         Default :: []
 
     - auth_temp_dir :: Dir used for the ownership challenge cookie files,
           passed to L<POE::Component::Server::JSONUnix>.
         Default :: undef
+
+    - command_perms :: Per command authorization for the Neti gate, layered
+          over authed_users and authed_groups. Only consulted with
+          enable_auth on. A command named here is judged by its own rule
+          alone; every command not named falls to the baseline built from
+          authed_users and authed_groups. The commands that may be named are
+          status, status_all, status_galla, accused, marked, watching, and
+          stop. Keys...
+
+              default :: The verdict for a command that no rule and no
+                  baseline speaks to, one of C<allow> or C<deny>.
+                  Default :: deny
+
+              commands :: A table keyed by command name, or the catch-all
+                  C<%DEFAULT%> that stands in for the baseline. Each value is
+                  C<"allow">, C<"deny">, or a table of C<users>, C<groups>,
+                  C<deny_users>, and C<deny_groups> arrays. An all-digit entry
+                  matches by UID or GID, everything else by name. Explicit
+                  denials win over allowals. A rule naming only denials leaves
+                  whoever it does not name to the default verdict. UID 0 (root)
+                  is threaded into any rule that names allowed users or groups,
+                  so root passes it just as it passes the baseline... a rule of
+                  only denials, or a bare C<"deny">, is left as written.
+
+              [command_perms]
+              default = "deny"
+
+              # nanni may read status
+              [command_perms.commands.status]
+              users = [ "nanni" ]
+
+              # stop is held tight, and ea-nasir is turned away outright
+              [command_perms.commands.stop]
+              users = [ "nanni" ]
+              groups = [ "ops" ]
+              deny_users = [ "ea-nasir" ]
+
+        Default :: undef, off... the baseline alone gates every command
 
     - recidive :: A table turning on repeat offender escalation. When set,
           every banishment is recorded to a shared ledger, and a IP
@@ -447,6 +497,7 @@ sub load_config {
 		'authed_users'              => [],
 		'authed_groups'             => [],
 		'auth_temp_dir'             => undef,
+		'command_perms'             => undef,
 		'recidive'                  => undef,
 		'eve_log'                   => '/var/log/baphomet/eve.json',
 		'eve_enable'                => 0,
@@ -509,6 +560,14 @@ sub load_config {
 		&& ( ref( $config->{auth_temp_dir} ) ne '' || $config->{auth_temp_dir} eq '' ) )
 	{
 		die('auth_temp_dir is not a path');
+	}
+
+	# the per-command rules layered over the authed_users/authed_groups
+	# baseline... only meaningful with enable_auth on, but checked regardless
+	# so a mistake is caught at load rather than lying dormant until auth is
+	# turned on
+	if ( defined( $config->{command_perms} ) ) {
+		_check_command_perms( $config->{command_perms} );
 	}
 
 	# dies on anything unusable
@@ -623,6 +682,86 @@ sub _check_recidive {
 
 	return;
 } ## end sub _check_recidive
+
+=head2 known_command
+
+Returns true when the passed name is a manager command a per-command
+authorization rule may name, false otherwise. The command list lives here so
+the config checks and the manager can not drift on what commands exist.
+
+    if ( known_command($name) ) { ... }
+
+=cut
+
+sub known_command {
+	my ($name) = @_;
+
+	return ( defined($name) && $command_set{$name} ) ? 1 : 0;
+}
+
+# checks the command_perms table, dieing on anything unusable... the default
+# verdict and the per-command rules the Neti gate lays over the
+# authed_users/authed_groups baseline. %DEFAULT% is the catch-all any command
+# without its own rule falls to; every other command named must be one the
+# manager actually answers, so a typo guards nothing silently
+sub _check_command_perms {
+	my ($perms) = @_;
+
+	if ( ref($perms) ne 'HASH' ) {
+		die('command_perms is not a table');
+	}
+	foreach my $key ( keys( %{$perms} ) ) {
+		if ( $key !~ /^(?:default|commands)$/ ) {
+			die( 'command_perms has the unknown key "' . $key . '"' );
+		}
+	}
+	if ( defined( $perms->{default} )
+		&& ( ref( $perms->{default} ) ne '' || $perms->{default} !~ /^(?:allow|deny)$/ ) )
+	{
+		die('command_perms default is not "allow" or "deny"');
+	}
+	if ( defined( $perms->{commands} ) ) {
+		if ( ref( $perms->{commands} ) ne 'HASH' ) {
+			die('command_perms commands is not a table');
+		}
+		foreach my $name ( keys( %{ $perms->{commands} } ) ) {
+			if ( $name ne '%DEFAULT%' && !known_command($name) ) {
+				die( 'command_perms names the unknown command "' . $name . '"' );
+			}
+			_check_command_spec( $name, $perms->{commands}{$name} );
+		}
+	} ## end if ( defined( $perms->...))
+
+	return;
+} ## end sub _check_command_perms
+
+# checks a single per-command rule... a bare "allow" or "deny", or a table of
+# the user and group allow/deny lists JSONUnix understands. the check coderef
+# JSONUnix also accepts is code, not config, so it has no place here
+sub _check_command_spec {
+	my ( $name, $spec ) = @_;
+
+	if ( ref($spec) eq '' ) {
+		if ( !defined($spec) || $spec !~ /^(?:allow|deny)$/ ) {
+			die( 'command_perms command "' . $name . '" is not "allow", "deny", or a table of rule lists' );
+		}
+		return;
+	}
+	if ( ref($spec) ne 'HASH' ) {
+		die( 'command_perms command "' . $name . '" is not "allow", "deny", or a table of rule lists' );
+	}
+	foreach my $key ( keys( %{$spec} ) ) {
+		if ( $key !~ /^(?:users|groups|deny_users|deny_groups)$/ ) {
+			die( 'command_perms command "' . $name . '" has the unknown key "' . $key . '"' );
+		}
+		my $list_error = _authed_list_error( $spec->{$key} );
+		if ( defined($list_error) ) {
+			die( 'command_perms command "' . $name . '" ' . $key . ' is ' . $list_error );
+		}
+	}
+
+	return;
+} ## end sub _check_command_spec
 
 =head2 kur_split
 

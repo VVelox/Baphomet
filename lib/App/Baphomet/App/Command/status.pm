@@ -4,8 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use Ereshkigal::Client ();
-use JSON::MaybeXS      ();
+use JSON::MaybeXS ();
 
 =head1 NAME
 
@@ -63,15 +62,13 @@ sub validate_args {
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $client = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );
-
 	my $result;
 	if ( @{$args} ) {
-		$result = $client->call_ok( 'status_galla', { 'name' => $args->[0] } );
+		$result = $self->app->manager_call( 'status_galla', { 'name' => $args->[0] } );
 	} elsif ( $opt->all ) {
-		$result = $client->call_ok('status_all');
+		$result = $self->app->manager_call('status_all');
 	} else {
-		$result = $client->call_ok('status');
+		$result = $self->app->manager_call('status');
 	}
 
 	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);

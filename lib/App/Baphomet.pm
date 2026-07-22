@@ -4,9 +4,10 @@ use 5.006;
 use strict;
 use warnings;
 use base 'Error::Helper';
-use POE                                      qw( Wheel::Run );
-use POE::Component::Server::JSONUnix         ();
-use POE::Component::Server::JSONUnix::Client ();
+use POE                                              qw( Wheel::Run );
+use POE::Component::Server::JSONUnix                  ();
+use POE::Component::Server::JSONUnix::Client          ();
+use POE::Component::Server::JSONUnix::BlockingClient  ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config            qw( load_config check_kur_def kur_split watcher_rules );
 use App::Baphomet::Rules             ();
@@ -135,9 +136,9 @@ sub new {
 		$self->warn;
 	}
 	foreach my $item (
-		'run_base_dir',  'rules_dir',    'ereshkigal_socket', 'galla_bin',
-		'timeout',       'socket_group', 'enable_auth',       'authed_users',
-		'authed_groups', 'auth_temp_dir'
+		'run_base_dir',  'rules_dir',     'ereshkigal_socket', 'galla_bin',
+		'timeout',       'socket_group',  'enable_auth',       'authed_users',
+		'authed_groups', 'auth_temp_dir', 'command_perms',     'recidive'
 		)
 	{
 		$self->{$item} = $config->{$item};
@@ -306,6 +307,15 @@ The JSON commands handled are as below.
           set to watch and the concrete files it is following now, or the
           journalctl matches for a journal watcher.
 
+    - banished :: Who Kur holds for the kurs this Baphomet feeds, seen
+          from the watcher's seat. The manager asks Ereshkigal, the source
+          of truth for who Kur holds, for its banned lists, pares them to
+          the fed kurs (the recidive kur included), expands any fan_out
+          gate to its members, and folds in each galla's pending bans...
+          banishments spoken but not yet heard. With args.name, just that
+          one kur. So every CLI query rides the one manager socket rather
+          than reaching around it to Ereshkigal.
+
     - stop :: Stop all the gallas and then the manager. Returns
           C<stopping> and the manager's C<pid>, so the caller can wait for
           the process to actually die before it returns... a restart's
@@ -333,61 +343,78 @@ sub start_server {
 		],
 	);
 
+	my %command_handlers = (
+		'status' => sub {
+			return $self->_cmd_status;
+		},
+		'status_all' => sub {
+			my ( undef, undef, $ctx ) = @_;
+			return $self->_cmd_status_all($ctx);
+		},
+		'status_galla' => sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_status_galla( $request, $ctx );
+		},
+		'accused' => sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_accused( $request, $ctx );
+		},
+		'marked' => sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_marked( $request, $ctx );
+		},
+		'watching' => sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_watching( $request, $ctx );
+		},
+		'banished' => sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_banished( $request, $ctx );
+		},
+		'stop' => sub {
+			log_drek( 'info', 'stop requested' );
+			$poe_kernel->post( 'baphomet_manager', 'stop_all' );
+			# the current session is the JSONUnix server session, so this
+			# fires its shutdown state after the response has had time to flush
+			$poe_kernel->delay( 'shutdown', 1 );
+			# the PID rides back so the stop command can wait for this
+			# process to actually die before returning, else a restart's
+			# start races the still-present PID file
+			return { 'stopping' => 1, 'pid' => $$ };
+		},
+	);
+
+	# the config validates per-command authorization rules against
+	# App::Baphomet::Config's command list... guard both ways here so the
+	# handler table and that list can never drift, which would leave a
+	# command answerable but not nameable in a rule, or the reverse
+	foreach my $handled ( keys(%command_handlers) ) {
+		if ( !App::Baphomet::Config::known_command($handled) ) {
+			die( 'BUG... the command "' . $handled . '" is handled but absent from @App::Baphomet::Config::COMMANDS' );
+		}
+	}
+	foreach my $named (@App::Baphomet::Config::COMMANDS) {
+		if ( !$command_handlers{$named} ) {
+			die( 'BUG... the command "' . $named . '" is in @App::Baphomet::Config::COMMANDS but has no handler' );
+		}
+	}
+
 	my $server = POE::Component::Server::JSONUnix->spawn(
 		'socket_path'   => $self->socket_path,
 		'socket_mode'   => $self->{socket_mode},
 		'alias'         => 'baphomet_server',
 		'auth_required' => $self->{enable_auth} ? 1 : 0,
 		defined( $self->{auth_temp_dir} ) ? ( 'auth_temp_dir' => $self->{auth_temp_dir} ) : (),
+		# the Neti gate rides JSONUnix's own permission policy now... only
+		# passed when auth is on, so with it off the manager spawns exactly as
+		# it did before the gate existed. JSONUnix enforces the policy before a
+		# handler runs, so the handlers no longer authorize by hand
+		$self->{enable_auth} ? ( 'permissions' => $self->_neti_permissions ) : (),
 		'on_error' => sub {
 			my ( $operation, $errnum, $errstr ) = @_;
 			log_drek( 'err', 'socket error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')' );
 		},
-		'commands' => {
-			'status' => sub {
-				my ( undef, undef, $ctx ) = @_;
-				$self->_authorize($ctx);
-				return $self->_cmd_status;
-			},
-			'status_all' => sub {
-				my ( undef, undef, $ctx ) = @_;
-				$self->_authorize($ctx);
-				return $self->_cmd_status_all($ctx);
-			},
-			'status_galla' => sub {
-				my ( undef, $request, $ctx ) = @_;
-				$self->_authorize($ctx);
-				return $self->_cmd_status_galla( $request, $ctx );
-			},
-			'accused' => sub {
-				my ( undef, $request, $ctx ) = @_;
-				$self->_authorize($ctx);
-				return $self->_cmd_accused( $request, $ctx );
-			},
-			'marked' => sub {
-				my ( undef, $request, $ctx ) = @_;
-				$self->_authorize($ctx);
-				return $self->_cmd_marked( $request, $ctx );
-			},
-			'watching' => sub {
-				my ( undef, $request, $ctx ) = @_;
-				$self->_authorize($ctx);
-				return $self->_cmd_watching( $request, $ctx );
-			},
-			'stop' => sub {
-				my ( undef, undef, $ctx ) = @_;
-				$self->_authorize($ctx);
-				log_drek( 'info', 'stop requested' );
-				$poe_kernel->post( 'baphomet_manager', 'stop_all' );
-				# the current session is the JSONUnix server session, so this
-				# fires its shutdown state after the response has had time to flush
-				$poe_kernel->delay( 'shutdown', 1 );
-				# the PID rides back so the stop command can wait for this
-				# process to actually die before returning, else a restart's
-				# start races the still-present PID file
-				return { 'stopping' => 1, 'pid' => $$ };
-			},
-		},
+		'commands' => \%command_handlers,
 	);
 	$self->{server} = $server;
 
@@ -413,70 +440,81 @@ sub start_server {
 	return;
 } ## end sub start_server
 
-# checks if the user is in the passed users list or a member of one of the
-# passed groups... membership is resolved at request time so user/group
-# database changes apply with out a restart
-sub _user_in_lists {
-	my ( $self, $username, $uid, $users, $groups ) = @_;
-
-	foreach my $user ( @{$users} ) {
-		if ( $user eq $username ) {
-			return 1;
-		}
-	}
-
-	# the user's primary group
-	my $primary_gid = ( getpwuid($uid) )[3];
-	my $primary_group;
-	if ( defined($primary_gid) ) {
-		$primary_group = getgrgid($primary_gid);
-	}
-
-	foreach my $group ( @{$groups} ) {
-		if ( defined($primary_group) && $group eq $primary_group ) {
-			return 1;
-		}
-		# unknown groups just never match rather than erroring
-		my $members = ( getgrnam($group) )[3];
-		if ( defined($members) ) {
-			foreach my $member ( split( /\s+/, $members ) ) {
-				if ( $member eq $username ) {
-					return 1;
-				}
-			}
-		}
-	} ## end foreach my $group ( @{$groups} )
-
-	return 0;
-} ## end sub _user_in_lists
-
-# the Neti gate... authorizes the authenticated user behind the context,
-# dieing if they are not allowed... a no-op when enable_auth is off. UID 0
-# always passes, as does any user in authed_users or a authed_groups
-sub _authorize {
-	my ( $self, $ctx ) = @_;
+# the Neti gate, expressed as a JSONUnix permission policy... undef when
+# enable_auth is off, so the manager spawns exactly as it did before the gate
+# existed. when on, the baseline is one %DEFAULT% rule allowing UID 0 (root
+# always passes), the authed_users, and members of the authed_groups, which
+# every command without its own rule falls to. the command_perms config lays
+# per-command rules over that baseline and may set the default verdict.
+# JSONUnix resolves membership through NSS with secondary groups included, and
+# an all-digit entry matches by UID or GID, so numeric ids work in the lists
+# too. it resolves once per connection rather than per request, which is the
+# same thing for the one-shot CLI clients that drive the manager
+sub _neti_permissions {
+	my ($self) = @_;
 
 	if ( !$self->{enable_auth} ) {
-		return;
+		return undef;
 	}
 
-	my $uid      = $ctx->uid;
-	my $username = $ctx->username;
-	if ( !defined($uid) ) {
-		# should be unreachable as JSONUnix gates unauthed commands first
-		die('authentication required');
-	}
-	if ( $uid == 0 ) {
-		return;
-	}
-	$username = '' if !defined($username);
+	my $command_perms = $self->{command_perms};
 
-	if ( $self->_user_in_lists( $username, $uid, $self->{authed_users}, $self->{authed_groups} ) ) {
-		return;
+	# the baseline any un-ruled command falls to
+	my %commands = (
+		'%DEFAULT%' => {
+			'users'  => [ 0, @{ $self->{authed_users} } ],
+			'groups' => [ @{ $self->{authed_groups} } ],
+		},
+	);
+
+	# the verdict for a command no rule and no baseline speaks to... deny
+	# unless the config says otherwise
+	my $default = 'deny';
+	if ( defined($command_perms) && defined( $command_perms->{default} ) ) {
+		$default = $command_perms->{default};
 	}
 
-	die( 'The user "' . $username . '" is not permitted past the Neti gate' );
-} ## end sub _authorize
+	# fold the configured per-command rules over the baseline
+	if ( defined($command_perms) && ref( $command_perms->{commands} ) eq 'HASH' ) {
+		foreach my $name ( keys( %{ $command_perms->{commands} } ) ) {
+			$commands{$name} = _neti_command_rule( $command_perms->{commands}{$name} );
+		}
+	}
+
+	return {
+		'default'  => $default,
+		'commands' => \%commands,
+	};
+} ## end sub _neti_permissions
+
+# turns one configured per-command rule into what JSONUnix wants. a bare
+# "allow"/"deny" rides through untouched. a table is copied key by key, and
+# UID 0 is threaded into its allowed users so root passes a guarded command
+# as it passes the baseline... but only when the rule already names allowed
+# users or groups. a rule of only denials is left alone, so it still lets
+# whoever it does not name fall through to the default verdict rather than
+# being narrowed to root
+sub _neti_command_rule {
+	my ($spec) = @_;
+
+	if ( ref($spec) ne 'HASH' ) {
+		return $spec;
+	}
+
+	my %rule;
+	foreach my $key ( 'users', 'groups', 'deny_users', 'deny_groups' ) {
+		if ( defined( $spec->{$key} ) ) {
+			$rule{$key} = [ @{ $spec->{$key} } ];
+		}
+	}
+
+	# root joins the allow set only where there is one to join
+	if ( defined( $rule{users} ) || defined( $rule{groups} ) ) {
+		$rule{users} = [ 0, @{ $rule{users} || [] } ];
+	}
+
+	return \%rule;
+} ## end sub _neti_command_rule
 
 sub _galla_client {
 	my ( $self, $name ) = @_;
@@ -956,6 +994,192 @@ sub _cmd_watching {
 
 	return $self->_cmd_fanout( $request, 'watching', $ctx );
 }
+
+# the blocking client to Ereshkigal, the source of truth for who Kur holds,
+# spun up and through the Neti dance. the JSONUnix dist's own blocking client,
+# the same protocol the manager and the gallas speak, so nothing here reaches
+# for a foreign dist's client. a bounded ask of the one trusted local daemon
+# the whole system leans on... unlike a galla it can not be one of a crowd of
+# wedged workers, and a refused socket fails at once, so the brief stall this
+# puts on the manager loop is nothing like what a hung galla could do, which is
+# why the galla comms alone are kept async
+sub _ereshkigal_client {
+	my ($self) = @_;
+
+	my $client = POE::Component::Server::JSONUnix::BlockingClient->new(
+		'socket_path' => $self->{ereshkigal_socket},
+		'timeout'     => $self->{timeout},
+	);
+
+	my $auth = $client->authenticate;
+	if ( ( $auth->{status} // '' ) ne 'ok' ) {
+		die( 'authenticating to Ereshkigal failed... '
+				. ( defined( $auth->{error} ) ? $auth->{error} : 'unknown error' )
+				. "\n" );
+	}
+
+	return $client;
+} ## end sub _ereshkigal_client
+
+# one call to Ereshkigal, returning the result or dieing with the fault... the
+# call_ok shape over the JSONUnix blocking client, which hands back the whole
+# envelope rather than dieing on a non-ok of it's own
+sub _ereshkigal_call {
+	my ( $client, $command, $args ) = @_;
+
+	my $response = $client->call( 'command' => $command, ( defined($args) ? ( 'args' => $args ) : () ) );
+	if ( ref($response) ne 'HASH' || ( $response->{status} // '' ) ne 'ok' ) {
+		die( 'Ereshkigal refused "'
+				. $command . '"... '
+				. ( ref($response) eq 'HASH' && defined( $response->{error} ) ? $response->{error} : 'no answer' )
+				. "\n" );
+	}
+
+	return $response->{result};
+} ## end sub _ereshkigal_call
+
+# the kurs this Baphomet feeds... the watched ones, each with a galla, plus
+# the recidive kur banishments are escalated to, which has none. dies on a
+# args.name that is not one of them, matching the old CLI-side check
+sub _banished_kurs {
+	my ( $self, $request ) = @_;
+
+	my @kurs = sort( keys( %{ $self->{gallas} } ) );
+	if ( defined( $self->{recidive} ) && !grep { $_ eq $self->{recidive}{kur} } @kurs ) {
+		push( @kurs, $self->{recidive}{kur} );
+	}
+
+	my $args = defined( $request->{args} ) ? $request->{args} : {};
+	if ( defined( $args->{name} ) ) {
+		if ( !grep { $_ eq $args->{name} } @kurs ) {
+			die( 'the kur "' . $args->{name} . '" is not one this Baphomet feeds' );
+		}
+		@kurs = ( $args->{name} );
+	}
+
+	return @kurs;
+} ## end sub _banished_kurs
+
+# one kur's held entry from Ereshkigal's banned lists... its own banned and
+# expires when Ereshkigal holds a list for it, else, being a fan_out gate with
+# no list of it's own, its member list with each member's holdings. blocking,
+# but only against Ereshkigal, and only the gates cost a second call
+sub _banished_kur_entry {
+	my ( $self, $ereshkigal, $held, $kur ) = @_;
+
+	if ( defined( $held->{$kur} ) ) {
+		return {
+			'banned'  => $held->{$kur}{banned},
+			'expires' => $held->{$kur}{expires},
+		};
+	}
+
+	my $kur_status;
+	eval { $kur_status = _ereshkigal_call( $ereshkigal, 'status_kur', { 'name' => $kur } ); };
+	if ($@) {
+		my $error = $@;
+		$error =~ s/\s+\z//;
+		return { 'error' => $error };
+	}
+	if ( ref( $kur_status->{fan_out} ) ne 'ARRAY' ) {
+		return { 'error' => 'no banned list... not running?' };
+	}
+
+	my $members = {};
+	foreach my $member ( @{ $kur_status->{fan_out} } ) {
+		$members->{$member}
+			= defined( $held->{$member} )
+			? { 'banned' => $held->{$member}{banned}, 'expires' => $held->{$member}{expires} }
+			: { 'error'  => 'not among the banned lists' };
+	}
+
+	return {
+		'fan_out' => $kur_status->{fan_out},
+		'members' => $members,
+	};
+} ## end sub _banished_kur_entry
+
+# folds one galla's pending bans, its banishments spoken but not yet heard,
+# into the kur's entry... $answer is the { result => <status> } or
+# { error => ... } shape both the sync and the async galla paths hand back
+sub _banished_merge_pending {
+	my ( $result, $name, $answer ) = @_;
+
+	my $status = ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) ? $answer->{result} : undef;
+	if (   defined($status)
+		&& ref($status) eq 'HASH'
+		&& ref( $status->{pending_bans} ) eq 'ARRAY'
+		&& defined( $result->{kurs}{$name} ) )
+	{
+		$result->{kurs}{$name}{pending} = $status->{pending_bans};
+	}
+
+	return;
+} ## end sub _banished_merge_pending
+
+# who Kur holds, seen from the watcher's seat... the held lists from
+# Ereshkigal merged with the gallas' pending bans, so a CLI query rides the
+# one manager socket rather than reaching around it. the Ereshkigal ask is a
+# bounded block, the galla fan-out for pending rides the same async path the
+# status commands use, so the wedge-prone workers never stall the loop
+sub _cmd_banished {
+	my ( $self, $request, $ctx ) = @_;
+
+	my @kurs = $self->_banished_kurs($request);
+
+	# connect, do the Neti dance, and ask for the banned lists... all bounded,
+	# all against the one trusted local daemon
+	my $ereshkigal;
+	my $banned;
+	eval {
+		$ereshkigal = $self->_ereshkigal_client;
+		$banned     = _ereshkigal_call( $ereshkigal, 'banned' );
+	};
+	if ($@) {
+		my $error = 'asking Ereshkigal for the banned lists failed... ' . $@;
+		$error =~ s/\s+\z//;
+		if ( defined($ctx) ) {
+			$ctx->error($error);
+			return undef;
+		}
+		die( $error . "\n" );
+	}
+	my $held = ref( $banned->{kurs} ) eq 'HASH' ? $banned->{kurs} : {};
+
+	my $result = { 'kurs' => {} };
+	foreach my $kur (@kurs) {
+		$result->{kurs}{$kur} = $self->_banished_kur_entry( $ereshkigal, $held, $kur );
+	}
+
+	# the pending bans ride the async galla fan-out... only the running gallas
+	# among the fed kurs are asked, the recidive kur has none
+	my @running = grep { defined( $self->{gallas}{$_} ) && defined( $self->{gallas}{$_}{pid} ) } @kurs;
+
+	if ( !defined($ctx) || !@running ) {
+		my $answers = $self->_galla_call_many( \@running, 'status' );
+		foreach my $name (@running) {
+			_banished_merge_pending( $result, $name, $answers->{$name} );
+		}
+		return $result;
+	}
+
+	$self->_galla_fanout_deferred(
+		\@running, 'status',
+		sub {
+			my ( $name, $galla_result, $error ) = @_;
+			if ( !defined($error) ) {
+				_banished_merge_pending( $result, $name, { 'result' => $galla_result } );
+			}
+			return;
+		},
+		sub {
+			$ctx->respond_result($result);
+			return;
+		}
+	);
+
+	return undef;
+} ## end sub _cmd_banished
 
 =head1 ERRORS CODES / ERROR FLAGS
 

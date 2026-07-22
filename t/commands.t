@@ -112,40 +112,36 @@ is( $extend->{error},         1, 'the error rides out' );
 is( $extend->{errorString},   'Ereshkigal is down', 'and its string' );
 
 #
-# the per-kur tally... the held-list path needs no live client
+# the per-jail tallies from the manager's banished answer... pure, no client
 #
 
-my $held = {
-	'sshd' => { 'banned' => [ '1.2.3.4', '5.6.7.8' ] },
-	'smtp' => { 'banned' => [] },
-	'web'  => { 'banned' => ['9.9.9.9'] },
-};
-is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( undef, $held, 'sshd' ),
-	2, 'a held kur tallies its banned count' );
-is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( undef, $held, 'smtp' ),
-	0, 'a held kur with an empty list tallies zero' );
-
-# a fan_out gate with a client that answers status_kur... the union of its
-# members holdings, an IP on both members counted once
-{
-	package FakeEresh;
-	sub new { return bless( {}, shift ); }
-	sub call_ok {
-		my ( $self, $command, $args ) = @_;
-		if ( $command eq 'status_kur' && $args->{name} eq 'gate' ) {
-			return { 'fan_out' => [ 'nginx', 'apache' ] };
-		}
-		die( 'no such kur' );
+my %tallies = App::Baphomet::App::Command::lnms_f2b_extend::_tallies_from_banished(
+	{
+		'kurs' => {
+			# a real kur tallies its own banned count
+			'sshd' => { 'banned' => [ '1.2.3.4', '5.6.7.8' ], 'expires' => {} },
+			# an empty but present real kur is a zero jail
+			'smtp' => { 'banned' => [], 'expires' => {} },
+			# a fan_out gate tallies the union of its members, an IP on both once
+			'web' => {
+				'fan_out' => [ 'nginx', 'apache' ],
+				'members' => {
+					'nginx'  => { 'banned' => [ '1.1.1.1', '2.2.2.2' ] },
+					'apache' => { 'banned' => [ '2.2.2.2', '3.3.3.3' ] },
+				},
+			},
+			# a kur the manager could not read still shows as a zero jail
+			'broken' => { 'error' => 'no banned list... not running?' },
+		},
 	}
-}
-my $fake       = FakeEresh->new;
-my $held_gate  = {
-	'nginx'  => { 'banned' => [ '1.1.1.1', '2.2.2.2' ] },
-	'apache' => { 'banned' => [ '2.2.2.2', '3.3.3.3' ] },
-};
-is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( $fake, $held_gate, 'gate' ),
-	3, 'a fan_out gate tallies the union of its members' );
-is( App::Baphomet::App::Command::lnms_f2b_extend::_kur_tally( $fake, $held_gate, 'nowhere' ),
-	0, 'a kur neither held nor a known gate tallies zero' );
+);
+is( $tallies{sshd},   2, 'a real kur tallies its banned count' );
+is( $tallies{smtp},   0, 'an empty real kur tallies zero' );
+is( $tallies{web},    3, 'a fan_out gate tallies the union of its members' );
+is( $tallies{broken}, 0, 'a kur the manager could not read tallies zero' );
+
+# a banished answer with no kurs is simply no jails
+my %empty = App::Baphomet::App::Command::lnms_f2b_extend::_tallies_from_banished( { 'kurs' => {} } );
+is_deeply( \%empty, {}, 'no kurs, no jails' );
 
 done_testing;

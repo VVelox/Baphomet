@@ -28,6 +28,9 @@ use App::Baphomet::Galla ();
 my $ns;
 my $port;
 my $ns_child;
+# every process the nameserver breathes life into, gathered so the POE
+# loop can hand them to its own reaper before it winds down
+my @ns_pids;
 foreach my $try ( 1 .. 20 ) {
 	$port = 20000 + int( rand(20000) );
 	$ns   = eval {
@@ -54,6 +57,10 @@ if ( !defined($ns) ) {
 # child of ours
 if ( $ns->can('start_server') ) {
 	$ns->start_server(120);
+	# start_server begets its own TCP/UDP subprocesses and stows their
+	# pids in this package global... claim them so POE can lay them to
+	# rest rather than leaving orphans breathing at kernel shutdown
+	@ns_pids = grep { defined($_) } @Net::DNS::Nameserver::pid;
 } elsif ( $ns->can('main_loop') ) {
 	$ns_child = fork;
 	if ( !defined($ns_child) ) {
@@ -63,6 +70,7 @@ if ( $ns->can('start_server') ) {
 		$ns->main_loop;
 		exit 0;
 	}
+	@ns_pids = ($ns_child);
 } else {
 	plan skip_all => 'this Net::DNS::Nameserver offers no way to run';
 }
@@ -184,7 +192,23 @@ POE::Session->create(
 				my $query = delete( $galla->{dns_inflight}{$handle_key} );
 				$_[KERNEL]->select_read( $query->{handle} ) if defined( $query->{handle} );
 			}
+			# tear the nameserver down from inside the loop, then hand its
+			# offspring to POE's own reaper. otherwise those subprocesses
+			# are still breathing when the kernel finalizes its signals,
+			# and it scolds about unreaped children. sig_child both reaps
+			# them and holds this session open until they are laid to rest,
+			# so POE::Kernel->run() returns clean
+			stop_ns();
+			foreach my $ns_pid (@ns_pids) {
+				$_[KERNEL]->sig_child( $ns_pid, 'ns_reaped' ) if defined($ns_pid);
+			}
 			$_[KERNEL]->alias_remove('galla-tails-app');
+			return;
+		},
+		# the nameserver's subprocesses come home to rest here... nothing
+		# to do but let POE clear the watcher, but the handler must exist
+		# for sig_child to actually reap rather than merely forget
+		'ns_reaped' => sub {
 			return;
 		},
 	},

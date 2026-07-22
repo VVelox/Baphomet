@@ -4,9 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use App::Baphomet::Config qw( load_config );
-use Ereshkigal::Client    ();
-use JSON::MaybeXS         ();
+use JSON::MaybeXS ();
 
 =head1 NAME
 
@@ -28,10 +26,12 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-Asks the Ereshkigal manager, the source of truth for who Kur holds, for
-its banned lists via the C<banned> command, pares them down to the kurs
-this Baphomet feeds, and merges in each galla's pending bans...
-banishments spoken but not yet heard, marked C<pending>.
+Asks the Baphomet manager, over its socket, for who Kur holds via the
+C<banished> command. The manager is the one that talks to Ereshkigal, the
+source of truth for who Kur holds... it pares the banned lists to the kurs
+this Baphomet feeds and merges in each galla's pending bans, banishments
+spoken but not yet heard, marked C<pending>, so this command reaches only
+the one manager socket rather than around it to Ereshkigal.
 
 A kur this Baphomet targets that is a fan_out kur on the Ereshkigal side
 has no ban list of it's own... the banishments land on it's members, so
@@ -39,8 +39,8 @@ such a kur is shown with it's member list and each member's holdings.
 
 The recidive kur, when configured, is included alongside the watched kurs.
 
-If the Baphomet manager is not running, the Ereshkigal side is still
-shown, with C<pending_error> noting the pending bans could not be had.
+The manager must be running... with it down there is nothing to ask, and
+the command errors rather than falling back to Ereshkigal.
 
 =head1 METHODS
 
@@ -53,19 +53,16 @@ sub abstract { return 'show who Kur holds for the kurs this Baphomet feeds' }
 
 sub description {
 	return
-		  'Asks Ereshkigal for the banned lists of the kurs this Baphomet feeds, '
-		. 'expanding fan_out kurs to their members, and merges in each galla\'s '
-		. 'pending bans. With a kur name, just that one. With --ip, only the kurs '
-		. 'holding that IP are shown.';
+		  'Asks the Baphomet manager for the banned lists of the kurs this '
+		. 'Baphomet feeds, expanding fan_out kurs to their members, and merging '
+		. 'in each galla\'s pending bans. With a kur name, just that one. With '
+		. '--ip, only the kurs holding that IP are shown.';
 }
 
 sub usage_desc { return '%c banished %o [kur]'; }
 
 sub opt_spec {
-	return (
-		[ 'config=s', 'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
-		[ 'ip=s',     'only show the kurs holding this IP' ],
-	);
+	return ( [ 'ip=s', 'only show the kurs holding this IP' ], );
 }
 
 sub validate_args {
@@ -81,83 +78,15 @@ sub validate_args {
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $config = load_config( $opt->config );
-
-	# the kurs this Baphomet feeds... the watched ones plus the recidive
-	# kur, which banishments are escalated to
-	my @kurs = sort( keys( %{ $config->{kur} } ) );
-	if ( defined( $config->{recidive} ) && !grep { $_ eq $config->{recidive}{kur} } @kurs ) {
-		push( @kurs, $config->{recidive}{kur} );
-	}
+	# the manager does the whole gathering now... the Ereshkigal ask, the
+	# fan_out expansion, and the pending merge. this side just asks it, over
+	# the one socket, and shapes the answer for the eye
+	my $call_args = {};
 	if ( @{$args} ) {
-		if ( !grep { $_ eq $args->[0] } @kurs ) {
-			$self->usage_error( 'the kur "' . $args->[0] . '" is not one this Baphomet feeds' );
-		}
-		@kurs = ( $args->[0] );
+		$call_args->{name} = $args->[0];
 	}
 
-	my $ereshkigal = Ereshkigal::Client->new(
-		'socket'  => $config->{ereshkigal_socket},
-		'timeout' => $config->{timeout},
-	);
-	my $banned = $ereshkigal->call_ok('banned');
-	my $held   = ref( $banned->{kurs} ) eq 'HASH' ? $banned->{kurs} : {};
-
-	my $result = { 'kurs' => {} };
-
-	foreach my $kur (@kurs) {
-		if ( defined( $held->{$kur} ) ) {
-			$result->{kurs}{$kur} = {
-				'banned'  => $held->{$kur}{banned},
-				'expires' => $held->{$kur}{expires},
-			};
-			next;
-		}
-
-		# not among the real kurs... a fan_out kur has no list of it's own,
-		# the banishments land on it's members
-		my $kur_status;
-		eval { $kur_status = $ereshkigal->call_ok( 'status_kur', { 'name' => $kur } ); };
-		if ($@) {
-			$result->{kurs}{$kur} = { 'error' => $@ };
-			next;
-		}
-		if ( ref( $kur_status->{fan_out} ) eq 'ARRAY' ) {
-			my $members = {};
-			foreach my $member ( @{ $kur_status->{fan_out} } ) {
-				$members->{$member}
-					= defined( $held->{$member} )
-					? { 'banned' => $held->{$member}{banned}, 'expires' => $held->{$member}{expires} }
-					: { 'error'  => 'not among the banned lists' };
-			}
-			$result->{kurs}{$kur} = {
-				'fan_out' => $kur_status->{fan_out},
-				'members' => $members,
-			};
-		} else {
-			$result->{kurs}{$kur} = { 'error' => 'no banned list... not running?' };
-		}
-	} ## end foreach my $kur (@kurs)
-
-	# pending bans from the gallas... banishments spoken but not yet heard
-	my $status_all;
-	eval {
-		my $manager = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );
-		$status_all = $manager->call_ok('status_all');
-	};
-	if ($@) {
-		$result->{pending_error} = $@;
-	} else {
-		foreach my $kur (@kurs) {
-			my $galla = $status_all->{gallas}{$kur};
-			if (   defined($galla)
-				&& ref( $galla->{status} ) eq 'HASH'
-				&& ref( $galla->{status}{pending_bans} ) eq 'ARRAY' )
-			{
-				$result->{kurs}{$kur}{pending} = $galla->{status}{pending_bans};
-			}
-		}
-	} ## end else [ if ($@) ]
+	my $result = $self->app->manager_call( 'banished', $call_args );
 
 	if ( defined( $opt->ip ) ) {
 		$result = _pare_to_ip( $result, $opt->ip );

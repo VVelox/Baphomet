@@ -5,7 +5,6 @@ use strict;
 use warnings;
 use App::Baphomet::App -command;
 use App::Baphomet::Config ();
-use Ereshkigal::Client    ();
 use JSON::MaybeXS         ();
 use Time::HiRes           qw( usleep );
 
@@ -68,8 +67,7 @@ sub validate_args {
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $client = Ereshkigal::Client->new( 'socket' => $self->app->global_options->{socket} );
-	my $result = $client->call_ok('stop');
+	my $result = $self->app->manager_call('stop');
 
 	# the stop is asynchronous... the manager acknowledges, then shuts down a
 	# beat later. wait for the process to actually die so a following start,

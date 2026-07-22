@@ -29,7 +29,7 @@ is how a jail with several actions maps over (see below).
 | `ignoreip` | `ignore_ips`, global or per kur |
 | `fail2ban-client status/set` | `baphomet status`, `ereshkigal status/ban/unban/banned` |
 | `fail2ban-client status <jail>`, currently failed | `baphomet accused`... and with the per-IP detail fail2ban never shows |
-| `fail2ban-client status <jail>`, banned IP list | `baphomet banished`, asking Ereshkigal and marking bans still pending delivery |
+| `fail2ban-client status <jail>`, banned IP list | `baphomet banished`, the manager asking Ereshkigal and marking bans still pending delivery |
 | `fail2ban-client banned <ip>` | `baphomet banished --ip <ip>` |
 | `fail2ban-client get <jail> banip --with-time` | `baphomet ledger`, filterable by kur, IP, and time |
 | `fail2ban-regex` | `baphomet check_rules` and `baphomet test_line` |

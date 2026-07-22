@@ -35,6 +35,7 @@ The config file is TOML, by default
 | `authed_users` | `[]` | Users allowed past the Neti gate. |
 | `authed_groups` | `[]` | Groups whose members are allowed past the Neti gate. |
 | `auth_temp_dir` | unset | Dir for the auth challenge cookie files. |
+| `[command_perms]` | off | Per command authorization layered over `authed_users`/`authed_groups`. See below. |
 | `[recidive]` | off | A table turning on repeat offender escalation. See below. |
 | `internal` | same as `ignore_ips` | Addresses and CIDRs that are your own hosts. Rules with `ban_not_internal` banish the end of a flow that is not internal. Global and per kur. |
 | `eve_log` | `/var/log/baphomet/eve.json` | Path of the EVE event log. |
@@ -360,7 +361,53 @@ The `baphomet` CLI completes the challenge transparently, so nothing
 changes in how you drive it beyond being one of the permitted. Group and
 user membership is resolved per request, so changes apply without a
 restart. This gates the manager socket only... the galla sockets are 0600
-and spoken to only by the manager.
+and spoken to only by the manager. Every CLI command rides this one
+socket, the manager reaching Ereshkigal on their behalf, so the gate here
+covers the whole control plane.
+
+### Per command authorization
+
+`authed_users` and `authed_groups` gate every command the same. To gate
+them apart, `command_perms` lays per command rules over that baseline. It
+is a table with an optional `default` verdict (`allow` or `deny`, the
+default `deny`) and a `commands` table keyed by command name, or the
+catch-all `%DEFAULT%` that stands in for the baseline. Each rule is
+`"allow"`, `"deny"`, or a table of `users`, `groups`, `deny_users`, and
+`deny_groups` arrays. An all-digit entry matches by UID or GID, everything
+else by name. Explicit denials win over allowals. A command named here is
+judged by its own rule alone; every command not named falls to the
+baseline. UID 0 (root) is threaded into any rule that names allowed users
+or groups, so root passes it as it passes the baseline.
+
+The commands that may be named are `status`, `status_all`, `status_galla`,
+`accused`, `marked`, `watching`, `banished`, and `stop`.
+
+A worked example... the `lnms-f2b-extend` command an snmpd extend runs
+reaches the manager's `banished` command for its tallies, so letting the
+`snmpd` user feed LibreNMS is a matter of granting it just that one
+command, and nothing else... not `stop`, not the accused lists:
+
+```toml
+enable_auth   = true
+authed_users  = [ "nanni" ]      # the operator, past the baseline
+authed_groups = [ "ops" ]
+
+[command_perms]
+default = "deny"
+
+# the snmpd user may run banished, which lnms-f2b-extend rides, and only that
+[command_perms.commands.banished]
+users = [ "snmpd" ]
+
+# stop is held to the operator, and ea-nasir is turned away outright
+[command_perms.commands.stop]
+users      = [ "nanni" ]
+deny_users = [ "ea-nasir" ]
+```
+
+Here `snmpd` may run `banished` (and so `lnms-f2b-extend`) but falls to the
+`deny` default for everything else; `nanni` and the `ops` group keep the
+run of the baseline commands, while `stop` is narrowed to `nanni` alone.
 
 ## Recidivists
 

@@ -77,10 +77,14 @@ accumulates in one counter, while kurs count independently.
 
 Both speak the newline delimited JSON protocol of
 [POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix),
-same as Ereshkigal. The manager socket
-answers `status`, `status_all`, `status_galla`, `accused`, `marked`, and
-`stop`, with the status, accused, and marked fan-out proxied to the galla
-sockets. The
+same as Ereshkigal, and every client... the CLI included... drives them
+with that dist's own blocking and async clients. The manager socket
+answers `status`, `status_all`, `status_galla`, `accused`, `marked`,
+`watching`, `banished`, and `stop`, with the status, accused, marked, and
+watching fan-out proxied to the galla sockets and `banished` proxied on to
+Ereshkigal for who Kur holds. Every CLI query rides this one socket rather
+than reaching around the manager, so the manager is the single door to the
+control plane. The
 manager socket's group and mode are configurable via `socket_group` and
 `socket_mode`... it only exposes read-only views and stop, but stop is
 still stop.
