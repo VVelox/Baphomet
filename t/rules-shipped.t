@@ -1,7 +1,7 @@
 #!perl
 #
-# every rule shipped under rules/ must load and pass its own embedded tests,
-# and must actually carry tests to begin with
+# every rule shipped under share/rules/ must load and pass its own embedded
+# tests, and must actually carry tests to begin with
 #
 use 5.006;
 use strict;
@@ -10,7 +10,7 @@ use Test::More;
 use File::Find           ();
 use App::Baphomet::Rules ();
 
-my $rules_dir = 'rules';
+my $rules_dir = 'share/rules';
 if ( !-d $rules_dir ) {
 	plan skip_all => 'no rules dir found... not running from the dist root?';
 }
@@ -34,7 +34,8 @@ if ( !@names ) {
 
 plan tests => scalar(@names) * 3;
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+# look only at the in-tree share/rules, not any installed copy
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 
 foreach my $name ( sort(@names) ) {
 	my $rule = eval { $rules->load( $name, skip_tests => 1 ); };

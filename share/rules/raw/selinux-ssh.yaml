@@ -6,6 +6,7 @@
 # USER_ERR and USER_AUTH records are offenses... USER_LOGIN is the
 # duplicate ssh logs after three USER_AUTH failures and is not matched. The
 # acct quote back-reference is dropped in favor of an optional quote.
+rev: 1
 msg: "[SELINUX] failed sshd authentication"
 severity: high
 classtype: brute-force

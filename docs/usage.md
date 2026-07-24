@@ -142,11 +142,11 @@ letting `snmpd` run just this one command.
 ## Working on rules
 
 ```shell
-# run the embedded tests of every rule under the rules dir
+# run the embedded tests of every rule... the override dir and the shipped rules both
 baphomet check_rules
 
-# just one, from a rules dir being worked on
-baphomet check_rules --rules-dir ./rules syslog/sshd
+# just one, from a rules dir being worked on in a checkout
+baphomet check_rules --rules-dir ./share/rules syslog/sshd
 
 # feed one line through a parser and a rule and see what comes of it
 baphomet test_line --rule syslog/sshd \

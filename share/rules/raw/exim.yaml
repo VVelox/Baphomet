@@ -4,6 +4,7 @@
 # translated to Baphomet and simplified... exim writes its own log
 # format, so this is a raw rule and every regexp leads with the mainlog
 # timestamp shape.
+rev: 1
 msg: "[EXIM] auth failure / SMTP abuse"
 severity: high
 classtype: brute-force

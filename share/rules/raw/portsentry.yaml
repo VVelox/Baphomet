@@ -3,6 +3,7 @@
 # filter, translated to Baphomet and simplified. PortSentry leads each
 # line with an epoch and its own date/time, so this is a raw rule anchored
 # on that shape.
+rev: 1
 msg: "[PORTSENTRY] blocked port scan"
 severity: medium
 classtype: attempted-recon

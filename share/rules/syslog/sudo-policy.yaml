@@ -4,6 +4,7 @@
 # It counts by the username via detection_var, so a user tripping sudo
 # repeatedly raises a sighting per attempt and a sighted at the threshold,
 # banishing nobody. See docs/rules and docs/eve.
+rev: 1
 msg: "[SUDO] authorization failure"
 severity: medium
 classtype: policy-violation

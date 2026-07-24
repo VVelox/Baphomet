@@ -74,7 +74,7 @@ tests:
       found: 0
 EOR
 
-my $rules  = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules  = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $worked = $rules->load('syslog/worked');
 ok( defined($worked), 'staged rule loaded, embedded sequence tests passed' );
 

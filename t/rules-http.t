@@ -66,7 +66,7 @@ tests:
       undefed: ["host"]
 EOR
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('http/probes');
 ok( defined($rule), 'http rule loaded' );
 is( ( $rule->ban_var )[0], 'host', 'ban_var is host' );

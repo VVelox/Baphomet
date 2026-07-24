@@ -3,6 +3,7 @@
 # fail2ban nginx-http-auth filter in its normal mode, translated to
 # Baphomet and simplified... the aggressive mode SSL handshake fallback is
 # dropped.
+rev: 1
 msg: "[NGINX] basic auth failure"
 severity: high
 classtype: unsuccessful-user

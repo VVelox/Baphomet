@@ -5,6 +5,7 @@
 # multi-line "No such user here" pair is handled via correlation... the
 # No such user line carries no host, so it defers on its queue id until
 # the from= line carrying the relay address arrives.
+rev: 1
 msg: "[SENDMAIL] spam / relay reject"
 severity: low
 classtype: misc-activity

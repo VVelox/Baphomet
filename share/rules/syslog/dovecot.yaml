@@ -2,6 +2,7 @@
 # Matches dovecot auth failures. Based on the fail2ban dovecot filter in
 # its normal mode, translated to Baphomet and simplified... the aggressive
 # mode no-auth-attempt matching is dropped.
+rev: 1
 msg: "[DOVECOT] authentication failure"
 severity: high
 classtype: brute-force

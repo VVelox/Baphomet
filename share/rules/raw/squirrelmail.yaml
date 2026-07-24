@@ -2,6 +2,7 @@
 # Matches SquirrelMail login failures. Based on the fail2ban squirrelmail
 # filter, translated to Baphomet and simplified. SquirrelMail writes its
 # own MM/DD/YYYY timestamp, so this is a raw rule leading with that shape.
+rev: 1
 msg: "[SQUIRRELMAIL] login failure"
 severity: high
 classtype: brute-force

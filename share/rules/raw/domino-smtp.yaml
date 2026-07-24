@@ -6,6 +6,7 @@
 # [pid:thread] tag, so this is a raw rule anchored on those shapes. The
 # host may be bracketed or bare and can be a hostname, so %%%%HOST%%%% and
 # its ban_var carry whatever was logged.
+rev: 1
 msg: "[DOMINO] SMTP auth failure / policy reject"
 severity: high
 classtype: brute-force

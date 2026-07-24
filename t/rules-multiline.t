@@ -67,7 +67,7 @@ tests:
       found: 0
 EOR
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $defer = $rules->load('raw/defer');
 ok( defined($defer), 'defer rule loaded, embedded sequence tests passed' );
 

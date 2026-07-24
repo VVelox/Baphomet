@@ -4,6 +4,7 @@
 # line. Based on the fail2ban apache-overflows filter, translated to
 # Baphomet and simplified. Deliberately not end-anchored, as the lines
 # can carry very long URLs.
+rev: 1
 msg: "[APACHE] overlong or malformed request line"
 severity: critical
 classtype: web-application-attack

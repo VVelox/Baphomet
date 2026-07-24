@@ -10,6 +10,7 @@
 # %%%%SRC%%%% is anchored there rather than in the free-form message tail,
 # which keeps a login name of "Login attempt failed from 1.2.3.4" from
 # being mistaken for the offender.
+rev: 1
 msg: "[DRUPAL] login failure"
 severity: high
 classtype: brute-force

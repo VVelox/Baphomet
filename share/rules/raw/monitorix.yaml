@@ -4,6 +4,7 @@
 # monitorix filter, translated to Baphomet and simplified. Monitorix
 # writes its own ctime-style timestamp rather than a syslog prefix, so
 # this is a raw rule anchored on that timestamp.
+rev: 1
 msg: "[MONITORIX] HTTP access / auth error"
 severity: high
 classtype: brute-force

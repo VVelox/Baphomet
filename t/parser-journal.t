@@ -32,8 +32,8 @@ is( $parsed->{message}, 'hi', 'byte-array MESSAGE reassembled' );
 # the shipped sshd rule matches a journal line unchanged
 use App::Baphomet::Rules ();
 SKIP: {
-	skip( 'no rules dir', 2 ) if !-d 'rules';
-	my $rules     = App::Baphomet::Rules->new( rules_dir => 'rules' );
+	skip( 'no rules dir', 2 ) if !-d 'share/rules';
+	my $rules     = App::Baphomet::Rules->new( rules_dir => 'share/rules', shipped => 0 );
 	my $sshd      = $rules->load('syslog/sshd');
 	my $re_parsed = App::Baphomet::Parser::parse( 'journal', $line );
 	my $found     = $sshd->check($re_parsed);

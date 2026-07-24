@@ -5,6 +5,7 @@
 # regexp leads with the mainlog timestamp shape. The fail2ban honeypot
 # jail parameter is generalized to any recipient here, since Baphomet has
 # no per-jail interpolation.
+rev: 1
 msg: "[EXIM] spam / content reject"
 severity: low
 classtype: misc-activity

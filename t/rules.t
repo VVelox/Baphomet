@@ -52,7 +52,7 @@ tests:
       undefed: ["SRC"]
 EOR
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('syslog/basic');
 ok( defined($rule), 'basic rule loaded' );
 

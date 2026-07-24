@@ -3,6 +3,7 @@
 # tine20 filter, translated to Baphomet and simplified. Tine leads each
 # line with two hex ids and its own ISO8601 timestamp, so this is a raw
 # rule anchored on that shape.
+rev: 1
 msg: "[TINE20] login failure"
 severity: high
 classtype: brute-force

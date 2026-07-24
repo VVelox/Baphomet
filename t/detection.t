@@ -239,7 +239,7 @@ detection_var:
   - request
 EOR
 
-my $vrules = App::Baphomet::Rules->new( rules_dir => $vdir );
+my $vrules = App::Baphomet::Rules->new( rules_dir => $vdir, shipped => 0 );
 
 my $det = $vrules->load('syslog/detonly');
 ok( defined($det), 'a syslog detection rule loads with no ban_var' );

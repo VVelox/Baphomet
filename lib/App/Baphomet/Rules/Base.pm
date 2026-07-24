@@ -6,6 +6,7 @@ use warnings;
 use Regexp::IPv4          qw( $IPv4_re );
 use Regexp::IPv6          qw( $IPv6_re );
 use MIME::Base64          qw( decode_base64 );
+use Digest::MD5           qw( md5 );
 use Encode                ();
 use App::Baphomet::Parser ();
 use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
@@ -750,6 +751,80 @@ sub attack {
 	return $self->{def}{attack};
 }
 
+=head2 gid
+
+Returns the rule's EVE group id, the Suricata C<alert.gid> analogue... C<0>
+when the rule was loaded from the shipped rules dir, C<1> from the site
+override dir. Set by the loader with L</set_gid>; C<0> until then, so a rule
+built with out the loader reads as shipped.
+
+    my $gid = $rule->gid;
+
+=cut
+
+sub gid {
+	my ($self) = @_;
+
+	return defined( $self->{gid} ) ? $self->{gid} : 0;
+}
+
+=head2 set_gid
+
+Records which dir the rule came from for L</gid>... C<0> shipped, C<1>
+override. Called once by the loader, right after construction.
+
+    $rule->set_gid(1);
+
+=cut
+
+sub set_gid {
+	my ( $self, $gid ) = @_;
+
+	$self->{gid} = $gid;
+
+	return;
+}
+
+=head2 sid
+
+Returns the rule's EVE signature id, the Suricata C<alert.signature_id>
+analogue... a stable positive integer derived from the rule name, so
+C<syslog/sshd> always hashes to the same value. Built once and cached.
+
+    my $sid = $rule->sid;
+
+=cut
+
+sub sid {
+	my ($self) = @_;
+
+	if ( !defined( $self->{sid} ) ) {
+		# a stable 31-bit unsigned integer from the name, the top four bytes
+		# of its MD5... masked to stay a positive value that survives tools
+		# treating a sid as a signed 32-bit int
+		$self->{sid} = unpack( 'N', substr( md5( $self->{name} ), 0, 4 ) ) & 0x7fffffff;
+	}
+
+	return $self->{sid};
+} ## end sub sid
+
+=head2 rev
+
+Returns the rule's revision, the Suricata C<alert.rev> analogue, from the
+def's C<rev> key... undef when unset or C<0>, a zero revision meaning
+unversioned. EVE renders the undef as C<0>, so the field is always an
+integer there.
+
+    my $rev = $rule->rev;   # undef or a positive integer
+
+=cut
+
+sub rev {
+	my ($self) = @_;
+
+	return ( defined( $self->{def}{rev} ) && $self->{def}{rev} ) ? $self->{def}{rev} + 0 : undef;
+}
+
 =head2 marks
 
 Returns the array of marks the rule sets on match, each a hash of C<name>,
@@ -1428,6 +1503,10 @@ sub _check_thresholds {
 	}
 	if ( defined( $def->{classtype} ) && ( ref( $def->{classtype} ) ne '' || $def->{classtype} eq '' ) ) {
 		die( 'The rule "' . $name . '" has a classtype that is not a non-empty string' );
+	}
+	# the EVE rev... a non-negative integer, 0 the unversioned default
+	if ( defined( $def->{rev} ) && ( ref( $def->{rev} ) ne '' || $def->{rev} !~ /^\d+$/ ) ) {
+		die( 'The rule "' . $name . '" has a rev that is not a non-negative integer' );
 	}
 	foreach my $listkey ( 'references', 'attack' ) {
 		if ( !defined( $def->{$listkey} ) ) {

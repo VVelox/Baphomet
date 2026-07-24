@@ -3,6 +3,7 @@
 # that are not there, per its JSON access log. The path vocabulary is
 # fail2ban's botsearch-common, as with http/botsearch. Test lines are
 # hand built from the documented Caddy access log shape.
+rev: 1
 msg: "[CADDY] bad bot / scanner probe"
 severity: medium
 classtype: web-application-attack

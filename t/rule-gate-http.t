@@ -22,7 +22,7 @@ sub write_rule {
 	return;
 }
 
-my $rules = App::Baphomet::Rules->new( 'rules_dir' => $dir );
+my $rules = App::Baphomet::Rules->new( 'rules_dir' => $dir, shipped => 0 );
 
 sub http_line {
 	my ( $request, $status, $ua ) = @_;

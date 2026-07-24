@@ -4,6 +4,7 @@
 # its own ISO timestamp rather than a standard syslog prefix, so this is a
 # raw rule anchored on that timestamp; the optional daemon/host prefix that
 # appears when routed through syslog is tolerated.
+rev: 1
 msg: "[BITWARDEN] identity login failure"
 severity: high
 classtype: brute-force

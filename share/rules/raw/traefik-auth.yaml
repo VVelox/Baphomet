@@ -11,6 +11,7 @@
 # requires the username present.
 #
 # Source: fail2ban config/filter.d/traefik-auth.conf
+rev: 1
 msg: "[TRAEFIK] basic-auth failure (401)"
 severity: high
 classtype: brute-force

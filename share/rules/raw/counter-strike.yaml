@@ -3,6 +3,7 @@
 # counter-strike filter, translated to Baphomet and simplified. The
 # HLDS log leads each line with its own "L DD/MM/YYYY - HH:MM:SS"
 # timestamp, so this is a raw rule anchored on that shape.
+rev: 1
 msg: "[CSTRIKE] bad RCON attempt"
 severity: high
 classtype: brute-force

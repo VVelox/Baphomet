@@ -5,6 +5,7 @@
 # prefix, so this is a raw rule anchored on that timestamp shape. The
 # offender is logged in parentheses and may be a hostname, so %%%%HOST%%%%
 # and its ban_var carry whatever was logged.
+rev: 1
 msg: "[OPENWEBMAIL] authentication error"
 severity: high
 classtype: brute-force

@@ -3,6 +3,7 @@
 # limiting requests lines. Based on the fail2ban nginx-limit-req filter,
 # translated to Baphomet and simplified... all zones match, as with the
 # fail2ban default.
+rev: 1
 msg: "[NGINX] limit_req rate-limit rejection"
 severity: medium
 classtype: denial-of-service

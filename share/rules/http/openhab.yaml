@@ -4,6 +4,7 @@
 # fail2ban's openhab filter, translated to Baphomet.
 #
 # Source: fail2ban config/filter.d/openhab.conf
+rev: 1
 msg: "[OPENHAB] web UI / REST API auth failure"
 severity: high
 classtype: unsuccessful-user

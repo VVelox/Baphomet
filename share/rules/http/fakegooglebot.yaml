@@ -13,6 +13,7 @@
 # A resolver outage holds this rule back rather than misaiming it... to
 # keep counting through outages (fail2ban's stance) set
 # on_servfail: compare on the gate entry, knowingly.
+rev: 1
 msg: "[HTTP] fake Googlebot"
 severity: medium
 classtype: network-scan

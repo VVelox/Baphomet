@@ -11,6 +11,7 @@
 # restart on a tight timer will trip it; ignore those per deployment.
 # The max_score of 1 makes one loop the alert where the watcher sets
 # allow_per_rule_thresholds.
+rev: 1
 msg: "[SYSTEMD] service crash loop / flapping"
 severity: high
 classtype: program-error

@@ -5,6 +5,7 @@
 # address... the source is on the "Authentication attempt from" line
 # itself, so no correlation is needed and this is a plain single-line rule
 # covering both the catalina (WARNING:) and webapp logback formats.
+rev: 1
 msg: "[GUACAMOLE] failed authentication attempt"
 severity: high
 classtype: brute-force

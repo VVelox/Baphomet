@@ -103,8 +103,12 @@ Top level keys are as below.
           find_time are always kept, whatever this says.
         Default :: 2592000
 
-    - rules_dir :: The dir holding the matching rules. A rule of
-          C<syslog/sshd> is the file C<syslog/sshd.yaml> under here.
+    - rules_dir :: The site override dir for rules, searched ahead of the
+          rules shipped with the dist. A rule of C<syslog/sshd> is the file
+          C<syslog/sshd.yaml> under here, shadowing the shipped rule of the
+          same name. It need not exist... a name absent here falls through to
+          the shipped rules, so this dir is only for a site's own rules or
+          overrides of the shipped ones.
         Default :: /usr/local/etc/baphomet/rules
 
     - ereshkigal_socket :: The Ereshkigal manager socket bans are sent to.

@@ -52,7 +52,7 @@ tests:
       undefed: ["SRC"]
 EOR
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('json/probes');
 ok( defined($rule), 'json rule loaded' );
 is( ( $rule->ban_var )[0], 'SRC', 'ban_var' );

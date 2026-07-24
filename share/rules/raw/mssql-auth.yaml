@@ -5,6 +5,7 @@
 # this is a raw rule anchored on that timestamp followed immediately by the
 # Logon tag, which keeps unescaped foreign input from injecting a false
 # Logon line further along.
+rev: 1
 msg: "[MSSQL] authentication failure"
 severity: high
 classtype: brute-force

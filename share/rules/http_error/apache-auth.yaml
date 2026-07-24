@@ -2,6 +2,7 @@
 # Matches Apache auth failures in the error log, both the 2.2 and 2.4
 # shapes. Based on the fail2ban apache-auth filter in its normal mode,
 # translated to Baphomet and simplified.
+rev: 1
 msg: "[APACHE] web auth failure"
 severity: high
 classtype: unsuccessful-user

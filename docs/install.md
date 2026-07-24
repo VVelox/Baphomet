@@ -38,14 +38,20 @@ make test
 make install
 ```
 
-This installs the `baphomet` and `galla` bins and the modules. The config
-and rules are not installed by make, so put them in place...
+This installs the `baphomet` and `galla` bins, the modules, and the shipped
+rules... the rules go into the dist's [`File::ShareDir`](https://metacpan.org/pod/File::ShareDir)
+share dir and are found there at run time, so nothing needs copying into
+place. The config is not installed by make, so put it in place...
 
 ```shell
 mkdir -p /usr/local/etc/baphomet
-cp -R rules /usr/local/etc/baphomet/
 $EDITOR /usr/local/etc/baphomet/config.toml
 ```
+
+To override a shipped rule or add your own, drop the YAML under
+`/usr/local/etc/baphomet/rules` (the `rules_dir`, searched ahead of the
+shipped rules); a fresh install needs nothing there. See
+[rules.md](rules.md#where-rules-live).
 
 Then check the rules and start it up...
 

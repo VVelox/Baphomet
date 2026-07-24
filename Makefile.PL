@@ -2,6 +2,12 @@ use 5.006;
 use strict;
 use warnings;
 use ExtUtils::MakeMaker;
+use File::ShareDir::Install;
+
+# the shipped rules live under share/ and are installed into the dist share
+# dir, resolved at runtime with File::ShareDir... a site's own rules under
+# etc are searched ahead of these
+install_share dist => 'share';
 
 my %WriteMakefileArgs = (
 	NAME               => 'App::Baphomet',
@@ -13,7 +19,8 @@ my %WriteMakefileArgs = (
 	INST_SCRIPT        => 'bin',
 	EXE_FILES          => [ 'src_bin/baphomet', 'src_bin/galla' ],
 	CONFIGURE_REQUIRES => {
-		'ExtUtils::MakeMaker' => '0',
+		'ExtUtils::MakeMaker'     => '0',
+		'File::ShareDir::Install' => '0.06',
 	},
 	TEST_REQUIRES => {
 		'Test::More' => '0',
@@ -22,6 +29,7 @@ my %WriteMakefileArgs = (
 		'App::Cmd'                         => '0',
 		'Ereshkigal::Client'               => '0',
 		'Error::Helper'                    => '0',
+		'File::ShareDir'                   => '0',
 		'JSON::MaybeXS'                    => '0',
 		'Net::Server::Daemonize'           => '0',
 		'POE'                              => '0',
@@ -74,3 +82,16 @@ delete $WriteMakefileArgs{LICENSE}
 	unless eval { ExtUtils::MakeMaker->VERSION('6.31'); 1 };
 
 WriteMakefile(%WriteMakefileArgs);
+
+# hook File::ShareDir::Install into the generated Makefile so the share dir
+# is copied into blib at build time and installed with the dist
+{
+	package MY;
+	use File::ShareDir::Install;
+
+	sub postamble {
+		my $self = shift;
+		my @ret  = File::ShareDir::Install::postamble($self);
+		return join( "\n", @ret );
+	}
+}

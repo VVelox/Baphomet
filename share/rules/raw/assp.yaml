@@ -4,6 +4,7 @@
 # and V2. Based on the fail2ban assp filter, translated to Baphomet and
 # simplified. ASSP leads each line with its own Mon-DD-YY HH:MM:SS
 # timestamp, so this is a raw rule anchored on that shape.
+rev: 1
 msg: "[ASSP] auth failure / spam reject"
 severity: high
 classtype: brute-force

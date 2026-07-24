@@ -76,12 +76,11 @@ make test
 make install
 ```
 
-Then copy the shipped rules into place...
-
-```shell
-mkdir -p /usr/local/etc/baphomet
-cp -R rules /usr/local/etc/baphomet/
-```
+`make install` installs the shipped rules into the dist's share dir, found
+there at run time, so nothing needs copying into place. To override a shipped
+rule or add your own, drop the YAML under `/usr/local/etc/baphomet/rules`,
+which is searched ahead of the shipped rules... see
+[docs/rules.md](docs/rules.md#where-rules-live).
 
 ### FreeBSD
 

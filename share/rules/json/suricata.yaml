@@ -12,6 +12,7 @@
 # the alert fired, so both are candidates and ban_not_internal banishes
 # whichever is not one of your own hosts... set the internal config field,
 # which defaults to the ignore IPs.
+rev: 1
 msg: "[SURICATA] eve.json alert at severity 1 or 2"
 severity: high
 classtype: misc-attack

@@ -5,6 +5,7 @@
 # whose daemon token is a "[host/VPN/hub]" tag rather than a plain daemon
 # name), so this is a raw rule anchored on either the bare sec.log
 # timestamp or the syslogged form's leading timestamp and hub tag.
+rev: 1
 msg: "[SOFTETHER] VPN user auth failure"
 severity: high
 classtype: brute-force

@@ -9,6 +9,7 @@
 # version, banner exchange) are not repeated here... run this beside it,
 # not instead. Preauth disconnects are routine noise on any public sshd,
 # so opt in knowingly.
+rev: 1
 msg: "[SSHD] pre-auth abuse / scanner disconnect"
 severity: medium
 classtype: network-scan

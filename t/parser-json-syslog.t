@@ -78,10 +78,10 @@ is( $parsed->{format}, 'json_syslog',  'combined parser format' );
 is( $parsed->{daemon}, 'sshd-session', 'combined parser daemon' );
 
 # and the shipped sshd rule matches a JSON encoded corpus line unchanged
-my $rules = App::Baphomet::Rules->new( rules_dir => 'rules' );
 SKIP: {
-	skip( 'no rules dir found... not running from the dist root?', 2 ) if !-d 'rules';
+	skip( 'no rules dir found... not running from the dist root?', 2 ) if !-d 'share/rules';
 
+	my $rules = App::Baphomet::Rules->new( rules_dir => 'share/rules', shipped => 0 );
 	my $sshd  = $rules->load('syslog/sshd');
 	my $found = $sshd->check($parsed);
 	ok( defined($found), 'syslog/sshd matches the JSON encoded line' );

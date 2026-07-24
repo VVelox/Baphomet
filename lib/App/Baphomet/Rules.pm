@@ -3,6 +3,8 @@ package App::Baphomet::Rules;
 use 5.006;
 use strict;
 use warnings;
+use File::Find                      ();
+use File::ShareDir                  ();
 use YAML::XS                        ();
 use App::Baphomet::Rules::HTTP      ();
 use App::Baphomet::Rules::HTTPError ();
@@ -36,10 +38,18 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-Loads rules from YAML files under the rules dir. A rule name is a relative
-path with out the C<.yaml>, so the rule C<syslog/sshd> is the file
-C<syslog/sshd.yaml> under the rules dir. The first component of the name is
-the rule type, which picks the handler the rest of the file is handed to.
+Loads rules from YAML files. A rule name is a relative path with out the
+C<.yaml>, so the rule C<syslog/sshd> is the file C<syslog/sshd.yaml>. The
+first component of the name is the rule type, which picks the handler the
+rest of the file is handed to.
+
+Rules are resolved across an ordered search path... a site's override dir
+first, then the rules shipped with the dist. The override dir is
+C<rules_dir> from the config, C<$base/etc/baphomet/rules> by convention; the
+shipped rules are installed under the dist share dir and resolved with
+L<File::ShareDir>. A rule present in the override dir shadows the shipped one
+of the same name, so a site can override or extend the shipped set with out
+touching what ships.
 
 The known types are as below.
 
@@ -70,9 +80,19 @@ once.
 
 Initiates the object. Will die on errors.
 
-    - rules_dir :: The dir holding the rules. Must be specified and must
-          exist.
+    - rules_dir :: The override dir searched ahead of the shipped rules,
+          C<$base/etc/baphomet/rules> by convention. Searched only if it
+          exists... a specified but absent dir is not an error, as the
+          shipped rules still answer for the name. May be undef, in which
+          case only the shipped rules are used.
         Default :: undef
+
+    - shipped :: Whether to append the shipped rules dir, resolved with
+          L<File::ShareDir>, to the search path. Turned off by callers that
+          want to look at a single dir in isolation.
+        Default :: 1
+
+At least one usable dir must resolve or new dies.
 
 =cut
 
@@ -95,16 +115,44 @@ my %type_parsers = (
 sub new {
 	my ( $blank, %opts ) = @_;
 
-	if ( !defined( $opts{rules_dir} ) ) {
-		die('No rules_dir specified');
+	if ( !defined( $opts{shipped} ) ) {
+		$opts{shipped} = 1;
 	}
-	if ( !-d $opts{rules_dir} ) {
-		die( 'The rules_dir, "' . $opts{rules_dir} . '", does not exist or is not a directory' );
+
+	my @rules_dirs;
+
+	# the override dir, searched ahead of the shipped rules so a site can
+	# shadow or extend what ships... a specified but absent dir is not an
+	# error, as the shipped rules still answer for the name
+	if ( defined( $opts{rules_dir} ) && -d $opts{rules_dir} ) {
+		push( @rules_dirs, $opts{rules_dir} );
+	}
+
+	# the shipped rules, installed under the dist share dir via
+	# File::ShareDir::Install... resolved only when actually installed, so a
+	# bare source checkout with out a share dir just falls back to rules_dir.
+	# kept aside too, so a resolved path can be told shipped from override for
+	# the EVE gid
+	my $shipped_dir;
+	if ( $opts{shipped} ) {
+		eval { $shipped_dir = File::ShareDir::dist_dir('App-Baphomet') . '/rules'; };
+		if ( defined($shipped_dir) && -d $shipped_dir ) {
+			push( @rules_dirs, $shipped_dir );
+		} else {
+			$shipped_dir = undef;
+		}
+	}
+
+	if ( !@rules_dirs ) {
+		die(      'No usable rules dir... neither the configured rules_dir'
+				. ( defined( $opts{rules_dir} ) ? ', "' . $opts{rules_dir} . '",' : '' )
+				. ' nor the shipped rules dir exists' );
 	}
 
 	my $self = {
-		rules_dir => $opts{rules_dir},
-		cache     => {},
+		rules_dirs  => \@rules_dirs,
+		shipped_dir => $shipped_dir,
+		cache       => {},
 	};
 	bless( $self, ref($blank) || $blank );
 
@@ -152,8 +200,11 @@ sub load {
 	}
 
 	my $path = $self->rule_path($name);
-	if ( !-f $path ) {
-		die( 'The rule "' . $name . '" does not exist... no such file "' . $path . '"' );
+	if ( !defined($path) ) {
+		die(      'The rule "'
+				. $name
+				. '" does not exist under any of the rules dirs... '
+				. join( ', ', map { '"' . $_ . '"' } @{ $self->{rules_dirs} } ) );
 	}
 
 	my $def;
@@ -166,6 +217,9 @@ sub load {
 	}
 
 	my $rule = $types{$type}->new( 'name' => $name, 'def' => $def );
+
+	# stamp the EVE gid from where the file resolved... shipped or override
+	$rule->set_gid( $self->_gid_for_path($path) );
 
 	if ( !$opts{skip_tests} ) {
 		$self->_run_load_tests( $name, $rule );
@@ -198,8 +252,10 @@ sub _run_load_tests {
 
 =head2 rule_path
 
-Returns the path of the file for the specified rule name. Does not check it
-exists.
+Returns the path of the file backing the named rule, searching the rules
+dirs in order and returning the first that exists, so an override dir shadows
+the shipped rule of the same name. Returns undef when the rule is found in
+none of them.
 
     my $path = $rules->rule_path($name);
 
@@ -208,8 +264,64 @@ exists.
 sub rule_path {
 	my ( $self, $name ) = @_;
 
-	return $self->{rules_dir} . '/' . $name . '.yaml';
+	foreach my $dir ( @{ $self->{rules_dirs} } ) {
+		my $path = $dir . '/' . $name . '.yaml';
+		if ( -f $path ) {
+			return $path;
+		}
+	}
+
+	return undef;
+} ## end sub rule_path
+
+# the EVE gid for a resolved rule path... 0 when the file came from the
+# shipped rules dir, 1 from the site override dir. A rule resolved with no
+# shipped dir in play (a caller looking at one dir in isolation) is treated
+# as an override
+sub _gid_for_path {
+	my ( $self, $path ) = @_;
+
+	if ( defined( $self->{shipped_dir} ) && index( $path, $self->{shipped_dir} . '/' ) == 0 ) {
+		return 0;
+	}
+
+	return 1;
 }
+
+=head2 rule_names
+
+Returns the sorted, unique list of rule names available across the rules
+dirs, each a C<type/name> relative path with out the C<.yaml>. A name present
+in more than one dir is listed once, the override dir shadowing the shipped
+copy. Used to walk the whole shipped-plus-override set, as the check_rules
+command does.
+
+    my @names = $rules->rule_names;
+
+=cut
+
+sub rule_names {
+	my ($self) = @_;
+
+	my %seen;
+	foreach my $dir ( @{ $self->{rules_dirs} } ) {
+		next if !-d $dir;
+		File::Find::find(
+			{
+				wanted => sub {
+					if ( $File::Find::name =~ /^\Q$dir\E\/(.+)\.yaml$/ ) {
+						$seen{$1} = 1;
+					}
+				},
+				no_chdir => 1,
+			},
+			$dir
+		);
+	} ## end foreach my $dir ( @{ $self->{rules_dirs} } )
+
+	my @names = sort( keys(%seen) );
+	return @names;
+} ## end sub rule_names
 
 =head2 known_type
 

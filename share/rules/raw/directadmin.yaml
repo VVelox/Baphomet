@@ -3,6 +3,7 @@
 # directadmin filter, translated to Baphomet and simplified. DirectAdmin
 # leads each line with its own YYYY:MM:DD-HH:MM:SS timestamp, so this is a
 # raw rule anchored on that shape.
+rev: 1
 msg: "[DIRECTADMIN] failed login attempt"
 severity: high
 classtype: brute-force

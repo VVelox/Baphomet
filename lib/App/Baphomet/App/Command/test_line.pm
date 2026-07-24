@@ -51,7 +51,7 @@ sub opt_spec {
 		[ 'rule=s',      'the rule to check the line against' ],
 		[ 'parser=s',    'the parser to parse the line with', { default => 'syslog' } ],
 		[ 'config=s',    'path of the config file',           { default => '/usr/local/etc/baphomet/config.toml' } ],
-		[ 'rules-dir=s', 'the rules dir, instead of the one from the config' ],
+		[ 'rules-dir=s', 'a single rules dir to look in, instead of the resolved set' ],
 	);
 }
 
@@ -77,13 +77,16 @@ sub validate_args {
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $rules_dir = $opt->rules_dir;
-	if ( !defined($rules_dir) ) {
-		$rules_dir = load_config( $opt->config )->{rules_dir};
+	# an explicit --rules-dir means "look only in this dir", so the shipped
+	# rules are left out; with out it the config's override dir is searched
+	# ahead of the shipped rules, just as at run time
+	my $rules;
+	if ( defined( $opt->rules_dir ) ) {
+		$rules = App::Baphomet::Rules->new( 'rules_dir' => $opt->rules_dir, 'shipped' => 0 );
+	} else {
+		$rules = App::Baphomet::Rules->new( 'rules_dir' => load_config( $opt->config )->{rules_dir} );
 	}
-
-	my $rules = App::Baphomet::Rules->new( 'rules_dir' => $rules_dir );
-	my $rule  = $rules->load( $opt->rule, skip_tests => 1 );
+	my $rule = $rules->load( $opt->rule, skip_tests => 1 );
 
 	my $parsed = App::Baphomet::Parser::parse( $opt->parser, $args->[0] );
 

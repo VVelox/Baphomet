@@ -13,7 +13,7 @@ The config file is TOML, by default
 | `[ClayTablet]` | file backend | Table choosing where the per-galla state lives. `backend` names it (`file` default; `redis` shares marks across a fleet as a sync bus while keeping local state on disk); `options` is the free-form table that backend interprets. Absent, the file backend is used, the current on-disk system. See below. |
 | `checkpoint` | `60` | Seconds between periodic rewrites of the tablets (rounded up to the ten second sweeper cadence). 0 disables the periodic rewrite; a checkpoint on stop still happens. |
 | `ledger_keep` | `2592000` | How long rows are kept in the shared banishment ledger, 30 days by default. 0 means forever. Rows still inside the recidive `find_time` are always kept. |
-| `rules_dir` | `/usr/local/etc/baphomet/rules` | The dir holding the rules. |
+| `rules_dir` | `/usr/local/etc/baphomet/rules` | Site override dir for rules, searched ahead of the rules shipped with the dist. A rule here shadows the shipped one of the same name. It need not exist... names absent here fall through to the shipped rules, so this is only for a site's own rules or overrides. See [rules.md](rules.md#where-rules-live). |
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
 | `galla_bin` | `galla` | The galla bin to spawn workers with. |
 | `timeout` | `30` | Timeout in seconds for socket calls, both to gallas and to Ereshkigal. |

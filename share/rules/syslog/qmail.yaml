@@ -4,6 +4,7 @@
 # different RBL patches to qmail and rblsmtpd, so usually only one of these
 # regexps will ever fire on a given host. The stock djb rblsmtpd does not
 # log rejections at all.
+rev: 1
 msg: "[QMAIL] rblsmtpd reject"
 severity: low
 classtype: misc-activity

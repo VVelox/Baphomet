@@ -10,6 +10,7 @@
 # accept. The whole line is matched here instead.
 #
 # Source: fail2ban config/filter.d/nginx-bad-request.conf
+rev: 1
 msg: "[NGINX] malformed bad request (400)"
 severity: medium
 classtype: attempted-recon

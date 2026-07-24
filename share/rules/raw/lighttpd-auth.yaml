@@ -4,6 +4,7 @@
 # its own timestamp (YYYY-MM-DD HH:MM:SS) rather than a syslog prefix, so
 # this is a raw rule anchored on that timestamp. The IP is always the bare
 # trailing "IP: ..." field, so %%%%SRC%%%% is pinned there.
+rev: 1
 msg: "[LIGHTTPD] mod_auth password failure"
 severity: high
 classtype: brute-force

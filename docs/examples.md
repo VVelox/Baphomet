@@ -201,7 +201,8 @@ gallas count against, so it works across every kur at once.
 
 ## A custom rule for a custom daemon
 
-`/usr/local/etc/baphomet/rules/syslog/toaster.yaml`...
+A site's own rules go under the override dir, `rules_dir`, searched ahead of
+the shipped rules... so `/usr/local/etc/baphomet/rules/syslog/toaster.yaml`...
 
 ```yaml
 ---

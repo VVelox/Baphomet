@@ -12,6 +12,7 @@
 # makes one completed sequence the alert where the watcher sets
 # allow_per_rule_thresholds... with out that consent the watcher's own
 # threshold applies, in completed sequences.
+rev: 1
 msg: "[SSHD] brute force succeeded... possible credential compromise"
 severity: critical
 classtype: successful-user

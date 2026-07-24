@@ -3,6 +3,7 @@
 # fail2ban grafana filter, translated to Baphomet and simplified. Grafana
 # leads each line with its own t=ISO8601 timestamp, so this is a raw rule
 # anchored on that shape.
+rev: 1
 msg: "[GRAFANA] invalid login attempt"
 severity: high
 classtype: brute-force

@@ -4,6 +4,7 @@
 # Centreon leads each line with its own YYYY-MM-DD HH:MM:SS timestamp
 # followed by pipe-delimited fields, so this is a raw rule anchored on
 # that shape.
+rev: 1
 msg: "[CENTREON] web authentication failure"
 severity: high
 classtype: brute-force

@@ -1,6 +1,7 @@
 ---
 # Matches port scans detected by scanlogd. Based on the fail2ban scanlogd
 # filter, translated to Baphomet and simplified.
+rev: 1
 msg: "[SCANLOGD] port scan detected"
 severity: medium
 classtype: attempted-recon

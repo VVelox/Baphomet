@@ -57,7 +57,7 @@ tests:
       undefed: ["client"]
 EOR
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('http_error/probes');
 ok( defined($rule), 'http_error rule loaded' );
 is( ( $rule->ban_var )[0], 'client', 'ban_var is client' );

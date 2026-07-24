@@ -2202,6 +2202,12 @@ sub _eve_fields {
 		'src_ip'  => $src_ip,
 		'dest_ip' => $dest_ip,
 		'msg'     => $context->{rule}->msg,
+		# the Suricata alert.gid/signature_id/rev analogues, always integers...
+		# gid 0 shipped / 1 override, sid the rule name's hash, rev the def's or
+		# 0 when unversioned
+		'gid'     => $context->{rule}->gid,
+		'sid'     => $context->{rule}->sid,
+		'rev'     => defined( $context->{rule}->rev ) ? $context->{rule}->rev : 0,
 		'rule'    => $context->{rule}->info,
 		defined( $context->{severity} )         ? ( 'severity'   => $context->{severity} )         : (),
 		defined( $context->{rule}->classtype )  ? ( 'classtype'  => $context->{rule}->classtype )  : (),

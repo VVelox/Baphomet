@@ -3,6 +3,7 @@
 # exist, the /~user sort. Based on the fail2ban apache-nohome filter,
 # translated to Baphomet and simplified. No level gate, as httpd 2.4
 # logs this at core:info while 2.2 logs it at error.
+rev: 1
 msg: "[APACHE] probe for missing user home dir"
 severity: medium
 classtype: web-application-attack

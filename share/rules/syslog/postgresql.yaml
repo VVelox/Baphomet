@@ -7,6 +7,7 @@
 # without `%h` there is no offender on the line and nothing to banish. Two
 # patterns because `%h` renders differently by position: the `%q...host=`
 # idiom (`host=1.2.3.4`) versus a bare address field just before FATAL.
+rev: 1
 msg: "[POSTGRESQL] password authentication failure"
 severity: high
 classtype: brute-force

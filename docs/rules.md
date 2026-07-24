@@ -1,10 +1,8 @@
 # Rules
 
-Rules are YAML files under the rules dir, by default
-`/usr/local/etc/baphomet/rules`. A rule name is its relative path with out
-the `.yaml`, so the rule `syslog/sshd` is the file `syslog/sshd.yaml`. The
-first path component is the rule **type**, which decides how a line becomes
-an offense:
+Rules are YAML files. A rule name is its relative path with out the `.yaml`,
+so the rule `syslog/sshd` is the file `syslog/sshd.yaml`. The first path
+component is the rule **type**, which decides how a line becomes an offense:
 
 | type | works on |
 | --- | --- |
@@ -23,6 +21,25 @@ differ, then a writing guide for each.
 A rule carries its own tests, and they are ran every time it is loaded... a
 rule that fails its own tests refuses to load, failing `baphomet start`
 loudly instead of silently matching nothing while logs scroll past.
+
+## Where rules live
+
+Rules are resolved across two places, in order:
+
+1. The **site override dir**, `rules_dir` from the config,
+   `/usr/local/etc/baphomet/rules` by default. It need not exist.
+2. The **shipped rules**, installed with the dist under its
+   [`File::ShareDir`](https://metacpan.org/pod/File::ShareDir) share dir by
+   `make install`, and resolved from there at run time.
+
+A name is looked up in the override dir first, so a file there shadows the
+shipped rule of the same name. This is how a site overrides a shipped rule or
+adds its own without touching what ships... drop
+`syslog/sshd.yaml` under the override dir to replace the shipped `syslog/sshd`,
+or add `syslog/mydaemon.yaml` for one that does not ship. Names absent from
+the override dir fall through to the shipped set, so a fresh install needs
+nothing copied into place... the shipped rules answer on their own. See the
+[catalog](rules-catalog.md) for what ships.
 
 ## Anatomy of a rule
 
@@ -197,7 +214,7 @@ analyst or a jq one-liner reads what tripped without decoding the raw line.
 When a rule sets none, `.msg` falls back to the rule's name (`syslog/sshd`),
 so it is always present. Inert to matching.
 
-### severity / classtype / references / attack
+### severity / classtype / references / attack / rev
 
 Optional triage metadata, on every rule type, all inert to matching and all
 written to EVE beside `msg` when set (see [eve](eve)):
@@ -210,10 +227,19 @@ written to EVE beside `msg` when set (see [eve](eve)):
   `brute-force`, `web-application-attack`, `trojan-activity`). Free-form.
 - `references` — an array of URLs, CVE ids, or doc links.
 - `attack` — an array of MITRE ATT&CK technique ids (e.g. `T1110`).
+- `rev` — the rule's revision, a non-negative integer, Suricata's
+  `alert.rev`. Emitted as `.rev`, defaulting to `0`... a `0` or unset `rev`
+  is an unversioned rule. Bump it when you change a rule so a downstream
+  consumer can tell versions apart.
 
 Together with `msg` these are the Suricata/Sagan `alert` metadata set,
 flattened to top-level EVE fields so a stream of matches becomes triageable
 detections. Every shipped rule carries a `severity` and `classtype`.
+
+Two more `alert` fields ride along in EVE but are **not** rule keys, derived
+instead by the loader, so there is nothing to set... `gid`, `0` for a shipped
+rule and `1` for one from the site override dir (`rules_dir`), and `sid`, a
+stable positive integer hashed from the rule name. See [eve](eve).
 
 ### src_ip_var / dest_ip_var
 
@@ -285,7 +311,7 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `sequence` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `msg` / `severity` / `classtype` / `references` / `attack` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `tests` / `test_parser` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
@@ -991,14 +1017,15 @@ envelope), so keying on it here is a load error.
 Start from a real log line and work backwards...
 
 ```shell
-# see how the line parses and whether the rule matches
-baphomet test_line --rules-dir ./rules --rule syslog/myrule \
+# see how the line parses and whether the rule matches... --rules-dir looks
+# in just that dir, handy for a rule tree being worked on in a checkout
+baphomet test_line --rules-dir ./share/rules --rule syslog/myrule \
     'Jul 12 08:15:50 vixen42 mydaemon[123]: auth failure from 1.2.3.4'
 
 # run a rule's own tests
-baphomet check_rules --rules-dir ./rules syslog/myrule
+baphomet check_rules --rules-dir ./share/rules syslog/myrule
 
-# run every rule's tests
+# run every rule's tests... the override dir and the shipped rules both
 baphomet check_rules
 ```
 

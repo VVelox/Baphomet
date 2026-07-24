@@ -4,7 +4,6 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use File::Find            ();
 use App::Baphomet::Config qw( load_config );
 use App::Baphomet::Rules  ();
 
@@ -24,7 +23,7 @@ our $VERSION = '0.0.1';
 
     baphomet check_rules
     baphomet check_rules syslog/sshd
-    baphomet check_rules --rules-dir ./rules syslog/sshd
+    baphomet check_rules --rules-dir ./share/rules syslog/sshd
 
 =head1 METHODS
 
@@ -37,9 +36,11 @@ sub abstract { return 'check that rules load and pass their own tests' }
 
 sub description {
 	return
-		  'Loads the specified rules, or every rule under the rules dir if none are '
+		  'Loads the specified rules, or every rule available if none are '
 		. 'specified, compiling each and running the tests embedded in it, and reports '
-		. 'the results. Exits non-zero if any failed.';
+		. 'the results. Exits non-zero if any failed. With out --rules-dir the rules are '
+		. 'resolved as at run time... the override dir from the config first, then the '
+		. 'shipped rules. With --rules-dir only that dir is looked at.';
 }
 
 sub usage_desc { return '%c check_rules %o [rule ...]'; }
@@ -47,38 +48,30 @@ sub usage_desc { return '%c check_rules %o [rule ...]'; }
 sub opt_spec {
 	return (
 		[ 'config=s',    'path of the config file', { default => '/usr/local/etc/baphomet/config.toml' } ],
-		[ 'rules-dir=s', 'the rules dir, instead of the one from the config' ],
+		[ 'rules-dir=s', 'a single rules dir to check in isolation, instead of the resolved set' ],
 	);
 }
 
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	my $rules_dir = $opt->rules_dir;
-	if ( !defined($rules_dir) ) {
-		$rules_dir = load_config( $opt->config )->{rules_dir};
+	# an explicit --rules-dir means "check exactly this dir", so the shipped
+	# rules are left out; with out it the config's override dir is searched
+	# ahead of the shipped rules, just as at run time
+	my $rules;
+	if ( defined( $opt->rules_dir ) ) {
+		$rules = App::Baphomet::Rules->new( 'rules_dir' => $opt->rules_dir, 'shipped' => 0 );
+	} else {
+		$rules = App::Baphomet::Rules->new( 'rules_dir' => load_config( $opt->config )->{rules_dir} );
 	}
-
-	my $rules = App::Baphomet::Rules->new( 'rules_dir' => $rules_dir );
 
 	my @names = @{$args};
 	if ( !@names ) {
-		File::Find::find(
-			{
-				wanted => sub {
-					if ( $File::Find::name =~ /^\Q$rules_dir\E\/(.+)\.yaml$/ ) {
-						push( @names, $1 );
-					}
-				},
-				no_chdir => 1,
-			},
-			$rules_dir
-		);
-		@names = sort(@names);
-	} ## end if ( !@names )
+		@names = $rules->rule_names;
+	}
 
 	if ( !@names ) {
-		die( 'No rules found under "' . $rules_dir . '"' );
+		die("No rules found to check\n");
 	}
 
 	my $failed = 0;

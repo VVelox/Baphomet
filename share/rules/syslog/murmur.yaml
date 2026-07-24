@@ -3,6 +3,7 @@
 # murmur filter, translated to Baphomet and simplified... the prefregex
 # machinery is folded into each regexp and the murmur <W> timestamp that
 # shows up when logging via syslog is handled as an optional inline prefix.
+rev: 1
 msg: "[MURMUR] rejected connection"
 severity: high
 classtype: brute-force

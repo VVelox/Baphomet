@@ -6,6 +6,11 @@ use Test::More;
 use File::Temp    qw( tempdir );
 use File::Path    qw( make_path );
 use JSON::MaybeXS qw( decode_json );
+use Digest::MD5   qw( md5 );
+
+# the same stable name hash the rule sid accessor uses, to check the wiring
+# with out hardcoding a magic number
+sub expected_sid { return unpack( 'N', substr( md5( $_[0] ), 0, 4 ) ) & 0x7fffffff; }
 
 BEGIN {
 	eval { require Ereshkigal::Client; };
@@ -43,6 +48,7 @@ print $fh <<'EOR';
 msg: "[APP] authentication failure"
 severity: high
 classtype: unsuccessful-user
+rev: 5
 references:
   - "https://example.com/app-auth"
 attack:
@@ -132,7 +138,7 @@ foreach ( 1 .. 3 ) {
 my @events = read_events();
 my @found  = grep { $_->{event_type} eq 'found' } @events;
 my @banish = grep { $_->{event_type} eq 'banish' } @events;
-is( scalar(@found),   3, 'three found events' );
+is( scalar(@found),  3, 'three found events' );
 is( scalar(@banish), 1, 'one banish event' );
 
 my $f = $found[0];
@@ -141,17 +147,24 @@ is( $f->{event_type}, 'found',    'event_type found' );
 is( $f->{kur},        'sshd',     'kur' );
 ok( defined( $f->{hostname} ), 'hostname present' );
 like( $f->{timestamp}, qr/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'ISO8601 timestamp' );
-is( $f->{path}, $dir . '/log', 'path is the source file' );
-is( $f->{raw},  'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'raw line' );
-is( $f->{found}{SRC}, '9.9.9.9', 'found carries the check data' );
-is( $f->{parsed}{daemon}, 'sshd', 'parsed carries the parser output' );
-is( $f->{score}, 1, 'score on the first found is 1' );
-is( $found[2]{score}, 3, 'score on the third found is 3' );
-is( $f->{msg}, 'syslog/sshd', 'msg falls back to the rule name when the rule sets none' );
-ok( !exists( $f->{severity} ),  'severity absent when the rule sets none and no default_severity' );
-ok( !exists( $f->{classtype} ), 'classtype absent when the rule sets none' );
+is( $f->{path},           $dir . '/log',                                             'path is the source file' );
+is( $f->{raw},            'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'raw line' );
+is( $f->{found}{SRC},     '9.9.9.9',                                                 'found carries the check data' );
+is( $f->{parsed}{daemon}, 'sshd',        'parsed carries the parser output' );
+is( $f->{score},          1,             'score on the first found is 1' );
+is( $found[2]{score},     3,             'score on the third found is 3' );
+is( $f->{msg},            'syslog/sshd', 'msg falls back to the rule name when the rule sets none' );
+ok( !exists( $f->{severity} ),   'severity absent when the rule sets none and no default_severity' );
+ok( !exists( $f->{classtype} ),  'classtype absent when the rule sets none' );
 ok( !exists( $f->{references} ), 'references absent when the rule sets none' );
-ok( !exists( $f->{attack} ),    'attack absent when the rule sets none' );
+ok( !exists( $f->{attack} ),     'attack absent when the rule sets none' );
+
+# the Suricata-style gid/sid/rev, always present as integers... these rules
+# resolve from the temp override dir, so gid is 1, and this rule sets no rev
+is( $f->{gid}, 1,                           'gid is 1 for a rule from the override dir' );
+is( $f->{sid}, expected_sid('syslog/sshd'), 'sid is the stable hash of the rule name' );
+like( $f->{sid}, qr/^\d+$/, 'sid is a bare integer' );
+is( $f->{rev}, 0, 'rev defaults to 0 when the rule sets none' );
 
 # rule info present but without the tests
 is( $f->{rule}{name}, 'syslog/sshd', 'rule name' );
@@ -160,7 +173,7 @@ ok( !exists( $f->{rule}{def}{tests} ),          'rule tests stripped for space' 
 
 # the banish event
 my $c = $banish[0];
-is( $c->{event_type}, 'banish', 'banish event_type' );
+is( $c->{event_type}, 'banish',  'banish event_type' );
 is( $c->{ip},         '9.9.9.9', 'banish ip' );
 is( $c->{ban_time},   300,       'banish ban_time' );
 is( $c->{score},      3,         'banish score' );
@@ -174,12 +187,16 @@ $galla->_handle_line( 'appjson', '{"event":"authfail","src":"2.2.2.2","user":"ro
 @events = read_events();
 my ($json_found) = grep { $_->{event_type} eq 'found' && $_->{found}{SRC} && $_->{found}{SRC} eq '2.2.2.2' } @events;
 ok( defined($json_found), 'json watcher produced a found event' );
-is( $json_found->{parsed}{event}, 'authfail', 'parsed holds the flattened JSON fields' );
-is( $json_found->{parsed}{src},   '2.2.2.2',  'including the source field' );
-is( $json_found->{msg}, '[APP] authentication failure', 'the rule\'s own msg reaches the EVE event' );
-is( $json_found->{severity},  'high',              'the rule severity reaches EVE' );
-is( $json_found->{classtype}, 'unsuccessful-user', 'the rule classtype reaches EVE' );
+is( $json_found->{parsed}{event}, 'authfail',                     'parsed holds the flattened JSON fields' );
+is( $json_found->{parsed}{src},   '2.2.2.2',                      'including the source field' );
+is( $json_found->{msg},           '[APP] authentication failure', 'the rule\'s own msg reaches the EVE event' );
+is( $json_found->{severity},      'high',                         'the rule severity reaches EVE' );
+is( $json_found->{classtype},     'unsuccessful-user',            'the rule classtype reaches EVE' );
 is_deeply( $json_found->{references}, ['https://example.com/app-auth'], 'references reach EVE as an array' );
 is_deeply( $json_found->{attack},     ['T1110'],                        'attack reaches EVE as an array' );
+is( $json_found->{gid}, 1,                        'json rule gid is 1 from the override dir' );
+is( $json_found->{sid}, expected_sid('json/app'), 'json rule sid is the hash of its name' );
+isnt( $json_found->{sid}, $f->{sid}, 'a different rule name hashes to a different sid' );
+is( $json_found->{rev}, 5, 'the rule rev reaches EVE' );
 
 done_testing;

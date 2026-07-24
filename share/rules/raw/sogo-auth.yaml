@@ -4,6 +4,7 @@
 # its own syslog-style timestamp, so this is a raw rule leading with that
 # shape. Where the line lists several addresses the first is the client
 # and the rest are proxies, so only the first is captured.
+rev: 1
 msg: "[SOGO] web login failure"
 severity: high
 classtype: brute-force

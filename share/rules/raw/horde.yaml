@@ -4,6 +4,7 @@
 # syslog daemon colon, so this is a raw rule anchored on that timestamp and
 # the fixed HORDE tag. The offender is bracketed and may be a hostname, so
 # %%%%HOST%%%% and its ban_var carry whatever was logged.
+rev: 1
 msg: "[HORDE] webmail login failure"
 severity: high
 classtype: brute-force

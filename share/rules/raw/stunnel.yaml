@@ -5,6 +5,7 @@
 # rather than a syslog prefix, so this is a raw rule anchored on that
 # shape. The error code back-reference is dropped in favor of a plain hex
 # pattern.
+rev: 1
 msg: "[STUNNEL] SSL handshake failure"
 severity: medium
 classtype: attempted-recon

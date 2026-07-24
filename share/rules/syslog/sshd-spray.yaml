@@ -12,6 +12,7 @@
 # this rule so the gate reads the established source rather than this
 # line's. The embedded tests only prove the matching layer... the mark
 # gate is galla state and is exercised by t/marks.t.
+rev: 1
 msg: "[SSHD] distributed brute force across sources"
 severity: high
 classtype: brute-force

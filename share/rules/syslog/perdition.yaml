@@ -3,6 +3,7 @@
 # perdition filter, translated to Baphomet and simplified. perdition logs
 # as perdition.<protocol>, such as perdition.imaps, so the daemon gate is a
 # regexp.
+rev: 1
 msg: "[PERDITION] authentication failure"
 severity: high
 classtype: brute-force

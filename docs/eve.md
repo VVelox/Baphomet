@@ -50,6 +50,9 @@ Every record carries these fields...
 | `path` | the source... the log file, or `journal:<matches>` for a journal watcher. |
 | `score` | the offender's accumulated weighted score after this hit... equal to the raw hit count when no weights are in play. |
 | `msg` | the rule's human-readable signature, Sagan/Suricata `[TAG] description` style... its `msg`, or the rule name when it sets none. Suricata's `alert.signature`, promoted to the top level. |
+| `gid` | the rule's group id, Suricata's `alert.gid`... `0` when the rule is one of the shipped ones, `1` when it came from the site override dir (`rules_dir`). Always present. |
+| `sid` | the rule's signature id, Suricata's `alert.signature_id`... a stable positive integer hashed from the rule name, so `syslog/sshd` always carries the same `sid`, shipped or overridden. Always present. |
+| `rev` | the rule's revision, Suricata's `alert.rev`... the rule's `rev`, or `0` when it sets none (an unversioned rule). Always present as an integer. |
 | `severity` | the rule's severity (`info`/`low`/`medium`/`high`/`critical`), or the config `default_severity`... omitted when neither is set. |
 | `classtype` | the rule's category, Snort/Sagan/Suricata classtype... present only when the rule sets one. |
 | `references` | the rule's references (URLs, CVE ids)... an array, present only when set. |

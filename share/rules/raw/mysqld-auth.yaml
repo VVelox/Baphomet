@@ -5,6 +5,7 @@
 #
 # Uses the HOST token and ban_var as mysqld logs hostnames when name
 # resolution is on.
+rev: 1
 msg: "[MYSQLD] authentication failure"
 severity: high
 classtype: brute-force

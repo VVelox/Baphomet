@@ -6,6 +6,7 @@
 # connecting name. Only the auth-failure signal is ported... Sagan's
 # stat/permission and transfer-stats rules are informational and carry no
 # offender.
+rev: 1
 msg: "[RSYNC] daemon module auth failure"
 severity: high
 classtype: brute-force

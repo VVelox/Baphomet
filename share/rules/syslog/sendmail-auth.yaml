@@ -1,6 +1,7 @@
 ---
 # Matches sendmail authentication failures. Based on the fail2ban
 # sendmail-auth filter, translated to Baphomet and simplified.
+rev: 1
 msg: "[SENDMAIL] AUTH failure"
 severity: high
 classtype: brute-force

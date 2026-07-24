@@ -4,6 +4,7 @@
 # later end connection line that does. Based on the fail2ban mongodb-auth
 # filter, its multiline correlation recast as a capture_regexp. For 4.4
 # and later use json/mongodb-auth instead.
+rev: 1
 msg: "[MONGODB] auth failure (legacy log)"
 severity: high
 classtype: brute-force

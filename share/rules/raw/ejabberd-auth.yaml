@@ -5,6 +5,7 @@
 # format... the address always sits on the "Failed authentication" line
 # itself, so no correlation is needed and this is a plain single-line rule
 # covering the old =INFO/I(...) format and the newer lager [info] formats.
+rev: 1
 msg: "[EJABBERD] c2s authentication failure"
 severity: high
 classtype: brute-force

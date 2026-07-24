@@ -4,6 +4,7 @@
 # machinery is folded into each regexp as a common asterisk log prefix and
 # only the syslog-shaped form is handled. The fail2ban filter's ignoreregex
 # is empty, so there is no ignore_regexp here.
+rev: 1
 msg: "[ASTERISK] auth / registration failure"
 severity: high
 classtype: brute-force

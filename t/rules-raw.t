@@ -41,7 +41,7 @@ tests:
       undefed: ["SRC"]
 EOR
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir );
+my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('raw/appfail');
 ok( defined($rule), 'raw rule loaded' );
 is( ( $rule->ban_var )[0], 'SRC', 'ban_var' );

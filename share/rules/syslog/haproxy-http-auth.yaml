@@ -4,6 +4,7 @@
 # haproxy-http-auth filter, translated to Baphomet and simplified. Note
 # that even a successful login logs one such 401 first, so tune findtime
 # and maxretry accordingly.
+rev: 1
 msg: "[HAPROXY] HTTP auth failure"
 severity: high
 classtype: brute-force

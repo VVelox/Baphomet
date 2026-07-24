@@ -4,6 +4,7 @@
 # logins. Based on the fail2ban kerio filter, translated to Baphomet and
 # simplified. Kerio leads each line with its own [DD/Mon/YYYY HH:MM:SS]
 # timestamp, so this is a raw rule anchored on that shape.
+rev: 1
 msg: "[KERIO] mail abuse / auth reject"
 severity: high
 classtype: brute-force

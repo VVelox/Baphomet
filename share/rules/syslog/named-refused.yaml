@@ -6,6 +6,7 @@
 # Note the fail2ban filter's warning applies here too... running this on a
 # resolver that legitimately refuses things can punish the innocent, so
 # know your named config before wiring this up.
+rev: 1
 msg: "[NAMED] denied query / transfer"
 severity: medium
 classtype: attempted-recon

@@ -300,7 +300,7 @@ ok( !defined( $quiet->{counters}{'192.0.2.11'} ), 'the gate fails closed with ou
 # invalid defs
 #
 
-my $rules = App::Baphomet::Rules->new( rules_dir => $dir . '/rules' );
+my $rules = App::Baphomet::Rules->new( rules_dir => $dir . '/rules', shipped => 0 );
 
 write_rule( 'raw/bothcompare',
 	"---\nmessage_regexp:\n  - 'x'\nreverse_dns:\n  - matches: 'y'\n    matches_var: Z\nban_var:\n  - SRC\n" );

@@ -4,6 +4,7 @@
 # needs to be compiled with --enable-logextend for the IP to show up in the
 # log messages... the PAM failure messages carry no usable rhost and are
 # not matched.
+rev: 1
 msg: "[SOLID-POP3D] authentication failure"
 severity: high
 classtype: brute-force
