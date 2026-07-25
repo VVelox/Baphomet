@@ -14,7 +14,7 @@ use Socket                           qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                    ();
 use Ereshkigal::Client               ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::ClayTablet ();
@@ -379,6 +379,7 @@ sub new {
 			'country_gates'   => $country_gates,
 			'namtar_gates'    => $namtar_gates,
 			'active_gates'    => $active_gates,
+			'rule_config'     => resolve_rule_config( $kur_settings, $watcher ),
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
 			'wheels'          => {},
 			'journal_wheel'   => undef,
@@ -2015,11 +2016,17 @@ sub _process_record {
 		my $namtar_gate  = $watcher->{namtar_gates}[$rule_int];
 		my $active_gate  = $watcher->{active_gates}[$rule_int];
 
-		# observe mode... the rule's own eve_only wins over the watcher-resolved
-		# one, so a deployment can be set observe at any level and trusted rules
-		# opt back in. observe_ignored, a watcher setting, lets observe mode
-		# also watch what ignore_ips would drop
-		my $rule_eve_only   = $rule_obj->eve_only;
+		# the operator's per-rule config table for this rule, if any... it beats
+		# both the rule file's own numbers and, for the presentation knobs,
+		# the watcher-resolved defaults
+		my $rule_cfg = $watcher->{rule_config}{$rule_name} || {};
+
+		# observe mode... the config's eve_only for the rule wins, then the
+		# rule's own, then the watcher-resolved one, so a deployment can be set
+		# observe at any level and a trusted rule opt back in either in its file
+		# or from the config. observe_ignored, a watcher setting, lets observe
+		# mode also watch what ignore_ips would drop
+		my $rule_eve_only   = defined( $rule_cfg->{eve_only} ) ? $rule_cfg->{eve_only} : $rule_obj->eve_only;
 		my $eve_only        = defined($rule_eve_only) ? $rule_eve_only : $watcher->{settings}{eve_only};
 		my $observe_ignored = $watcher->{settings}{observe_ignored};
 
@@ -2051,7 +2058,8 @@ sub _process_record {
 			# the EVE context for this match, shared by the found event and
 			# any banish it triggers... watcher and rule_name ride along
 			# for the stats and the ledger. the effective severity is the
-			# rule's own or, absent that, the watcher-resolved default_severity
+			# config's for the rule, then the rule's own, then the
+			# watcher-resolved default_severity
 			my $context = {
 				'source'    => $source,
 				'raw'       => $line,
@@ -2061,9 +2069,9 @@ sub _process_record {
 				'rule'      => $rule_obj,
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
-				'severity'  => defined( $rule_obj->severity )
-				? $rule_obj->severity
-				: $watcher->{settings}{default_severity},
+				'severity'  => defined( $rule_cfg->{severity} ) ? $rule_cfg->{severity}
+				: defined( $rule_obj->severity )                ? $rule_obj->severity
+				:                                                 $watcher->{settings}{default_severity},
 			};
 
 			# a ban_not_internal rule banishes the end of the flow that is
@@ -3451,13 +3459,27 @@ sub _register_hit {
 	# bucket, so its window does not cross-contaminate the shared one, while a
 	# ban_time-only override counts in the shared bucket and only bans
 	# differently. without the consent every weight is 1, so a shipped rule
-	# can not reshape the tuning
-	my $allow     = $settings->{allow_per_rule_thresholds};
-	my $overrides = $allow                             ? $context->{rule}->thresholds : {};
-	my $max_score = defined( $overrides->{max_score} ) ? $overrides->{max_score}      : $settings->{max_score};
-	my $find_time = defined( $overrides->{find_time} ) ? $overrides->{find_time}      : $settings->{find_time};
-	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}       : $settings->{ban_time};
-	my $weight    = $allow                             ? $context->{rule}->weight     : 1;
+	# can not reshape the tuning. the operator's per-rule config table lays
+	# over the top of that, beating the rule file's numbers and honored
+	# regardless of the consent... it is the operator's own hand, not a shipped
+	# default. the per-rule bucket is keyed by rule name across the galla, so a
+	# config max_score/find_time on a rule shared by two watchers of one kur
+	# shares the one bucket
+	my $allow = $settings->{allow_per_rule_thresholds};
+	my $rule_cfg
+		= defined( $context->{rule_name} )
+		? ( $self->{watchers}{$watcher_name}{rule_config} || {} )->{ $context->{rule_name} }
+		: undef;
+	$rule_cfg = {} if ( !defined($rule_cfg) );
+	my $yaml_overrides = $allow ? $context->{rule}->thresholds : {};
+	my $overrides      = {
+		%{$yaml_overrides},
+		map { defined( $rule_cfg->{$_} ) ? ( $_ => $rule_cfg->{$_} ) : () } ( 'max_score', 'find_time', 'ban_time' )
+	};
+	my $max_score = defined( $overrides->{max_score} ) ? $overrides->{max_score} : $settings->{max_score};
+	my $find_time = defined( $overrides->{find_time} ) ? $overrides->{find_time} : $settings->{find_time};
+	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}  : $settings->{ban_time};
+	my $weight    = defined( $rule_cfg->{weight} ) ? $rule_cfg->{weight} + 0 : ( $allow ? $context->{rule}->weight : 1 );
 
 	# distinct-cardinality counting... instead of summing hits, the bucket is
 	# the set of distinct values of the rule's `of` field, keyed by the grouping

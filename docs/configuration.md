@@ -193,6 +193,7 @@ Watcher keys...
 | `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
 | `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
 | `active_time` | Named time windows overriding the kur's and global's for this watcher's rules. A hash. |
+| `rule_config` | Per-rule overrides keyed by rule name (`type/name`), each a table of `max_score`/`find_time`/`ban_time`/`weight`/`eve_only`/`severity`. Layered watcher over kur. See [below](#per-rule-config-overrides). A hash. |
 | `join` | A joiner gluing physical continuation lines onto their head line ahead of the parser, for one-event-many-lines logs like stack traces. A hash, see [below](#joining-multi-line-records). Not on journal watchers, whose messages arrive whole. |
 
 `max_score`, `find_time`, `ban_time`, `ban_subnet_v4`, `ban_subnet_v6`,
@@ -209,6 +210,48 @@ overriding how counting works gets its own counter bucket, so a
 strict rule crossing its threshold does not eat the shared count other
 rules are building against the same IP... `baphomet accused` breaks such
 buckets out per rule.
+
+## Per-rule config overrides
+
+`allow_per_rule_thresholds` honors the numbers a rule *file* carries, the same
+everywhere that rule is used. `rule_config` is the other axis... it tunes a
+named rule from the config, differently per kur or per watcher, with no rule
+file touched. It is a table keyed by rule name, each entry any of `max_score`,
+`find_time`, `ban_time`, `weight`, `eve_only`, and `severity`.
+
+```toml
+[kur.ids.eve]
+log = "/var/log/suricata/eve.json"
+parser = "json"
+rule = [ "json/suricata-attempted-admin", "json/suricata-denial-of-service" ]
+
+# an admin-panel hit is enough on its own, and worth an eternal ban
+[kur.ids.eve.rule_config."json/suricata-attempted-admin"]
+max_score = 1
+ban_time  = 86400
+severity  = "high"
+
+# the DoS classtype is noisy... raise the bar for it here only
+[kur.ids.eve.rule_config."json/suricata-denial-of-service"]
+max_score = 20
+find_time = 60
+```
+
+A `rule_config` table lays over the kur's then the watcher's, merged per rule
+name and then per key, so a watcher may tweak one knob of a rule the kur
+already tuned while the rest stays inherited. It **beats the rule file's own
+numbers** and, unlike them, is honored **regardless of
+`allow_per_rule_thresholds`**... that flag guards against a shipped rule quietly
+reshaping the tuning, not against your own hand in the config. Full precedence:
+`rule_config` (watcher over kur) → the rule file (when the flag is on) → watcher
+→ kur → global. `eve_only` and `severity` layer the same way, over the rule's
+own and then the watcher-resolved default.
+
+A `max_score` or `find_time` override forms a private counter bucket for the
+rule, keyed by rule name across the galla. Because a galla is one kur, two
+watchers of that kur that both list a rule share its bucket... so tune such a
+rule at the kur level, or alike across those watchers. The other knobs
+(`ban_time`, `weight`, `eve_only`, `severity`) carry no such caveat.
 
 ## Joining multi-line records
 

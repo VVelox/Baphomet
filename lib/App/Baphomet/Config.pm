@@ -22,7 +22,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
 
 # the manager commands a per-command authorization rule may name... the one
 # authority the config checks validate against, so the config and the
@@ -424,8 +424,15 @@ Watcher hashes take the keys below.
     - active_time :: Named time windows overriding the kur's and global's
           for this watcher's rules.
 
+    - rule_config :: Per-rule overrides keyed by rule name (C<type/name>),
+          each a table of any of max_score, find_time, ban_time, weight,
+          eve_only, and severity. Tunes a named rule from the config with no
+          rule file touched, layered watcher over kur, beating the rule
+          file's own numbers and honored regardless of
+          allow_per_rule_thresholds. See L</resolve_rule_config>.
+
 The effective settings for a watcher are watcher over kur over global over
-default.
+default. C<rule_config> is per kur and per watcher only, with no global level.
 
 =head1 EXPORTS
 
@@ -779,7 +786,7 @@ watchers, everything else is a setting.
 # settings that are hashes rather than scalars, so kur_split does not
 # mistake them for watchers... country_codes, namtar_lists, and active_time
 # are hashes of named things
-my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' => 1 );
+my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' => 1, 'rule_config' => 1 );
 
 # the allowed keys, built once from a shared core so the kur-level and
 # watcher-level checks can not drift apart... the kur level adds ignore_ips
@@ -790,7 +797,7 @@ my @shared_setting_keys = qw(
 	max_score find_time ban_time ban_subnet_v4 ban_subnet_v6
 	subnet_max_score subnet_find_time allow_per_rule_thresholds eve_only
 	observe_ignored default_severity usedns country_codes namtar_lists
-	active_time
+	active_time rule_config
 );
 my %kur_setting_keys     = map { $_ => 1 } ( @shared_setting_keys, qw( ignore_ips internal ) );
 my %watcher_setting_keys = map { $_ => 1 } ( @shared_setting_keys, qw( log journal parser rule join ) );
@@ -883,7 +890,7 @@ sub check_kur_def {
 				   ref( $watcher->{$key} ) ne ''
 				&& !( $key =~ /^(?:rule|log|journal)$/ && ref( $watcher->{$key} ) eq 'ARRAY' )
 				&& !(
-					$key =~ /^(?:join|country_codes|namtar_lists|active_time)$/
+					$key =~ /^(?:join|country_codes|namtar_lists|active_time|rule_config)$/
 					&& ref( $watcher->{$key} ) eq 'HASH'
 				)
 				&& !(
@@ -1462,6 +1469,12 @@ sub _settings_error {
 			return $active_error;
 		}
 	}
+	if ( defined( $settings->{rule_config} ) ) {
+		my $rule_config_error = _rule_config_error( $settings->{rule_config}, 'rule_config' );
+		if ( defined($rule_config_error) ) {
+			return $rule_config_error;
+		}
+	}
 	my $severity_error = _severity_error( $settings->{default_severity} );
 	if ( defined($severity_error) ) {
 		return $severity_error;
@@ -1751,6 +1764,112 @@ sub _active_time_spec_error {
 
 	return undef;
 } ## end sub _active_time_spec_error
+
+=head2 resolve_rule_config
+
+Resolves the effective per-rule overrides for a watcher... the kur's
+C<rule_config> overlaid by the watcher's, merged per rule name and then per
+override key, so a watcher can tweak one knob of a rule the kur already tuned
+while the rest stays inherited. Returns a hash of rule name to a override
+table holding any of C<max_score>, C<find_time>, C<ban_time>, C<weight>,
+C<eve_only> (normalized to 0 or 1), and C<severity>. A rule the config never
+names resolves to nothing, so the galla falls through to the rule's own
+numbers and the watcher settings.
+
+The override table beats the rule file's own numbers and, unlike them, is
+honored regardless of C<allow_per_rule_thresholds>... that flag guards against
+a shipped rule quietly reshaping the tuning, not against the operator's own
+hand. The counting bucket a threshold override forms is keyed by rule name
+across the whole galla, so setting a rule's C<max_score>/C<find_time>
+differently in two watchers of one kur shares the one bucket... tune such a
+rule at the kur level, or alike across its watchers.
+
+    my $rule_config = resolve_rule_config( $kur_settings, $watcher );
+
+=cut
+
+sub resolve_rule_config {
+	my ( $kur_settings, $watcher ) = @_;
+
+	my $resolved = {};
+	foreach my $level ( $kur_settings, $watcher ) {
+		if ( defined($level) && ref( $level->{rule_config} ) eq 'HASH' ) {
+			foreach my $rule_name ( keys( %{ $level->{rule_config} } ) ) {
+				my $override = $level->{rule_config}{$rule_name};
+				foreach my $key ( keys( %{$override} ) ) {
+					my $value = $override->{$key};
+					if ( $key eq 'eve_only' ) {
+						$value = $value ? 1 : 0;
+					} elsif ( $key eq 'weight' ) {
+						$value = $value + 0;
+					}
+					$resolved->{$rule_name}{$key} = $value;
+				}
+			} ## end foreach my $rule_name ( keys...)
+		} ## end if ( defined($level) && ref...)
+	} ## end foreach my $level ( $kur_settings...)
+
+	return $resolved;
+} ## end sub resolve_rule_config
+
+# the keys a per-rule override table may carry... the three counting
+# thresholds, the weight, and the two presentation knobs, a strict subset of
+# the watcher settings so a whole-watcher key can not slip into a per-rule
+# table through a typo
+my %rule_config_keys = map { $_ => 1 } qw( max_score find_time ban_time weight eve_only severity );
+
+# returns a error string if the passed rule_config is not a hash of rule
+# names, each mapping to a table of the allowed per-rule overrides with usable
+# values, undef otherwise... $where leads the message
+sub _rule_config_error {
+	my ( $rule_config, $where ) = @_;
+
+	if ( ref($rule_config) ne 'HASH' ) {
+		return $where . ' is not a hash of per-rule override tables';
+	}
+	foreach my $rule_name ( keys( %{$rule_config} ) ) {
+		if ( $rule_name !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+			return $where . ' names the invalid rule "' . $rule_name . '"... should be like "syslog/sshd"';
+		}
+		my $override = $rule_config->{$rule_name};
+		if ( ref($override) ne 'HASH' ) {
+			return $where . ' rule "' . $rule_name . '" is not a table of overrides';
+		}
+		foreach my $key ( keys( %{$override} ) ) {
+			if ( !$rule_config_keys{$key} ) {
+				return $where . ' rule "' . $rule_name . '" has the unknown override "' . $key . '"';
+			}
+		}
+
+		# the three thresholds share the whole-watcher checks... _times_error
+		# also vets subnet and prefix keys, but a per-rule table can carry none
+		# of those, so only max_score/find_time/ban_time ever reach it
+		my $times_error = _times_error($override);
+		if ( defined($times_error) ) {
+			return $where . ' rule "' . $rule_name . '" has ' . $times_error;
+		}
+		if (
+			defined( $override->{weight} )
+			&& (   ref( $override->{weight} ) ne ''
+				|| $override->{weight} !~ /^[0-9]+(?:\.[0-9]+)?$/
+				|| !( $override->{weight} + 0 ) )
+			)
+		{
+			return $where . ' rule "' . $rule_name . '" has a weight that is not a positive number';
+		}
+		if (   defined( $override->{eve_only} )
+			&& ref( $override->{eve_only} ) ne ''
+			&& ref( $override->{eve_only} ) ne 'JSON::PP::Boolean' )
+		{
+			return $where . ' rule "' . $rule_name . '" has a eve_only that is not a boolean';
+		}
+		if ( defined( _severity_error( $override->{severity} ) ) ) {
+			return $where . ' rule "' . $rule_name . '" severity is not one of info/low/medium/high/critical';
+		}
+	} ## end foreach my $rule_name ( keys...)
+
+	return undef;
+} ## end sub _rule_config_error
 
 # returns a error string if any time-ish setting in the passed hash is
 # invalid, undef otherwise

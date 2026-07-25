@@ -246,6 +246,7 @@ t/rdns.t
 t/pod-coverage.t
 t/pod.t
 t/recidive.t
+t/rule-config.t
 t/rule-distinct.t
 t/rule-gate-http.t
 t/rule-gate-syslog.t

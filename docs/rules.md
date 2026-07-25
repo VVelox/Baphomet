@@ -183,6 +183,12 @@ max_score: 10
 ban_time: 0
 ```
 
+These are the numbers a rule *file* carries, the same everywhere it is used.
+To tune a named rule from the config instead, differently per kur or watcher
+and with no file touched, use a watcher or kur `rule_config` table... it beats
+these and, unlike them, needs no `allow_per_rule_thresholds`. See
+[configuration](configuration.md#per-rule-config-overrides).
+
 ### eve_only
 
 Optional, on every rule type, and also settable at the global, kur, and
