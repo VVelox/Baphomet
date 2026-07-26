@@ -109,6 +109,47 @@ write_config("\n[kur.sshd.badwatcher]\nlog = [ ]\nparser = \"bsd_syslog\"\nrule 
 ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'new dies on a empty log array' );
 
 #
+# %group% references... the preflight expands them the same as the galla,
+# so a grouped rule list passes and a bad group fails here, not at spawn
+#
+
+make_path( $dir . '/groups/syslog' );
+open( my $group_fh, '>', $dir . '/groups/syslog/testgroup' ) || die($!);
+print $group_fh "# the one rule\nsyslog/sshd\n";
+close($group_fh);
+
+sub write_group_config {
+	my ($rule) = @_;
+	open( my $config_fh, '>', $dir . '/config.toml' ) || die($!);
+	print $config_fh <<"EOC";
+run_base_dir = "$dir/run"
+rules_dir = "$dir/rules"
+groups_dir = "$dir/groups"
+socket_group = "$group"
+
+[kur.sshd]
+ban_time = 300
+
+[kur.sshd.authlog]
+log = "$dir/log"
+parser = "bsd_syslog"
+rule = [ "$rule" ]
+EOC
+	close($config_fh);
+	return;
+} ## end sub write_group_config
+
+write_group_config('%syslog/testgroup%');
+ok( eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a %group% rule entry passes preflight' )
+	|| diag($@);
+
+write_group_config('%syslog/nogroup%');
+ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a missing group fails preflight' );
+like( $@, qr/expand/, 'and the error names the expansion' );
+
+write_config('');
+
+#
 # the Neti gate... auth config
 #
 

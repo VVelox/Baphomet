@@ -164,7 +164,12 @@ sub new {
 	# check every kur def and load every referenced rule now, so a broken
 	# config fails here instead of after the gallas have been spawned
 	my $rules;
-	eval { $rules = App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir} ); };
+	eval {
+		$rules = App::Baphomet::Rules->new(
+			'rules_dir'  => $config->{rules_dir},
+			'groups_dir' => $config->{groups_dir}
+		);
+	};
 	if ($@) {
 		$self->{perror}      = 1;
 		$self->{error}       = 3;
@@ -185,7 +190,22 @@ sub new {
 
 		my ( undef, $watchers ) = kur_split($def);
 		foreach my $watcher_name ( sort( keys( %{$watchers} ) ) ) {
-			foreach my $rule ( watcher_rules( $watchers->{$watcher_name} ) ) {
+			# %group% references expand here the same as in the galla, so a
+			# bad group fails the preflight too instead of only at spawn
+			my @rule_names;
+			eval { @rule_names = $rules->expand_rules( watcher_rules( $watchers->{$watcher_name} ) ); };
+			if ($@) {
+				$self->{perror} = 1;
+				$self->{error}  = 3;
+				$self->{errorString}
+					= 'Failed to expand the rules of the watcher "'
+					. $watcher_name
+					. '" of the kur "'
+					. $name . '"... '
+					. $@;
+				$self->warn;
+			} ## end if ($@)
+			foreach my $rule (@rule_names) {
 				eval { $rules->load($rule); };
 				if ($@) {
 					$self->{perror} = 1;
@@ -200,7 +220,7 @@ sub new {
 						. $@;
 					$self->warn;
 				} ## end if ($@)
-			} ## end foreach my $rule ( watcher_rules( $watchers->{$watcher_name...}))
+			} ## end foreach my $rule (@rule_names)
 		} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
 		$self->{gallas}{$name} = {
