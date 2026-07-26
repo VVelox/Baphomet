@@ -315,6 +315,8 @@ t/kur-client-async.t
 t/lib/BaphometTestRedis.pm
 t/load-state-helpers.t
 t/manager-fanout-async.t
+t/manager-socket-live.t
+t/manager-stop-escalate.t
 t/manager-new.t
 t/manifest.t
 t/marks-vocabulary.t
@@ -359,5 +361,6 @@ t/rules-shipped.t
 t/rules.t
 t/state-tablets.t
 t/stop-wait.t
+t/subnet-bans.t
 t/usedns.t
 t/weighted.t

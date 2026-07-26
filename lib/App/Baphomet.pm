@@ -642,7 +642,17 @@ sub _poe_galla_reaped {
 
 	log_drek( 'info', 'galla "' . $name . '" PID ' . $pid . ' exited with ' . ( $exit >> 8 ) );
 
-	if ( $self->{shutting_down} || !defined($entry) || !$entry->{enabled} ) {
+	if ( $self->{shutting_down} ) {
+		# the last child reaped leaves the stop_escalate alarm as the one
+		# thing keeping this session, and so the manager, alive... drop it
+		# so stop finishes the moment the reaping does rather than holding
+		# the PID file a whole grace period more
+		if ( !grep { defined( $self->{gallas}{$_}{pid} ) } keys( %{ $self->{gallas} } ) ) {
+			$kernel->alarm_remove_all;
+		}
+		return;
+	}
+	if ( !defined($entry) || !$entry->{enabled} ) {
 		return;
 	}
 
@@ -696,23 +706,37 @@ sub _poe_stop_all {
 
 	# a galla that acknowledged the stop but never exits would leave the
 	# manager waiting on its sig_child forever... after a grace period any
-	# still-running galla is TERMed. set after the alarm sweep so it survives
-	$kernel->delay( 'stop_escalate', $self->{timeout} );
+	# still-running galla is TERMed, and a grace later KILLed. set after the
+	# alarm sweep so it survives, and only when something still runs, so a
+	# clean stop is not held a whole grace period by a pending alarm
+	if ( grep { defined( $self->{gallas}{$_}{pid} ) } keys( %{ $self->{gallas} } ) ) {
+		$kernel->delay( 'stop_escalate', $self->{timeout}, 'TERM' );
+	}
 
 	return;
 } ## end sub _poe_stop_all
 
-# the stop escalation... TERM whoever is still alive after the grace period
+# the stop escalation... signal whoever is still alive after the grace
+# period, TERM the first pass, and when a galla shrugs that off too a
+# second grace ends in the unrefusable KILL
 sub _poe_stop_escalate {
-	my $self = $_[OBJECT];
+	my ( $self, $kernel, $signal ) = @_[ OBJECT, KERNEL, ARG0 ];
+	$signal = 'TERM' if !defined($signal);
 
+	my $still_running;
 	foreach my $name ( sort( keys( %{ $self->{gallas} } ) ) ) {
 		my $entry = $self->{gallas}{$name};
 		if ( !defined( $entry->{pid} ) || !defined( $entry->{wheel} ) ) {
 			next;
 		}
-		log_drek( 'err', 'galla "' . $name . '" is still running past the stop grace period, sending TERM' );
-		$entry->{wheel}->kill('TERM');
+		log_drek( 'err',
+			'galla "' . $name . '" is still running past the stop grace period, sending ' . $signal );
+		$entry->{wheel}->kill($signal);
+		$still_running = 1;
+	}
+
+	if ( $still_running && $signal eq 'TERM' ) {
+		$kernel->delay( 'stop_escalate', $self->{timeout}, 'KILL' );
 	}
 
 	return;
