@@ -31,7 +31,8 @@ reverse_dns:
 max_score: 1
 tests:
   positive:
-    # the pretender... a confirmed PTR that is nobody's crawler
+    # the pretender... a confirmed PTR that is nobody's crawler. it fires
+    # and, being a genuine offense, earns the recon brand
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
       dns:
         ptr:
@@ -41,6 +42,9 @@ tests:
       found: 1
       data:
         host: "203.0.113.9"
+      marks_expected:
+        - name: recon
+          key: "203.0.113.9"
     # no reverse DNS at all... most of the pretenders
     - message: '203.0.113.10 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
       dns:
@@ -60,7 +64,8 @@ tests:
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET / HTTP/1.1" 200 5124 "-" "Mozilla/5.0 (X11; FreeBSD amd64; rv:109.0) Gecko/20100101 Firefox/115.0"'
       found: 0
     # the real Googlebot... forward-confirmed into google's domain, the
-    # negated gate spares it
+    # negated gate spares it, and the gate-cleared crawler earns NO recon
+    # brand... the regression that branded legit Google recon for a day
     - message: '66.249.66.1 - - [12/Jul/2026:08:15:50 -0500] "GET /robots.txt HTTP/1.1" 200 512 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
       dns:
         ptr:
@@ -68,6 +73,10 @@ tests:
         forward:
           "crawl-66-249-66-1.googlebot.com": [ "66.249.66.1" ]
       found: 0
+      marks_expected:
+        - name: recon
+          key: "66.249.66.1"
+          absent: 1
     # a resolver outage holds the rule back rather than misaiming it
     - message: '203.0.113.12 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
       dns:

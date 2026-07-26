@@ -1506,8 +1506,7 @@ sub run_tests {
 						}
 						# offenders as the galla resolves them, sans the
 						# usedns/internal filtering no test needs... a
-						# detection rule has none, so its var-less brands
-						# brand nothing, there as here
+						# detection rule has none
 						my @offenders;
 						if ( !$is_detection ) {
 							foreach my $ban_var ( $self->ban_var ) {
@@ -1517,32 +1516,30 @@ sub run_tests {
 								}
 							}
 						}
-						App::Baphomet::Marks::apply_marks( \%marks_store, $marks, $unmarks, $one->{data},
-							\@offenders, $clock );
-						# the var-less reverse_dns entries run per offender in
-						# the galla's ban path, after the branding as there...
-						# with a fixture up they run here too, the result
-						# counting only when an offender survives
+						# the var-less gates filter to the surviving offenders,
+						# as in the galla's ban path... an offender a gate
+						# vetoes is not an offense, so it is neither branded nor
+						# counted, and a result whose every offender is gated
+						# out did not fire at all
+						my @survivors = @offenders;
 						if ( $rdns_has_varless && !$is_detection ) {
-							my @survivors = grep {
+							@survivors = grep {
 								App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $one->{data}, $_ )
-							} @offenders;
-							if ( !@survivors ) {
-								next;
-							}
+							} @survivors;
 						}
-						# and the var-less country gate the same way... note a
-						# var-less country or mark gate on a detection rule is
-						# inert in the galla and so inert here, which is why
-						# a detection rule's gate wants the vars form
 						if ( $geo_varless && !$is_detection ) {
-							my @survivors = grep {
+							@survivors = grep {
 								App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $one->{data}, $_ )
-							} @offenders;
-							if ( !@survivors ) {
-								next;
-							}
+							} @survivors;
 						}
+						if ( @offenders && !@survivors ) {
+							next;
+						}
+						# brand only the survivors, matching the galla... a
+						# gated-out offender earns no mark, and a detection rule
+						# brands with its empty offender list (data marks only)
+						App::Baphomet::Marks::apply_marks( \%marks_store, $marks, $unmarks, $one->{data},
+							\@survivors, $clock );
 						push( @found_all, $one );
 					} ## end foreach my $one ( $found, ref( $found->{more} ...))
 				} ## end if ( defined($found) )
