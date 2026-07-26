@@ -598,7 +598,13 @@ one that catches a rule mistakenly written to fire on database gaps.
 After a rule matches and its offender is in hand, a set of optional gates can
 still drop the count. They are the shared vocabulary layered over every
 type's matcher... a match that passes the matcher but fails a gate is not an
-offense.
+offense. An offender a gate vetoes is neither counted nor branded... the
+rule's `mark` skips it too, since a non-offense earns no brand. When a gate
+vetoes every offender the result did not fire at all: it brands nobody,
+writes no EVE event, and does not consume the line, so it falls through to
+the later rules... the legitimate Googlebot the `reverse_dns` gate clears,
+say, is free to match a benign rule instead of being branded `recon` by the
+one that spared it.
 
 The gates are universal, but the matcher and offender keys that precede them
 are not... which is the whole shape of the types. The full support matrix, a

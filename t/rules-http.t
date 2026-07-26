@@ -70,6 +70,7 @@ my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('http/probes');
 ok( defined($rule), 'http rule loaded' );
 is( ( $rule->ban_var )[0], 'host', 'ban_var is host' );
+is( $rule->src_ip_var, 'host', 'src_ip_var defaults to host, so the EVE src_ip carries the client' );
 
 my $found = $rule->check( parsed_line( '203.0.113.9', 'GET /.env HTTP/1.1', 404, 'curl/8' ) );
 ok( defined($found), 'path match found' );

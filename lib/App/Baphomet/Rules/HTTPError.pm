@@ -297,6 +297,23 @@ sub ban_var {
 	return ('client');
 }
 
+=head2 src_ip_var
+
+The http_error offender is the parsed C<client>, so the flow-source var
+defaults to C<client> here rather than the base C<src_ip>... so a hit
+carries the client in the EVE event's top-level C<src_ip>. A rule naming
+its own C<src_ip_var> still wins.
+
+    my $src_ip_var = $rule->src_ip_var;   # 'client', or the named var
+
+=cut
+
+sub src_ip_var {
+	my ($self) = @_;
+
+	return defined( $self->{def}{src_ip_var} ) ? $self->{def}{src_ip_var} : 'client';
+}
+
 =head2 default_test_parser
 
 The parser used for embedded tests when neither the rule's test_parser nor

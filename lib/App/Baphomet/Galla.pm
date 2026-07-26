@@ -2152,11 +2152,6 @@ sub _process_record {
 				@offenders = $self->_usedns_offenders( $watcher_name, \@offenders );
 			}
 
-			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
-			# ride the brands on the context, so a terminal event carries them
-			$context->{marks_set} = $set;
-			$context->{unmarked}  = $lifted;
-
 			# a result that crosses its threshold emits a terminal event
 			# (banish/alert/sighted) that already stands for the match... the
 			# routine found/noted/sighting is then redundant and suppressed.
@@ -2165,12 +2160,17 @@ sub _process_record {
 			$self->{result_terminal} = 0;
 
 			my $score;
+			my ( $set, $lifted ) = ( [], [] );
 			if ($is_detection) {
-				# detection-only... count each detection_var subject into the
-				# shadow buckets and never banish. a subject crossing threshold
+				# detection-only... the data-keyed marks apply (there are no
+				# offenders to brand), each subject counts into the shadow
+				# buckets and never banishes. a subject crossing threshold
 				# raises a sighted, a match itself is a sighting. it consumes
 				# the line the same as any firing non-mark_only rule
-				$consumed = 1;
+				( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, [], $now );
+				$context->{marks_set} = $set;
+				$context->{unmarked}  = $lifted;
+				$consumed             = 1;
 				foreach my $detection_var ( $rule_obj->detection_var ) {
 					my $subject = $one->{data}{$detection_var};
 					if ( !defined($subject) || $subject eq '' ) {
@@ -2188,37 +2188,44 @@ sub _process_record {
 					$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
 				}
 			} else {
-				# the offender this match would pass for banning, the first to
-				# survive the per-IP gates and reach the ban path... promoted to
-				# the match event's top-level ip, the way a banish carries it,
-				# undef and so absent when nothing was passed for banning
-				my $ban_ip;
+				# the offenders that clear every per-offender gate... the
+				# var-less mark, country, namtar, and reverse_dns gates. an
+				# offender gated out here is not an offense, so it is neither
+				# branded nor counted. a result whose every offender is gated
+				# out did not fire at all: it brands nobody, emits nothing,
+				# and does not consume, falling through to the later rules...
+				# the legit crawler the reverse_dns gate cleared, say
+				my @survivors = grep {
+					       $self->_mark_gates_pass( $gates, $one->{data}, $_, $now )
+					    && $self->_country_gate_pass( $country_gate, $one->{data}, $_ )
+					    && $self->_namtar_gate_pass( $namtar_gate, $one->{data}, $_ )
+					    && $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $_ )
+				} @offenders;
+
+				if ( @offenders && !@survivors ) {
+					next;
+				}
+
+				# brand only the survivors (the var-less marks) and the
+				# data-keyed marks... a gated-out offender is never branded
+				( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@survivors, $now );
+				$context->{marks_set} = $set;
+				$context->{unmarked}  = $lifted;
+
+				# the offender promoted to the event's top-level ip, the first
+				# survivor... undef and absent when the rule branded only or
+				# had no offender to pass for banning
+				my $ban_ip = $survivors[0];
 				if ( !$mark_only ) {
-					# a firing non-mark_only rule consumes the line, same as
-					# before marks, whichever offenders the gates then let count
+					# a firing non-mark_only rule consumes the line
 					$consumed = 1;
-					foreach my $ip (@offenders) {
-						if ( !$self->_mark_gates_pass( $gates, $one->{data}, $ip, $now ) ) {
-							next;
-						}
-						if ( !$self->_country_gate_pass( $country_gate, $one->{data}, $ip ) ) {
-							next;
-						}
-						if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip ) ) {
-							next;
-						}
-						if ( !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip ) ) {
-							next;
-						}
-						if ( !defined($ban_ip) ) {
-							$ban_ip = $ip;
-						}
+					foreach my $ip (@survivors) {
 						my $registered
 							= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
 						if ( !defined($score) && defined($registered) ) {
 							$score = $registered;
 						}
-					} ## end foreach my $ip (@offenders)
+					} ## end foreach my $ip (@survivors)
 				} ## end if ( !$mark_only )
 
 				# a offender that crossed raised a banish (or, observe mode, an

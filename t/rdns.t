@@ -110,6 +110,39 @@ tests:
       found: 1
 EOR
 
+# a negate gate beside a mark and a fall-through partner... proves a
+# offender the gate clears (the real crawler) is neither branded nor
+# counted, and the line falls through to the next rule
+write_rule( 'raw/gmark', <<'EOR' );
+---
+message_regexp:
+  - '^probe from %%%%SRC%%%%$'
+reverse_dns:
+  - matches: '\.crawler\.example$'
+    negate: true
+mark:
+  - name: recon
+    ttl: 3600
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "probe from 192.0.2.14"
+      found: 1
+EOR
+
+write_rule( 'raw/catchall', <<'EOR' );
+---
+message_regexp:
+  - '^probe from %%%%SRC%%%%$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "probe from 192.0.2.14"
+      found: 1
+EOR
+
 # the matches_var form... the PTR must equal what the client claimed
 write_rule( 'raw/claim', <<'EOR' );
 ---
@@ -173,6 +206,11 @@ rule = "raw/nxpass"
 log = "$dir/log"
 parser = "raw"
 rule = "raw/nxfail"
+
+[kur.app.gate]
+log = "$dir/log"
+parser = "raw"
+rule = [ "raw/gmark", "raw/catchall" ]
 EOC
 close($fh);
 
@@ -268,6 +306,26 @@ is( scalar( @{ $galla->{counters}{'192.0.2.17'} } ), 1, 'on_nxdomain pass let a 
 # on_nxdomain fail beats negate... terminal verdicts are never inverted
 $galla->_handle_line( 'nxfail', 'probe from 192.0.2.18' );
 ok( !defined( $galla->{counters}{'192.0.2.18'} ), 'on_nxdomain fail vetoed despite the negate' );
+
+#
+# a gate that vetoes the offender neither brands it nor emits for it, and
+# the line falls through... the regression the real Googlebot exposed, a
+# legit crawler branded recon and surfaced as a found
+#
+
+# the real crawler: gmark's negated gate vetoes it, so gmark brands nobody
+# and does not consume... the line reaches catchall, which counts it
+$galla->_handle_line( 'gate', 'probe from 192.0.2.10' );
+ok( !defined( $galla->{marks}{recon}{'192.0.2.10'} ),
+	'a gate-cleared offender is not branded... no recon leak on the real crawler' );
+is( scalar( @{ $galla->{counters}{'192.0.2.10'} || [] } ),
+	1, 'and the gated-out rule fell through to the next, which counted the offender' );
+
+# a confirmed non-crawler: gmark's negated gate passes, so it is branded
+# and counted, the gate doing its job on a genuine offender
+delete( $galla->{counters}{'192.0.2.14'} );
+$galla->_handle_line( 'gate', 'probe from 192.0.2.14' );
+ok( defined( $galla->{marks}{recon}{'192.0.2.14'} ), 'a offender the gate passes is branded as ever' );
 
 #
 # with enable_rdns off the gate fails closed

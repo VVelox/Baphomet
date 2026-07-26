@@ -61,6 +61,7 @@ my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('http_error/probes');
 ok( defined($rule), 'http_error rule loaded' );
 is( ( $rule->ban_var )[0], 'client', 'ban_var is client' );
+is( $rule->src_ip_var, 'client', 'src_ip_var defaults to client, so the EVE src_ip carries the offender' );
 
 my $found = $rule->check( apache_line( 'auth_basic', 'error', '1.2.3.4', 'user foo: password mismatch' ) );
 ok( defined($found), 'match found' );
