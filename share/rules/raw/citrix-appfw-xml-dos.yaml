@@ -1,0 +1,49 @@
+---
+# The AppFw catching an XML denial-of-service shape... DTDs and external
+# entities where none belong, entity expansion bombs, element and
+# attribute counts, name lengths, depths, and sizes past their maximums,
+# processing instructions, and the XML DoS/DDoS engine's own triggered
+# and error events. Based on sagan-rules citrix.rules... twenty-five
+# per-event-ID attempted-dos signatures (sids 5001238-5001264 actives)
+# consolidated into one rule by matching the APPFW_XML_DOS_ERR_*,
+# APPFW_XML_DDOS_*, and APPFW_XML_ERR_DOS/DDOS_* families whole.
+# NetScaler emits syslog natively but stuffs the date where the program
+# name goes, so this is a raw rule anchored on the audit format's own
+# APPFW module tokens, never on line start. attempted-dos wears no
+# standard brand, so no mark. The client address follows the event ID's
+# counters, and it gets banished.
+rev: 1
+msg: "[CITRIX] AppFw XML denial of service violation"
+severity: medium
+classtype: attempted-dos
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' APPFW APPFW_XML_(?:D?DOS_ERR_\S+|ERR_D?DOS_\S+) \d+ \d+ :\s+%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_DOS_ERR_DTD 100 0 :  203.0.113.44 1054-PPE0 - xmlfw_prof http://api.example.com/soap DTD present in the XML message <blocked>"
+      found: 1
+      data:
+        SRC: "203.0.113.44"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_DOS_ERR_MAX_ENTITY_EXPANSIONS 101 0 :  203.0.113.45 1055-PPE0 - xmlfw_prof http://api.example.com/soap Exceeds max number of entity expansions <blocked>"
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_XML_ERR_DOS_TRIGGERED 102 0 :  198.51.100.31 1056-PPE1 - xmlfw_prof http://api.example.com/soap Denial of Service triggered <blocked>"
+      found: 1
+      data:
+        SRC: "198.51.100.31"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_DDOS_ERR_MSG_SEND_FAIL 103 0 :  198.51.100.32 1057-PPE0 - xmlfw_prof http://api.example.com/soap XML DDoS send fail error <not blocked>"
+      found: 1
+      data:
+        SRC: "198.51.100.32"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_SQL 95 0 :  192.0.2.18 1049-PPE0 - xmlfw_prof http://api.example.com/soap SQL Keyword check failed in XML payload <blocked>"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"
+      found: 0
+      undefed: ["SRC"]

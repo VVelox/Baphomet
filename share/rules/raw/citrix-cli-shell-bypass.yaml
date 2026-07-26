@@ -1,0 +1,37 @@
+---
+# A restricted CLI account calling for man... the documented NetScaler
+# restricted shell bypass, man's pager talked into handing over
+# /bin/sh, a read-only operator becoming a shell on the appliance.
+# Based on sagan-rules citrix.rules sid 5013581, its CMD_EXECUTED plus
+# Command "man pair carried as one regexp, classtype trojan-activity
+# carried through (no standard brand wears that class). NetScaler
+# emits syslog natively but stuffs the date where the program name
+# goes, so this is a raw rule anchored on the CLI module tokens,
+# never on line start. The operator's address rides the Remote_ip
+# field, and it gets banished... one of these is a verdict.
+rev: 1
+msg: "[CITRIX] possible privilege escalation... restricted shell bypass via man"
+severity: critical
+classtype: trojan-activity
+references:
+  - https://www.resillion.com/wp-content/uploads/2023/07/Resillion-Citrix-Vulnerability-Report-1.pdf
+message_regexp:
+  - ' CLI CMD_EXECUTED \d+ \d+ :\s+User (?<USER>\S+) - Remote_ip %%%%SRC%%%% - Command "man '
+ban_var:
+  - SRC
+weight: 10
+max_score: 10
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default CLI CMD_EXECUTED 999 0 :  User readonly - Remote_ip 203.0.113.77 - Command \"man -P /bin/sh man\" - Status Success"
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+        USER: "readonly"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default CLI CMD_EXECUTED 998 0 :  User nsroot - Remote_ip 192.0.2.10 - Command \"show ns ip\" - Status Success"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default GUI CMD_EXECUTED 997 0 :  User nsroot - Remote_ip 192.0.2.10 - Command \"man ls\" - Status Success"
+      found: 0
+      undefed: ["SRC"]

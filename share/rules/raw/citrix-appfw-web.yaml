@@ -1,0 +1,62 @@
+---
+# The AppFw catching a web attack... SQL injection, XSS, buffer overflow,
+# CSRF, cookie tampering, field consistency and format violations, referer
+# and safe-commerce/safe-object violations, deny-URL and start-URL hits,
+# and the request errors hostile enough to earn a 400. Based on sagan-rules
+# citrix.rules... sixteen per-event-ID signatures (sids 5001202, 5001215-22,
+# 5001225-30, 5001350) consolidated into one rule. NetScaler emits syslog
+# natively but stuffs the date where the program name goes, so this is a
+# raw rule anchored on the audit format's own APPFW module tokens, never on
+# line start. AF_400_RESP (suspicious-traffic in Sagan) rides along...
+# same offense kind, a hostile request the AppFw refused. The client
+# address follows the event ID's counters, and it gets banished.
+rev: 1
+msg: "[CITRIX] AppFw web attack violation"
+severity: high
+classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' APPFW APPFW_(?:BUFFEROVERFLOW_(?:COOKIE|HDR|URL)|COOKIE|CSRF_TAG|DENYURL|FIELDCONSISTENCY|FIELDFORMAT|REFERER_HEADER|SAFECOMMERCE(?:_XFORM)?|SAFEOBJECT|SQL|STARTURL|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
+  - ' APPFW AF_400_RESP \d+ \d+ :\s+%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"
+      found: 1
+      data:
+        SRC: "203.0.113.62"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_SQL 88 0 :  198.51.100.21 1043-PPE0 - webfw_prof http://www.example.com/login.php Field(login) SQL Keyword check failed for field login=\"' or 1=1 --\" <blocked>"
+      found: 1
+      data:
+        SRC: "198.51.100.21"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XSS 90 0 :  198.51.100.22 1044-PPE0 - webfw_prof http://www.example.com/search.php Cross-site script check failed for field q=\"<script>alert(1)</script>\" <blocked>"
+      found: 1
+      data:
+        SRC: "198.51.100.22"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_BUFFEROVERFLOW_URL 91 0 :  192.0.2.14 1045-PPE0 - webfw_prof http://www.example.com/AAAAAAAAAAAAAAAAAAAAAAAA URL length exceeds maximum allowed of 1024 <blocked>"
+      found: 1
+      data:
+        SRC: "192.0.2.14"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_CSRF_TAG 93 0 :  192.0.2.16 1047-PPE0 - webfw_prof http://www.example.com/account.php CSRF form tag check failed <blocked>"
+      found: 1
+      data:
+        SRC: "192.0.2.16"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW AF_400_RESP 92 0 :  192.0.2.15 1046-PPE0 - webfw_prof Request error. Generated 400 response <not blocked>"
+      found: 1
+      data:
+        SRC: "192.0.2.15"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_POLICY_HIT 94 0 :  192.0.2.17 1048-PPE0 - webfw_prof http://www.example.com/index.html Application firewall profile invoked"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_SQL 95 0 :  192.0.2.18 1049-PPE0 - xmlfw_prof http://api.example.com/soap SQL Keyword check failed in XML payload <blocked>"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,52 @@
+---
+# SonicOS certificate and PKI anomalies... trust paperwork that failed
+# inspection. SonicOS emits syslog natively in key=value, so this raw
+# rule anchors on the msg text. From sagan-rules sonicwall.rules, four
+# rules folded into one: the VPN PKI bad CRL format, a certificate on
+# the revoked list, the LDAP server certificate allowed with the wrong
+# host name, and the fraudulent Microsoft certificate detection. The
+# source's classtypes were suspicious-traffic, unsuccessful-admin, and
+# exploit-attempt... the dominant suspicious-traffic is carried.
+#
+# Detection-only, counted by the reporting firewall's fw= address...
+# these events describe a certificate the box handled, not reliably a
+# peer address to accuse, and a revoked cert is as often an expired
+# renewal as an attack. Sights to EVE for the analyst.
+rev: 1
+msg: "[SONICWALL] certificate/PKI anomaly"
+severity: medium
+classtype: suspicious-traffic
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Bad CRL format[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Certificate on Revoked list ?\(CRL\)[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Allowed LDAP server certificate with wrong host name[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Fraudulent Microsoft certificate found[^"]*"'
+detection_var:
+  - ADDR
+tests:
+  positive:
+    - message: 'Jul 12 11:01:07 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:01:07 UTC" fw=203.0.113.1 pri=1 c=16 m=751 msg="Bad CRL format" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 11:02:23 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:02:23 UTC" fw=203.0.113.1 pri=1 c=16 m=752 msg="Certificate on Revoked list(CRL)" n=2 src=198.51.100.40:500:X1 dst=203.0.113.1:500:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 11:03:41 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:03:41 UTC" fw=203.0.113.1 pri=4 c=16 m=1211 msg="Allowed LDAP server certificate with wrong host name" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 11:04:58 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:04:58 UTC" fw=203.0.113.1 pri=1 c=32 m=1220 msg="Fraudulent Microsoft certificate found" n=1 src=203.0.113.130:443:X1 dst=192.0.2.70:51612:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+  negative:
+    - message: 'Jul 12 11:10:19 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:10:19 UTC" fw=203.0.113.1 pri=6 c=16 m=750 msg="Certificate validated successfully" n=44'
+      found: 0
+      undefed: ["ADDR"]
+    - message: 'Jul 12 11:11:34 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:11:34 UTC" fw=203.0.113.1 pri=6 c=16 m=427 msg="IPSec Tunnel status changed" n=9 note="Tunnel up"'
+      found: 0
+      undefed: ["ADDR"]

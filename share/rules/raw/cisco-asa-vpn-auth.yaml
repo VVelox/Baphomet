@@ -1,0 +1,77 @@
+---
+# Cisco ASA / PIX VPN and WebVPN authentication failures... a remote
+# peer, named by address, failing IPsec, SVC, SSO, or XAUTH. ASA speaks
+# syslog natively, so this raw rule anchors on the message ids, never
+# the line's head. Folded from sagan-rules cisco-pixasa.rules: 716056
+# (SSO server authentication failed), 713251 (received authentication
+# failure message), 722003 (error authenticating SVC connect request),
+# 713167 (remote peer failed user authentication), 713059 / 713060
+# (tunnel rejected, group check failed), 713198 (user authorization
+# failed), 611311 (XAUTH failed... the "VNPClient" typo is Cisco's own,
+# both spellings taken), and 402120 (ESP packet failed authentication).
+# Sagan classed these unsuccessful-user and unsuccessful-admin... the
+# dominant unsuccessful-user is carried. Repeated hits accrue in the
+# kur like any other auth failure; the box-branding brute_force setters
+# live in raw/cisco-asa-auth-bruteforce.
+rev: 1
+msg: "[CISCO-ASA] VPN / WebVPN authentication failure"
+severity: high
+classtype: unsuccessful-user
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-716056: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> Authentication to SSO server'
+  - '%(?:ASA|PIX|FWSM)-\d-713251: Group = [^,]*, Username = [^,]*, IP = %%%%SRC%%%%, Received authentication failure message'
+  - '%(?:ASA|PIX|FWSM)-\d-722003: (?:Group <[^>]*> User <[^>]*> )?IP <%%%%SRC%%%%> Error authenticating SVC connect request'
+  - '%(?:ASA|PIX|FWSM)-\d-713167: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote peer has failed user authentication'
+  - '%(?:ASA|PIX|FWSM)-\d-7130(?:59|60): (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Tunnel Rejected: User \([^)]*\)'
+  - '%(?:ASA|PIX|FWSM)-\d-713198: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, User Authorization failed'
+  - '%(?:ASA|PIX)-\d-611311: V(?:NP|PN)Client: XAUTH Failed: Peer: %%%%SRC%%%%'
+  - '%(?:ASA|PIX)-\d-402120: Received an ESP packet \([^)]*\) from %%%%SRC%%%% (?:\([^)]*\) )?to \S+ that failed authentication'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %ASA-3-716056: Group <vpn-users> User <jsmith> IP <192.0.2.5> Authentication to SSO server SSOSrv type SiteMinder failed'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-4-713251: Group = vpn-users, Username = jsmith, IP = 192.0.2.5, Received authentication failure message'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-4-722003: Group <vpn-users> User <jsmith> IP <192.0.2.5> Error authenticating SVC connect request.'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:53 fw01 %ASA-3-713167: Group = vpn-users, IP = 192.0.2.5, Remote peer has failed user authentication - check configured username and password'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:54 fw01 %ASA-3-713060: Group = vpn-users, IP = 192.0.2.5, Tunnel Rejected: User (jsmith) not member of group (vpn-users), group check failed.'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:55 fw01 %ASA-3-713059: Group = vpn-users, IP = 192.0.2.5, Tunnel Rejected: User (jsmith) matched with group name, group-lock check failed.'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:56 fw01 %ASA-3-713198: Group = vpn-users, IP = 192.0.2.5, User Authorization failed: jsmith'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:57 fw01 %ASA-6-611311: VNPClient: XAUTH Failed: Peer: 192.0.2.5'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:58 fw01 %ASA-4-402120: Received an ESP packet (SPI= 0xDEADBEEF, sequence number= 0x1A2B) from 192.0.2.5 (user= jsmith) to 10.1.1.20 that failed authentication.'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    - message: 'Jul 12 08:20:00 fw01 %ASA-6-716038: Group <vpn-users> User <jsmith> IP <192.0.2.9> Authentication: successful, Session Type: WebVPN.'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:20:01 fw01 %ASA-5-713119: Group = vpn-users, IP = 192.0.2.9, PHASE 1 COMPLETED'
+      found: 0
+      undefed: ["SRC"]

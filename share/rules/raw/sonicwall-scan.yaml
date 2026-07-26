@@ -1,0 +1,58 @@
+---
+# SonicOS port scans... the firewall's own scan detector speaking. SonicOS
+# emits syslog natively, every line a key=value ledger (id=firewall sn=...
+# m=<id> msg="..." src=ip:port:iface), so this is a raw rule anchored on
+# the msg text and the src= field, never the line's head. From sagan-rules
+# sonicwall.rules, seven scan rules folded into one... the possible TCP
+# and UDP port scans (told apart by the scanned-port-list note), the
+# probable port scan, the probable TCP FIN/NULL/XMAS scans, and the TCP
+# Xmas Tree drop. The bare possible-port-scan rule with no port-list note
+# was disabled in the source and stays out here, the note being the
+# tell that keeps this from firing on the detector's own chatter.
+# classtype network-scan earns the recon brand, so a scanning source
+# arrives at the exploit readers already suspect.
+rev: 1
+msg: "[SONICWALL] port scan detected"
+severity: medium
+classtype: network-scan
+references:
+  - https://www.sonicwall.com/techdocs/pdf/sonicos-6-5-4-log-events-reference-guide.pdf
+mark:
+  - name: recon
+    ttl: 86400
+message_regexp:
+  - 'msg="Possible port scan detected".*?src=%%%%SRC%%%%.*?note="(?:TCP|UDP) scanned port list'
+  - 'msg="Probable port scan detected".*?src=%%%%SRC%%%%'
+  - 'msg="Probable TCP (?:FIN|NULL|XMAS) scan detected".*?src=%%%%SRC%%%%'
+  - 'msg="TCP Xmas [tT]ree dropped".*?src=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:15:50 UTC" fw=203.0.113.1 pri=1 c=32 m=82 msg="Possible port scan detected" n=42 src=203.0.113.45:52344:X1 dst=203.0.113.1:23:X0 note="TCP scanned port list, 21, 22, 23, 25, 80"'
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: 'Jul 12 08:16:12 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:16:12 UTC" fw=203.0.113.1 pri=1 c=32 m=82 msg="Possible port scan detected" n=43 src=198.51.100.7:40112:X1 dst=203.0.113.1:53:X0 note="UDP scanned port list, 53, 123, 161, 500"'
+      found: 1
+      data:
+        SRC: "198.51.100.7"
+    - message: 'Jul 12 08:17:03 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:17:03 UTC" fw=203.0.113.1 pri=1 c=32 m=83 msg="Probable port scan detected" n=44 src=192.0.2.66:51000:X1 dst=203.0.113.1:443:X0 note="TCP scanned port list, 80, 443, 8080, 8443, 8888"'
+      found: 1
+      data:
+        SRC: "192.0.2.66"
+    - message: 'Jul 12 08:18:44 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:18:44 UTC" fw=203.0.113.1 pri=1 c=32 m=83 msg="Probable TCP FIN scan detected" n=45 src=192.0.2.67:33001:X1 dst=203.0.113.1:22:X0 note="TCP scanned port list, 21, 22, 23, 111, 445"'
+      found: 1
+      data:
+        SRC: "192.0.2.67"
+    - message: 'Jul 12 08:19:21 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:19:21 UTC" fw=203.0.113.1 pri=1 c=32 m=209 msg="TCP Xmas Tree dropped" n=46 src=198.51.100.14:61922:X1 dst=203.0.113.1:139:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.14"
+  negative:
+    - message: 'Jul 12 08:20:02 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:20:02 UTC" fw=203.0.113.1 pri=1 c=32 m=82 msg="Possible port scan detected" n=47 src=203.0.113.45:52344:X1 dst=203.0.113.1:23:X0 note="Scan timeout"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:21:40 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:21:40 UTC" fw=203.0.113.1 pri=6 c=262144 m=98 msg="Connection Opened" n=99 src=192.0.2.10:51000:X0 dst=198.51.100.80:443:X1 proto=tcp/https'
+      found: 0
+      undefed: ["SRC"]

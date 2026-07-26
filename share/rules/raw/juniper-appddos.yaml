@@ -1,0 +1,35 @@
+---
+# The SRX AppDDoS watcher... application-level DDoS state transitions
+# and attack verdicts (IDP_APPDDOS_APP_STATE_EVENT,
+# IDP_APPDDOS_APP_ATTACK_EVENT, and their logical-system _LS twins),
+# four rules from sagan-rules juniper.rules folded into one. A
+# distributed flood accuses no single address, so this is
+# detection-only, counted by the application under siege...
+# suspicious-traffic carried from the source. The exact field order of
+# these events shifts by release, so the match leans on the event tag
+# and the application name alone.
+rev: 1
+msg: "[JUNIPER] AppDDoS application attack/state transition"
+severity: high
+classtype: suspicious-traffic
+detection_var:
+  - APP
+message_regexp:
+  - 'IDP_APPDDOS_APP_(?:ATTACK|STATE)_EVENT(?:_LS)?:.*?application (?<APP>\S+)'
+tests:
+  positive:
+    - message: "Jul 12 04:10:00 srx01 RT_IDP: IDP_APPDDOS_APP_STATE_EVENT: AppDDoS: at 1752307800, application http-srv context http-get-url of protocol HTTP moved from normal to attack state, connection rate 1200 conn/sec"
+      found: 1
+      data:
+        APP: "http-srv"
+    - message: "Jul 12 04:10:05 srx01 RT_IDP: IDP_APPDDOS_APP_ATTACK_EVENT_LS: LSYS1: AppDDoS: at 1752307805, application http-srv under attack, context http-get-url, hit rate 3500 hits/sec crossed attack threshold 2000"
+      found: 1
+      data:
+        APP: "http-srv"
+  negative:
+    - message: "Jul 12 04:02:11 srx01 RT_IDP: IDP_ATTACK_LOG_EVENT: IDP: at 1752307331, SIG Attack log <198.51.100.23/34712->192.0.2.10/80> for TCP protocol and service SERVICE_IDP_HTTP application HTTP by rule 3 of rulebase IPS in policy Recommended"
+      found: 0
+      undefed: ["APP"]
+    - message: "Jul 12 05:00:40 srx01 idpd[1421]: IDP_SCHEDULED_UPDATE_STARTED: Scheduled update to download and install security package started"
+      found: 0
+      undefed: ["APP"]

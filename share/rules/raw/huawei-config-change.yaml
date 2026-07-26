@@ -1,0 +1,43 @@
+---
+# The firewall's own book of the banished being edited... SEC/4/BLACKLIST,
+# the three configuration-change rules of sagan-rules huawei.rules folded
+# into one: an address added to the blacklist, an address removed, and
+# the whole list cleared. Detection-only... the subject is the address
+# being listed or the clearing act itself, an operator's hand or the
+# box's own defense, not an offender to banish. Each match writes a
+# sighting to EVE. VRP speaks syslog natively; the %%01 info-center
+# framing is the one realistic shape assumed, the severity digit left
+# loose.
+rev: 1
+msg: "[HUAWEI] firewall blacklist changed"
+severity: medium
+classtype: configuration-change
+references:
+  - http://www.huaweisymantec.com/en/download.do?id=658891
+message_regexp:
+  - 'SEC/\d/BLACKLIST\S*:\s*%%%%ADDR%%%% is (?:added to|removed from) blacklist'
+  - 'SEC/\d/BLACKLIST\S*:.*?(?<EVENT>Clear All blacklist)'
+detection_var:
+  - ADDR
+  - EVENT
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %%01SEC/4/BLACKLIST(l): 203.0.113.31 is added to blacklist, reason: manual configuration, age: 30 minutes.'
+      found: 1
+      data:
+        ADDR: "203.0.113.31"
+    - message: 'Jul 12 08:15:51 fw01 %%01SEC/4/BLACKLIST(l): 2001:db8::77 is removed from blacklist.'
+      found: 1
+      data:
+        ADDR: "2001:db8::77"
+    - message: 'Jul 12 08:15:52 fw01 %%01SEC/4/BLACKLIST(l): Clear All blacklist.'
+      found: 1
+      data:
+        EVENT: "Clear All blacklist"
+  negative:
+    - message: 'Jul 12 08:25:49 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Syn flood attack, SourceIp=203.0.113.21, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=2038)'
+      found: 0
+      undefed: ["ADDR", "EVENT"]
+    - message: 'Jul 12 08:25:50 fw01 %%01SEC/4/BLACKLIST(l): The blacklist function is enabled.'
+      found: 0
+      undefed: ["ADDR", "EVENT"]

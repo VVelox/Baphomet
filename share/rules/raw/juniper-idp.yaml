@@ -1,0 +1,41 @@
+---
+# The SRX IDP engine naming an attacker... IDP_ATTACK_LOG_EVENT is the
+# signature or anomaly verdict itself, IDP_SESSION_LOG_EVENT the
+# session-threshold crossing, each with a logical-system twin (_LS),
+# and every one hands the flow over as <src/port->dst/port>. Four
+# rules from sagan-rules juniper.rules folded into two regexps by that
+# shared flow shape. Attack-shaped and addressed, so the source is
+# banned; the source's suspicious-traffic classtype is carried, which
+# sets no standard brand. The prose between the event tag and the flow
+# varies by release, so the match leans on the tag and the flow
+# brackets and lets the middle drift.
+rev: 1
+msg: "[JUNIPER] IDP attack detected"
+severity: high
+classtype: suspicious-traffic
+message_regexp:
+  - 'IDP_ATTACK_LOG_EVENT(?:_LS)?:.*?Attack log <%%%%SRC%%%%/\d+->'
+  - 'IDP_SESSION_LOG_EVENT(?:_LS)?:.*? <%%%%SRC%%%%/\d+->'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 04:02:11 srx01 RT_IDP: IDP_ATTACK_LOG_EVENT: IDP: at 1752307331, SIG Attack log <198.51.100.23/34712->192.0.2.10/80> for TCP protocol and service SERVICE_IDP_HTTP application HTTP by rule 3 of rulebase IPS in policy Recommended. attack: repeat=0, action=DROP, threat-severity=HIGH, name=HTTP:SQL:INJ:GENERIC, NAT <0.0.0.0:0->0.0.0.0:0>, time-elapsed=0, inbytes=0, outbytes=0, inpackets=0, outpackets=0, intf:untrust:ge-0/0/0.0->trust:ge-0/0/1.0, packet-log-id: 0, alert=no and misc-message -"
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: "Jul 12 04:03:00 srx01 RT_IDP: IDP_ATTACK_LOG_EVENT_LS: LSYS1: IDP: at 1752307380, ANOMALY Attack log <203.0.113.14/4433->192.0.2.30/443> for TCP protocol and service SERVICE_IDP_SSL application SSL by rule 2 of rulebase IPS in policy Recommended. attack: repeat=1, action=DROP, threat-severity=CRITICAL, name=SSL:OVERFLOW:KEY-ARG-NO-ENTROPY"
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+    - message: "Jul 12 04:05:10 srx01 RT_IDP: IDP_SESSION_LOG_EVENT: IDP: at 1752307510, Session Log <198.51.100.23/51120->192.0.2.10/80> for TCP protocol and service SERVICE_IDP_HTTP application HTTP by rule 5 of rulebase IPS in policy Recommended"
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+  negative:
+    - message: "Jul 12 05:00:00 srx01 idpd[1421]: IDP_COMMIT_COMPLETED: IDP policy commit is complete"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:20:00 srx01 RT_FLOW: RT_FLOW_SESSION_CREATE: session created 198.51.100.23/51121->192.0.2.10/80 junos-http 6 policy-1 untrust trust"
+      found: 0
+      undefed: ["SRC"]

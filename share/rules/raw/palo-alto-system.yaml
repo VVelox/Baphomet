@@ -1,0 +1,48 @@
+---
+# The box talking about itself... certificate trouble (a CRL
+# distribution point with an illegal URL, a certificate revoked) and
+# the management sshd disconnecting on a possible replay attempt.
+# PAN-OS speaks syslog natively, every line a comma-separated ledger,
+# so this is a raw rule anchored on the ,SYSTEM, token and the event
+# texts, never on the line's head. Detection-only, counted by the
+# device serial lifted from its CSV seat... these events have no
+# attacker to accuse, only a firewall to go look at. From sagan-rules
+# palo-alto.rules... the certificate pair (sids 5002580, 5002600) and
+# the replay disconnect (sid 5002592, its network-event classtype
+# squashed into the file's system-event) consolidated into one rule.
+# Each sighting is a verdict (max_score 1, honored where the kur
+# allows per-rule thresholds).
+rev: 1
+msg: "[PALO-ALTO] system event... certificate trouble / replay attempt"
+severity: low
+classtype: system-event
+references:
+  - https://live.paloaltonetworks.com/twzvq79624/attachments/twzvq79624/learning_tkb/428/1/System_log_PANOS4.1rev3.xlsx
+message_regexp:
+  - ',(?<SERIAL>\w+),SYSTEM,.*Certificate\b.*?\bhas illegal URL'
+  - ',(?<SERIAL>\w+),SYSTEM,.*Certificate\b.*?\bis revoked'
+  - ',(?<SERIAL>\w+),SYSTEM,.*Disconnecting due to possible replay attempt'
+detection_var:
+  - SERIAL
+max_score: 1
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,SYSTEM,crypto,0,2026/07/12 08:15:50,vsys1,crl-fetch-fail,,0,0,general,medium,"Certificate portal-cert has illegal URL for CRL distribution point",1523,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SERIAL: "001801010101"
+    - message: 'Jul 12 08:15:51 pan01 1,2026/07/12 08:15:51,001801010101,SYSTEM,crypto,0,2026/07/12 08:15:51,vsys1,cert-revoked,,0,0,general,medium,"Certificate vpn-peer-cert is revoked",1524,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SERIAL: "001801010101"
+    - message: 'Jul 12 08:15:52 pan01 1,2026/07/12 08:15:52,001801010101,SYSTEM,general,0,2026/07/12 08:15:52,vsys1,general,,0,0,general,high,"Disconnecting due to possible replay attempt from 203.0.113.5 port 40022",1525,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SERIAL: "001801010101"
+  negative:
+    - message: 'Jul 12 08:25:49 pan01 1,2026/07/12 08:25:49,001801010101,SYSTEM,crypto,0,2026/07/12 08:25:49,vsys1,cert-renew,,0,0,general,informational,"Certificate mgmt-cert successfully renewed",1530,0x0,0,0,0,0,,PA-3220'
+      found: 0
+      undefed: ["SERIAL"]
+    - message: 'Jul 12 08:25:50 pan01 1,2026/07/12 08:25:50,001801010101,TRAFFIC,end,2561,2026/07/12 08:25:50,10.0.1.23,203.0.113.200,192.0.2.1,203.0.113.200,allow-out,,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34567,1,52144,80,25411,80,0x40b000,tcp,allow,4213,1804,2409,24,2026/07/12 08:25:21,15,any'
+      found: 0
+      undefed: ["SERIAL"]

@@ -1,0 +1,66 @@
+---
+# SonicOS management and user auth failures... a hand on the firewall's
+# own door. SonicOS emits syslog natively in key=value, so this raw rule
+# anchors on the msg text, the offender pulled from the src= field. From
+# sagan-rules sonicwall.rules, six rules folded into one: the GUI and CLI
+# administrator bad-credential denials, the login denied on a disabled
+# interface, the older Wrong Admin Password and Admin Login Disabled
+# shapes, and the FTP proxy user login failure. The source's classtypes
+# were unsuccessful-admin, unsuccessful-user, and suspicious-traffic...
+# the dominant unsuccessful-admin is carried. Repeated bad credentials
+# against a firewall's management plane are the brute-force shape
+# whatever the label, so the brute_force brand is set, feeding the
+# standard-vocabulary readers the same way raw/fortinet-admin-auth does.
+rev: 1
+msg: "[SONICWALL] admin/user login failed"
+severity: high
+classtype: unsuccessful-admin
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - 'msg="(?:CLI administrator|Administrator) login denied due to bad credentials[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Administrator login denied from [^"]*logins disabled from this interface[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Wrong Admin Password[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Admin Login Disabled[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="FTP client user [^"]*logged in failed[^"]*".*?src=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 03:12:44 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:12:44 UTC" fw=203.0.113.1 pri=1 c=32 m=30 msg="Administrator login denied due to bad credentials" n=8 usr="admin" src=203.0.113.99:49152:X1 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.99"
+    - message: 'Jul 12 03:13:02 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:13:02 UTC" fw=203.0.113.1 pri=1 c=32 m=1197 msg="CLI administrator login denied due to bad credentials" n=3 usr="admin" src=198.51.100.23:52001:X1 dst=192.0.2.1:22:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: 'Jul 12 03:14:19 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:14:19 UTC" fw=203.0.113.1 pri=1 c=32 m=32 msg="Administrator login denied from WAN: logins disabled from this interface" n=2 usr="admin" src=203.0.113.77:50233:X1 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+    - message: 'Jul 12 03:15:31 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:15:31 UTC" fw=203.0.113.1 pri=1 c=32 m=30 msg="Wrong Admin Password" n=14 src=198.51.100.60:44172:X1 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.60"
+    - message: 'Jul 12 03:16:05 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:16:05 UTC" fw=203.0.113.1 pri=1 c=32 m=33 msg="Admin Login Disabled" n=1 src=198.51.100.60:44201:X1 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.60"
+    - message: 'Jul 12 03:17:48 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:17:48 UTC" fw=203.0.113.1 pri=1 c=64 m=564 msg="FTP client user anonymous logged in failed" n=5 src=192.0.2.88:34012:X1 dst=192.0.2.20:21:X0'
+      found: 1
+      data:
+        SRC: "192.0.2.88"
+  negative:
+    - message: 'Jul 12 03:20:19 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:20:19 UTC" fw=203.0.113.1 pri=6 c=16 m=29 msg="Administrator login allowed" n=44 usr="admin" src=192.168.1.10:52100:X0 dst=192.0.2.1:443:X0'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 03:21:40 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:21:40 UTC" fw=203.0.113.1 pri=6 c=16 m=1196 msg="CLI administrator login allowed" n=6 usr="admin" src=192.168.1.10:52111:X0 dst=192.0.2.1:22:X0'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 03:22:55 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:22:55 UTC" fw=203.0.113.1 pri=6 c=64 m=563 msg="FTP client user jsmith logged in" n=9 src=192.0.2.88:34020:X1 dst=192.0.2.20:21:X0'
+      found: 0
+      undefed: ["SRC"]

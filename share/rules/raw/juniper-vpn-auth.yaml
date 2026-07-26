@@ -1,0 +1,53 @@
+---
+# Juniper SA/IVE VPN gateway auth failures. The appliance logs in its
+# own dated shape under the Juniper tag, each event naming the client
+# in brackets after the "ive" marker, so this raw rule anchors there,
+# never on the line's head. Three rules from sagan-rules juniper.rules
+# folded together: the login/authentication failure that branded
+# brute_force (the [10/5] brute force rule), the "not authenticated
+# yet" login-bypass probe, and the Host Checker policy violation... a
+# client failing the posture check is still a credentialed knock at
+# the door. The Host Checker match is tightened over the source's bare
+# "Host Checker policy" content to failures only, sparing the passed
+# lines the source would of counted. The dominant brute-force
+# classtype is carried (the bypass and policy rules were
+# unsuccessful-user), and the brand kept for the standard-vocabulary
+# readers.
+rev: 1
+msg: "[JUNIPER] VPN login failed"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '- ive - \[%%%%SRC%%%%\].*?(?i:Login failed|authentication failed)'
+  - '- ive - \[%%%%SRC%%%%\].*?not authenticated yet'
+  - '- ive - \[%%%%SRC%%%%\].*?Host Checker policy .*?failed'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 03:14:11 vpn01 Juniper: 2026-07-12 03:14:11 - ive - [203.0.113.9] user(Users)[] - Login failed using auth server Local Authentication (Local Authentication).  Reason: Failed"
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    - message: "Jul 12 03:14:25 vpn01 Juniper: 2026-07-12 03:14:25 - ive - [198.51.100.60] jdoe(Corp-Realm)[] - Primary authentication failed for jdoe/Corp-AD from 198.51.100.60"
+      found: 1
+      data:
+        SRC: "198.51.100.60"
+    - message: "Jul 12 03:15:02 vpn01 Juniper: 2026-07-12 03:15:02 - ive - [203.0.113.9] anonymous()[] - User attempted to access resource /dana-na/auth/url_default/welcome.cgi but is not authenticated yet"
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    - message: 'Jul 12 03:15:40 vpn01 Juniper: 2026-07-12 03:15:40 - ive - [198.51.100.60] jdoe(Corp-Realm)[] - Host Checker policy "Corp-AV" failed on host 198.51.100.60 for user jdoe'
+      found: 1
+      data:
+        SRC: "198.51.100.60"
+  negative:
+    - message: "Jul 12 03:20:00 vpn01 Juniper: 2026-07-12 03:20:00 - ive - [198.51.100.60] jdoe(Corp-Realm)[Employees] - Login succeeded for jdoe/Corp-Realm from 198.51.100.60"
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 03:20:30 vpn01 Juniper: 2026-07-12 03:20:30 - ive - [198.51.100.60] jdoe(Corp-Realm)[Employees] - Host Checker policy "Corp-AV" passed on host 198.51.100.60 for user jdoe'
+      found: 0
+      undefed: ["SRC"]

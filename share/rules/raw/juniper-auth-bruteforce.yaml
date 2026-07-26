@@ -1,0 +1,59 @@
+---
+# JunOS management-plane login failures. A Juniper router speaks syslog
+# natively and tags its griefs with event names, so this raw rule
+# anchors on SSHD_LOGIN_FAILED and its kin rather than the line's head.
+# From sagan-rules juniper.rules, the brute-force pair that branded
+# brute_force (SSHD_LOGIN_FAILED and SSHD_LOGIN_FAILED_LIMIT)... the
+# brand is kept, so a hammering source feeds every reader of the
+# standard vocabulary. The telnet/console sibling LOGIN_FAILED is
+# folded in too... the same offense at another door, and it names its
+# host as well... and the structured-data ledger shape newer JunOS
+# emits is covered beside the traditional prose. Their thresholding
+# cousin SSHD_LOGIN_ATTEMPTS_THRESHOLD names no address to accuse, so
+# it lives in raw/juniper-auth-anomaly instead.
+rev: 1
+msg: "[JUNIPER] login failed - brute force"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - 'SSHD_LOGIN_FAILED: Login failed for user ''[^'']*'' from host ''%%%%SRC%%%%'''
+  - 'SSHD_LOGIN_FAILED_LIMIT: Login failure limit reached for user ''[^'']*'' from host ''%%%%SRC%%%%'''
+  - 'SSHD_LOGIN_FAILED \[junos@\S+ username="[^"]*" source-address="%%%%SRC%%%%"'
+  - 'LOGIN_FAILED: Login failed for user \S+ from host %%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 edge-r1 sshd[6123]: SSHD_LOGIN_FAILED: Login failed for user 'root' from host '203.0.113.45'"
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: "Jul 12 08:16:02 edge-r1 sshd[6188]: SSHD_LOGIN_FAILED: Login failed for user 'admin' from host '2001:db8::badc:0ffe'"
+      found: 1
+      data:
+        SRC: "2001:db8::badc:0ffe"
+    - message: "Jul 12 08:16:10 edge-r1 sshd[6123]: SSHD_LOGIN_FAILED_LIMIT: Login failure limit reached for user 'admin' from host '198.51.100.23'"
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: 'Jul 12 08:16:33 edge-r1 sshd SSHD_LOGIN_FAILED [junos@2636.1.1.1.2.40 username="root" source-address="203.0.113.77"]'
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+    - message: "Jul 12 08:16:40 edge-r1 login[4711]: LOGIN_FAILED: Login failed for user admin from host 203.0.113.66"
+      found: 1
+      data:
+        SRC: "203.0.113.66"
+  negative:
+    - message: "Jul 12 08:25:49 edge-r1 sshd[6123]: SSHD_LOGIN_ATTEMPTS_THRESHOLD: Threshold for unsuccessful authentication attempts (3) reached by user 'root'"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:52 edge-r1 mgd[4521]: UI_AUTH_EVENT: Authenticated user 'admin' at permission level 'j-super-user'"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:26:00 edge-r1 login[4712]: LOGIN_INFORMATION: User admin logged in from host 192.168.1.10 on device ttyp0"
+      found: 0
+      undefed: ["SRC"]

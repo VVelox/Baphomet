@@ -1,0 +1,31 @@
+---
+# SSL negotiation failures at the Juniper SA/IVE VPN gateway... the
+# litter a scanner or protocol probe leaves when it pokes the HTTPS
+# door and walks away without a handshake. From sagan-rules
+# juniper.rules ("VPN - Possible scan/probe"), its suspicious-traffic
+# classtype carried; a probe is recon by nature, so the source wears
+# the recon brand for the standard-vocabulary readers all the same.
+rev: 1
+msg: "[JUNIPER] VPN SSL negotiation failed - possible scan/probe"
+severity: medium
+classtype: suspicious-traffic
+mark:
+  - name: recon
+    ttl: 86400
+message_regexp:
+  - '- ive - \[%%%%SRC%%%%\].*?SSL negotiation failed'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 03:14:40 vpn01 Juniper: 2026-07-12 03:14:40 - ive - [185.220.101.4] System()[] - SSL negotiation failed while client at source IP 185.220.101.4 was trying to connect to 192.0.2.20. Reason: sslv3 alert certificate unknown"
+      found: 1
+      data:
+        SRC: "185.220.101.4"
+  negative:
+    - message: "Jul 12 03:20:00 vpn01 Juniper: 2026-07-12 03:20:00 - ive - [198.51.100.60] jdoe(Corp-Realm)[Employees] - Login succeeded for jdoe/Corp-Realm from 198.51.100.60"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 03:21:00 vpn01 Juniper: 2026-07-12 03:21:00 - ive - [198.51.100.60] System()[] - Number of concurrent users (12) is within the system limit (100)"
+      found: 0
+      undefed: ["SRC"]

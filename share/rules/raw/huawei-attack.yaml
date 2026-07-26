@@ -1,0 +1,48 @@
+---
+# The attack-defense module's other verdicts... the thirteen misc-attack
+# names of SEC/4/ATCKDF in sagan-rules huawei.rules, the crafted-packet
+# and probe shapes: IP spoof, Time stamp, Ip options, Ip option source
+# route, Ip options route record, Redirect, Trace route, Unreachable,
+# Udp flood, other-protocol, IP Fragment, Ftp Bounce, Tcp flag. Folded
+# into one alternation, banning the sender. Udp flood sits here rather
+# than beside its siblings because Sagan classed it misc-attack while
+# Syn flood got attempted-dos... the source's classing is carried as-is,
+# the split being by classtype. VRP speaks syslog natively; the %%01
+# info-center framing with a (Key=Value, ...) tail carrying SourceIp= is
+# the one realistic shape assumed, the severity digit left loose. The
+# port-scan name lives in raw/huawei-scan, where the recon brand belongs.
+rev: 1
+msg: "[HUAWEI] crafted-packet attack detected by attack-defense"
+severity: medium
+classtype: misc-attack
+references:
+  - http://www.huaweisymantec.com/en/download.do?id=658891
+message_regexp:
+  - 'SEC/\d/ATCKDF\S*:.*?\b(?i:IP spoof|Time stamp|Ip options route record|Ip option source route|Ip options|Redirect|Trace route|Unreachable|Udp flood|Other-protocol|IP Fragment|Ftp Bounce|Tcp flag) attack\b.*?\b(?:SourceIp|SrcIp)=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=IP spoof attack, SourceIp=203.0.113.61, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=44)'
+      found: 1
+      data:
+        SRC: "203.0.113.61"
+    - message: 'Jul 12 08:15:51 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Ip option source route attack, SourceIp=198.51.100.32, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=6)'
+      found: 1
+      data:
+        SRC: "198.51.100.32"
+    - message: 'Jul 12 08:15:52 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Udp flood attack, SourceIp=203.0.113.77, DestinationIp=192.0.2.53, ReceiveInterface=GigabitEthernet0/0/2, TotalPackets=15000)'
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+    - message: 'Jul 12 08:15:53 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Ftp Bounce attack, SourceIp=2001:db8::42, DestinationIp=2001:db8::21, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=3)'
+      found: 1
+      data:
+        SRC: "2001:db8::42"
+  negative:
+    - message: 'Jul 12 08:25:49 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Syn flood attack, SourceIp=203.0.113.21, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=2038)'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:50 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Port scan attack, SourceIp=203.0.113.50, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=200)'
+      found: 0
+      undefed: ["SRC"]

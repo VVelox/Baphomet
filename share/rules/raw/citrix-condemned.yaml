@@ -1,0 +1,45 @@
+---
+# The condemned at the door... an AAA login failure from a source
+# already branded recon, exploit_attempt, or honeypot (see rules.md,
+# the standard brands). They scanned, they probed, and now they are
+# trying credentials. From sagan-rules citrix-correlated.rules, its
+# three per-bit AAA LOGIN_FAILED rules (sids 5003238-5003240) folded
+# into one by the any-of names gate. brute_force is left off the
+# gate on purpose, as Sagan left it... raw/citrix-auth-bruteforce
+# already owns that line and would only echo itself.
+#
+# Detection-only, modeled on the breach readers... it sights rather
+# than banishes. Flip detection_var to ban_var to make it act. List
+# it ahead of citrix-auth-bruteforce... when the gate vetoes, the
+# line falls through to the plain rule untouched. NetScaler emits
+# syslog natively but stuffs the date where the program name goes,
+# so this is a raw rule anchored on the AAA module tokens, never on
+# line start.
+rev: 1
+msg: "[CITRIX] AAA login failure from a branded source"
+severity: high
+classtype: correlated-attack
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+marked:
+  - names: [ recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 1
+      data:
+        USER: "serviceacct"
+        SRC: "198.51.100.9"
+  negative:
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"
+      found: 0
+      undefed: ["SRC"]

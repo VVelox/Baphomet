@@ -1,0 +1,43 @@
+---
+# A virus crossing the wire... the AV engine's THREAT,virus entries,
+# with the WildFire verdicts (wildfire-virus) riding along. PAN-OS
+# speaks syslog natively, every line a comma-separated ledger, so this
+# is a raw rule anchored on the subtype tokens with both ends lifted
+# from their CSV seats, never on the line's head. Both ends are
+# captured and ban_not_internal banishes only the end that is not
+# yours... an inbound download banishes the serving host, an outbound
+# carry the taker, and your own machines are never accused. From
+# sagan-rules palo-alto.rules sid 5002755.
+rev: 1
+msg: "[PALO-ALTO] virus detected"
+severity: high
+classtype: suspicious-traffic
+references:
+  - https://threatvault.paloaltonetworks.com
+message_regexp:
+  - ',THREAT,(?:wildfire-)?virus,[^,]*,[^,]*,%%%%SRC%%%%,%%%%DEST%%%%,'
+ban_var:
+  - SRC
+  - DEST
+ban_not_internal: true
+src_ip_var: SRC
+dest_ip_var: DEST
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,THREAT,virus,268435456,2026/07/12 08:15:50,203.0.113.99,10.0.1.23,203.0.113.99,192.0.2.1,allow-web,,,web-browsing,vsys1,Untrust,Trust,ethernet1/1,ethernet1/2,default-log,,61234,1,80,52144,80,25411,0x80004000,tcp,reset-both,"eicar.com.txt",Eicar Test File(100000),any,medium,server-to-client,7132580,0x0,US,10.0.0.0-10.255.255.255'
+      found: 1
+      data:
+        SRC: "203.0.113.99"
+        DEST: "10.0.1.23"
+    - message: 'Jul 12 08:15:51 pan01 1,2026/07/12 08:15:51,001801010101,THREAT,wildfire-virus,268435456,2026/07/12 08:15:51,10.0.1.31,203.0.113.150,192.0.2.1,203.0.113.150,allow-smtp,,,smtp,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,61235,1,52200,25,25420,25,0x2000,tcp,alert,"invoice.exe",Trojan/Win32.agent.xyz(5551234),any,high,client-to-server,7132581,0x0,10.0.0.0-10.255.255.255,US'
+      found: 1
+      data:
+        SRC: "10.0.1.31"
+        DEST: "203.0.113.150"
+  negative:
+    - message: 'Jul 12 08:25:49 pan01 1,2026/07/12 08:25:49,001801010101,THREAT,file,268435456,2026/07/12 08:25:49,10.0.1.23,203.0.113.155,192.0.2.1,203.0.113.155,allow-web,,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,61240,1,52210,80,25425,80,0x2000,tcp,alert,"setup.exe",Windows Executable (EXE)(52020),any,low,server-to-client,7132585,0x0,10.0.0.0-10.255.255.255,US'
+      found: 0
+      undefed: ["SRC", "DEST"]
+    - message: 'Jul 12 08:25:50 pan01 1,2026/07/12 08:25:50,001801010101,TRAFFIC,end,2561,2026/07/12 08:25:50,10.0.1.23,203.0.113.200,192.0.2.1,203.0.113.200,allow-out,,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34567,1,52144,80,25411,80,0x40b000,tcp,allow,4213,1804,2409,24,2026/07/12 08:25:21,15,any'
+      found: 0
+      undefed: ["SRC", "DEST"]

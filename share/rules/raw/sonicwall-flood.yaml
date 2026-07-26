@@ -1,0 +1,50 @@
+---
+# SonicOS flood detection... SYN, FIN, and RST storms and the blacklists
+# they earn. SonicOS emits syslog natively in key=value, so this raw rule
+# anchors on the msg text. From sagan-rules sonicwall.rules, seven
+# attempted-dos rules folded into one: the possible SYN/FIN/RST flood
+# detections, the flooding-machine blacklistings (whose offender rides
+# inside the msg text, not the src= field), and the FIN/RST Flood
+# Blacklist-on events. Dropped from the source: the SYN flood rule's
+# pcre excluding RFC 1918 sources... that is the internal/ignore_ips
+# config's job here, not a regexp's... and the suppress thresholds,
+# which are the kur's counters. The removed-from-blacklist and
+# flood-ceased notices are the storm passing, not the storm... they
+# live in raw/sonicwall-system as sightings.
+rev: 1
+msg: "[SONICWALL] flood detected"
+severity: high
+classtype: attempted-dos
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'msg="Possible (?:SYN|FIN|RST) [fF]lood[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="[^"]*(?:SYN|FIN|RST)[- ][fF]looding machine %%%%SRC%%%%'
+  - 'msg="(?:SYN|FIN|RST) Flood Blacklist on [^"]*".*?src=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 05:01:19 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 05:01:19 UTC" fw=203.0.113.1 pri=1 c=32 m=25 msg="Possible SYN Flood on IF X1" n=339 src=203.0.113.200:0:X1 dst=192.0.2.2:80:X0 note="Rate: 2210 SYNs/sec"'
+      found: 1
+      data:
+        SRC: "203.0.113.200"
+    - message: 'Jul 12 05:02:40 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 05:02:40 UTC" fw=203.0.113.1 pri=1 c=32 m=856 msg="Possible FIN Flood on IF X1" n=12 src=198.51.100.31:0:X1 dst=192.0.2.2:443:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.31"
+    - message: 'Jul 12 05:03:55 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 05:03:55 UTC" fw=203.0.113.1 pri=1 c=32 m=862 msg="FIN-Flooding machine 198.51.100.99 blacklisted" n=1'
+      found: 1
+      data:
+        SRC: "198.51.100.99"
+    - message: 'Jul 12 05:04:31 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 05:04:31 UTC" fw=203.0.113.1 pri=1 c=32 m=863 msg="RST Flood Blacklist on IF X1 enabled" n=2 src=203.0.113.201:0:X1 dst=192.0.2.2:22:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.201"
+  negative:
+    - message: 'Jul 12 05:10:08 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 05:10:08 UTC" fw=203.0.113.1 pri=6 c=32 m=864 msg="Machine 198.51.100.99 removed from RST flood blacklist" n=1'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 05:11:23 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 05:11:23 UTC" fw=203.0.113.1 pri=6 c=16 m=865 msg="SYN Flood blacklisting enabled by user" n=1 usr="admin" src=192.168.1.10:52140:X0 dst=192.0.2.1:443:X0'
+      found: 0
+      undefed: ["SRC"]

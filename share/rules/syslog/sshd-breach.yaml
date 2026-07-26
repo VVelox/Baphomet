@@ -1,0 +1,44 @@
+---
+# The condemned walked in... a successful ssh login from a source holding
+# any of the standard brands (see rules.md, the standard brands). The
+# failures may have happened here, against the mail host, or against a
+# honeypot... wherever the brand was earned, a success from that source is
+# a likely credential compromise. From sagan-rules openssh-correlated,
+# its four per-bit rules folded into one by the any-of names gate.
+#
+# Detection-only... banning a source that just SUCCEEDED is a policy
+# call, so this sights rather than banishes. Flip detection_var to
+# ban_var to make it act. List it after syslog/sshd-worked... on a
+# success both would tell, worked speaks for the in-watcher staged story
+# and this one catches the cross-product rest.
+rev: 1
+msg: "[SSHD] the condemned walked in... login success from a branded source"
+severity: critical
+classtype: successful-user
+daemons:
+  - sshd
+  - sshd-session
+message_regexp:
+  - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var: [ SRC ]
+max_score: 1
+tests:
+  positive:
+    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 192.0.2.44 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+  negative:
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 cron[1234]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+      found: 0
+      undefed: ["SRC"]

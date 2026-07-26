@@ -1,0 +1,35 @@
+---
+# Access GRANTED, over and over... 713160, the Firewall Server admitting a
+# remote user, which Sagan (cisco-pixasa.rules) read as brute force only
+# behind an "after: 10 hits in 300 seconds" gate. A success counted bare
+# would ban the merely diligent, so it lives here apart from
+# raw/cisco-asa-auth-bruteforce, detection-only and carrying Sagan's
+# numbers as max_score / find_time... ten grants in five minutes raises a
+# sighted where the kur allows per-rule thresholds, and every grant is a
+# sighting regardless. Flip detection_var to ban_var only if you have
+# reason to trust the rate gate for your traffic.
+rev: 1
+msg: "[CISCO-ASA] rapid remote-access grants... ten in five minutes reads as automation"
+severity: medium
+classtype: brute-force
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-713160: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote user \(session Id - \d+\) has been granted access by the Firewall Server'
+detection_var: [ SRC ]
+max_score: 10
+find_time: 300
+tests:
+  positive:
+    - message: 'Jul 12 08:15:53 fw01 %ASA-7-713160: Group = clientgroup, IP = 192.0.2.5, Remote user (session Id - 24) has been granted access by the Firewall Server'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:54 fw01 %PIX-7-713160: IP = 192.0.2.6, Remote user (session Id - 25) has been granted access by the Firewall Server'
+      found: 1
+      data:
+        SRC: "192.0.2.6"
+  negative:
+    - message: 'Jul 12 08:15:55 fw01 %ASA-6-113005: AAA user authentication Rejected : reason = AAA failure : server = 10.1.1.10 : user = admin : user IP = 192.0.2.5'
+      found: 0
+      undefed: ["SRC"]

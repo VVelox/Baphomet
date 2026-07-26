@@ -1,0 +1,101 @@
+---
+# SonicOS system happenings... the box reporting on itself. SonicOS
+# emits syslog natively in key=value, so this raw rule anchors on the
+# msg text. From sagan-rules sonicwall.rules, twenty-four rules folded
+# into one: registration update needed, expired licenses, the firewall
+# restarting, machines coming OFF the FIN/RST/SYN flood blacklists and
+# the SYN flood ceasing (the storm passing... the storm itself lives in
+# raw/sonicwall-flood), the logging thresholds (max events and max
+# syslog data per second), multiple DHCP servers on the wire, a VPN
+# policy with no firewall rule, the SSO agent's too-long names, the WAN
+# failover probing pair (two of the source's three were duplicates...
+# its "suceeded" misspelling is kept beside the corrected spelling),
+# the high-availability family (backup active, transitions, reboot,
+# WAN link down), the GUI and CLI administrator login successes, and
+# the PPP dialup failed-dial ceiling. The source's classtypes sprawled
+# (system-event, hardware-event, successful-admin, attempted-recon,
+# successful-recon-limited, attempted-dos, network-event,
+# exploit-attempt)... system-event, the dominant, is carried.
+#
+# Detection-only, counted by the reporting firewall's fw= address...
+# all of it is state of the box, an offender nowhere in sight. Sights
+# to EVE for the operator.
+rev: 1
+msg: "[SONICWALL] system event"
+severity: low
+classtype: system-event
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Registration Update Needed[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*SonicWALL[^"]* expired[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Restarting SonicWALL[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*removed from (?:FIN|RST|SYN) flood blacklist[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="SYN flood ceased or flooding machines blacklisted[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Maximum (?:events|syslog data) per second threshold exceeded[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Multiple DHCP [sS]ervers (?:are )?detected on network[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*[nN]o firewall rule associated with VPN policy[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="SonicWALL SSO [aA]gent returned (?:domain|user) name too long[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Probing (?:failure|succ?eeded) on[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Backup (?:active|firewall has transitioned to (?:Active|Idle)|firewall rebooting itself|WAN link down)[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="(?:CLI administrator|Administrator) login allowed[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Maximum sequential failed dial attempts[^"]*"'
+detection_var:
+  - ADDR
+tests:
+  positive:
+    - message: 'Jul 12 14:01:10 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:01:10 UTC" fw=203.0.113.1 pri=4 c=16 m=517 msg="Registration Update Needed.  Restore your existing security service subscriptions by clicking here" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:02:27 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:02:27 UTC" fw=203.0.113.1 pri=4 c=16 m=518 msg="SonicWALL Content Filtering subscription has expired" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:03:39 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:03:39 UTC" fw=203.0.113.1 pri=1 c=16 m=93 msg="Restarting SonicWALL" n=1 usr="admin" src=192.168.1.10:52300:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:04:52 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:04:52 UTC" fw=203.0.113.1 pri=6 c=32 m=864 msg="Machine 198.51.100.99 removed from RST flood blacklist" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:06:04 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:06:04 UTC" fw=203.0.113.1 pri=6 c=32 m=866 msg="SYN flood ceased or flooding machines blacklisted" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:07:21 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:07:21 UTC" fw=203.0.113.1 pri=4 c=16 m=1000 msg="Maximum events per second threshold exceeded" n=3'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:08:38 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:08:38 UTC" fw=203.0.113.1 pri=4 c=16 m=1003 msg="Multiple DHCP Servers are detected on network" n=2 src=192.0.2.150:67:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:09:50 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:09:50 UTC" fw=203.0.113.1 pri=4 c=16 m=1007 msg="SonicWALL SSO agent returned user name too long" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:11:03 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:11:03 UTC" fw=203.0.113.1 pri=4 c=16 m=330 msg="Probing failure on WAN interface X1" n=4'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:12:16 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:12:16 UTC" fw=203.0.113.1 pri=4 c=16 m=331 msg="Probing suceeded on WAN interface X1" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:13:30 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:13:30 UTC" fw=203.0.113.1 pri=1 c=16 m=674 msg="Backup firewall has transitioned to Active" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:14:45 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:14:45 UTC" fw=203.0.113.1 pri=6 c=16 m=29 msg="Administrator login allowed" n=44 usr="admin" src=192.168.1.10:52100:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+  negative:
+    - message: 'Jul 12 14:20:58 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:20:58 UTC" fw=203.0.113.1 pri=1 c=32 m=30 msg="Administrator login denied due to bad credentials" n=8 usr="admin" src=203.0.113.99:49152:X1 dst=192.0.2.1:443:X0'
+      found: 0
+      undefed: ["ADDR"]
+    - message: 'Jul 12 14:22:12 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:22:12 UTC" fw=203.0.113.1 pri=6 c=1024 m=537 msg="Connection Closed" n=9001 src=192.0.2.61:50412:X0 dst=198.51.100.10:443:X1 proto=tcp/https'
+      found: 0
+      undefed: ["ADDR"]

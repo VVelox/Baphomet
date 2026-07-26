@@ -1,0 +1,32 @@
+---
+# Worse than walking in... a vsftpd upload by a source holding any of the
+# standard brands (see rules.md, the standard brands). A branded source
+# writing files is staging, exfil scaffolding, or a dropped payload. From
+# sagan-rules vsftpd-correlated, its four per-bit upload rules folded
+# into one by the any-of names gate. The login sibling is
+# syslog/vsftpd-breach.
+#
+# Detection-only... flip detection_var to ban_var to make it act.
+rev: 1
+msg: "[VSFTPD] upload by a branded source... the condemned is moving in"
+severity: critical
+classtype: successful-user
+daemons:
+  - vsftpd
+message_regexp:
+  - '^(?:\[pid \d+\] )?\[[^\]]+\] OK UPLOAD: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var: [ SRC ]
+max_score: 1
+tests:
+  positive:
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK UPLOAD: Client "::ffff:192.0.2.60", "/srv/ftp/sh.php", 4823 bytes, 122.13Kbyte/sec'
+      found: 1
+      data:
+        SRC: "192.0.2.60"
+  negative:
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK DOWNLOAD: Client "::ffff:192.0.2.60", "/srv/ftp/readme.txt", 120 bytes, 12.1Kbyte/sec'
+      found: 0
+      undefed: ["SRC"]

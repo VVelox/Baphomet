@@ -1,0 +1,43 @@
+---
+# An administrator walking in from the outside... a successful FortiGate
+# admin login (logid 32001) whose srcip= sits in no RFC 1918 range.
+# FortiOS speaks syslog natively in key=value, so this raw rule anchors
+# on the logid, never the line's head. From the sagan-rules
+# fortinet.rules administrator-login-from-external rule, its pcre of
+# private-range exclusions rebuilt as a lookahead (10/8, 172.16/12,
+# 192.168/16, plus 127/8 for the jsconsole's loopback)... a global IPv6
+# source counts too, which the source rule could not see. Detection-only
+# and one sighting speaks... a success is not banishable on sight, the
+# management edge may be legitimately public. Widen or narrow the
+# notion of your own ranges by overriding this rule in the site dir.
+rev: 1
+msg: "[FORTINET] admin login from external address"
+severity: high
+classtype: successful-admin
+references:
+  - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
+message_regexp:
+  - 'logid="\d*32001" type="event".*?srcip=(?!10\.|127\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)%%%%SRC%%%%'
+detection_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    - message: 'Jul 12 17:25:49 fw01 date=2026-07-12 time=17:25:49 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752359149000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(203.0.113.45)"'
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: 'Jul 12 17:27:12 fw01 date=2026-07-12 time=17:27:12 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752359232000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="ssh(2001:db8::9)" method="ssh" srcip=2001:db8::9 dstip=2001:db8::1 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from ssh(2001:db8::9)"'
+      found: 1
+      data:
+        SRC: "2001:db8::9"
+  negative:
+    - message: 'Jul 12 17:30:00 fw01 date=2026-07-12 time=17:30:00 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752359400000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(192.168.1.10)" method="https" srcip=192.168.1.10 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(192.168.1.10)"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 17:31:20 fw01 date=2026-07-12 time=17:31:20 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752359480000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(172.20.3.4)" method="https" srcip=172.20.3.4 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(172.20.3.4)"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 17:32:44 fw01 date=2026-07-12 time=17:32:44 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032002" type="event" subtype="system" level="alert" vd="root" eventtime=1752359564000000000 tz="-0500" logdesc="Admin login failed" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="failed" reason="passwd_invalid" msg="Administrator admin login failed from https(203.0.113.45) because of invalid password"'
+      found: 0
+      undefed: ["SRC"]

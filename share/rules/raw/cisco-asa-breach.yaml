@@ -1,0 +1,76 @@
+---
+# The condemned walked in... a successful ASA login, VPN session, or FTP
+# transfer from a source holding any of the standard brands (see
+# rules.md, the standard brands). The failures may have been earned
+# here, against the mail host, or against a honeypot... wherever the
+# brand was set, a success from that source is a likely credential
+# compromise. From sagan-rules cisco-correlated.rules, its per-bit isset
+# rules folded into one by the any-of names gate, modeled on
+# syslog/sshd-breach: 605005 (login permitted), 716001 (WebVPN session
+# started), 716038 (WebVPN authentication successful), 734001 (DAP
+# records selected for a connection), 722022 / 722023 (TCP / UDP SVC
+# connection established), and 303002 (FTP transfer through the
+# firewall). Skipped from the source: the SEC_LOGIN console rules
+# (Cisco IOS's program, another port's concern), the CisACS rules
+# (Cisco ACS, a different product), and the VPN-disconnect variants the
+# source itself had commented out as noise.
+#
+# Detection-only... banning a source that just SUCCEEDED is a policy
+# call, so this sights rather than banishes. Flip detection_var to
+# ban_var to make it act. The marked gate is galla state, so the
+# embedded tests prove only the matching layer.
+rev: 1
+msg: "[CISCO-ASA] the condemned walked in... success from a branded source"
+severity: critical
+classtype: correlated-attack
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-605005: Login permitted from %%%%SRC%%%%/\d+'
+  - '%ASA-\d-716001: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> WebVPN session started'
+  - '%ASA-\d-716038: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> Authentication: successful'
+  - '%ASA-\d-734001: DAP: User [^,]*, Addr %%%%SRC%%%%'
+  - '%ASA-\d-72202[23]: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> (?:TCP|UDP) SVC connection established'
+  - '%(?:ASA|PIX|FWSM)-\d-303002: FTP connection from [^:]+:%%%%SRC%%%%/\d+ to [^:]+:\S+, user \S+ (?:Stored|Retrieved) file'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var: [ SRC ]
+max_score: 1
+tests:
+  positive:
+    - message: 'Jul 12 09:02:11 fw01 %ASA-6-605005: Login permitted from 192.0.2.44/51522 to outside:203.0.113.10/ssh for user "admin"'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: 'Jul 12 09:02:12 fw01 %ASA-6-716001: Group <vpn-users> User <jsmith> IP <192.0.2.44> WebVPN session started.'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: 'Jul 12 09:02:13 fw01 %ASA-6-716038: Group <vpn-users> User <jsmith> IP <192.0.2.44> Authentication: successful, Session Type: WebVPN.'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: 'Jul 12 09:02:14 fw01 %ASA-6-734001: DAP: User jsmith, Addr 192.0.2.44, Connection AnyConnect: The following DAP records were selected for this connection: DfltAccessPolicy'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: 'Jul 12 09:02:15 fw01 %ASA-6-722022: Group <vpn-users> User <jsmith> IP <192.0.2.44> TCP SVC connection established without compression'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: 'Jul 12 09:02:16 fw01 %ASA-6-722023: Group <vpn-users> User <jsmith> IP <192.0.2.44> UDP SVC connection established without compression'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+    - message: 'Jul 12 09:02:17 fw01 %ASA-6-303002: FTP connection from outside:192.0.2.44/51544 to dmz:10.1.2.20/21, user jsmith Stored file passwd.txt'
+      found: 1
+      data:
+        SRC: "192.0.2.44"
+  negative:
+    - message: 'Jul 12 09:05:00 fw01 %ASA-6-605004: Login denied from 192.0.2.44/51522 to outside:203.0.113.10/ssh for user "admin"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 09:05:01 fw01 %ASA-6-716002: Group <vpn-users> User <jsmith> IP <192.0.2.44> WebVPN session terminated: User Requested.'
+      found: 0
+      undefed: ["SRC"]

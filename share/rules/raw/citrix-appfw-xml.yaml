@@ -1,0 +1,62 @@
+---
+# The AppFw catching an attack on an XML or SOAP service... SQL injection
+# and XSS inside XML payloads, malformed and ill-formed messages,
+# attachment violations, SOAP body/envelope/header structure failures,
+# schema validation and validator-load errors, WSI checks, packet
+# processing gone wrong on a hostile payload. Based on sagan-rules
+# citrix.rules... sixty-three per-event-ID web-application-attack
+# signatures (sids 5001231-5001237, 5001273-5001343 actives, 5001349)
+# consolidated into one rule by matching the APPFW_XML_* families whole,
+# less the DoS events, which live in citrix-appfw-xml-dos. The family
+# match is a little wider than Sagan's active set... the commented-out
+# program-error siblings in the same families ride along, since an
+# internal error on a hostile payload is still the payload's doing.
+# NetScaler emits syslog natively but stuffs the date where the program
+# name goes, so this is a raw rule anchored on the audit format's own
+# APPFW module tokens, never on line start. The client address follows
+# the event ID's counters, and it gets banished.
+rev: 1
+msg: "[CITRIX] AppFw XML attack violation"
+severity: high
+classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' APPFW APPFW_XML_(?:ATTACHMENT_\S+|ERR_(?!D?DOS)\S+|PACKET_PROCESSING_\S+|SQL|VALIDATION_\S+|VALIDATOR_LOAD_\S+|WSI_ERR_\S+|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_SQL 95 0 :  192.0.2.18 1049-PPE0 - xmlfw_prof http://api.example.com/soap SQL Keyword check failed in XML payload <blocked>"
+      found: 1
+      data:
+        SRC: "192.0.2.18"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_XSS 96 0 :  198.51.100.30 1050-PPE0 - xmlfw_prof http://api.example.com/soap Cross-site script check failed in XML payload <blocked>"
+      found: 1
+      data:
+        SRC: "198.51.100.30"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_XML_ERR_NOT_WELLFORMED 97 0 :  203.0.113.41 1051-PPE1 - xmlfw_prof http://api.example.com/soap Message is not a well-formed XML <blocked>"
+      found: 1
+      data:
+        SRC: "203.0.113.41"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_VALIDATION_ERR_SOAP_BODY 98 0 :  203.0.113.42 1052-PPE0 - xmlfw_prof http://api.example.com/soap Soap Body structure check failed <blocked>"
+      found: 1
+      data:
+        SRC: "203.0.113.42"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_ATTACHMENT_ERR_MAX_SIZE 99 0 :  203.0.113.43 1053-PPE0 - xmlfw_prof http://api.example.com/soap Attachment size greater than configured max attachment size <blocked>"
+      found: 1
+      data:
+        SRC: "203.0.113.43"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_DOS_ERR_DTD 100 0 :  203.0.113.44 1054-PPE0 - xmlfw_prof http://api.example.com/soap DTD present in the XML message <blocked>"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_SQL 88 0 :  198.51.100.21 1043-PPE0 - webfw_prof http://www.example.com/login.php Field(login) SQL Keyword check failed <blocked>"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 0
+      undefed: ["SRC"]

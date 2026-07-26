@@ -1,0 +1,43 @@
+---
+# Hands on the configuration... the two system-event rules of sagan-rules
+# huawei.rules: SHELL/4/CMD, VRP's command-accounting record of every
+# line an operator types, and SSH/4/add_success, a public key added to
+# the box. Detection-only, subject the user whose hand it was... this is
+# an audit trail, not an offense, and the address on a CMD line is an
+# operator who already authenticated. Expect volume on a busy box...
+# every command is a sighting. VRP speaks syslog natively; the old
+# task:/ip:/user:/command: colon ledger of the CMD record and the %%01
+# info-center framing are the shapes assumed, the severity digit left
+# loose (modern gear says SHELL/5/CMDRECORD, covered by the same anchor).
+rev: 1
+msg: "[HUAWEI] shell command recorded / SSH key added"
+severity: info
+classtype: system-event
+references:
+  - http://www.huaweisymantec.com/en/download.do?id=658891
+message_regexp:
+  - 'SHELL/\d/CMD\S*:.*?\buser:(?<USER>\S+)\s+command:'
+  - 'SSH/\d/add_success\S*:.*?\buser (?<USER>\S+)'
+detection_var:
+  - USER
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 sw01 %%01SHELL/4/CMD(l): task:vt0 ip:192.168.1.10 user:admin command:system-view'
+      found: 1
+      data:
+        USER: "admin"
+    - message: 'Jul 12 08:15:51 sw01 %%01SHELL/5/CMDRECORD(s)[203]: task:vt1 ip:192.168.1.11 user:netops command:undo acl 3000'
+      found: 1
+      data:
+        USER: "netops"
+    - message: 'Jul 12 08:15:52 sw01 %%01SSH/4/add_success(l): The RSA public key of user netops is added successfully.'
+      found: 1
+      data:
+        USER: "netops"
+  negative:
+    - message: 'Jul 12 08:25:49 sw01 %%01SHELL/4/LOGIN_FAIL(l): Failed to login. (Ip=203.0.113.9, UserName=admin, Times=1, AccessType=TELNET)'
+      found: 0
+      undefed: ["USER"]
+    - message: 'Jul 12 08:25:50 sw01 %%01SSH/5/SSH_SUCCESS(l): The SSH user succeeded in logging in. (ServiceType=STELNET, UserName=admin, IPAddress=192.168.1.10, VPNInstanceName=)'
+      found: 0
+      undefed: ["USER"]

@@ -1,0 +1,49 @@
+---
+# A VPN session pressing against its walls... an HTTP or non-HTTP
+# resource denied by the policy engine, or a client security check
+# failing its endpoint. Based on sagan-rules citrix.rules... four
+# unsuccessful-user signatures (sids 5001354, 5001355, 5001374,
+# 5001391... CLISEC_CHECK, CLISEC_EXP_EVAL, and the two
+# RESOURCEACCESS_DENIED events) consolidated into one detection rule.
+# Detection-only, counted by the account... these fire on
+# authenticated sessions, your own users failing posture checks or
+# probing past their grants, and banishing an employee's address for
+# a missing antivirus is nobody's policy. An account piling these up
+# is worth the sighting. NetScaler emits syslog natively but stuffs
+# the date where the program name goes, so this is a raw rule
+# anchored on the SSLVPN module tokens, never on line start.
+rev: 1
+msg: "[CITRIX] VPN resource denied or client security check failed"
+severity: medium
+classtype: unsuccessful-user
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' SSLVPN (?:(?:NON)?HTTP_RESOURCEACCESS_DENIED|CLISEC_(?:CHECK|EXP_EVAL)) \d+ \d+ :\s+Context (?<USER>[^@\s]+)@'
+detection_var:
+  - USER
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default SSLVPN HTTP_RESOURCEACCESS_DENIED 3060 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Vserver 192.0.2.1:443 - Denied_url http://intranet.example.com/admin/ - Denied_by_policy \"POL_DENY_ADMIN\""
+      found: 1
+      data:
+        USER: "jdoe"
+    - message: "Jul 12 08:15:52 ns01 07/12/2026:08:15:52 GMT ns01 0-PPE-1 : default SSLVPN NONHTTP_RESOURCEACCESS_DENIED 3061 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Destination 10.0.0.9:445 - Denied_by_policy \"POL_DENY_SMB\""
+      found: 1
+      data:
+        USER: "jdoe"
+    - message: "Jul 12 08:15:53 ns01 07/12/2026:08:15:53 GMT ns01 0-PPE-0 : default SSLVPN CLISEC_CHECK 2001 0 : Context mallory@198.51.100.7 - SessionId: 9- Client security check CLIENT.APPLICATION.AV(Symantec).RUNNING failed"
+      found: 1
+      data:
+        USER: "mallory"
+    - message: "Jul 12 08:15:54 ns01 07/12/2026:08:15:54 GMT ns01 0-PPE-0 : default SSLVPN CLISEC_EXP_EVAL 2002 0 : Context mallory@198.51.100.7 - SessionId: 9- Client security expression CLIENT.OS(WINDOWS).HOTFIX(KB123456)==EXISTS evaluated to false"
+      found: 1
+      data:
+        USER: "mallory"
+  negative:
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      found: 0
+      undefed: ["USER"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 0
+      undefed: ["USER"]

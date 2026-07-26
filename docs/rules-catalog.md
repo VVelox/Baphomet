@@ -54,6 +54,10 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
 | `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_score 1`) | `sshd`, `sshd-session` |
 | `syslog/sshd-condemned` | a sshd auth failure from a source already branded the standard `brute_force`, wherever it earned the brand... list ahead of `syslog/sshd` (`weight 10`, `max_score 10`) | `sshd`, `sshd-session` |
+| `syslog/sshd-breach` | a successful ssh login from a source holding any standard brand... likely credential compromise (detection-only, from sagan-rules openssh-correlated) | `sshd`, `sshd-session` |
+| `syslog/vsftpd-breach` | a successful vsftpd login from a source holding any standard brand (detection-only, from sagan-rules vsftpd-correlated) | `vsftpd` |
+| `syslog/vsftpd-breach-upload` | a vsftpd upload by a source holding any standard brand (detection-only, from sagan-rules vsftpd-correlated) | `vsftpd` |
+| `syslog/courier-breach` | a successful Courier IMAP/POP3 login from a source holding any standard brand (detection-only, from sagan-rules imapd-correlated) | courier imapd/pop3d variants |
 | `syslog/sshd-worked` | a brute force that landed... counted password failures then an Accepted from the same source (staged, detection-only, excludes agent publickey walks) | `sshd`, `sshd-session` |
 | `syslog/systemd-flap` | a service crash loop... three scheduled restarts of one unit inside two minutes (staged, detection-only, counts by unit per host) | `systemd` |
 | `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
@@ -191,12 +195,47 @@ offenders, like syslog rules but with no daemon gate.
 | `raw/ejabberd-auth`, `raw/guacamole` | XMPP and Guacamole auth failures (single line despite fail2ban buffering a banner) |
 | `raw/traefik-auth`, `raw/nginx-bad-request` | web access logs whose own extra fields the http_access parser rejects |
 
+### Network gear
+
+Seven firewall/router families ported from sagan-rules, all natively
+syslog-speaking... their lines land on a collector and match as raw rules
+anchored on each vendor's own message tokens, never the line start. The
+Sagan signatures were consolidated by offense rather than ported one to
+one, so a family is a handful of themed rules... the attack-shaped ones
+ban `SRC` and brand the [standard marks](rules), the config-change and
+system-distress ones are detection-only, counting by user, device, or
+event since they accuse no address. The `-breach`/`-condemned` rules are
+the correlated readers, a success or repeat offense from a source holding
+any standard brand, folded per product into one any-of `marked` gate.
+Sagan's geoip/aetas/blacklist sibling rulesets were deliberately not
+ported... those are the `country`, `active_time`, and `namtar_list` gates,
+composed in config over these rules instead.
+
+Formats were rebuilt from vendor references rather than a live corpus, so
+each file's header names the shakiest regexps... worth confirming against
+your own collector before trusting the bans.
+
+| family | rules |
+| --- | --- |
+| Cisco ASA/PIX (`%ASA-` syslog) | `cisco-asa-auth-bruteforce`, `-auth-failed`, `-vpn-auth`, `-exploit`, `-scan`, `-spoof` (banning); `-auth-user`, `-rapid-grants`, `-system` (detection-only); `-breach` (reader) |
+| Citrix NetScaler/ADC | `citrix-appfw-web`, `-appfw-xml`, `-appfw-xml-dos`, `-auth-bruteforce`, `-cli-shell-bypass` (banning); `-appfw-config`, `-vpn-denied`, `-cert-expiry` (detection-only); `-vpn-mark-logins` + `-vpn-traveler` (an impossible-traveler mark pair), `-breach`, `-condemned` (readers) |
+| Fortinet FortiGate (key=value) | `fortinet-admin-auth`, `-vpn-auth`, `-attack` (banning); `-malware`, `-virus`, `-policy`, `-config-change`, `-system`, `-integrity`, `-cve-2022-40684`, `-admin-external` (detection-only); `-breach` (reader) |
+| Juniper JunOS/SRX/ScreenOS | `juniper-auth-bruteforce`, `-screen`, `-vpn-auth`, `-vpn-probe`, `-idp`, `-screenos-backdoor` (CVE-2015-7755) (banning); `-auth-anomaly`, `-appddos`, `-idp-system`, `-system` (detection-only) |
+| Huawei VRP | `huawei-auth-bruteforce`, `-dos`, `-attack`, `-scan` (banning); `-config-change`, `-system`, `-net-health` (detection-only) |
+| Palo Alto PAN-OS (CSV) | `palo-alto-auth-bruteforce`, `-vpn-bruteforce`, `-threat-exploit`, `-threat-virus` (banning, the THREAT rules via `ban_not_internal` over both flow ends); `-threat-infected`, `-system` (detection-only) |
+| SonicWall SonicOS (key=value) | `sonicwall-scan`, `-auth-bruteforce`, `-attack`, `-flood` (banning); `-security-services`, `-policy`, `-vpn-cert`, `-wlan`, `-config`, `-system` (detection-only) |
+
 ## Coverage
 
 The shipped set covers essentially every fail2ban filter that is a
 regexp over a log line... the syslog, raw, http, http_error, and multiline
 families above, plus the JSON and Suricata rules. `baphomet check_rules`
 lists them all with their test results.
+
+The network gear families above go beyond fail2ban entirely, drawn from
+sagan-rules... roughly 450 Sagan signatures across Cisco ASA, Citrix,
+Fortinet, Juniper, Huawei, Palo Alto, and SonicWall, consolidated by
+offense into the themed raw rules listed in their own section.
 
 Four syslog rules go beyond fail2ban's set, drawn from Sagan's rules for
 daemons fail2ban leaves uncovered... `syslog/openvpn`, `syslog/postgresql`,

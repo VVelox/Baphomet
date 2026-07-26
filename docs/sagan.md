@@ -101,9 +101,13 @@ broader build.
   but there is no single state-machine language naming and wiring them the way
   flexbits do.
 - **The shipped signature library.** Sagan ships thousands of rules across
-  dozens of products and protocols. Baphomet's shipped set is far smaller and
-  IP-focused... a detection rule (`detection_var`) carries any alerting shape
-  you care to port, but the corpus that comes in the box is not Sagan's.
+  dozens of products and protocols. Baphomet's shipped set is smaller...
+  the fail2ban corpus, the Suricata classes, and seven of Sagan's own
+  network gear families (Cisco ASA, Citrix, Fortinet, Juniper, Huawei,
+  Palo Alto, SonicWall... see [rules-catalog](rules-catalog)) folded in,
+  but the long tail of Sagan's product coverage, the cloud and Windows and
+  appliance families above all, stays unported. A detection rule
+  (`detection_var`) carries any alerting shape you care to port.
 - **Output beyond EVE.** Sagan feeds unified2, syslog, and assorted output
   plugins onward. Here there is one stream, the Suricata-shaped EVE log
   ([eve](eve)), and acting on the alert is Ereshkigal's half.

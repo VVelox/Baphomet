@@ -1,0 +1,46 @@
+---
+# The AAA module turning a login away... the front door of a NetScaler
+# Gateway, the door the credential-stuffing botnets hammer hardest.
+# Based on sagan-rules citrix.rules sid 5001379, its brute-force rule
+# on AAA LOGIN_FAILED, with Sagan's own after (count 10, seconds 300)
+# carried as max_score/find_time and its brute_force xbit carried as
+# the standard brand. NetScaler emits syslog natively but stuffs the
+# date where the program name goes, so this is a raw rule anchored on
+# the AAA module tokens, never on line start. The client address rides
+# the Client_ip field, and it gets banished.
+rev: 1
+msg: "[CITRIX] AAA login failure... brute force"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+ban_var:
+  - SRC
+# Sagan's after... count 10, seconds 300, honored when the kur allows
+# per-rule thresholds
+max_score: 10
+find_time: 300
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 1
+      data:
+        SRC: "198.51.100.9"
+        USER: "serviceacct"
+    - message: "Jul 12 08:15:51 ns01 07/12/2026:08:15:51 GMT ns01 0-PPE-1 : default AAA LOGIN_FAILED 4345 0 :  User admin - Client_ip 203.0.113.77 - Failure_reason \"Invalid credentials passed\" - Browser Mozilla/5.0 (Windows NT 10.0)"
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+        USER: "admin"
+  negative:
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"
+      found: 0
+      undefed: ["SRC"]

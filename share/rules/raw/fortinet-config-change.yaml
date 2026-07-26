@@ -1,0 +1,51 @@
+---
+# A hand on the FortiGate's configuration. FortiOS speaks syslog
+# natively in key=value, so this raw rule anchors on the logid, never
+# the line's head, and counts by the admin account that did the deed.
+# Folded from sagan-rules fortinet.rules, the whole
+# configuration-change family: protect profile changed (32151, whose
+# suffix the modern IPv6-policy-added 0100032151 shares), access
+# profiles added/changed/deleted (32101, 32102, 32103), admin users and
+# groups added (32120), an admin changing another admin's password
+# (32150), a VDOM overwritten by admin (32005), the factory reset
+# (32095, action=factory_reset), and the log clearing pair (32007,
+# 32013... an administrator sweeping the ledger clean). Detection-only,
+# a config change having no address worth banishing... it sights the
+# account to EVE and banishes nobody.
+rev: 1
+msg: "[FORTINET] configuration changed by administrator"
+severity: medium
+classtype: configuration-change
+references:
+  - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
+message_regexp:
+  - 'logid="\d*(?:32151|32101|32102|32103|32120|32150|32005)" type="event".*?user="(?<USER>[^"]+)"'
+  - 'logid="\d*32095" type="event".*?user="(?<USER>[^"]+)".*?action="?factory_reset'
+  - 'logid="\d*(?:32007|32013)" type="event".*?user="(?<USER>[^"]+)".*?(?:removed|deleted|cleared)'
+detection_var:
+  - USER
+tests:
+  positive:
+    - message: 'Jul 12 10:02:33 fw01 date=2026-07-12 time=10:02:33 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032102" type="event" subtype="system" level="information" vd="root" eventtime=1752332553000000000 tz="-0500" logdesc="Attribute configured" user="admin" ui="https(192.168.1.10)" action="Edit" cfgtid=204832 cfgpath="firewall.policy" cfgobj="12" cfgattr="policyid" msg="Edit firewall.policy 12"'
+      found: 1
+      data:
+        USER: "admin"
+    - message: 'Jul 12 10:05:10 fw01 date=2026-07-12 time=10:05:10 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032095" type="event" subtype="system" level="warning" vd="root" eventtime=1752332710000000000 tz="-0500" logdesc="System performance action" user="admin" ui="console" action="factory_reset" msg="User admin performed a factory reset from console"'
+      found: 1
+      data:
+        USER: "admin"
+    - message: 'Jul 12 10:07:44 fw01 date=2026-07-12 time=10:07:44 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032013" type="event" subtype="system" level="information" vd="root" eventtime=1752332864000000000 tz="-0500" logdesc="Log removed" user="admin" ui="https(192.168.1.10)" msg="Administrator admin has cleared the event log"'
+      found: 1
+      data:
+        USER: "admin"
+    - message: 'Jul 12 10:09:02 fw01 date=2026-07-12 time=10:09:02 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032120" type="event" subtype="system" level="information" vd="root" eventtime=1752332942000000000 tz="-0500" logdesc="Admin user added" user="admin" ui="https(192.168.1.10)" action="Add" cfgtid=204990 cfgpath="system.admin" cfgobj="backdoor-admin" msg="Add system.admin backdoor-admin"'
+      found: 1
+      data:
+        USER: "admin"
+  negative:
+    - message: 'Jul 12 10:15:49 fw01 date=2026-07-12 time=10:15:49 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752333349000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(192.168.1.10)" method="https" srcip=192.168.1.10 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(192.168.1.10)"'
+      found: 0
+      undefed: ["USER"]
+    - message: 'Jul 12 10:16:30 fw01 date=2026-07-12 time=10:16:30 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032003" type="event" subtype="system" level="information" vd="root" eventtime=1752333390000000000 tz="-0500" logdesc="Admin logout successful" sn="0" user="admin" ui="https(192.168.1.10)" method="https" srcip=192.168.1.10 dstip=192.168.1.99 action="logout" status="success" reason="exit" msg="Administrator admin logged out from https(192.168.1.10)"'
+      found: 0
+      undefed: ["USER"]

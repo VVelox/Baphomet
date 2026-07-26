@@ -1,0 +1,33 @@
+---
+# A certificate running out of days... SSL_CERT_EXPIRY_IMMINENT, the
+# appliance's own warning that a cert it serves is about to lapse.
+# Based on sagan-rules citrix.rules sid 5001409, a system-event with
+# no offender to speak of, so detection-only, counted by the
+# appliance. NetScaler emits syslog natively but stuffs the date
+# where the program name goes, so this is a raw rule anchored on the
+# audit format's own tokens, never on line start. The module name is
+# left loose... expiry warnings have shipped under SSLLOG and under
+# the ns monitoring path both, and the event ID is the anchor.
+rev: 1
+msg: "[CITRIX] SSL certificate expiry imminent"
+severity: low
+classtype: system-event
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' GMT (?<HOST>\S+) \d+-PPE-\d+ : default \S+ SSL_CERT_EXPIRY_IMMINENT \d+ \d+ :'
+detection_var:
+  - HOST
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default SSLLOG SSL_CERT_EXPIRY_IMMINENT 512 0 :  Certificate with serial number 0FAB12CD on entity server_cert expires in 25 days"
+      found: 1
+      data:
+        HOST: "ns01"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default SSLLOG SSL_HANDSHAKE_FAILURE 513 0 :  SPCBId 1234 - ClientIP 203.0.113.9 - ClientPort 51234 - VserverServiceIP 192.0.2.1 - VserverServicePort 443 - ClientVersion TLSv1.2 - Reason handshake failure"
+      found: 0
+      undefed: ["HOST"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"
+      found: 0
+      undefed: ["HOST"]

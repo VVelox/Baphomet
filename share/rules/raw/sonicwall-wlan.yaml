@@ -1,0 +1,45 @@
+---
+# SonicOS wireless IDS... threats in the air around the SonicPoints.
+# SonicOS emits syslog natively in key=value, so this raw rule anchors
+# on the msg text. From sagan-rules sonicwall.rules, three rules folded
+# into one: the association flood from a WLAN station, the rogue access
+# point discovery, and the radio frequency threat detection.
+#
+# Detection-only, counted by the reporting firewall's fw= address... a
+# wireless offender is a MAC in the note, not an IP in src=, and
+# Ereshkigal banishes addresses. The source classed all three
+# exploit-attempt, which is carried, but with no offender IP there is
+# nothing to brand or banish... sight it and go find the antenna.
+rev: 1
+msg: "[SONICWALL] wireless threat detected"
+severity: medium
+classtype: exploit-attempt
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Association Flood from WLAN station[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Found Rogue Access Point[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="WLAN radio frequency threat detected[^"]*"'
+detection_var:
+  - ADDR
+tests:
+  positive:
+    - message: 'Jul 12 12:01:44 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:01:44 UTC" fw=203.0.113.1 pri=1 c=32 m=1096 msg="Association Flood from WLAN station" n=3 note="Station MAC: 00:1a:2b:3c:4d:5e"'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 12:02:59 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:02:59 UTC" fw=203.0.113.1 pri=1 c=32 m=1097 msg="Found Rogue Access Point" n=1 note="BSSID: 02:1a:2b:3c:4d:99 SSID: FreeWiFi Channel: 6"'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 12:04:17 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:04:17 UTC" fw=203.0.113.1 pri=1 c=32 m=1098 msg="WLAN radio frequency threat detected" n=2 note="Sequence number anomaly"'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+  negative:
+    - message: 'Jul 12 12:10:30 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:10:30 UTC" fw=203.0.113.1 pri=6 c=32 m=1099 msg="WLAN station associated" n=61 note="Station MAC: 00:1a:2b:3c:4d:5e"'
+      found: 0
+      undefed: ["ADDR"]
+    - message: 'Jul 12 12:11:52 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:11:52 UTC" fw=203.0.113.1 pri=6 c=16 m=1100 msg="SonicPoint discovered and provisioned" n=1'
+      found: 0
+      undefed: ["ADDR"]

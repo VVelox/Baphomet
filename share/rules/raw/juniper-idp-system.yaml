@@ -1,0 +1,50 @@
+---
+# The IDP engine's housekeeping... policy commits, loads, unloads,
+# scheduled security-package updates and their install results, and
+# the rulebase grumbling that IPv6 is off. Six system-event rules from
+# sagan-rules juniper.rules folded into one detection-only rule
+# counted by event tag... a policy change on the IPS is worth a
+# sighting, never a ban, there being no address to accuse. (The
+# source's DP_POLICY_UNLOAD_SUCCEEDED content was a typo'd substring
+# of IDP_POLICY_UNLOAD_SUCCEEDED... repaired here.)
+rev: 1
+msg: "[JUNIPER] IDP policy/system event"
+severity: info
+classtype: system-event
+detection_var:
+  - EVENT
+message_regexp:
+  - '(?<EVENT>IDP_(?:COMMIT_COMPLETED|POLICY_LOAD_SUCCEEDED|POLICY_UNLOAD_SUCCEEDED|SCHEDULED_UPDATE_STARTED|SECURITY_INSTALL_RESULT|IGNORED_IPV6_ADDRESSES)):'
+tests:
+  positive:
+    - message: "Jul 12 05:00:00 srx01 idpd[1421]: IDP_COMMIT_COMPLETED: IDP policy commit is complete"
+      found: 1
+      data:
+        EVENT: "IDP_COMMIT_COMPLETED"
+    - message: "Jul 12 05:00:20 srx01 idpd[1421]: IDP_POLICY_LOAD_SUCCEEDED: IDP policy[/var/db/idpd/bins/Recommended.bin.gz.v] and detector[/var/db/idpd/sec-repository/installed-detector/libidp-detector.so.tgz.v] loaded successfully"
+      found: 1
+      data:
+        EVENT: "IDP_POLICY_LOAD_SUCCEEDED"
+    - message: "Jul 12 05:00:30 srx01 idpd[1421]: IDP_POLICY_UNLOAD_SUCCEEDED: IDP policy unloaded successfully"
+      found: 1
+      data:
+        EVENT: "IDP_POLICY_UNLOAD_SUCCEEDED"
+    - message: "Jul 12 05:00:40 srx01 idpd[1421]: IDP_SCHEDULED_UPDATE_STARTED: Scheduled update to download and install security package started"
+      found: 1
+      data:
+        EVENT: "IDP_SCHEDULED_UPDATE_STARTED"
+    - message: "Jul 12 05:01:00 srx01 idpd[1421]: IDP_SECURITY_INSTALL_RESULT: security package install result(Done;Attack DB update : successful)"
+      found: 1
+      data:
+        EVENT: "IDP_SECURITY_INSTALL_RESULT"
+    - message: "Jul 12 05:01:10 srx01 idpd[1421]: IDP_IGNORED_IPV6_ADDRESSES: IPv6 support is not enabled for the rulebase IPS, IPv6 addresses in rule 4 ignored"
+      found: 1
+      data:
+        EVENT: "IDP_IGNORED_IPV6_ADDRESSES"
+  negative:
+    - message: "Jul 12 05:02:00 srx01 idpd[1421]: IDP_COMMIT_FAILED: IDP policy commit failed"
+      found: 0
+      undefed: ["EVENT"]
+    - message: "Jul 12 04:02:11 srx01 RT_IDP: IDP_ATTACK_LOG_EVENT: IDP: at 1752307331, SIG Attack log <198.51.100.23/34712->192.0.2.10/80> for TCP protocol and service SERVICE_IDP_HTTP application HTTP by rule 3 of rulebase IPS in policy Recommended"
+      found: 0
+      undefed: ["EVENT"]

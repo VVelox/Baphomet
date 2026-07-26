@@ -1,0 +1,65 @@
+---
+# SonicOS configuration changes... hands on the firewall's own levers.
+# SonicOS emits syslog natively in key=value, so this raw rule anchors
+# on the msg text. From sagan-rules sonicwall.rules, fourteen rules
+# folded into one: the access rule lifecycle (added, deleted, modified,
+# restored to defaults), the administrator name change, the HTTP
+# management port change, the guest account lifecycle (created,
+# deleted, disabled, pruned, re-enabled, re-generated... six rules, one
+# regexp), and the SYN flood settings changed by a user (blacklisting
+# enabled, mode changed). The source's classtypes were
+# configuration-change, system-event, and attempted-dos for the SYN
+# flood knobs... configuration-change is what they all are, and is
+# carried.
+#
+# Detection-only, counted by the reporting firewall's fw= address... a
+# config change is a thing that happened to the box, not an offender to
+# banish. Sights to EVE so an unexpected change surfaces.
+rev: 1
+msg: "[SONICWALL] configuration changed"
+severity: medium
+classtype: configuration-change
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Access rule (?:added|deleted|modified)[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Access rules restored to defaults[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Administrator name changed[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="HTTP management port has changed[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="Guest account [^"]*(?:created|deleted|disabled|pruned|re-enabled|re-generated)[^"]*"'
+  - 'fw=%%%%ADDR%%%%\s.*?msg="SYN Flood (?:blacklisting enabled by user|Mode changed by user to)[^"]*"'
+detection_var:
+  - ADDR
+tests:
+  positive:
+    - message: 'Jul 12 13:01:12 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:01:12 UTC" fw=203.0.113.1 pri=5 c=16 m=440 msg="Access rule added" n=3 usr="admin" src=192.168.1.10:52200:X0 dst=192.0.2.1:443:X0 note="Policy 12: LAN->WAN Allow Any"'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 13:02:31 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:02:31 UTC" fw=203.0.113.1 pri=5 c=16 m=443 msg="Access rules restored to defaults" n=1 usr="admin" src=192.168.1.10:52204:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 13:03:47 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:03:47 UTC" fw=203.0.113.1 pri=5 c=16 m=511 msg="Administrator name changed" n=1 usr="admin" src=192.168.1.10:52210:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 13:04:55 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:04:55 UTC" fw=203.0.113.1 pri=5 c=16 m=515 msg="HTTP management port has changed" n=1 usr="admin" src=192.168.1.10:52215:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 13:06:08 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:06:08 UTC" fw=203.0.113.1 pri=5 c=16 m=520 msg="Guest account guest042 created" n=2 usr="admin" src=192.168.1.10:52220:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 13:07:29 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:07:29 UTC" fw=203.0.113.1 pri=5 c=16 m=865 msg="SYN Flood Mode changed by user to Watch and Report" n=1 usr="admin" src=192.168.1.10:52226:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+  negative:
+    - message: 'Jul 12 13:15:03 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:15:03 UTC" fw=203.0.113.1 pri=6 c=16 m=29 msg="Administrator login allowed" n=44 usr="admin" src=192.168.1.10:52100:X0 dst=192.0.2.1:443:X0'
+      found: 0
+      undefed: ["ADDR"]
+    - message: 'Jul 12 13:16:26 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:16:26 UTC" fw=203.0.113.1 pri=6 c=16 m=522 msg="Guest account guest042 login allowed" n=5 usr="guest042" src=192.0.2.140:50111:X2 dst=192.0.2.1:443:X0'
+      found: 0
+      undefed: ["ADDR"]

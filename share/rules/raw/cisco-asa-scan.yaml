@@ -1,0 +1,47 @@
+---
+# Cisco ASA / PIX / FWSM probe shapes... packets built to map rather
+# than to connect. ASA speaks syslog natively, so this raw rule anchors
+# on the message ids, never the line's head. Folded from sagan-rules
+# cisco-pixasa.rules: 419001 (dropping TCP packet, the "possible network
+# scan" Sagan classed network-scan), 500003 (bad TCP header length, its
+# other "possible network scan"), and 418001 (through-the-device packet
+# to/from a management-only network denied... a probe of the management
+# plane). The source classed the latter two network-event; the shared
+# offense kind carries network-scan here, and with it the recon brand
+# for the standard-vocabulary readers.
+rev: 1
+msg: "[CISCO-ASA] network scan / probe dropped"
+severity: medium
+classtype: network-scan
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+mark:
+  - name: recon
+    ttl: 86400
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-419001: Dropping TCP packet from [^:]+:%%%%SRC%%%%/\d+ to [^,]+, reason:'
+  - '%(?:ASA|PIX|FWSM)-\d-500003: Bad TCP hdr length \([^)]*\) from %%%%SRC%%%%/\d+'
+  - '%(?:ASA|PIX|FWSM)-\d-418001: Through-the-device packet to/from management-only network is denied: \S+ src [^:]+:%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %ASA-4-419001: Dropping TCP packet from outside:192.0.2.5/51294 to inside:10.1.1.20/80, reason: MSS exceeded, MSS 536, data 1460'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-5-500003: Bad TCP hdr length (hdrlen=4, pktlen=40) from 192.0.2.5/51294 to 10.1.1.20/80, flags: SYN, on interface outside'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-4-418001: Through-the-device packet to/from management-only network is denied: tcp src outside:192.0.2.5/51294 dst inside:10.1.1.20/22'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    - message: 'Jul 12 08:20:00 fw01 %ASA-6-302013: Built inbound TCP connection 112 for outside:192.0.2.9/51294 (192.0.2.9/51294) to inside:10.1.1.20/443 (203.0.113.10/443)'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:20:01 fw01 %ASA-6-302014: Teardown TCP connection 112 for outside:192.0.2.9/51294 to inside:10.1.1.20/443 duration 0:00:00 bytes 4312 TCP FINs'
+      found: 0
+      undefed: ["SRC"]

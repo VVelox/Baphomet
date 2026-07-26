@@ -567,6 +567,27 @@ line falls through to the normal rules untouched, and when it holds the
 reader speaks instead, counting the same line into its own heavier bucket.
 None ride the shipped groups, so they are opt-in by listing.
 
+Beside those sit the breach readers, ported from Sagan's `*-correlated`
+family with each product's four per-bit rules folded into one by the
+any-of `names` gate... a *success* from a source holding any standard
+brand, the likely credential compromise. Detection-only, since banning a
+source that just got in is a policy call... each sights to EVE and
+banishes nobody until its `detection_var` is flipped to `ban_var`:
+
+| rule | fires on |
+| --- | --- |
+| `syslog/sshd-breach` | a successful ssh login from a branded source |
+| `syslog/vsftpd-breach` | a successful vsftpd login from a branded source |
+| `syslog/vsftpd-breach-upload` | a vsftpd upload by a branded source |
+| `syslog/courier-breach` | a successful Courier IMAP/POP3 login from a branded source |
+| `raw/cisco-asa-breach`, `raw/fortinet-breach`, `raw/citrix-breach` | a successful firewall/VPN/admin login from a branded source, per gear family |
+| `raw/citrix-condemned` | a NetScaler AAA failure from a source branded recon/exploit/honeypot |
+
+The network gear families ([rules-catalog](rules-catalog)) both feed and
+read the mesh... their brute-force, scan, and exploit rules brand the same
+names the Unix daemons do, so a source that hammered the FortiGate VPN
+arrives at sshd already condemned, and the reverse.
+
 The vocabulary is what makes marks a mesh rather than pairwise plumbing.
 The brand crosses watchers within the galla, and rides the mark bus of a
 Redis tablet across a fleet, so a source that brute-forced the mail host

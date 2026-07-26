@@ -1,0 +1,39 @@
+---
+# CVE-2015-7755... the ScreenOS backdoor. A hardcoded password let
+# anyone stand at the gate and be admitted an administrator, and the
+# tell in the logs is event 00515 recording an admin logon for the
+# unlikely users "system" (the backdoor's own) or "username" (the
+# placeholder the advisory's hunters watched for). The two
+# sagan-rules juniper.rules CVE rules folded into one. A success down
+# this road is a verdict, not a tally... classtype successful-admin
+# carried, which sets no standard brand.
+rev: 1
+msg: "[JUNIPER] ScreenOS backdoor admin login (CVE-2015-7755)"
+severity: critical
+classtype: successful-admin
+references:
+  - CVE-2015-7755
+  - https://kb.juniper.net/InfoCenter/index?page=content&id=JSA10713
+message_regexp:
+  - 'system-warning-00515: Admin user (?i:"?(?:system|username)"?) has logged on via \S+ from %%%%SRC%%%%'
+ban_var:
+  - SRC
+# one hit is a verdict, honored when the kur allows per-rule thresholds
+max_score: 1
+tests:
+  positive:
+    - message: "Jul 12 06:00:00 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-warning-00515: Admin user system has logged on via SSH from 203.0.113.66:52983 (2026-07-12 06:00:00)"
+      found: 1
+      data:
+        SRC: "203.0.113.66"
+    - message: 'Jul 12 06:01:00 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-warning-00515: Admin user "username" has logged on via Telnet from 198.51.100.77:1290 (2026-07-12 06:01:00)'
+      found: 1
+      data:
+        SRC: "198.51.100.77"
+  negative:
+    - message: 'Jul 12 06:02:00 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-warning-00515: Admin user "netscreen" has logged on via SSH from 192.168.1.10:51000 (2026-07-12 06:02:00)'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 06:03:00 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-warning-00519: Admin user "netscreen" logged out for Web(https) management (port 443) from 192.168.1.10:51002'
+      found: 0
+      undefed: ["SRC"]

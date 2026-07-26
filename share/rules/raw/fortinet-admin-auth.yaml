@@ -1,0 +1,43 @@
+---
+# FortiGate administrator login failures. FortiOS speaks syslog natively,
+# every line a key=value ledger, so this is a raw rule anchored on the
+# logid rather than the line's head. logid 32002 is the admin login
+# failure... 0100032002 on modern FortiOS, the legacy 4.0 id living on as
+# its suffix... and one regexp covers the sagan-rules fortinet.rules
+# admin-failure family whole: the plain failures, the
+# too-many-bad-attempts alarm, and the password-spray brute force rule
+# that branded brute_force. The brand is kept, so the failures feed
+# raw/fortinet-breach and every other reader of the standard vocabulary.
+# Dropped from the source: the LCD-panel failures (a hand on the front
+# panel has no address to accuse), and legacy 4.0 lines carrying only
+# ui=(addr) with no srcip= are out of reach.
+rev: 1
+msg: "[FORTINET] admin login failed"
+severity: high
+classtype: brute-force
+references:
+  - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - 'logid="\d*32002" type="event".*?srcip=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 date=2026-07-12 time=08:15:50 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032002" type="event" subtype="system" level="alert" vd="root" eventtime=1752326150456219138 tz="-0500" logdesc="Admin login failed" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="failed" reason="passwd_invalid" msg="Administrator admin login failed from https(203.0.113.45) because of invalid password"'
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: 'Jul 12 08:16:02 fw01 date=2026-07-12 time=08:16:02 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032002" type="event" subtype="system" level="alert" vd="root" eventtime=1752326162000000000 tz="-0500" logdesc="Admin login failed" sn="0" user="root" ui="ssh(2001:db8::15)" method="ssh" srcip=2001:db8::15 dstip=2001:db8::1 action="login" status="failed" reason="name_invalid" msg="Administrator root login failed from ssh(2001:db8::15) because of invalid user name"'
+      found: 1
+      data:
+        SRC: "2001:db8::15"
+  negative:
+    - message: 'Jul 12 08:25:49 fw01 date=2026-07-12 time=08:25:49 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752326749000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(192.168.1.10)" method="https" srcip=192.168.1.10 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(192.168.1.10)"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:30:11 fw01 date=2026-07-12 time=08:30:11 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032003" type="event" subtype="system" level="information" vd="root" eventtime=1752327011000000000 tz="-0500" logdesc="Admin logout successful" sn="0" user="admin" ui="https(192.168.1.10)" method="https" srcip=192.168.1.10 dstip=192.168.1.99 action="logout" status="success" reason="exit" msg="Administrator admin logged out from https(192.168.1.10)"'
+      found: 0
+      undefed: ["SRC"]

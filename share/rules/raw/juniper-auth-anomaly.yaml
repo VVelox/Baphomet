@@ -1,0 +1,44 @@
+---
+# JunOS login griefs that name no address... PAM errors, dictionary
+# walks through the local password file, and sshd's own too-many-
+# attempts threshold all speak of the account hit, never the hitter,
+# so there is no one to banish. Detection-only, counted by the
+# battered username... a burst of sightings on one account is the
+# dictionary attack sagan-rules juniper.rules suspected. Three rules
+# folded into one: LOGIN_PAM_AUTHENTICATION_ERROR,
+# LOGIN_INVALID_LOCAL_USER, and SSHD_LOGIN_ATTEMPTS_THRESHOLD. The
+# threshold rule's brute-force classtype is carried for the file (the
+# other two were network-event); no brand is set, brands being keyed
+# by an offender address this rule does not have...
+# raw/juniper-auth-bruteforce holds the addressed siblings.
+rev: 1
+msg: "[JUNIPER] authentication anomaly - no source address"
+severity: medium
+classtype: brute-force
+detection_var:
+  - USER
+message_regexp:
+  - 'LOGIN_PAM_AUTHENTICATION_ERROR: PAM authentication error for user ''?(?<USER>[^'' ]+)''?'
+  - 'LOGIN_INVALID_LOCAL_USER: No entry in local password file for user ''?(?<USER>[^'' ]+)''?'
+  - 'SSHD_LOGIN_ATTEMPTS_THRESHOLD: Threshold for unsuccessful authentication attempts \(\d+\) reached by user ''?(?<USER>[^'' ]+)''?'
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 edge-r1 login[2411]: LOGIN_PAM_AUTHENTICATION_ERROR: PAM authentication error for user 'root'"
+      found: 1
+      data:
+        USER: "root"
+    - message: "Jul 12 08:16:05 edge-r1 login[2412]: LOGIN_INVALID_LOCAL_USER: No entry in local password file for user 'oracle'"
+      found: 1
+      data:
+        USER: "oracle"
+    - message: "Jul 12 08:16:44 edge-r1 sshd[6123]: SSHD_LOGIN_ATTEMPTS_THRESHOLD: Threshold for unsuccessful authentication attempts (3) reached by user 'admin'"
+      found: 1
+      data:
+        USER: "admin"
+  negative:
+    - message: "Jul 12 08:25:49 edge-r1 sshd[6123]: SSHD_LOGIN_FAILED: Login failed for user 'root' from host '203.0.113.45'"
+      found: 0
+      undefed: ["USER"]
+    - message: "Jul 12 08:26:00 edge-r1 login[4712]: LOGIN_INFORMATION: User admin logged in from host 192.168.1.10 on device ttyp0"
+      found: 0
+      undefed: ["USER"]

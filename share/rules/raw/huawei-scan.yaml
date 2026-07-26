@@ -1,0 +1,40 @@
+---
+# The scanner walking the doors... SEC/4/ATCKDF with the Port scan attack
+# name, the one network-scan verdict of the VRP attack-defense engine in
+# sagan-rules huawei.rules, kept apart from its dos and misc-attack
+# siblings (raw/huawei-dos, raw/huawei-attack) so the recon brand lands
+# where the classtype says it should. VRP speaks syslog natively; the
+# %%01 info-center framing with a (Key=Value, ...) tail carrying
+# SourceIp= is the one realistic shape assumed, the severity digit left
+# loose. The brand feeds every reader of the standard vocabulary... a
+# scanner seen here arrives at the escalation readers already suspect.
+rev: 1
+msg: "[HUAWEI] port scan detected by attack-defense"
+severity: medium
+classtype: network-scan
+references:
+  - http://www.huaweisymantec.com/en/download.do?id=658891
+mark:
+  - name: recon
+    ttl: 86400
+message_regexp:
+  - 'SEC/\d/ATCKDF\S*:.*?\b(?i:Port scan) attack\b.*?\b(?:SourceIp|SrcIp)=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Port scan attack, SourceIp=203.0.113.50, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=200)'
+      found: 1
+      data:
+        SRC: "203.0.113.50"
+    - message: 'Jul 12 08:15:51 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Port scan attack, SourceIp=2001:db8::9, DestinationIp=2001:db8::1, ReceiveInterface=GigabitEthernet0/0/2, TotalPackets=64)'
+      found: 1
+      data:
+        SRC: "2001:db8::9"
+  negative:
+    - message: 'Jul 12 08:25:49 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Syn flood attack, SourceIp=203.0.113.21, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=2038)'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:50 fw01 %%01SEC/4/BLACKLIST(l): 203.0.113.50 is added to blacklist, reason: port scan, age: 30.'
+      found: 0
+      undefed: ["SRC"]

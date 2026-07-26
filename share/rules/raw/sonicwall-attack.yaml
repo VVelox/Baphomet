@@ -1,0 +1,78 @@
+---
+# SonicOS dropped attacks... the firewall naming what it killed. SonicOS
+# emits syslog natively in key=value, so this raw rule anchors on the
+# msg text, the offender pulled from the src= field. From sagan-rules
+# sonicwall.rules, twenty attack rules folded into one: the trojan-era
+# drops (Back Orifice, NetBus, Net Spy, Senna Spy, Sub Seven, Striker,
+# RIPper, Priority), the malformed-packet family (Land, Ping of Death,
+# Smurf, Spank multicast, source-routed IP), the FTP PASV bounce and
+# spoof pair, the IP spoof family (detected, dropped, and the newer IP
+# Spoof Detected shape), the DNS rebind detection, and the IPS
+# Prevention Alert. The IPS *Detection* Alert stays out on purpose...
+# the source disabled it after Jeff Ward reported it fires on all ICMP.
+# Smurf, Spank, IP Spoof Detected were suspicious-traffic and the
+# source-routed drop system-event in the source... all attack-shaped
+# with a source to accuse, so the dominant exploit-attempt is carried
+# and the exploit_attempt brand set for the standard-vocabulary readers.
+rev: 1
+msg: "[SONICWALL] attack dropped"
+severity: high
+classtype: exploit-attempt
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+mark:
+  - name: exploit_attempt
+    ttl: 86400
+message_regexp:
+  - 'msg="(?:Back Orifice|NetBus|Net Spy|Senna Spy|Sub Seven|Striker|RIPper|Priority|Land) attack dropped[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Ping of [dD]eath dropped[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="PASV response (?:bounce|spoof) attack dropped[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Possible DNS rebind attack detected[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="IP [sS]poof (?:[dD]etected|[dD]ropped)[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="IPS Prevention Alert[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Smurf (?:Amplification )?[aA]ttack[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Spank attack multicast packet dropped[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Source routed IP packet dropped[^"]*".*?src=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.66"
+    - message: 'Jul 12 04:03:29 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:03:29 UTC" fw=203.0.113.1 pri=1 c=32 m=27 msg="Land attack dropped" n=1 src=198.51.100.44:80:X1 dst=198.51.100.44:80:X1'
+      found: 1
+      data:
+        SRC: "198.51.100.44"
+    - message: 'Jul 12 04:04:52 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:04:52 UTC" fw=203.0.113.1 pri=1 c=32 m=22 msg="Ping of death dropped" n=3 src=192.0.2.200:0:X1 dst=203.0.113.1:0:X0'
+      found: 1
+      data:
+        SRC: "192.0.2.200"
+    - message: 'Jul 12 04:05:37 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:05:37 UTC" fw=203.0.113.1 pri=1 c=64 m=567 msg="PASV response bounce attack dropped" n=1 src=198.51.100.90:20:X1 dst=192.0.2.20:21:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.90"
+    - message: 'Jul 12 04:06:14 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:06:14 UTC" fw=203.0.113.1 pri=1 c=32 m=23 msg="IP spoof dropped" n=12 src=192.0.2.77:137:X1 dst=203.0.113.1:137:X0 note="MAC address: 00:06:b1:12:34:56"'
+      found: 1
+      data:
+        SRC: "192.0.2.77"
+    - message: 'Jul 12 04:07:48 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:07:48 UTC" fw=203.0.113.1 pri=1 c=32 m=608 msg="IPS Prevention Alert: WEB-ATTACKS wget command attempt, SID: 1149, Priority: Medium" n=7 src=203.0.113.9:41502:X1 dst=192.0.2.30:80:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    - message: 'Jul 12 04:08:23 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:08:23 UTC" fw=203.0.113.1 pri=1 c=32 m=1306 msg="Smurf Amplification attack dropped" n=2 src=198.51.100.13:0:X1 dst=203.0.113.255:0:X0'
+      found: 1
+      data:
+        SRC: "198.51.100.13"
+    - message: 'Jul 12 04:09:41 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:09:41 UTC" fw=203.0.113.1 pri=1 c=32 m=1316 msg="Possible DNS rebind attack detected" n=1 src=203.0.113.121:53:X1 dst=192.0.2.53:53:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.121"
+  negative:
+    - message: 'Jul 12 04:15:02 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:15:02 UTC" fw=203.0.113.1 pri=4 c=32 m=609 msg="IPS Detection Alert: ICMP PING, SID: 368, Priority: Low" n=955 src=203.0.113.9:0:X1 dst=192.0.2.30:0:X0'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 04:16:30 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:16:30 UTC" fw=203.0.113.1 pri=5 c=1024 m=36 msg="TCP connection dropped" n=201 src=203.0.113.9:41777:X1 dst=192.0.2.30:445:X0 proto=tcp/445'
+      found: 0
+      undefed: ["SRC"]

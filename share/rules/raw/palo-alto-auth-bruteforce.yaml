@@ -1,0 +1,62 @@
+---
+# The firewall's own doors rattled... authentication failures against
+# the PAN-OS box itself. The web UI and the auth service write a SYSTEM
+# line whose description names the source ("failed authentication for
+# user ... From: ..."), the management sshd speaks its own
+# keyboard-interactive dialect, and the User-ID side reports NTLM
+# failures. PAN-OS speaks syslog natively, every line a comma-separated
+# ledger, so this is a raw rule anchored on the failure texts, never on
+# the line's head. From sagan-rules palo-alto.rules... four brute-force
+# signatures (sids 5002583, 5002586, 5002588, 5002591) consolidated
+# into one rule, their 15-and-25-in-300s after counts left to the kur's
+# thresholds. The brute_force brand is kept, so these failures feed
+# every reader of the standard vocabulary.
+rev: 1
+msg: "[PALO-ALTO] management auth failure / brute force"
+severity: high
+classtype: brute-force
+references:
+  - https://live.paloaltonetworks.com/twzvq79624/attachments/twzvq79624/learning_tkb/428/1/System_log_PANOS4.1rev3.xlsx
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - 'failed authentication for user .*?[Ff]rom:?\s*%%%%SRC%%%%'
+  - '[Uu]ser \S+ failed authentication\b.*?[Ff]rom:?\s*%%%%SRC%%%%'
+  - 'Authorization failed for user \S+.*?[Ff]rom:?\s*%%%%SRC%%%%'
+  - 'NTLM authentication failed for user .*?[Ff]rom:?\s*%%%%SRC%%%%'
+  - 'Failed keyboard-interactive/pam for (?:invalid user )?\S+ from %%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,SYSTEM,auth,0,2026/07/12 08:15:50,vsys1,auth-fail,,0,0,general,medium,"failed authentication for user ''admin''.  Reason: Invalid username/password.  From: 203.0.113.45.",7061,0x8000000000000000,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: 'Jul 12 08:15:51 pan01 1,2026/07/12 08:15:51,001801010101,SYSTEM,auth,0,2026/07/12 08:15:51,vsys1,auth-fail,,0,0,general,medium,"User admin failed authentication.  Reason: Invalid password.  From: 2001:db8::9.",7062,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "2001:db8::9"
+    - message: 'Jul 12 08:15:52 pan01 1,2026/07/12 08:15:52,001801010101,SYSTEM,general,0,2026/07/12 08:15:52,vsys1,general,,0,0,general,medium,"Authorization failed for user ''audit''.  From: 198.51.100.23.",7063,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: 'Jul 12 08:15:53 pan01 1,2026/07/12 08:15:53,001801010101,SYSTEM,userid,0,2026/07/12 08:15:53,vsys1,ntlm-auth-fail,,0,0,general,medium,"NTLM authentication failed for user acme\jdoe.  From: 192.0.2.61.",7064,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "192.0.2.61"
+    - message: 'Jul 12 08:15:54 pan01 1,2026/07/12 08:15:54,001801010101,SYSTEM,general,0,2026/07/12 08:15:54,vsys1,general,,0,0,general,medium,"Failed keyboard-interactive/pam for invalid user operator from 203.0.113.77 port 51442 ssh2",7065,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+  negative:
+    - message: 'Jul 12 08:25:49 pan01 1,2026/07/12 08:25:49,001801010101,SYSTEM,auth,0,2026/07/12 08:25:49,vsys1,auth-success,,0,0,general,informational,"authenticated for user ''admin''.  From: 192.168.1.10.",7071,0x0,0,0,0,0,,PA-3220'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:50 pan01 1,2026/07/12 08:25:50,001801010101,SYSTEM,general,0,2026/07/12 08:25:50,vsys1,general,,0,0,general,informational,"User admin logged out via Web from 192.168.1.10 using https",7072,0x0,0,0,0,0,,PA-3220'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:51 pan01 1,2026/07/12 08:25:51,001801010101,TRAFFIC,end,2561,2026/07/12 08:25:51,10.0.1.23,203.0.113.200,192.0.2.1,203.0.113.200,allow-out,,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34567,1,52144,80,25411,80,0x40b000,tcp,allow,4213,1804,2409,24,2026/07/12 08:25:21,15,any'
+      found: 0
+      undefed: ["SRC"]

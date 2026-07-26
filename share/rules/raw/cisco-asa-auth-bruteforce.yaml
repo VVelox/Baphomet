@@ -1,0 +1,54 @@
+---
+# Cisco ASA / PIX / FWSM brute force against the box itself. ASA speaks
+# syslog natively, %ASA-<severity>-<msgid>, the canonical raw shape... so
+# this rule anchors on the message ids and never on the line's head, and
+# takes %PIX / %FWSM in the same breath, as the source rules did. Folded
+# from sagan-rules cisco-pixasa.rules, its brute_force setters made one:
+# 113005 (AAA user authentication Rejected... the offender rides the
+# trailing "user IP ="), 605004 (login denied on a management service),
+# 710003 (TCP/UDP access denied by ACL to the device... Sagan read
+# repeated ACL denies as brute force and that read is kept). 713160,
+# Sagan's other brute_force setter, lives apart in
+# raw/cisco-asa-rapid-grants... it fires on access GRANTED, safe only
+# behind Sagan's ten-in-five-minutes gate, so here it would ban the
+# merely diligent. The brand is set so raw/cisco-asa-breach and the rest
+# of the standard-vocabulary readers see a hammering source.
+rev: 1
+msg: "[CISCO-ASA] authentication brute force"
+severity: high
+classtype: brute-force
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-113005: AAA user authentication Rejected\s*:.* user IP = %%%%SRC%%%%'
+  - '%(?:ASA|PIX|FWSM)-\d-605004: Login denied from %%%%SRC%%%%/\d+'
+  - '%(?:ASA|PIX|FWSM)-\d-710003: (?:TCP|UDP) access denied by ACL from %%%%SRC%%%%/\d+'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %ASA-6-113005: AAA user authentication Rejected : reason = AAA failure : server = 10.1.1.10 : user = admin : user IP = 192.0.2.5'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-6-605004: Login denied from 192.0.2.5/51294 to outside:203.0.113.10/ssh for user "admin"'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-3-710003: TCP access denied by ACL from 192.0.2.5/51301 to outside:203.0.113.10/22'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    - message: 'Jul 12 08:15:53 fw01 %ASA-7-713160: Group = clientgroup, IP = 192.0.2.5, Remote user (session Id - 24) has been granted access by the Firewall Server'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:20:00 fw01 %ASA-6-605005: Login permitted from 192.0.2.9/51294 to outside:203.0.113.10/ssh for user "admin"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:20:01 fw01 %ASA-6-113004: AAA user authentication Successful : server = 10.1.1.10 : user = admin'
+      found: 0
+      undefed: ["SRC"]

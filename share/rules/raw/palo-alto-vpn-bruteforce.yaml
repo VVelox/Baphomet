@@ -1,0 +1,58 @@
+---
+# The remote doors rattled... SSL VPN and GlobalProtect authentication
+# failures, the password guessing that arrives from anywhere. PAN-OS
+# speaks syslog natively, every line a comma-separated ledger, so this
+# is a raw rule anchored on the failure texts and the GLOBALPROTECT
+# ledger's own tokens, never on the line's head. From sagan-rules
+# palo-alto.rules... the SSL VPN pair (sids 5002596, 5002598)
+# consolidated into one rule, with the GlobalProtect texts added since
+# that is the same door under its modern name... the SYSTEM description
+# shape and the PAN-OS 9.1+ GLOBALPROTECT log type both. Skipped from
+# the same family: the PPPoE brute force (sid 5002595), the PPPoE
+# session being the firewall's own WAN link with no attacker address to
+# accuse. The palo-alto-geoip siblings are a country gate in the
+# config, not rules here. The brute_force brand is kept, so these
+# failures feed every reader of the standard vocabulary.
+rev: 1
+msg: "[PALO-ALTO] VPN auth failure / brute force"
+severity: high
+classtype: brute-force
+references:
+  - https://live.paloaltonetworks.com/twzvq79624/attachments/twzvq79624/learning_tkb/428/1/System_log_PANOS4.1rev3.xlsx
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - 'SSL VPN user (?:authentication|login) failed.*?[Ff]rom:?\s*%%%%SRC%%%%'
+  - 'GlobalProtect (?:portal|gateway) (?:user|client) authentication failed.*?Login from:?\s*%%%%SRC%%%%'
+  - ',GLOBALPROTECT,(?:[^,]*,){4}(?:portal|gateway)-auth,(?:[^,]*,){6}%%%%SRC%%%%,.*,failure,'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,SYSTEM,sslvpn,0,2026/07/12 08:15:50,vsys1,sslvpn-auth-fail,,0,0,general,medium,"SSL VPN user authentication failed. Login from: 203.0.113.88, user name: bob",1523,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "203.0.113.88"
+    - message: 'Jul 12 08:15:51 pan01 1,2026/07/12 08:15:51,001801010101,SYSTEM,sslvpn,0,2026/07/12 08:15:51,vsys1,sslvpn-login-fail,,0,0,general,medium,"SSL VPN user login failed. Login from: 2001:db8::77, user name: mallory",1524,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "2001:db8::77"
+    - message: 'Jul 12 08:15:52 pan01 1,2026/07/12 08:15:52,001801010101,SYSTEM,globalprotect,0,2026/07/12 08:15:52,vsys1,globalprotectportal-auth-fail,,0,0,general,medium,"GlobalProtect portal user authentication failed. Login from: 198.51.100.44, Source region: US, User name: alice, Auth type: profile ''corp-auth''.",1525,0x0,0,0,0,0,,PA-3220'
+      found: 1
+      data:
+        SRC: "198.51.100.44"
+    - message: 'Jul 12 08:15:53 pan01 1,2026/07/12 08:15:53,001801010101,GLOBALPROTECT,0,2561,2026/07/12 08:15:53,vsys1,portal-auth,before-login,profile-auth,,alice,US,,203.0.113.91,::,0.0.0.0,::,,,"6.0.4","Windows","Microsoft Windows 11",1,Invalid username or password,,"authentication failed",failure,2561,0x0'
+      found: 1
+      data:
+        SRC: "203.0.113.91"
+  negative:
+    - message: 'Jul 12 08:25:49 pan01 1,2026/07/12 08:25:49,001801010101,SYSTEM,globalprotect,0,2026/07/12 08:25:49,vsys1,globalprotectportal-auth-succ,,0,0,general,informational,"GlobalProtect portal user authentication succeeded. Login from: 192.168.1.55, Source region: US, User name: alice, Auth type: profile ''corp-auth''.",1530,0x0,0,0,0,0,,PA-3220'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:50 pan01 1,2026/07/12 08:25:50,001801010101,SYSTEM,sslvpn,0,2026/07/12 08:25:50,vsys1,sslvpn-login-succ,,0,0,general,informational,"SSL VPN user login succeeded. Login from: 192.168.1.56, user name: bob",1531,0x0,0,0,0,0,,PA-3220'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:51 pan01 1,2026/07/12 08:25:51,001801010101,GLOBALPROTECT,0,2561,2026/07/12 08:25:51,vsys1,portal-auth,before-login,profile-auth,,alice,US,,192.168.1.55,::,0.0.0.0,::,,,"6.0.4","Windows","Microsoft Windows 11",1,,,"authentication succeeded",success,2562,0x0'
+      found: 0
+      undefed: ["SRC"]

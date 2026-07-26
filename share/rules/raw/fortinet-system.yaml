@@ -1,0 +1,49 @@
+---
+# The FortiGate speaking of its own health. FortiOS speaks syslog
+# natively in key=value, so this raw rule anchors on the logid or the
+# legacy pri= field, never the line's head, and counts by the device
+# that spoke. Folded from sagan-rules fortinet.rules: IPS session scan
+# paused (0100022700), license about to expire (32014), corrupted MAC
+# packet detected (32020), the L2TP/PPTP/PPPoE no-more-clients ceiling
+# (29004), and the legacy general-critical catch-all (devname= plus
+# pri=critical), whose Sagan exclusions... Alarm Cleared, logged out
+# from, physical-port-change... ride along as ignore_regexp. The
+# source classtypes system-error, program-error, network-event, and
+# hardware-event fold to system-event here. Detection-only, a sick
+# firewall having no offender to banish.
+rev: 1
+msg: "[FORTINET] system health event"
+severity: medium
+classtype: system-event
+references:
+  - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
+message_regexp:
+  - 'devname="?(?<DEV>[^" ]+)"?.*?log_?id="?\d*(?:22700|32014|32020|29004)"? type='
+  - 'devname="?(?<DEV>[^" ]+)"?.*?pri=critical'
+ignore_regexp:
+  - 'Alarm Cleared'
+  - 'logged out from'
+  - 'physical-port-change'
+detection_var:
+  - DEV
+tests:
+  positive:
+    - message: 'Jul 12 12:00:10 fw01 date=2026-07-12 time=12:00:10 devname="FGT100F" devid="FG100FTK20012345" logid="0100022700" type="event" subtype="system" level="critical" vd="root" eventtime=1752339610000000000 tz="-0500" logdesc="IPS session scan paused" action="scan-pause" reason="cpu-limit" msg="IPS session scan paused due to CPU usage limit"'
+      found: 1
+      data:
+        DEV: "FGT100F"
+    - message: 'Jul 12 12:00:45 fw01 date=2026-07-12 time=12:00:45 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032014" type="event" subtype="system" level="warning" vd="root" eventtime=1752339645000000000 tz="-0500" logdesc="License expires soon" msg="FortiGuard support license will expire in 15 days"'
+      found: 1
+      data:
+        DEV: "FGT60F"
+    - message: 'Jul 12 12:01:00 fw01 date=2026-07-12 time=12:01:00 devname=FGT60B device_id=FG60B3G10600000 log_id=0103030003 type=event subtype=system pri=critical vd=root msg="Fan is not functioning, system will shutdown"'
+      found: 1
+      data:
+        DEV: "FGT60B"
+  negative:
+    - message: 'Jul 12 12:05:00 fw01 date=2026-07-12 time=12:05:00 devname=FGT60B device_id=FG60B3G10600000 log_id=0103030004 type=event subtype=system pri=critical vd=root msg="Alarm Cleared for chassis fan 1"'
+      found: 0
+      undefed: ["DEV"]
+    - message: 'Jul 12 12:06:30 fw01 date=2026-07-12 time=12:06:30 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032003" type="event" subtype="system" level="information" vd="root" eventtime=1752340000000000000 tz="-0500" logdesc="Admin logout successful" user="admin" ui="https(192.168.1.10)" action="logout" status="success" msg="Administrator admin logged out from https(192.168.1.10)"'
+      found: 0
+      undefed: ["DEV"]

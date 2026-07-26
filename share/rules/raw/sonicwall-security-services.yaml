@@ -1,0 +1,47 @@
+---
+# SonicOS security-service alerts... the Anti-Spyware and Application
+# Filter engines speaking. SonicOS emits syslog natively in key=value,
+# so this raw rule anchors on the msg text, the subject pulled from the
+# src= field. From sagan-rules sonicwall.rules, four rules folded into
+# one: Anti-Spyware Detection and Prevention Alerts, Application Filter
+# Detection and Application Filters Block Alerts.
+#
+# Detection-only... the src on a spyware or app-filter hit is as often
+# the internal victim fetching the thing as the remote host serving it,
+# and banning your own infected desktop helps nobody. Each match sights
+# to EVE, counted by the src. The commented-out Gateway Anti-Virus rule
+# in the source (its content was a hex fragment, marked bad) stays
+# skipped.
+rev: 1
+msg: "[SONICWALL] security service alert"
+severity: medium
+classtype: suspicious-traffic
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'msg="Anti-Spyware (?:Detection|Prevention) Alert[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Application Filters? (?:Detection|Block) Alert[^"]*".*?src=%%%%SRC%%%%'
+detection_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 09:12:04 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 09:12:04 UTC" fw=203.0.113.1 pri=1 c=32 m=794 msg="Anti-Spyware Prevention Alert: ADWARE Gator (Threat Level - High)" sid=280 n=12 src=192.0.2.55:49233:X0 dst=203.0.113.80:80:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.55"
+    - message: 'Jul 12 09:13:16 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 09:13:16 UTC" fw=203.0.113.1 pri=4 c=32 m=793 msg="Anti-Spyware Detection Alert: SPYWARE CoolWebSearch (Threat Level - Medium)" sid=112 n=3 src=192.0.2.56:50144:X0 dst=198.51.100.81:80:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.56"
+    - message: 'Jul 12 09:14:38 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 09:14:38 UTC" fw=203.0.113.1 pri=4 c=32 m=1154 msg="Application Filter Detection Alert: PROXY-ACCESS TOR -- Client Hello" n=2 src=192.0.2.57:41888:X0 dst=203.0.113.90:9001:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.57"
+    - message: 'Jul 12 09:15:50 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 09:15:50 UTC" fw=203.0.113.1 pri=1 c=32 m=1155 msg="Application Filters Block Alert: P2P BitTorrent -- Outgoing" n=8 src=192.0.2.58:6881:X0 dst=198.51.100.82:6881:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.58"
+  negative:
+    - message: 'Jul 12 09:20:33 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 09:20:33 UTC" fw=203.0.113.1 pri=1 c=32 m=809 msg="Gateway Anti-Virus Alert: EICAR-Test-File (Virus) blocked" n=1 src=203.0.113.80:80:X1 dst=192.0.2.55:49301:X0'
+      found: 0
+      undefed: ["SRC"]

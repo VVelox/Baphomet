@@ -1,0 +1,58 @@
+---
+# The condemned walked in... a successful FortiGate login from a source
+# holding any of the standard brands (see rules.md, the standard
+# brands). The failures may have happened here... raw/fortinet-admin-auth
+# and raw/fortinet-vpn-auth brand brute_force... or against any other
+# watcher of the galla; wherever the brand was earned, a success from
+# that source is a likely credential compromise. FortiOS speaks syslog
+# natively in key=value, so this raw rule anchors on the logids of the
+# successes: admin login successful (32001, srcip=), SSL VPN login
+# succeeded (39424, remip=), and PPP auth success (29002). From
+# sagan-rules fortinet-correlated.rules, its twelve per-bit isset
+# readers folded into one by the any-of names gate, plus fortinet.rules
+# own VPN-login-after-brute-force. Dropped: the four SSH-transit
+# variants (a branded source merely passing through the firewall is
+# traffic-log noise beside a login), and the legacy 32006/38001 dialect
+# whose only address rides ui=(addr), out of reach.
+#
+# Detection-only... banning a source that just SUCCEEDED is a policy
+# call, so this sights rather than banishes. Flip detection_var to
+# ban_var to make it act. List it ahead of any rule that would consume
+# the same success line.
+rev: 1
+msg: "[FORTINET] the condemned walked in... login success from a branded source"
+severity: critical
+classtype: correlated-attack
+references:
+  - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
+message_regexp:
+  - 'logid="\d*32001" type="event".*?srcip=%%%%SRC%%%%'
+  - 'logid="\d*39424" type="event".*?remip=%%%%SRC%%%%'
+  - 'logid="\d*29002" type="event".*?action="?auth_success"?.*?(?:srcip|remip)=%%%%SRC%%%%'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    - message: 'Jul 12 18:25:49 fw01 date=2026-07-12 time=18:25:49 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752362749000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(203.0.113.45)"'
+      found: 1
+      data:
+        SRC: "203.0.113.45"
+    - message: 'Jul 12 18:27:19 fw01 date=2026-07-12 time=18:27:19 devname="FGT100F" devid="FG100FTK20012345" logid="0101039424" type="event" subtype="vpn" level="information" vd="root" eventtime=1752362839000000000 tz="-0500" logdesc="SSL VPN login succeeded" action="ssl-login" tunneltype="ssl-web" tunnelid=451929954 remip=198.51.100.23 user="jsmith" group="vpn-users" dst_host="N/A" reason="login successfully" msg="SSL user logged in successfully"'
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: 'Jul 12 18:28:40 fw01 date=2026-07-12 time=18:28:40 devname="FGT100F" devid="FG100FTK20012345" logid="0100029002" type="event" subtype="ppp" level="information" vd="root" eventtime=1752362920000000000 tz="-0500" logdesc="PPP authentication succeeded" action="auth_success" user="lily" srcip=203.0.113.77 msg="User lily authenticated successfully"'
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+  negative:
+    - message: 'Jul 12 18:30:50 fw01 date=2026-07-12 time=18:30:50 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032002" type="event" subtype="system" level="alert" vd="root" eventtime=1752363050000000000 tz="-0500" logdesc="Admin login failed" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="failed" reason="passwd_invalid" msg="Administrator admin login failed from https(203.0.113.45) because of invalid password"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 18:32:44 fw01 date=2026-07-12 time=18:32:44 devname="FGT100F" devid="FG100FTK20012345" logid="0101039426" type="event" subtype="vpn" level="alert" vd="root" eventtime=1752363164000000000 tz="-0500" logdesc="SSL VPN login fail" action="ssl-login-fail" tunneltype="ssl-web" tunnelid=0 remip=198.51.100.23 user="jsmith" group="N/A" dst_host="N/A" reason="sslvpn_login_unknown_user" msg="SSL user failed to logged in"'
+      found: 0
+      undefed: ["SRC"]

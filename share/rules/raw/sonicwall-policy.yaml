@@ -1,0 +1,66 @@
+---
+# SonicOS policy trippers... hosts caught against the rules of the
+# house rather than attacking it. SonicOS emits syslog natively in
+# key=value, so this raw rule anchors on the msg text, the subject
+# pulled from the src= field. From sagan-rules sonicwall.rules, eleven
+# rules folded into one: the GSC/Anti-Virus endpoint compliance
+# denials, the proxy-server access denial, the ActiveX and Java archive
+# blocks, the FTP data connection from a non-default port, the wireless
+# unauthorized-user restriction, the forbidden e-mail attachment, LDAP
+# without TLS, and the HA heartbeat from an incompatible source. The
+# source's classtypes were configuration-error, permissions-violation,
+# and suspicious-traffic... the dominant suspicious-traffic is carried.
+#
+# Detection-only... the src here is nearly always one of your own
+# hosts out of compliance or out of bounds, a thing to sight and chase
+# down, not to banish.
+rev: 1
+msg: "[SONICWALL] policy violation"
+severity: low
+classtype: suspicious-traffic
+references:
+  - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
+message_regexp:
+  - 'msg="Access attempt from host (?:out of compliance with GSC policy|without (?:Anti-Virus agent|GSC) installed)[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Access to proxy server denied[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="ActiveX (?:or Java archive )?access denied[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Data connection from non default port dropped[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Internet Access restricted to authorized users[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Forbidden E-Mail [aA]ttachment[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Using LDAP [wW]ithout TLS[^"]*".*?src=%%%%SRC%%%%'
+  - 'msg="Heartbeat received from (?:an )?incompatible source[^"]*".*?src=%%%%SRC%%%%'
+detection_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 10:02:14 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:02:14 UTC" fw=203.0.113.1 pri=4 c=16 m=990 msg="Access attempt from host out of compliance with GSC policy" n=4 src=192.0.2.61:50412:X0 dst=198.51.100.10:443:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.61"
+    - message: 'Jul 12 10:03:26 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:03:26 UTC" fw=203.0.113.1 pri=4 c=16 m=991 msg="Access attempt from host without Anti-Virus agent installed" n=2 src=192.0.2.62:50510:X0 dst=198.51.100.10:80:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.62"
+    - message: 'Jul 12 10:04:41 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:04:41 UTC" fw=203.0.113.1 pri=4 c=32 m=79 msg="ActiveX or Java archive access denied" n=17 src=192.0.2.63:51222:X0 dst=203.0.113.85:80:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.63"
+    - message: 'Jul 12 10:05:59 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:05:59 UTC" fw=203.0.113.1 pri=4 c=32 m=76 msg="Access to proxy server denied" n=6 src=192.0.2.64:51930:X0 dst=203.0.113.86:8080:X1'
+      found: 1
+      data:
+        SRC: "192.0.2.64"
+    - message: 'Jul 12 10:07:12 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:07:12 UTC" fw=203.0.113.1 pri=4 c=32 m=81 msg="Forbidden E-Mail attachment deleted" n=1 src=203.0.113.87:25:X1 dst=192.0.2.25:25:X0'
+      found: 1
+      data:
+        SRC: "203.0.113.87"
+    - message: 'Jul 12 10:08:33 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:08:33 UTC" fw=203.0.113.1 pri=4 c=16 m=1035 msg="Heartbeat received from incompatible source" n=3 src=192.0.2.250:0:X2 dst=192.0.2.251:0:X2'
+      found: 1
+      data:
+        SRC: "192.0.2.250"
+  negative:
+    - message: 'Jul 12 10:15:47 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:15:47 UTC" fw=203.0.113.1 pri=6 c=1024 m=537 msg="Connection Closed" n=8812 src=192.0.2.61:50412:X0 dst=198.51.100.10:443:X1 proto=tcp/https sent=1042 rcvd=9410'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 10:16:52 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:16:52 UTC" fw=203.0.113.1 pri=6 c=16 m=1036 msg="Heartbeat processed" n=912'
+      found: 0
+      undefed: ["SRC"]

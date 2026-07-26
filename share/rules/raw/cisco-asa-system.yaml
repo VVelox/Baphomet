@@ -1,0 +1,73 @@
+---
+# Cisco ASA / PIX / FWSM system distress... errors the firewall reports
+# about itself, with no offender to banish. Detection-only, counted by
+# the message id itself, so a flapping failover or a failing AAA server
+# surfaces in EVE as its own subject. ASA speaks syslog natively, so
+# this raw rule anchors on the message ids, never the line's head.
+# Folded from sagan-rules cisco-pixasa.rules, every active
+# detection-shaped rule made one alternation: internal errors (216001),
+# failover state (105001 / 105002 / 105037), security-context failures
+# (106025 / 106026 / 106027), AAA infrastructure trouble (109002 /
+# 109003 / 109010 / 113020), SSH host key retrieval (315004), MAC spoof
+# naming no address (322001), RADIUS header / corrupted update (324301 /
+# 326027), NAC disabled (335004), HTTP inspection policy drop (415004),
+# NTP peer auth (610002), VPN client auth toggles (611317 / 611319),
+# auto-update failures (612002 / 612003), vlan unavailable (615001),
+# certificate validation (713094 / 717009 / 717027), the Zone Labs
+# Integrity firewall-server saga (713141 / 713142 / 713159 / 713162 /
+# 713163 / 713164 / 713166), CRACK rekey disable (713248), ACL update
+# error (716050), and group-policy creation (718046). Sagan's classes
+# here ranged over system-error, hardware-event, system-event,
+# configuration-error, network-event, policy-violation, bad-unknown,
+# and suspicious-traffic... the dominant system-error is carried.
+rev: 1
+msg: "[CISCO-ASA] system / hardware / configuration error"
+severity: medium
+classtype: system-error
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-(?<MSGID>105001|105002|105037|106025|106026|106027|109002|109003|109010|113020|216001|315004|322001|324301|326027|335004|415004|610002|611317|611319|612002|612003|615001|713094|713141|713142|713159|713162|713163|713164|713166|713248|716050|717009|717027|718046):'
+detection_var:
+  - MSGID
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %ASA-1-105037: The primary and standby units are switching back and forth as the active unit.'
+      found: 1
+      data:
+        MSGID: "105037"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-1-105001: (Primary) Disabling failover.'
+      found: 1
+      data:
+        MSGID: "105001"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-3-315004: Fail to establish SSH session because RSA host key retrieval failed.'
+      found: 1
+      data:
+        MSGID: "315004"
+    - message: 'Jul 12 08:15:53 fw01 %ASA-4-612002: Auto Update failed: asa924-k8.bin, version: 9.2.4, reason: connection timed out'
+      found: 1
+      data:
+        MSGID: "612002"
+    - message: 'Jul 12 08:15:54 fw01 %ASA-3-717009: Certificate validation failed. Reason: certificate has expired.'
+      found: 1
+      data:
+        MSGID: "717009"
+    - message: 'Jul 12 08:15:55 fw01 %ASA-3-322001: Deny MAC address 00a0.c95d.0282, possible spoof attempt on interface inside'
+      found: 1
+      data:
+        MSGID: "322001"
+    - message: 'Jul 12 08:15:56 fw01 %ASA-6-106025: Failed to determine the security context for the packet: vlan112 tcp src 192.0.2.9/51294 dest 10.1.1.20/443'
+      found: 1
+      data:
+        MSGID: "106025"
+    - message: 'Jul 12 08:15:57 fw01 %ASA-3-109010: Auth from 10.1.1.30/51294 to 192.0.2.20/80 failed (too many pending auths) on interface inside.'
+      found: 1
+      data:
+        MSGID: "109010"
+  negative:
+    - message: 'Jul 12 08:20:00 fw01 %ASA-6-302013: Built inbound TCP connection 112 for outside:192.0.2.9/51294 (192.0.2.9/51294) to inside:10.1.1.20/443 (203.0.113.10/443)'
+      found: 0
+      undefed: ["MSGID"]
+    - message: 'Jul 12 08:20:01 fw01 %ASA-6-605005: Login permitted from 192.0.2.9/51294 to outside:203.0.113.10/https for user "admin"'
+      found: 0
+      undefed: ["MSGID"]

@@ -1,0 +1,58 @@
+---
+# JunOS network-plane grumbles worth a sighting and no ban... ARP
+# seeing an address duplicated or overwritten (a misconfig, or an ARP
+# spoof underway), BGP turning away a peer no group claims, BGP
+# packets arriving without the MD5 digest the session demands, BGP
+# unable to reach a configured peer, and the SA/IVE appliance failing
+# to fetch its virus signatures. Six rules from sagan-rules
+# juniper.rules folded into one detection-only rule counted by
+# event... none names an offender the galla could trust enough to
+# banish, the addresses in them being neighbors and peers, not
+# attackers. classtype network-event carried (the virus-signature rule
+# was system-event).
+rev: 1
+msg: "[JUNIPER] system/network event"
+severity: low
+classtype: network-event
+detection_var:
+  - EVENT
+message_regexp:
+  - '(?<EVENT>KERN_ARP_DUPLICATE_ADDR): duplicate IP address'
+  - '(?<EVENT>KERN_ARP_ADDR_CHANGE): arp info overwritten'
+  - '(?<EVENT>bgp_pp_recv)(?::\d+)?: no group for \S+ from AS \d+'
+  - '(?<EVENT>tcp_auth_ok): Packet from \S+ missing MD5 digest'
+  - '(?<EVENT>bgp_connect_start): connect \S+ \([^)]*\): No route to host'
+  - '- ive - .*?(?<EVENT>Unable to download current virus)'
+tests:
+  positive:
+    - message: "Jul 12 07:00:00 edge-r1 /kernel: KERN_ARP_DUPLICATE_ADDR: duplicate IP address 192.0.2.1! sent from address: 00:11:22:33:44:55 (error count = 1)"
+      found: 1
+      data:
+        EVENT: "KERN_ARP_DUPLICATE_ADDR"
+    - message: "Jul 12 07:00:10 edge-r1 /kernel: KERN_ARP_ADDR_CHANGE: arp info overwritten for 192.0.2.1 from 00:11:22:33:44:55 to 66:77:88:99:aa:bb"
+      found: 1
+      data:
+        EVENT: "KERN_ARP_ADDR_CHANGE"
+    - message: "Jul 12 07:01:00 edge-r1 rpd[2716]: bgp_pp_recv:3243: no group for 203.0.113.5+52983 from AS 64500 found (no configured group), dropping him"
+      found: 1
+      data:
+        EVENT: "bgp_pp_recv"
+    - message: "Jul 12 07:01:30 edge-r1 /kernel: tcp_auth_ok: Packet from 203.0.113.5:179 missing MD5 digest"
+      found: 1
+      data:
+        EVENT: "tcp_auth_ok"
+    - message: "Jul 12 07:02:00 edge-r1 rpd[2716]: bgp_connect_start: connect 192.0.2.254 (External AS 64499): No route to host"
+      found: 1
+      data:
+        EVENT: "bgp_connect_start"
+    - message: "Jul 12 07:03:00 vpn01 Juniper: 2026-07-12 07:03:00 - ive - [127.0.0.1] System()[] - Unable to download current virus signature list. Reason: connect timed out"
+      found: 1
+      data:
+        EVENT: "Unable to download current virus"
+  negative:
+    - message: "Jul 12 07:10:00 edge-r1 rpd[2716]: bgp_recv_open: peer 203.0.113.5 (External AS 64500): received OPEN message"
+      found: 0
+      undefed: ["EVENT"]
+    - message: "Jul 12 07:10:10 edge-r1 mgd[4521]: UI_COMMIT: User admin requested commit operation (comment: none)"
+      found: 0
+      undefed: ["EVENT"]

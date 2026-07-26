@@ -1,0 +1,72 @@
+---
+# Huawei VRP management-plane login failures... SSH, the telnet/console
+# SHELL module, FTP, and the web UI, eleven per-event rules from
+# sagan-rules huawei.rules folded into one accusation: the SSH/4/LOGIN_FAIL
+# brute-force drop rule, its LOGIN_FAIL_{CHALLENGE,COOKIE,DISSCONNECT,PWD,
+# RETRY_OUT,RSA}_ERR variants and LOGIN_FAIL_USER_NOT_EXIST, plus
+# SHELL/4/LOGIN_FAIL, FTPS/4/USERIN login failed, and HTTPD/4/FAIL. VRP
+# speaks syslog natively, every message led by a MODULE/severity/EVENT
+# token... the %%01 info-center framing with a (Key=Value, ...) tail is
+# the shape assumed here, the severity digit left loose since it drifts
+# across VRP releases, and the modern spellings SSH/5/SSH_FAIL and
+# SHELL/5/LOGINFAIL are covered beside the old. The source's brute-force
+# rule branded brute_force; the brand is kept so these failures feed
+# every reader of the standard vocabulary. Skipped from the source:
+# HTTPD/4/PASS and HTTPD/4/OUT, a web login success and a logout,
+# telemetry with nothing to accuse.
+rev: 1
+msg: "[HUAWEI] management login failure"
+severity: high
+classtype: brute-force
+references:
+  - http://www.huaweisymantec.com/en/download.do?id=658891
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - 'SSH/\d/(?:LOGIN_FAIL\w*|SSH_FAIL)\S*:.*?\b(?:IPAddress|PeerIp|Ip)=%%%%SRC%%%%'
+  - 'SHELL/\d/LOGIN_?FAIL\S*:.*?\b(?:IPAddress|PeerIp|Ip)=%%%%SRC%%%%'
+  - 'FTPS/\d/USERIN\S*:.*?login failed.*?\b(?:IPAddress|HostIp|Ip)=%%%%SRC%%%%'
+  - 'HTTPD/\d/FAIL\S*:.*?\b(?:IPAddress|Ip)=%%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 sw01 %%01SSH/4/LOGIN_FAIL_PWD_ERR(l): The user failed to log in because of a wrong password. (UserName=admin, IPAddress=203.0.113.7, Times=3)'
+      found: 1
+      data:
+        SRC: "203.0.113.7"
+    - message: 'Jul 12 08:15:51 sw01 %%01SSH/4/LOGIN_FAIL_USER_NOT_EXIST(l): The user failed to log in because the user does not exist. (UserName=oracle, IPAddress=198.51.100.23)'
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: 'Jul 12 08:15:52 sw01 %%01SSH/5/SSH_FAIL(l)[42]: The SSH user failed to log in. (ServiceType=STELNET, FailedReason=Authentication failed, UserName=root, IPAddress=2001:db8::15, VPNInstanceName=)'
+      found: 1
+      data:
+        SRC: "2001:db8::15"
+    - message: 'Jul 12 08:15:53 sw01 %%01SHELL/4/LOGIN_FAIL(l): Failed to login. (Ip=203.0.113.9, UserName=admin, Times=1, AccessType=TELNET)'
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    - message: 'Jul 12 08:15:54 sw01 %%01SHELL/5/LOGINFAIL(s)[77]: Failed to login. (Ip=192.0.2.66, UserName=huawei, Times=4, AccessType=TELNET)'
+      found: 1
+      data:
+        SRC: "192.0.2.66"
+    - message: 'Jul 12 08:15:55 sw01 %%01FTPS/4/USERIN(l): The FTP user login failed. (UserName=ftpadmin, IPAddress=203.0.113.40)'
+      found: 1
+      data:
+        SRC: "203.0.113.40"
+    - message: 'Jul 12 08:15:56 sw01 %%01HTTPD/4/FAIL(l): Web user login failed. (UserName=admin, IPAddress=198.51.100.77)'
+      found: 1
+      data:
+        SRC: "198.51.100.77"
+  negative:
+    - message: 'Jul 12 08:25:49 sw01 %%01SSH/5/SSH_SUCCESS(l): The SSH user succeeded in logging in. (ServiceType=STELNET, UserName=admin, IPAddress=192.168.1.10, VPNInstanceName=)'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:50 sw01 %%01FTPS/4/USERIN(l): The FTP user login succeeded. (UserName=ftpadmin, IPAddress=192.168.1.11)'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:51 sw01 %%01HTTPD/4/PASS(l): Web user logged in successfully. (UserName=admin, IPAddress=192.168.1.12)'
+      found: 0
+      undefed: ["SRC"]

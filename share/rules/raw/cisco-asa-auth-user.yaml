@@ -1,0 +1,67 @@
+---
+# Cisco ASA / PIX / FWSM authentication failures that name a user but no
+# address... nothing to banish, so this is detection-only, counted by the
+# hammered account. ASA speaks syslog natively, so this raw rule anchors
+# on the message ids, never the line's head. Folded from sagan-rules
+# cisco-pixasa.rules: 611102 (user authentication failed... 610102 on
+# FWSM), 113006 (user locked out on successive failures), 109031 (NT
+# Domain rejecting guest login), 113021 (attempted console login without
+# admin rights), 109016 (can't find authorization ACL for user), and
+# the WebVPN pair 719019 / 719023 (authorization failed / not
+# authenticated, access denied). Sagan classed these unsuccessful-user,
+# unsuccessful-admin, and brute-force... the dominant unsuccessful-user
+# is carried. Sights to EVE; a locked-out or guest-hammered account is
+# worth knowing even with no offender to name.
+rev: 1
+msg: "[CISCO-ASA] authentication failure, user named, no address"
+severity: medium
+classtype: unsuccessful-user
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-61[01]102: User authentication failed: Uname: (?<USER>\S+)'
+  - '%(?:ASA|PIX|FWSM)-\d-113006: User (?<USER>\S+) locked out on exceeding \d+ successive failed authentication attempts'
+  - '%(?:ASA|PIX|FWSM)-\d-109031: NT Domain Authentication Failed rejecting guest login for (?<USER>[^\s.]+)'
+  - '%ASA-\d-113021: Attempted console login failed\. User (?<USER>\S+) did NOT have appropriate Admin Rights'
+  - '%(?:ASA|PIX|FWSM)-\d-109016: Can''t find authorization ACL \S+ for user ''(?<USER>[^'']*)'''
+  - '%ASA-\d-719019: WebVPN user: ?(?<USER>\S+) authorization failed'
+  - '%ASA-\d-719023: WebVPN user:? ?(?<USER>\S+) has not been successfully authenticated\. Access denied'
+detection_var:
+  - USER
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %ASA-6-611102: User authentication failed: Uname: admin'
+      found: 1
+      data:
+        USER: "admin"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-6-113006: User svc-backup locked out on exceeding 5 successive failed authentication attempts'
+      found: 1
+      data:
+        USER: "svc-backup"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-4-109031: NT Domain Authentication Failed rejecting guest login for gustav.'
+      found: 1
+      data:
+        USER: "gustav"
+    - message: 'Jul 12 08:15:53 fw01 %ASA-3-113021: Attempted console login failed. User oper1 did NOT have appropriate Admin Rights.'
+      found: 1
+      data:
+        USER: "oper1"
+    - message: "Jul 12 08:15:54 fw01 %ASA-3-109016: Can't find authorization ACL vpn-acl for user 'jsmith'"
+      found: 1
+      data:
+        USER: "jsmith"
+    - message: 'Jul 12 08:15:55 fw01 %ASA-6-719019: WebVPN user: webuser authorization failed'
+      found: 1
+      data:
+        USER: "webuser"
+    - message: 'Jul 12 08:15:56 fw01 %ASA-6-719023: WebVPN user webuser has not been successfully authenticated. Access denied.'
+      found: 1
+      data:
+        USER: "webuser"
+  negative:
+    - message: 'Jul 12 08:20:00 fw01 %ASA-6-611101: User authentication succeeded: Uname: admin'
+      found: 0
+      undefed: ["USER"]
+    - message: 'Jul 12 08:20:01 fw01 %ASA-6-113004: AAA user authentication Successful : server = 10.1.1.10 : user = admin'
+      found: 0
+      undefed: ["USER"]

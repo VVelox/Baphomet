@@ -42,7 +42,7 @@ allow_per_rule_thresholds = true
 [kur.vocab.auth]
 log = "$dir/l1"
 parser = "syslog"
-rule = [ "syslog/sshd-condemned", "syslog/sshd" ]
+rule = [ "syslog/sshd-condemned", "syslog/sshd", "syslog/sshd-breach" ]
 
 [kur.vocab.ids]
 log = "$dir/l2"
@@ -52,9 +52,17 @@ EOC
 close($cfg);
 
 my @sent;
+my @sighted;
 {
 	no warnings 'redefine';
 	*App::Baphomet::Galla::_send_ban = sub { push( @sent, $_[1] ); return; };
+	*App::Baphomet::Galla::_eve_emit = sub {
+		my ( $self, $event_type, $fields ) = @_;
+		if ( $event_type eq 'sighting' ) {
+			push( @sighted, $fields->{found}{SRC} );
+		}
+		return;
+	};
 }
 
 my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'vocab' );
@@ -127,5 +135,26 @@ $galla->{marks}{recon}{'192.0.2.10'}{set} = $galla->{marks}{exploit_attempt}{'19
 @sent = ();
 $galla->_handle_line( 'ids', suricata_alert( '192.0.2.10', 'Not Suspicious Traffic' ), $dir . '/l2' );
 is_deeply( \@sent, [], 'exploited-then-scanned does not read as escalation' );
+
+#
+# the breach reader... a success from a branded source is sighted,
+# detection-only, and a success from a unbranded one passes unremarked
+#
+
+sub sshd_accept {
+	my ($ip) = @_;
+	return 'Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from ' . $ip . ' port 4711 ssh2';
+}
+
+@sent    = ();
+@sighted = ();
+$galla->_handle_line( 'auth', sshd_fail('192.0.2.11'), $dir . '/l1' );
+$galla->_handle_line( 'auth', sshd_accept('192.0.2.11'), $dir . '/l1' );
+is_deeply( \@sighted, ['192.0.2.11'], 'a success from a branded source is sighted' );
+is_deeply( \@sent, [], 'and sighted only... the breach rule banishes nobody' );
+
+@sighted = ();
+$galla->_handle_line( 'auth', sshd_accept('192.0.2.12'), $dir . '/l1' );
+is_deeply( \@sighted, [], 'a success from a unbranded source passes unremarked' );
 
 done_testing;

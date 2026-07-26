@@ -1,0 +1,54 @@
+---
+# The inside host showing infection signs... URL-filter blocks on the
+# malware, phishing, and spyware-and-adware categories, and the spyware
+# engine's Suspicious DNS Query, the beacon a compromised machine can
+# not help sending. PAN-OS speaks syslog natively, every line a
+# comma-separated ledger, so this is a raw rule anchored on the
+# ,THREAT,url, and ,THREAT,spyware, tokens with the client lifted from
+# its CSV seat, never on the line's head. Detection-only... the source
+# here is your own client, an infection lead to chase, not an attacker
+# to banish. From sagan-rules palo-alto.rules... the three bad-category
+# URL blocks (sids 5002749-5002751) and the suspicious DNS rule (sid
+# 5002763, its network-event classtype squashed into the family's
+# suspicious-traffic) consolidated into one rule. Skipped: the
+# blocked-by-mere-policy URL rule (sid 5002752)... a user hitting a
+# blocked gambling site is policy noise, not an offense.
+# online-personal-storage app lines are ignored per the source.
+rev: 1
+msg: "[PALO-ALTO] internal host malware/phishing/spyware indicator"
+severity: medium
+classtype: suspicious-traffic
+references:
+  - https://www.brightcloud.com/tools/url-ip-lookup.php
+  - https://threatvault.paloaltonetworks.com
+message_regexp:
+  - ',THREAT,url,[^,]*,[^,]*,%%%%SRC%%%%,.*,block-url,.*,(?:malware(?:-sites)?|phishing(?:-and-other-frauds)?|spyware-and-adware),'
+  - ',THREAT,spyware,[^,]*,[^,]*,%%%%SRC%%%%,.*Suspicious DNS Quer(?:y|ies)'
+ignore_regexp:
+  - ',online-personal-storage,'
+detection_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,THREAT,url,9999,2026/07/12 08:15:50,10.0.1.23,203.0.113.200,192.0.2.1,203.0.113.200,allow-out,acme\jdoe,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34567,1,52144,80,25411,80,0x40b000,tcp,block-url,"badsite.example/dropper.exe",(9999),malware,informational,client-to-server,7132570,0x0,10.0.0.0-10.255.255.255,US'
+      found: 1
+      data:
+        SRC: "10.0.1.23"
+    - message: 'Jul 12 08:15:51 pan01 1,2026/07/12 08:15:51,001801010101,THREAT,url,9999,2026/07/12 08:15:51,10.0.1.31,203.0.113.201,192.0.2.1,203.0.113.201,allow-out,acme\mallory,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34568,1,52145,443,25412,443,0x40b000,tcp,block-url,"login-veriify.example/account",(9999),phishing-and-other-frauds,informational,client-to-server,7132571,0x0,10.0.0.0-10.255.255.255,US'
+      found: 1
+      data:
+        SRC: "10.0.1.31"
+    - message: 'Jul 12 08:15:52 pan01 1,2026/07/12 08:15:52,001801010101,THREAT,spyware,4021052,2026/07/12 08:15:52,10.0.1.44,192.0.2.53,0.0.0.0,0.0.0.0,allow-dns,,,dns,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,41234,1,50223,53,0,0,0x2000,udp,alert,"badc2.example",Suspicious DNS Query (generic:badc2.example)(4021052),any,medium,client-to-server,7132572,0x0,10.0.0.0-10.255.255.255,US'
+      found: 1
+      data:
+        SRC: "10.0.1.44"
+  negative:
+    - message: 'Jul 12 08:25:49 pan01 1,2026/07/12 08:25:49,001801010101,THREAT,url,9999,2026/07/12 08:25:49,10.0.1.23,203.0.113.210,192.0.2.1,203.0.113.210,allow-out,acme\jdoe,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34570,1,52150,443,25415,443,0x40b000,tcp,block-url,"lucky7.example/",(9999),gambling,informational,client-to-server,7132575,0x0,10.0.0.0-10.255.255.255,US'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:50 pan01 1,2026/07/12 08:25:50,001801010101,THREAT,url,9999,2026/07/12 08:25:50,10.0.1.23,203.0.113.211,192.0.2.1,203.0.113.211,allow-out,acme\jdoe,,online-personal-storage,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34571,1,52151,443,25416,443,0x40b000,tcp,block-url,"share.example/file.exe",(9999),malware,informational,client-to-server,7132576,0x0,10.0.0.0-10.255.255.255,US'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:51 pan01 1,2026/07/12 08:25:51,001801010101,THREAT,url,9999,2026/07/12 08:25:51,10.0.1.23,203.0.113.212,192.0.2.1,203.0.113.212,allow-out,acme\jdoe,,web-browsing,vsys1,Trust,Untrust,ethernet1/2,ethernet1/1,default-log,,34572,1,52152,80,25417,80,0x40b000,tcp,alert,"newsy.example/story",(9999),malware,informational,client-to-server,7132577,0x0,10.0.0.0-10.255.255.255,US'
+      found: 0
+      undefed: ["SRC"]

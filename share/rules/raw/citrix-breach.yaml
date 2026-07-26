@@ -1,0 +1,43 @@
+---
+# The condemned walked in... a successful SSLVPN login from a source
+# holding any of the standard brands (see rules.md, the standard
+# brands). The scanning, the exploit attempts, the hammering may have
+# happened here or against any host feeding the same galla... wherever
+# the brand was earned, a success from that source is a likely
+# credential compromise. From sagan-rules citrix-correlated.rules, its
+# four per-bit SSLVPN LOGIN rules (sids 5003228-5003231) folded into
+# one by the any-of names gate.
+#
+# Detection-only... banning a source that just SUCCEEDED is a policy
+# call, so this sights rather than banishes. Flip detection_var to
+# ban_var to make it act. NetScaler emits syslog natively but stuffs
+# the date where the program name goes, so this is a raw rule anchored
+# on the SSLVPN module tokens, never on line start.
+rev: 1
+msg: "[CITRIX] the condemned walked in... VPN login success from a branded source"
+severity: critical
+classtype: correlated-attack
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' SSLVPN LOGIN \d+ \d+ :.*?User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      found: 1
+      data:
+        USER: "jdoe"
+        SRC: "203.0.113.5"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:16:05 ns01 07/12/2026:08:16:05 GMT ns01 0-PPE-0 : default SSLVPN LOGOUT 4351 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Start_time \"07/12/2026:08:16:02 GMT\" - End_time \"07/12/2026:08:16:05 GMT\""
+      found: 0
+      undefed: ["SRC"]

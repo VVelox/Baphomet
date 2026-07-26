@@ -1,0 +1,41 @@
+---
+# The condemned walked in, FTP flavor... a successful vsftpd login from a
+# source holding any of the standard brands (see rules.md, the standard
+# brands). From sagan-rules vsftpd-correlated, its four per-bit
+# authentication rules folded into one by the any-of names gate. The
+# upload sibling, syslog/vsftpd-breach-upload, watches what the intruder
+# does next.
+#
+# Detection-only... flip detection_var to ban_var to make it act. List
+# it beside syslog/vsftpd; they match disjoint lines, so order between
+# them does not matter.
+rev: 1
+msg: "[VSFTPD] the condemned walked in... login success from a branded source"
+severity: critical
+classtype: successful-user
+daemons:
+  - vsftpd
+message_regexp:
+  - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var: [ SRC ]
+max_score: 1
+tests:
+  positive:
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:192.0.2.60"'
+      found: 1
+      data:
+        SRC: "192.0.2.60"
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [ftpuser] OK LOGIN: Client "192.0.2.61"'
+      found: 1
+      data:
+        SRC: "192.0.2.61"
+  negative:
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] FAIL LOGIN: Client "::ffff:192.0.2.60"'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:25:49 vixen42 proftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:192.0.2.60"'
+      found: 0
+      undefed: ["SRC"]

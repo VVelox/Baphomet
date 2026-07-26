@@ -1,0 +1,49 @@
+---
+# Somebody reshaping the AppFw itself... profiles added or removed,
+# rules bound to HTML or XML profiles, confidential fields and field
+# types added or taken away. Legitimate hands do this too, which is why
+# it sights rather than banishes... but a web application firewall
+# quietly losing a profile is worth an alert. Based on sagan-rules
+# citrix.rules... eight per-event-ID signatures (sids 5001203-5001211
+# actives, the AF_ADD_*, AF_BIND_*, AF_RM_* set) consolidated into one
+# detection rule under configuration-change, Sagan's own class for the
+# bind/remove half (the adds it filed as suspicious-traffic).
+# NetScaler emits syslog natively but stuffs the date where the program
+# name goes, so this is a raw rule anchored on the audit format's own
+# tokens, never on line start. No attacker address on a config line...
+# the appliance itself is the subject.
+rev: 1
+msg: "[CITRIX] AppFw configuration change"
+severity: medium
+classtype: configuration-change
+references:
+  - https://support.citrix.com/article/CTX123875
+message_regexp:
+  - ' GMT (?<HOST>\S+) \d+-PPE-\d+ : default APPFW AF_(?:ADD_(?:CFFIELD|FIELDTYPE|PROFILE)|BIND_(?:XML_)?TO_PROFILE|RM_(?:CFFIELD|FIELDTYPE|PROFILE)) \d+ \d+ :'
+detection_var:
+  - HOST
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW AF_ADD_PROFILE 1638 0 :  Profile: webfw_prof added"
+      found: 1
+      data:
+        HOST: "ns01"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW AF_RM_PROFILE 1640 0 :  Profile: webfw_prof removed"
+      found: 1
+      data:
+        HOST: "ns01"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW AF_BIND_TO_PROFILE 1642 0 :  Rule bound to profile webfw_prof"
+      found: 1
+      data:
+        HOST: "ns01"
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW AF_ADD_CFFIELD 1644 0 :  Confidential field password added to profile webfw_prof"
+      found: 1
+      data:
+        HOST: "ns01"
+  negative:
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW AF_400_RESP 92 0 :  192.0.2.15 1046-PPE0 - webfw_prof Request error. Generated 400 response <not blocked>"
+      found: 0
+      undefed: ["HOST"]
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_SQL 88 0 :  198.51.100.21 1043-PPE0 - webfw_prof http://www.example.com/login.php Field(login) SQL Keyword check failed <blocked>"
+      found: 0
+      undefed: ["HOST"]

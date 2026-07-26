@@ -1,0 +1,66 @@
+---
+# Cisco ASA / PIX / FWSM spoofed and forged traffic... addresses that
+# lie, fragments that overlap, answers nobody asked for. ASA speaks
+# syslog natively, so this raw rule anchors on the message ids, never
+# the line's head. Folded from sagan-rules cisco-pixasa.rules: 106016
+# (deny IP spoof), 106020 (deny IP teardrop fragment), 106022 (deny
+# connection spoof), 410002 (dropped DNS responses with mis-matched
+# id... cache poisoning's tell), 201006 (RCMD backconnection failed),
+# and the routing pair 107001 / 312001 (RIP auth / header failed...
+# route injection knocking). Sagan spread these across
+# suspicious-traffic, network-event, and unsuccessful-admin... the
+# dominant suspicious-traffic is carried. The MAC-only spoof 322001
+# names no address and sits in raw/cisco-asa-system instead.
+rev: 1
+msg: "[CISCO-ASA] spoofed / forged traffic denied"
+severity: high
+classtype: suspicious-traffic
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-106016: Deny IP spoof from \(%%%%SRC%%%%\) to \S+'
+  - '%(?:ASA|PIX|FWSM)-\d-106020: Deny IP teardrop fragment \([^)]*\) from %%%%SRC%%%% to \S+'
+  - '%(?:ASA|PIX|FWSM)-\d-106022: Deny \S+ connection spoof from %%%%SRC%%%% to \S+'
+  - '%(?:ASA|PIX|FWSM)-\d-410002: Dropped \d+ DNS responses with mis-matched id in the past \d+ second\(s\): from [^:]+:%%%%SRC%%%%/\d+'
+  - '%(?:ASA|PIX|FWSM)-\d-201006: RCMD backconnection failed for %%%%SRC%%%%/\d+'
+  - '%(?:ASA|PIX|FWSM)-\d-107001: RIP auth failed from %%%%SRC%%%%:'
+  - '%(?:ASA|PIX|FWSM)-\d-312001: RIP hdr failed from %%%%SRC%%%%:'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jul 12 08:15:50 fw01 %ASA-2-106016: Deny IP spoof from (192.0.2.5) to 10.1.1.20 on interface outside'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-2-106020: Deny IP teardrop fragment (size = 1480, offset = 0) from 192.0.2.5 to 10.1.1.20'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-1-106022: Deny TCP connection spoof from 192.0.2.5 to 10.1.1.20 on interface outside'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:53 fw01 %ASA-2-410002: Dropped 100 DNS responses with mis-matched id in the past 10 second(s): from outside:192.0.2.5/53 to inside:10.1.1.20/33044'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:54 fw01 %ASA-3-201006: RCMD backconnection failed for 192.0.2.5/51294.'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:55 fw01 %ASA-1-107001: RIP auth failed from 192.0.2.5: version=2, type=simple, mode=text, sequence=1234 on interface outside'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:56 fw01 %ASA-6-312001: RIP hdr failed from 192.0.2.5: version=1, type=1, mode=1, sequence=7 on interface outside'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    - message: 'Jul 12 08:20:00 fw01 %ASA-6-106015: Deny TCP (no connection) from 192.0.2.9/51294 to 203.0.113.10/443 flags RST on interface outside'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:20:01 fw01 %ASA-1-106021: Deny UDP reverse path check from 192.0.2.9 to 10.1.1.20 on interface outside'
+      found: 0
+      undefed: ["SRC"]

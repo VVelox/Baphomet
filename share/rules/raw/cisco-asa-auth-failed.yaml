@@ -1,0 +1,61 @@
+---
+# Cisco ASA / PIX / FWSM cut-through and management authentication or
+# authorization failures that name the offending address. ASA speaks
+# syslog natively, so this raw rule anchors on the message ids, never the
+# line's head. Folded from sagan-rules cisco-pixasa.rules: 109006
+# (authentication failed for user), 109033 / 109034 (admin / network
+# user auth failed, interactive challenge unsupported over HTTP), 109008
+# (authorization denied for user), 109024 (authorization denied, not
+# authenticated), and 109025 (authorization denied by ACL). The source
+# classed these unsuccessful-user and unsuccessful-admin... the dominant
+# unsuccessful-user is carried. The user-keyed failures carrying no
+# address (611102, 113006, and kin) live in raw/cisco-asa-auth-user
+# instead, and the box-hammering brute_force setters in
+# raw/cisco-asa-auth-bruteforce.
+rev: 1
+msg: "[CISCO-ASA] user authentication / authorization failed"
+severity: medium
+classtype: unsuccessful-user
+references:
+  - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
+message_regexp:
+  - '%(?:ASA|PIX|FWSM)-\d-109006: Authentication failed for user ''[^'']*'' from %%%%SRC%%%%'
+  - '%(?:ASA|PIX|FWSM)-\d-10903[34]: Authentication failed for (?:admin|network) user \S+ from %%%%SRC%%%%'
+  - '%(?:ASA|PIX|FWSM)-\d-109008: Authorization denied for user ''[^'']*'' from %%%%SRC%%%%/\d+'
+  - '%(?:ASA|PIX|FWSM)-\d-109024: Authorization denied from %%%%SRC%%%%/\d+ to \S+ \(not authenticated\)'
+  - '%(?:ASA|PIX|FWSM)-\d-109025: Authorization denied \(acl=[^)]*\) for user ''[^'']*'' from %%%%SRC%%%%/\d+'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 fw01 %ASA-6-109006: Authentication failed for user 'jsmith' from 192.0.2.5/51294 to 10.1.1.20/23 on interface outside."
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:51 fw01 %ASA-4-109033: Authentication failed for admin user admin from 192.0.2.5. Interactive challenge processing is not supported with HTTP authentication'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:52 fw01 %ASA-4-109034: Authentication failed for network user jsmith from 192.0.2.5/51301. Interactive challenge processing is not supported with HTTP authentication'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: "Jul 12 08:15:53 fw01 %ASA-6-109008: Authorization denied for user 'jsmith' from 192.0.2.5/51310 to 10.1.1.20/80 on interface outside"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: 'Jul 12 08:15:54 fw01 %ASA-6-109024: Authorization denied from 192.0.2.5/51322 to 10.1.1.20/80 (not authenticated) on interface outside using TCP'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: "Jul 12 08:15:55 fw01 %ASA-6-109025: Authorization denied (acl=mgmt-acl) for user 'jsmith' from 192.0.2.5/51330 to 10.1.1.20/80 on interface outside using TCP"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    - message: "Jul 12 08:20:00 fw01 %ASA-6-109007: Authorization permitted for user 'jsmith' from 192.0.2.9/51294 to 10.1.1.20/80 on interface outside"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:20:01 fw01 %ASA-6-109005: Authentication succeeded for user 'jsmith' from 192.0.2.9/51294 to 10.1.1.20/23 on interface outside"
+      found: 0
+      undefed: ["SRC"]

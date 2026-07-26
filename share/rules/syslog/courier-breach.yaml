@@ -1,0 +1,40 @@
+---
+# The condemned walked in, mail flavor... a successful Courier IMAP/POP3
+# login from a source holding any of the standard brands (see rules.md,
+# the standard brands). From sagan-rules imapd-correlated, its per-bit
+# "Login after" rules folded into one by the any-of names gate... the
+# logout/disconnect siblings were left behind as informational noise.
+#
+# Detection-only... flip detection_var to ban_var to make it act. List
+# it beside syslog/courier-auth; they match disjoint lines, so order
+# between them does not matter.
+rev: 1
+msg: "[COURIER] the condemned walked in... login success from a branded source"
+severity: critical
+classtype: successful-user
+daemons:
+  - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
+message_regexp:
+  - '^LOGIN, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+detection_var: [ SRC ]
+max_score: 1
+tests:
+  positive:
+    - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN, user=moth3r, ip=[::ffff:192.0.2.70], port=[41842], protocol=IMAP"
+      found: 1
+      data:
+        SRC: "192.0.2.70"
+    - message: "Jul 12 08:25:49 vixen42 pop3d-ssl: LOGIN, user=moth3r, ip=[192.0.2.71], port=[41843]"
+      found: 1
+      data:
+        SRC: "192.0.2.71"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN FAILED, user=moth3r, ip=[::ffff:192.0.2.70]"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 dovecot: LOGIN, user=moth3r, ip=[::ffff:192.0.2.70]"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,64 @@
+---
+# The screens... the scan, flood, spoof, and malformed-packet
+# detections a Juniper firewall runs at the gate. Two generations
+# speak here: SRX-era JunOS tags them RT_SCREEN_TCP/UDP/ICMP/IP (and
+# their logical-system _LS twins) in either the traditional
+# "<name>! source:" prose or the structured-data ledger, while the old
+# NetScreen/ScreenOS boxes cry "system-alert-000xx: <name>! From
+# <src>". Fifteen per-name rules from sagan-rules juniper.rules
+# (Fragmented traffic, FIN but no ACK, Port scan, ICMP fragment,
+# Malicious URL, Large ICMP, no-TCP-flag, SYN flood, Teardrop, IP
+# spoofing, ICMP flood, SYN fragment, Unknown protocol, Bad IP option,
+# SYN-ACK-ACK) folded into the shapes they all share... the alarm bang
+# and the named source. Their classtypes ranged suspicious-traffic
+# through network-scan and denial-of-service; consolidated under
+# network-scan, so the source wears recon for the standard-vocabulary
+# readers.
+rev: 1
+msg: "[JUNIPER] screen alarm - scan/flood/malformed traffic"
+severity: medium
+classtype: network-scan
+references:
+  - https://www.juniper.net/techpubs/software/screenos/screenos5.2.0/NS_Messages.pdf
+mark:
+  - name: recon
+    ttl: 86400
+message_regexp:
+  - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)?: [^!]+! source: %%%%SRC%%%%'
+  - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)? \[junos@\S+ .*?source-address="%%%%SRC%%%%"'
+  - 'system-(?:alert|critical|emergency)-\d{5}: [^!]+! From %%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 srx01 RT_IDS: RT_SCREEN_TCP: SYN flood! source: 198.51.100.7:31337, destination: 192.0.2.10:80, zone name: untrust, interface name: ge-0/0/0.0, action: alarm-without-drop"
+      found: 1
+      data:
+        SRC: "198.51.100.7"
+    - message: "Jul 12 08:15:52 srx01 RT_IDS: RT_SCREEN_ICMP: ICMP flood! source: 198.51.100.7, destination: 192.0.2.10, zone name: untrust, interface name: ge-0/0/0.0, action: drop"
+      found: 1
+      data:
+        SRC: "198.51.100.7"
+    - message: "Jul 12 08:15:54 srx01 RT_IDS: RT_SCREEN_IP: Teardrop attack! source: 203.0.113.99, destination: 192.0.2.10, protocol-id: 17, zone name: untrust, interface name: ge-0/0/0.0, action: drop"
+      found: 1
+      data:
+        SRC: "203.0.113.99"
+    - message: 'Jul 12 08:16:20 srx01 RT_IDS - RT_SCREEN_TCP [junos@2636.1.1.1.2.129 attack-name="TCP port scan!" source-address="185.220.101.4" source-port="53730" destination-address="192.0.2.10" destination-port="135" source-zone-name="untrust" interface-name="ge-0/0/0.0" action="drop"]'
+      found: 1
+      data:
+        SRC: "185.220.101.4"
+    - message: 'Jul 12 08:16:31 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-alert-00016: Port scan! From 203.0.113.5:53730 to 192.0.2.1:135, proto TCP (zone Untrust, int untrust). Occurred 1 times. (2026-07-12 08:16:31)'
+      found: 1
+      data:
+        SRC: "203.0.113.5"
+    - message: 'Jul 12 08:16:40 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-emergency-00005: SYN flood! From 198.51.100.44:2214 to 192.0.2.9:80, proto TCP (zone Untrust, int untrust). Occurred 1 times. (2026-07-12 08:16:40)'
+      found: 1
+      data:
+        SRC: "198.51.100.44"
+  negative:
+    - message: "Jul 12 08:20:00 srx01 RT_FLOW: RT_FLOW_SESSION_DENY: session denied 198.51.100.7/31337->192.0.2.10/23 junos-telnet 6(0) default-deny untrust trust"
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Jul 12 08:20:05 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-notification-00257(traffic): start_time="2026-07-12 08:19:55" duration=10 policy_id=1 service=http proto=6 src zone=Trust dst zone=Untrust action=Permit sent=1024 rcvd=2048 src=192.168.1.20 dst=203.0.113.80 src_port=51000 dst_port=80'
+      found: 0
+      undefed: ["SRC"]
