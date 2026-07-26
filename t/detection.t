@@ -130,10 +130,12 @@ ok( $galla->{eve_enable}, 'a loaded detection rule forces EVE output on' );
 feed( $galla, 'detectw', 'audit', 'd.log', 'policy tripwire tripped by alice', 3 );
 my @ev = read_events();
 
+# the two sub-threshold matches sight, the third crosses and is sighted...
+# the sighted stands for its line, so no sighting beside it
 is( scalar( grep { $_->{event_type} eq 'sighting' && $_->{found}{USER} eq 'alice' } @ev ),
-	3, 'each detection match emits a sighting' );
+	2, 'each sub-threshold detection match emits a sighting' );
 is( scalar( grep { $_->{event_type} eq 'sighted' && $_->{subject} eq 'alice' } @ev ),
-	1, 'and a sighted when the subject crosses the threshold' );
+	1, 'and a sighted when the subject crosses the threshold, standing for its line' );
 
 is( scalar( grep { $_->{event_type} eq 'found' } @ev ),  0, 'never a found' );
 is( scalar( grep { $_->{event_type} eq 'noted' } @ev ),  0, 'never a noted' );
@@ -170,7 +172,7 @@ ok( !defined( $galla->{counters}{'bob'} ), 'and never the real bucket' );
 feed( $galla, 'banw', 'sshd', 'b.log', 'bad thing from 9.9.9.9', 3 );
 @ev = read_events();
 is( scalar( grep { $_->{event_type} eq 'found' && $_->{found}{SRC} eq '9.9.9.9' } @ev ),
-	3, 'a plain rule alongside a detection rule still emits found' );
+	2, 'a plain rule alongside a detection rule still emits found for its sub-threshold hits' );
 is( scalar( grep { $_->{event_type} eq 'banish' && $_->{ip} eq '9.9.9.9' } @ev ), 1, 'and banishes' );
 is_deeply( \@sent, ['9.9.9.9'], 'the plain rule reaches Kur' );
 

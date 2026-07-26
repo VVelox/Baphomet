@@ -2153,6 +2153,16 @@ sub _process_record {
 			}
 
 			my ( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@offenders, $now );
+			# ride the brands on the context, so a terminal event carries them
+			$context->{marks_set} = $set;
+			$context->{unmarked}  = $lifted;
+
+			# a result that crosses its threshold emits a terminal event
+			# (banish/alert/sighted) that already stands for the match... the
+			# routine found/noted/sighting is then redundant and suppressed.
+			# set by the threshold blocks in _register_hit and the subnet
+			# tally, read after the offenders are counted. reset per result
+			$self->{result_terminal} = 0;
 
 			my $score;
 			if ($is_detection) {
@@ -2172,7 +2182,11 @@ sub _process_record {
 						$score = $registered;
 					}
 				} ## end foreach my $detection_var ( $rule_obj->detection_var)
-				$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
+				# a subject that crossed raised a sighted, which stands for
+				# the match... only the uncrossed one still needs a sighting
+				if ( !$self->{result_terminal} ) {
+					$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
+				}
 			} else {
 				# the offender this match would pass for banning, the first to
 				# survive the per-IP gates and reach the ban path... promoted to
@@ -2207,12 +2221,17 @@ sub _process_record {
 					} ## end foreach my $ip (@offenders)
 				} ## end if ( !$mark_only )
 
-				# observe mode colors the match event noted, not found
-				my $fields = $self->_eve_fields( $context, $score, $set, $lifted );
-				if ( defined($ban_ip) ) {
-					$fields->{ip} = $ban_ip;
-				}
-				$self->_eve_emit( $eve_only ? 'noted' : 'found', $fields );
+				# a offender that crossed raised a banish (or, observe mode, an
+				# alert), which carries the match already... the found/noted is
+				# then redundant, so only a result that banished nobody emits
+				# it. observe mode colors the match event noted, not found
+				if ( !$self->{result_terminal} ) {
+					my $fields = $self->_eve_fields( $context, $score, $set, $lifted );
+					if ( defined($ban_ip) ) {
+						$fields->{ip} = $ban_ip;
+					}
+					$self->_eve_emit( $eve_only ? 'noted' : 'found', $fields );
+				} ## end if ( !$self->{result_terminal...})
 			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
@@ -2233,6 +2252,16 @@ sub _eve_fields {
 
 	if ( !$self->{eve_enable} ) {
 		return {};
+	}
+
+	# the brands set and lifted default off the context, so a terminal event
+	# (a banish, an alert, a sighted) carries them the same as the found it
+	# now stands in for... the found path still passes them explicitly
+	if ( !defined($set) ) {
+		$set = $context->{marks_set};
+	}
+	if ( !defined($lifted) ) {
+		$lifted = $context->{unmarked};
 	}
 
 	# the flow's src and dest addresses lifted to the top level from the found
@@ -3319,6 +3348,9 @@ sub _register_hit {
 			if ( $key eq $ip ) {
 				delete( $dcounters->{$rule_name}{$key} );
 			}
+			# the crossing raises a terminal event, so the caller's routine
+			# found/noted/sighting for this result is now redundant
+			$self->{result_terminal} = 1;
 			if ($detection) {
 				$self->_sighted( $ip, $context, $score );
 			} elsif ($eve_only) {
@@ -3369,6 +3401,9 @@ sub _register_hit {
 
 	if ( $score >= $max_score ) {
 		delete( $bucket->{$ip} );
+		# the crossing raises a terminal event, so the caller's routine
+		# found/noted/sighting for this result is now redundant
+		$self->{result_terminal} = 1;
 		if ($detection) {
 			$self->_sighted( $ip, $context, $score );
 		} elsif ($eve_only) {
@@ -3469,6 +3504,9 @@ sub _register_subnet_hit {
 	# every further hit
 	delete( $bucket->{$network} );
 
+	# a subnet crossing raises its own banish, so the triggering line's
+	# routine found is redundant just as a per-IP crossing makes it
+	$self->{result_terminal} = 1;
 	if ($eve_only) {
 		$self->_alert_subnet( $network, $ban_time, $context, $score, $info );
 	} else {
@@ -3696,9 +3734,12 @@ sub _ban_hostname {
 	return;
 } ## end sub _ban_hostname
 
-# banishes a IP to Kur, queueing it for retry by the sweeper if the
-# Ereshkigal manager could not be reached... the send completes async under
-# POE, so the judgment tail runs from the answer, not from here
+# banishes a IP to Kur... the record and the send are decoupled. the record
+# (the EVE banish, the ledger chisel, the recidive gate) lands here at the
+# determination, synchronously and with the full context, so the audit does
+# not wait on Ereshkigal. the send then rides Kur, pending for retry if the
+# manager can not be reached, but never re-records... the banish is written
+# once, when the decision was made
 sub _ban_ip {
 	my ( $self, $ip, $ban_time, $context, $score ) = @_;
 
@@ -3708,52 +3749,36 @@ sub _ban_ip {
 		return $self->_ban_hostname( $ip, $ban_time, $context, $score );
 	}
 
-	# a decision already in flight absorbs this crossing... it will either
-	# deliver or pend on its own
-	if ( $self->{inflight_bans}{ 'ip:' . $ip } ) {
+	# one record per ban-cycle... a crossing while a send is in flight or a
+	# retry is pending has already been recorded, so it is absorbed. the
+	# pending guard is what dedups a flood of crossings during a Kur outage
+	# to the one banish the first crossing already wrote
+	if ( $self->{inflight_bans}{ 'ip:' . $ip } || exists( $self->{pending_bans}{$ip} ) ) {
 		return;
 	}
 	$self->{inflight_bans}{ 'ip:' . $ip } = 1;
 
-	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
-	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
-
-	$self->_kur_ban(
-		$ip, $ban_time, undef,
-		sub {
-			my ($error) = @_;
-			delete( $self->{inflight_bans}{ 'ip:' . $ip } );
-			if ( defined($error) ) {
-				$self->_tick( 'ban_errors', $watcher_name, $rule_name );
-				$self->{pending_bans}{$ip} = $ban_time;
-				log_drek( 'err', 'banishing ' . $ip . ' to Kur failed, will retry... ' . $error,
-					undef, 'galla-' . $self->{name} );
-				return;
-			}
-			$self->_ban_delivered( $ip, $ban_time, $context, $score );
-			return;
-		}
-	);
+	# the record, at determination... then the send, whose outcome only
+	# pends or clears, never touching EVE or the ledger
+	$self->_record_banish( $ip, $ban_time, $context, $score );
+	$self->_deliver_ban( $ip, $ban_time );
 
 	return;
 } ## end sub _ban_ip
 
-# the tail of a landed IP ban... the tick, the log, the EVE banish, the
-# ledger chisel, and the recidive gate. split from the send so the batched
-# sweep drain (and one day an async completion) can run it per subject
-sub _ban_delivered {
+# the banish record... the tick, the EVE banish, the ledger chisel, and the
+# recidive gate, written at the determination with the full context. does
+# not send, does not pend... the audit of a decision, independent of its
+# delivery
+sub _record_banish {
 	my ( $self, $ip, $ban_time, $context, $score ) = @_;
 
 	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
 	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
 	$self->_tick( 'bans', $watcher_name, $rule_name );
-	delete( $self->{pending_bans}{$ip} );
-	log_drek( 'info', 'banished ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
-		undef, 'galla-' . $self->{name} );
 
-	# the banish event carries the triggering line's envelope when there
-	# was one... a pending retry banish has no context. with a GeoIP
+	# the banish event carries the triggering line's envelope. with a GeoIP
 	# database loaded the banished IP's country rides along
 	my $country = ( $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($ip) : undef;
 	$self->_eve_emit(
@@ -3774,6 +3799,49 @@ sub _ban_delivered {
 	# further gate to the recidive kur
 	my $ledger_count = $self->_ledger_append_and_count( $ip, $context );
 	$self->_recidive_check( $ip, $ledger_count );
+
+	return;
+} ## end sub _record_banish
+
+# the send, decoupled from the record... rides Kur, pending the IP for the
+# sweeper to retry if the manager could not be reached, logging the outcome.
+# the send completes async under POE, so this tail runs from the answer
+sub _deliver_ban {
+	my ( $self, $ip, $ban_time ) = @_;
+
+	$self->_kur_ban(
+		$ip, $ban_time, undef,
+		sub {
+			my ($error) = @_;
+			$self->_ban_delivered( $ip, $ban_time, $error );
+			return;
+		}
+	);
+
+	return;
+} ## end sub _deliver_ban
+
+# the delivery bookkeeping, shared by the determination-time send and the
+# sweeper's batched retry... the record already happened, so this only
+# clears the inflight mark and either pends the IP on a error or drops it
+# from the retry queue on success. no EVE, no ledger... those were written
+# once at the determination
+sub _ban_delivered {
+	my ( $self, $ip, $ban_time, $error ) = @_;
+
+	delete( $self->{inflight_bans}{ 'ip:' . $ip } );
+
+	if ( defined($error) ) {
+		$self->_tick('ban_errors');
+		$self->{pending_bans}{$ip} = $ban_time;
+		log_drek( 'err', 'banishing ' . $ip . ' to Kur failed, will retry... ' . $error,
+			undef, 'galla-' . $self->{name} );
+		return;
+	}
+
+	delete( $self->{pending_bans}{$ip} );
+	log_drek( 'info', 'banished ' . $ip . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+		undef, 'galla-' . $self->{name} );
 
 	return;
 } ## end sub _ban_delivered
@@ -3845,45 +3913,28 @@ sub _sighted {
 sub _ban_subnet {
 	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
 
-	if ( $self->{inflight_bans}{ 'net:' . $network } ) {
+	# one record per ban-cycle, as for a IP... a crossing while inflight or
+	# pending has been recorded already
+	if ( $self->{inflight_bans}{ 'net:' . $network } || exists( $self->{pending_cidr_bans}{$network} ) ) {
 		return;
 	}
 	$self->{inflight_bans}{ 'net:' . $network } = 1;
 
-	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
-	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
-
-	$self->_kur_cidr_ban(
-		$network, $ban_time, undef,
-		sub {
-			my ($error) = @_;
-			delete( $self->{inflight_bans}{ 'net:' . $network } );
-			if ( defined($error) ) {
-				$self->_tick( 'ban_errors', $watcher_name, $rule_name );
-				$self->{pending_cidr_bans}{$network} = $ban_time;
-				log_drek( 'err', 'banishing ' . $network . ' to Kur failed, will retry... ' . $error,
-					undef, 'galla-' . $self->{name} );
-				return;
-			}
-			$self->_subnet_ban_delivered( $network, $ban_time, $context, $score, $info );
-			return;
-		}
-	);
+	$self->_record_subnet_banish( $network, $ban_time, $context, $score, $info );
+	$self->_deliver_subnet_ban( $network, $ban_time );
 
 	return;
 } ## end sub _ban_subnet
 
-# the tail of a landed CIDR ban, the twin of _ban_delivered
-sub _subnet_ban_delivered {
+# the CIDR banish record, the twin of _record_banish... written at the
+# determination with the full bucket, independent of delivery
+sub _record_subnet_banish {
 	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
 
 	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
 	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
 	$self->_tick( 'subnet_bans', $watcher_name, $rule_name );
-	delete( $self->{pending_cidr_bans}{$network} );
-	log_drek( 'info', 'banished ' . $network . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
-		undef, 'galla-' . $self->{name} );
 
 	$self->_eve_emit(
 		'banish',
@@ -3899,6 +3950,44 @@ sub _subnet_ban_delivered {
 	# and escalate to the recidive kur when it has been banished too often
 	my $ledger_count = $self->_ledger_append_and_count( $network, $context );
 	$self->_recidive_check( $network, $ledger_count, 1 );
+
+	return;
+} ## end sub _record_subnet_banish
+
+# the CIDR send, decoupled from its record, the twin of _deliver_ban
+sub _deliver_subnet_ban {
+	my ( $self, $network, $ban_time ) = @_;
+
+	$self->_kur_cidr_ban(
+		$network, $ban_time, undef,
+		sub {
+			my ($error) = @_;
+			$self->_subnet_ban_delivered( $network, $ban_time, $error );
+			return;
+		}
+	);
+
+	return;
+} ## end sub _deliver_subnet_ban
+
+# the CIDR delivery bookkeeping, the twin of _ban_delivered... the record
+# already happened, so this only clears inflight and pends or drops the CIDR
+sub _subnet_ban_delivered {
+	my ( $self, $network, $ban_time, $error ) = @_;
+
+	delete( $self->{inflight_bans}{ 'net:' . $network } );
+
+	if ( defined($error) ) {
+		$self->_tick('ban_errors');
+		$self->{pending_cidr_bans}{$network} = $ban_time;
+		log_drek( 'err', 'banishing ' . $network . ' to Kur failed, will retry... ' . $error,
+			undef, 'galla-' . $self->{name} );
+		return;
+	}
+
+	delete( $self->{pending_cidr_bans}{$network} );
+	log_drek( 'info', 'banished ' . $network . ' to Kur' . ( defined($ban_time) ? ' ban_time=' . $ban_time : '' ),
+		undef, 'galla-' . $self->{name} );
 
 	return;
 } ## end sub _subnet_ban_delivered
@@ -4173,21 +4262,25 @@ sub _drain_pending_group {
 		}
 		my $answered = sub {
 			my ($error) = @_;
-			foreach my $subject ( @{$subjects} ) {
-				delete( $self->{inflight_bans}{ $inflight_prefix . $subject } );
-			}
+			# a batch failure logs once for the whole group rather than
+			# per subject, then leaves them pending for the next sweep... the
+			# record was written when each was first determined, so a retry
+			# never re-emits EVE, it only re-attempts the send
 			if ( defined($error) ) {
 				$self->_tick('ban_errors');
 				log_drek( 'err',
 					'retrying ' . scalar( @{$subjects} ) . ' pending ban(s) failed, will retry again... ' . $error,
 					undef, $ident );
+				foreach my $subject ( @{$subjects} ) {
+					delete( $self->{inflight_bans}{ $inflight_prefix . $subject } );
+				}
 				return;
 			}
 			foreach my $subject ( @{$subjects} ) {
 				if ($subnet) {
-					$self->_subnet_ban_delivered( $subject, $ban_time, undef, undef, undef );
+					$self->_subnet_ban_delivered( $subject, $ban_time, undef );
 				} else {
-					$self->_ban_delivered( $subject, $ban_time, undef, undef );
+					$self->_ban_delivered( $subject, $ban_time, undef );
 				}
 			}
 			return;

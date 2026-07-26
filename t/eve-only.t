@@ -136,8 +136,10 @@ my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 
 @sent = ();
 feed( $galla, 'realw', 'real.log', '9.9.9.9', 3 );
 my @ev = read_events();
+# two under the threshold, the third crosses and banishes... the banish
+# stands for that line, so it emits no found beside it
 is( scalar( grep { $_->{event_type} eq 'found' && $_->{found}{SRC} eq '9.9.9.9' } @ev ),
-	3, 'the real watcher emits found events' );
+	2, 'the real watcher emits found events for the sub-threshold hits' );
 is( scalar( grep { $_->{event_type} eq 'banish' && $_->{ip} eq '9.9.9.9' } @ev ), 1, 'and a banish' );
 is_deeply( \@sent, ['9.9.9.9'], 'the real watcher actually banishes' );
 
@@ -149,9 +151,9 @@ is_deeply( \@sent, ['9.9.9.9'], 'the real watcher actually banishes' );
 feed( $galla, 'observew', 'obs.log', '8.8.8.8', 3 );
 @ev = read_events();
 is( scalar( grep { $_->{event_type} eq 'noted' && $_->{found}{SRC} eq '8.8.8.8' } @ev ),
-	3, 'observe mode emits noted events' );
+	2, 'observe mode emits noted events for the sub-threshold hits' );
 is( scalar( grep { $_->{event_type} eq 'alert' && $_->{ip} eq '8.8.8.8' } @ev ),
-	1, 'and an alert at the threshold' );
+	1, 'and an alert at the threshold, which stands for its line' );
 is( scalar( grep { $_->{event_type} eq 'found'  && $_->{found}{SRC} eq '8.8.8.8' } @ev ), 0, 'never a found' );
 is( scalar( grep { $_->{event_type} eq 'banish' && $_->{ip} eq '8.8.8.8' } @ev ),         0, 'never a banish' );
 is_deeply( \@sent, [], 'observe mode sends nothing to Kur' );
@@ -180,7 +182,7 @@ is( $in_ledger, 0, 'the observed IP is not chiseled into the ledger' );
 @sent = ();
 feed( $galla, 'overridew', 'over.log', '7.7.7.7', 3 );
 @ev = read_events();
-is( scalar( grep { $_->{event_type} eq 'found'  && $_->{found}{SRC} eq '7.7.7.7' } @ev ), 3, 'the rule override emits found' );
+is( scalar( grep { $_->{event_type} eq 'found'  && $_->{found}{SRC} eq '7.7.7.7' } @ev ), 2, 'the rule override emits found for the sub-threshold hits' );
 is( scalar( grep { $_->{event_type} eq 'banish' && $_->{ip} eq '7.7.7.7' } @ev ),         1, 'and banishes' );
 is_deeply( \@sent, ['7.7.7.7'], 'a eve_only:false rule bans despite the watcher observing' );
 
@@ -205,7 +207,7 @@ ok( !defined( $galla->{shadow_counters}{'10.1.2.3'} ), 'and lands in no shadow b
 feed( $galla, 'observe_ig', 'ig.log', '10.4.5.6', 3 );
 @ev = read_events();
 is( scalar( grep { $_->{event_type} eq 'noted' && $_->{found}{SRC} eq '10.4.5.6' } @ev ),
-	3, 'observe_ignored surfaces an ignored IP as noted' );
+	2, 'observe_ignored surfaces an ignored IP as noted for the sub-threshold hits' );
 is( scalar( grep { $_->{event_type} eq 'alert' && $_->{ip} eq '10.4.5.6' } @ev ),
 	1, 'and alerts on it' );
 is_deeply( \@sent, [], 'still sends nothing to Kur' );

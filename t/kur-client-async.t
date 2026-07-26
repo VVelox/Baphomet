@@ -109,11 +109,13 @@ POE::Session->create(
 	'inline_states' => {
 		'_start' => sub {
 			$galla->_ban_ip( '9.9.9.9', 300, undef, undef );
-			# async... the judgment tail has not run yet at initiation
-			is( $galla->{stats}{bans}, 0, 'initiation returns before the ban lands' );
+			# the record lands at determination, synchronously... only the
+			# send to Kur is async, so the banish is counted before it lands
+			is( $galla->{stats}{bans}, 1, 'the banish is recorded at determination, before the send lands' );
 			ok( $galla->{inflight_bans}{'ip:9.9.9.9'}, 'the ban is marked in flight' );
-			# a re-crossing while in flight is absorbed
+			# a re-crossing while in flight is absorbed... no second record
 			$galla->_ban_ip( '9.9.9.9', 300, undef, undef );
+			is( $galla->{stats}{bans}, 1, 'a re-crossing in flight is absorbed, not re-recorded' );
 			$_[KERNEL]->delay( 'landed', 1 );
 			return;
 		},
@@ -121,7 +123,7 @@ POE::Session->create(
 			is( scalar(@bans),         1,   'the fake manager got exactly one ban request' );
 			is( $bans[0]{ips}[0],      '9.9.9.9', 'carrying the offender' );
 			is( $bans[0]{kur},         'sshd',    'on the galla\'s kur' );
-			is( $galla->{stats}{bans}, 1,   'the delivered tail ran from the answer' );
+			is( $galla->{stats}{bans}, 1,   'the async delivery did not re-record the ban' );
 			ok( !%{ $galla->{inflight_bans} },  'nothing left in flight' );
 			ok( !%{ $galla->{pending_bans} },   'nothing pending' );
 

@@ -130,7 +130,9 @@ my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 
 is( $galla->{eve_enable}, 1, 'eve_enable on' );
 ok( -d $dir . '/eve', 'the eve dir was created' );
 
-# three bad lines... three found events and one banish at the threshold
+# three bad lines... the first two found under the threshold, the third
+# crosses and banishes. the banishing line emits only the banish, which
+# stands for the match, not a found beside it
 foreach ( 1 .. 3 ) {
 	$galla->_handle_line( 'authlog', 'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', $dir . '/log' );
 }
@@ -138,7 +140,7 @@ foreach ( 1 .. 3 ) {
 my @events = read_events();
 my @found  = grep { $_->{event_type} eq 'found' } @events;
 my @banish = grep { $_->{event_type} eq 'banish' } @events;
-is( scalar(@found),  3, 'three found events' );
+is( scalar(@found),  2, 'two found events... the sub-threshold hits only' );
 is( scalar(@banish), 1, 'one banish event' );
 
 my $f = $found[0];
@@ -152,7 +154,7 @@ is( $f->{raw},            'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9
 is( $f->{found}{SRC},     '9.9.9.9',                                                 'found carries the check data' );
 is( $f->{parsed}{daemon}, 'sshd',        'parsed carries the parser output' );
 is( $f->{score},          1,             'score on the first found is 1' );
-is( $found[2]{score},     3,             'score on the third found is 3' );
+is( $found[1]{score},     2,             'score on the second found is 2' );
 is( $f->{msg},            'syslog/sshd', 'msg falls back to the rule name when the rule sets none' );
 ok( !exists( $f->{severity} ),   'severity absent when the rule sets none and no default_severity' );
 ok( !exists( $f->{classtype} ),  'classtype absent when the rule sets none' );
@@ -171,13 +173,17 @@ is( $f->{rule}{name}, 'syslog/sshd', 'rule name' );
 ok( defined( $f->{rule}{def}{message_regexp} ), 'rule def present' );
 ok( !exists( $f->{rule}{def}{tests} ),          'rule tests stripped for space' );
 
-# the banish event
+# the banish event... it stands for the crossing line whole, carrying the
+# same raw/parsed/found the suppressed found would have
 my $c = $banish[0];
 is( $c->{event_type}, 'banish',  'banish event_type' );
 is( $c->{ip},         '9.9.9.9', 'banish ip' );
 is( $c->{ban_time},   300,       'banish ban_time' );
 is( $c->{score},      3,         'banish score' );
 is( $c->{found}{SRC}, '9.9.9.9', 'banish carries the triggering found' );
+is( $c->{raw},  'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'banish carries the raw line' );
+is( $c->{path}, $dir . '/log',                                             'banish carries the source path' );
+is( $found[-1]{score}, 2, 'the last found is the second hit, not the banishing third' );
 
 #
 # a JSON watcher... parsed holds the parsed JSON

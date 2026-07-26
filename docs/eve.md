@@ -17,22 +17,34 @@ land in one stream filterable by `.kur`.
 ## The events
 
 One JSON object per line. Six kinds, in `.event_type`... a real pair, an
-observe-mode pair, and a detection pair:
+observe-mode pair, and a detection pair. Within a pair the terminal event
+subsumes the routine one: a line whose hit crosses the threshold emits
+only the `banish` (or `alert`, or `sighted`), never a `found` (or `noted`,
+or `sighting`) beside it, since the terminal event already carries the
+whole match. So one line is one event... a burst of failures reads as
+several `found`s and then a single `banish` on the one that tipped it, not
+a `found` and a `banish` for that last line both.
 
-- **found** ... a rule matched a line. Written on every match, whether or
-  not it tips the offender over the threshold, so it is the full audit of
-  what tripped what.
-- **banish** ... an IP was successfully sent below to Kur.
+- **found** ... a rule matched a line and the offender stayed under the
+  threshold. The record of a sighting that did not (yet) act... the
+  crossing hit is the `banish`, not a `found`.
+- **banish** ... an IP crossed its threshold and was condemned to Kur.
+  Written when the decision is made, synchronously and with the full
+  context, not when Ereshkigal accepts it... so the audit never waits on
+  delivery, and a Kur that is down or slow costs the send a retry, never a
+  lost or context-stripped record. Carries the triggering line whole, the
+  same `raw`/`parsed`/`found`/`marks_set` a `found` would have, so it
+  stands for that line by itself.
 - **noted** ... the observe-mode twin of `found`, a match under an
   `eve_only` rule or watcher, which is recorded but never counted toward a
   real ban. See [rules](rules).
 - **alert** ... the observe-mode twin of `banish`, an offender whose score
   reached the threshold under observe mode. It reads just like the banish it
   stands in for, minus the fact of the ban... nothing was sent to Kur.
-- **sighting** ... the detection twin of `found`, a match under a
-  detection-only rule (one carrying a `detection_var`). The rule banishes
-  nobody, only counts its subject, so every match is a sighting. See
-  [rules](rules).
+- **sighting** ... the detection twin of `found`, a sub-threshold match
+  under a detection-only rule (one carrying a `detection_var`). The rule
+  banishes nobody, only counts its subject... the crossing match is the
+  `sighted`. See [rules](rules).
 - **sighted** ... the detection twin of `banish`, a subject whose count
   crossed the threshold under a detection rule. It carries the match
   envelope but names a `.subject`, not an `.ip`... the subject need not be a
@@ -68,8 +80,10 @@ Every record carries these fields...
 A **banish** event adds `.ip` and `.ban_time`, and `.recidive` is true
 when it is a seventh-gate escalation to the recidive kur. A banish
 triggered by a specific line crossing the threshold carries that line's
-`raw`/`parsed`/`found`/`rule`; one from a pending retry or a recidive
-escalation is the bare banishment. With a `geoip_db` loaded, the
+`raw`/`parsed`/`found`/`rule`, always... the record is written at the
+crossing, so a Kur outage that pends the send for later retry never
+strips it. A recidive escalation, which is triggered by the ledger count
+rather than a line, is the bare banishment. With a `geoip_db` loaded, the
 banished IP's `.country` rides along too.
 
 A **subnet banish** is a banish whose `.ip` is a CIDR (`65.49.1.0/24`)
@@ -87,7 +101,10 @@ observe-mode stand-in. A **found** or **noted** event carries `.marks_set`
 and `.unmarked` when the rule branded or lifted marks, and `.ip`, the
 offender the match would pass for banning (the first `ban_var` candidate to
 survive the per-IP gates)... absent when the rule branded only, banished
-nobody, or every candidate was internal.
+nobody, or every candidate was internal. The terminal events carry the
+same `.marks_set` and `.unmarked`, so a line that both brands and banishes
+records the brand on its `banish`, the `found` it stands in for having been
+suppressed.
 
 A **sighted** event adds `.subject`, the value of the `detection_var` that
 crossed the threshold... a username, a hostname, a URI, or a IP when that is
@@ -103,9 +120,11 @@ rule brands.
 # every banishment, as ip and kur
 jq -r 'select(.event_type=="banish") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.json
 
-# the busiest offenders, by how often they were found
-jq -r 'select(.event_type=="found") | .found.SRC // .found.HOST' /var/log/baphomet/eve.json \
-    | sort | uniq -c | sort -rn | head
+# the busiest offenders, by how often they tripped a rule... both found
+# (the sub-threshold hits) and banish (the crossing ones), since a
+# banishing line emits only the banish
+jq -r 'select(.event_type=="found" or .event_type=="banish") | .found.SRC // .found.HOST' \
+    /var/log/baphomet/eve.json | sort | uniq -c | sort -rn | head
 
 # what a given IP did, in full
 jq 'select(.found.SRC=="1.2.3.4" or .ip=="1.2.3.4")' /var/log/baphomet/eve.json

@@ -165,10 +165,14 @@ feed( $galla, 'suricata-admin', '203.0.113.1' );
 is_deeply( \@sent, [ [ '203.0.113.1', 4242 ] ], 'a config max_score 1 bans on the first hit, flag off, config ban_time' );
 ok( !defined( $galla->{rule_counters}{'json/suricata-admin'}{'203.0.113.1'} ), 'the per-rule bucket dropped on the ban' );
 
-# the watcher severity won over the kur, and reached EVE
-my ($admin_found) = grep { $_->{event_type} eq 'found' && ( $_->{ip} || '' ) eq '203.0.113.1' } read_events();
-ok( defined($admin_found), 'the admin match produced a found event' );
-is( $admin_found->{severity}, 'high', 'the watcher rule_config severity won over the kur and reached EVE' );
+# the watcher severity won over the kur, and reached EVE... the first hit
+# crosses and banishes, so the match surfaces as a banish (which stands for
+# the line), not a found beside it
+my ($admin_banish) = grep { $_->{event_type} eq 'banish' && ( $_->{ip} || '' ) eq '203.0.113.1' } read_events();
+ok( defined($admin_banish), 'the admin match produced a banish event, not a redundant found' );
+is( scalar( grep { $_->{event_type} eq 'found' && ( $_->{ip} || '' ) eq '203.0.113.1' } read_events() ),
+	0, 'and no found beside the banish' );
+is( $admin_banish->{severity}, 'high', 'the watcher rule_config severity won over the kur and reached EVE' );
 
 # dos... a config weight of 3 reaches the watcher max_score of 3 in one hit,
 # again with the flag off, counting in the shared bucket

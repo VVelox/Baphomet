@@ -56,9 +56,12 @@ my @sighted;
 {
 	no warnings 'redefine';
 	*App::Baphomet::Galla::_send_ban = sub { push( @sent, $_[1] ); return; };
+	# a max_score-1 detection rule crosses on its first hit, so the match
+	# surfaces as a sighted (which stands for the line), not a sighting...
+	# collect either, the SRC being the detection subject
 	*App::Baphomet::Galla::_eve_emit = sub {
 		my ( $self, $event_type, $fields ) = @_;
-		if ( $event_type eq 'sighting' ) {
+		if ( $event_type eq 'sighting' || $event_type eq 'sighted' ) {
 			push( @sighted, $fields->{found}{SRC} );
 		}
 		return;

@@ -281,7 +281,10 @@ ok( !%{ $galla->{pending_bans} }, 'the pending queue drained whole' );
 
 my $status = $galla->_cmd_status;
 is( $status->{name}, 'sshd', 'status name' );
-is( $status->{stats}{bans}, scalar(@sent), 'status stats' );
+# bans counts determinations, not deliveries, now that the record is
+# written when the decision is made... the two pendings injected straight
+# into the queue above bypassed that, so they delivered without a record
+is( $status->{stats}{bans}, scalar(@sent) - 2, 'status stats... bans counts ban determinations' );
 is( ref( $status->{watchers}{authlog} ), 'HASH', 'status watchers' );
 
 done_testing;
