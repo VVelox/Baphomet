@@ -8,10 +8,13 @@
 # the path at a honeypot URL and it bans the knocker instead).
 #
 # Source: fail2ban config/filter.d/apache-pass.conf
-rev: 1
+rev: 2
 msg: "[APACHE] port-knock pass request (repurpose as honeypot offense)"
 severity: medium
 classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
 status:
   - 200
 method:

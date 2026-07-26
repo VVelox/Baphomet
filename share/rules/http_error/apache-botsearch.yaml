@@ -5,10 +5,13 @@
 # fail2ban apache-botsearch filter with the path vocabulary of
 # botsearch-common.conf expanded inline, translated to Baphomet and
 # simplified. The webroot is /var/www/, matching the fail2ban default.
-rev: 1
+rev: 2
 msg: "[APACHE] bot probe for missing admin panel"
 severity: medium
 classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
 level:
   - error
 message_regexp:

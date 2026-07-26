@@ -1404,7 +1404,9 @@ The JSON commands handled are as below.
 
     - marked :: The live marks, per mark name a hash of the branded keys,
           each with its expiry and, when the rule harvested one, the
-          stored value.
+          stored value. A compound key, a vars mark, is its captures
+          joined on the unit separator, which JSON output shows as
+          \u001f.
 
     - watching :: Per watcher, what it is set to watch and what it is
           watching now... for a file watcher the log specs (literal paths
@@ -3183,51 +3185,111 @@ sub _active_time_pass {
 	return 1;
 } ## end sub _active_time_pass
 
+# resolves a mark entry's key against a line... vars joins each named
+# capture's value on the unit separator into one compound key, var takes
+# that capture alone, and neither takes the passed offender IP. any piece
+# missing means no key at all, a undef... never a partial join
+sub _mark_key {
+	my ( $self, $entry, $data, $ip ) = @_;
+
+	if ( defined( $entry->{vars} ) ) {
+		my @parts;
+		foreach my $var ( @{ $entry->{vars} } ) {
+			if ( !defined( $data->{$var} ) ) {
+				return undef;
+			}
+			push( @parts, $data->{$var} );
+		}
+		return join( "\x1f", @parts );
+	} ## end if ( defined( $entry->{vars} ) )
+
+	if ( defined( $entry->{var} ) ) {
+		return $data->{ $entry->{var} };
+	}
+
+	return $ip;
+} ## end sub _mark_key
+
 # evaluates a rule's marked/not_marked gates in one of two modes... with a
-# undef ip the var-keyed entries, data-driven and ran once per found
+# undef ip the data-keyed entries (a var or vars), ran once per found
 # result, with a ip the var-less entries, offender-keyed and ran once per
 # candidate. returns true when every applicable gate holds. a marked gate
 # with nothing to look up fails, a not_marked one passes, and a value
-# compare with either side missing fails... conservative on both counts
+# compare with either side missing counts as holding... conservative on
+# every count
 sub _mark_gates_pass {
 	my ( $self, $gates, $data, $ip, $now ) = @_;
 
 	foreach my $entry ( @{ $gates->{marked} } ) {
-		if ( defined( $entry->{var} ) ? defined($ip) : !defined($ip) ) {
+		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
+		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
 			next;
 		}
-		my $key = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
+		my $key = $self->_mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			return 0;
 		}
-		my $mark = $self->{marks}{ $entry->{name} }{$key};
-		if ( !defined($mark) || $mark->{expires} <= $now ) {
+		# a names entry holds on any of its listed brands, a name entry on
+		# its one... whichever brand is live must also pass the value
+		# compares, so a any-of never rides a value it did not prove
+		my @names = defined( $entry->{names} ) ? @{ $entry->{names} } : ( $entry->{name} );
+		my $held;
+	NAME: foreach my $mark_name (@names) {
+			my $mark = $self->{marks}{$mark_name}{$key};
+			if ( !defined($mark) || $mark->{expires} <= $now ) {
+				next NAME;
+			}
+			foreach my $compare ( 'value_is', 'value_not' ) {
+				if ( !defined( $entry->{$compare} ) ) {
+					next;
+				}
+				my $against = $data->{ $entry->{$compare} };
+				if ( !defined( $mark->{value} ) || !defined($against) ) {
+					next NAME;
+				}
+				if ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) {
+					next NAME;
+				}
+			} ## end foreach my $compare ( 'value_is', 'value_not' )
+			$held = 1;
+			last NAME;
+		} ## end NAME: foreach my $mark_name (@names)
+		if ( !$held ) {
 			return 0;
 		}
+	} ## end foreach my $entry ( @{ $gates->{marked} } )
+
+	foreach my $entry ( @{ $gates->{not_marked} } ) {
+		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
+		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
+			next;
+		}
+		my $key = $self->_mark_key( $entry, $data, $ip );
+		if ( !defined($key) ) {
+			next;
+		}
+		my $mark = $self->{marks}{ $entry->{name} }{$key};
+		if ( !defined($mark) || $mark->{expires} <= $now ) {
+			next;
+		}
+		# a live brand vetoes, unless a value compare provably fails to
+		# hold... "not marked with this value" spares a brand whose stored
+		# value differs (value_is) or agrees (value_not), while a compare
+		# with either side missing still vetoes
+		my $vetoes = 1;
 		foreach my $compare ( 'value_is', 'value_not' ) {
 			if ( !defined( $entry->{$compare} ) ) {
 				next;
 			}
 			my $against = $data->{ $entry->{$compare} };
-			if ( !defined( $mark->{value} ) || !defined($against) ) {
-				return 0;
-			}
-			if ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) {
-				return 0;
+			if (   defined( $mark->{value} )
+				&& defined($against)
+				&& ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) )
+			{
+				$vetoes = 0;
 			}
 		} ## end foreach my $compare ( 'value_is', 'value_not' )
-	} ## end foreach my $entry ( @{ $gates->{marked} } )
-
-	foreach my $entry ( @{ $gates->{not_marked} } ) {
-		if ( defined( $entry->{var} ) ? defined($ip) : !defined($ip) ) {
-			next;
-		}
-		my $key = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
-		if ( !defined($key) ) {
-			next;
-		}
-		my $mark = $self->{marks}{ $entry->{name} }{$key};
-		if ( defined($mark) && $mark->{expires} > $now ) {
+		if ($vetoes) {
 			return 0;
 		}
 	} ## end foreach my $entry ( @{ $gates->{not_marked} } )
@@ -3236,12 +3298,13 @@ sub _mark_gates_pass {
 	# be live for the key and their first-seen times non-decreasing in the
 	# listed order, so "stage a then b then c" only holds when a fired no later
 	# than b and b no later than c. keyed like the marked gate, by a var's
-	# capture or, var-less, by the offender
+	# capture, a vars compound, or, var-less, by the offender
 	foreach my $entry ( @{ $gates->{sequence} } ) {
-		if ( defined( $entry->{var} ) ? defined($ip) : !defined($ip) ) {
+		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
+		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
 			next;
 		}
-		my $key = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
+		my $key = $self->_mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			return 0;
 		}
@@ -3328,9 +3391,9 @@ sub _mark_set {
 } ## end sub _mark_set
 
 # applies a rule's mark and unmark entries for one found result... var
-# entries key by that capture, var-less ones by each passed offender IP,
-# with the ignored never branded. returns the set and lifted lists for
-# the EVE event
+# entries key by that capture, vars ones by the joined captures, var-less
+# ones by each passed offender IP, with the ignored never branded. returns
+# the set and lifted lists for the EVE event
 sub _apply_marks {
 	my ( $self, $rule_obj, $data, $offenders, $now ) = @_;
 
@@ -3348,10 +3411,13 @@ sub _apply_marks {
 	my @set;
 	foreach my $entry ( @{$marks} ) {
 		my $value = defined( $entry->{value_var} ) ? $data->{ $entry->{value_var} } : undef;
-		my @keys
-			= defined( $entry->{var} )
-			? ( defined( $data->{ $entry->{var} } ) ? ( $data->{ $entry->{var} } ) : () )
-			: @brandable;
+		my @keys;
+		if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
+			my $key = $self->_mark_key( $entry, $data, undef );
+			@keys = defined($key) ? ($key) : ();
+		} else {
+			@keys = @brandable;
+		}
 		foreach my $key (@keys) {
 			$self->_mark_set( $entry->{name}, $key, $value, $entry->{ttl}, $now );
 			push( @set, { 'name' => $entry->{name}, 'key' => $key } );
@@ -3360,10 +3426,13 @@ sub _apply_marks {
 
 	my @lifted;
 	foreach my $entry ( @{$unmarks} ) {
-		my @keys
-			= defined( $entry->{var} )
-			? ( defined( $data->{ $entry->{var} } ) ? ( $data->{ $entry->{var} } ) : () )
-			: @brandable;
+		my @keys;
+		if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
+			my $key = $self->_mark_key( $entry, $data, undef );
+			@keys = defined($key) ? ($key) : ();
+		} else {
+			@keys = @brandable;
+		}
 		foreach my $key (@keys) {
 			if ( defined( $self->{marks}{ $entry->{name} } ) && defined( $self->{marks}{ $entry->{name} }{$key} ) ) {
 				delete( $self->{marks}{ $entry->{name} }{$key} );

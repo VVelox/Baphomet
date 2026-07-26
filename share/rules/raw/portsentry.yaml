@@ -3,10 +3,15 @@
 # filter, translated to Baphomet and simplified. PortSentry leads each
 # line with an epoch and its own date/time, so this is a raw rule anchored
 # on that shape.
-rev: 1
+rev: 2
 msg: "[PORTSENTRY] blocked port scan"
 severity: medium
 classtype: attempted-recon
+mark:
+  - name: recon
+    ttl: 86400
+  - name: honeypot
+    ttl: 86400
 message_regexp:
   - '^\d+ - \d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2} Host: \S+/%%%%SRC%%%% Port: \d+ (?:TCP|UDP) Blocked$'
 ban_var:

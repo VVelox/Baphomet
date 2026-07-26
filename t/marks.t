@@ -38,6 +38,17 @@ my %bad = (
 		{ marked => [ { name => 'x', value_is => 'ip', value_not => 'ip' } ] },
 	'a marked entry with a bad name' => { marked => [ { name => 'bad name' } ] },
 	'a unmark with an empty var'     => { unmark => [ { name => 'x', var => '' } ] },
+	'a mark with both var and vars'  => { mark => [ { name => 'x', ttl => 60, var => 'a', vars => [ 'a', 'b' ] } ] },
+	'a mark with an empty vars'      => { mark => [ { name => 'x', ttl => 60, vars => [] } ] },
+	'a mark with an empty vars entry' => { mark   => [ { name => 'x', ttl => 60, vars => [ 'a', '' ] } ] },
+	'a marked with both name and names' => { marked => [ { name => 'x', names => ['y'] } ] },
+	'a marked with an empty names'      => { marked => [ { names => [] } ] },
+	'a marked with a bad names entry'   => { marked => [ { names => ['bad name'] } ] },
+	'a names on a not_marked'           => { not_marked => [ { names => ['x'] } ] },
+	'a not_marked with both value_is and value_not' =>
+		{ not_marked => [ { name => 'x', value_is => 'ip', value_not => 'ip' } ] },
+	'a sequence entry with both var and vars' =>
+		{ sequence => [ { marks => [ 'a', 'b' ], var => 'user', vars => [ 'ip', 'user' ] } ] },
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
 	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base}, %{ $bad{$desc} } } ); };
@@ -60,6 +71,21 @@ is( $rule->marks->[0]{name},        'acct', 'marks accessor' );
 is( $rule->unmarks->[0]{var},       'user', 'unmarks accessor' );
 is( $rule->mark_gates->{marked}[0]{value_not}, 'ip', 'mark_gates accessor' );
 
+# the expanded shapes load too... a vars compound key, a names any-of, and
+# a value compare on a not_marked
+my $wide = App::Baphomet::Rules::JSON->new(
+	name => 'json/y',
+	def  => {
+		%{$base},
+		mark       => [ { name => 'pair', ttl => 60, vars => [ 'ip', 'user' ] } ],
+		marked     => [ { names => [ 'pair', 'other' ] } ],
+		not_marked => [ { name => 'pair', vars => [ 'ip', 'user' ], value_is => 'ip' } ],
+	}
+);
+is_deeply( $wide->marks->[0]{vars}, [ 'ip', 'user' ], 'a vars mark loads' );
+is_deeply( $wide->mark_gates->{marked}[0]{names}, [ 'pair', 'other' ], 'a names marked gate loads' );
+is( $wide->mark_gates->{not_marked}[0]{value_is}, 'ip', 'a not_marked value compare loads' );
+
 #
 # galla behavior
 #
@@ -74,6 +100,14 @@ my %rules = (
 	'mark2'     => "gate2: bad\nmark_only: true\nmark:\n  - name: flag\n    ttl: 3600\n",
 	'clear'     => "gate2: good\nmark_only: true\nunmark:\n  - name: flag\n",
 	'ipmark'    => "gate2: hit\nmark_only: true\nmark:\n  - name: seen\n    ttl: 3600\n",
+	'pairclear' => "gate2: clear\nmark_only: true\nmark:\n  - name: cleared\n    ttl: 3600\n    vars: [ ip, user ]\n",
+	'pairlift'  => "gate2: lift\nmark_only: true\nunmark:\n  - name: cleared\n    vars: [ ip, user ]\n",
+	'pairfire'  => "not_marked:\n  - name: cleared\n    vars: [ ip, user ]\nmax_score: 1\n",
+	'seta'      => "gate2: a\nmark_only: true\nmark:\n  - name: brand-a\n    ttl: 3600\n",
+	'setb'      => "gate2: b\nmark_only: true\nmark:\n  - name: brand-b\n    ttl: 3600\n",
+	'anyfire'   => "marked:\n  - names: [ brand-a, brand-b ]\nmax_score: 1\n",
+	'brandsrc'  => "gate2: login\nmark_only: true\nmark:\n  - name: sess\n    ttl: 3600\n    var: user\n    value_var: ip\n",
+	'newsrc'    => "gate2: use\nnot_marked:\n  - name: sess\n    var: user\n    value_is: ip\nmax_score: 1\n",
 );
 foreach my $name ( keys(%rules) ) {
 	my $body  = $rules{$name};
@@ -117,6 +151,21 @@ rule = [ "json/mark2", "json/clear" ]
 log = "$dir/l4"
 parser = "json"
 rule = [ "json/ipmark" ]
+
+[kur.marks.pair]
+log = "$dir/l5"
+parser = "json"
+rule = [ "json/pairfire", "json/pairclear", "json/pairlift" ]
+
+[kur.marks.anyof]
+log = "$dir/l6"
+parser = "json"
+rule = [ "json/anyfire", "json/seta", "json/setb" ]
+
+[kur.marks.sameip]
+log = "$dir/l7"
+parser = "json"
+rule = [ "json/newsrc", "json/brandsrc" ]
 EOC
 close($cfg);
 
@@ -185,6 +234,57 @@ feed( $galla, 'iptest', event => 'hit', ip => '127.0.0.1' );
 ok( !defined( $galla->{marks}{seen} ), 'an ignore_ips offender is not branded' );
 feed( $galla, 'iptest', event => 'hit', ip => '8.8.8.8' );
 ok( defined( $galla->{marks}{seen}{'8.8.8.8'} ), 'a normal offender is' );
+
+#
+# compound keys... a vars mark and a vars not_marked, the Sagan
+# "track ip_username" shape, with a vars unmark lifting the pair
+#
+
+@sent = ();
+feed( $galla, 'pair', event => 'clear', user => 'bob', ip => '10.0.0.1' );
+ok( defined( $galla->{marks}{cleared}{"10.0.0.1\x1fbob"} ), 'a vars mark brands the joined compound key' );
+feed( $galla, 'pair', event => 'fail', user => 'bob', ip => '10.0.0.1' );
+is_deeply( \@sent, [], 'the cleared pair passes the not_marked gate' );
+feed( $galla, 'pair', event => 'fail', user => 'alice', ip => '10.0.0.1' );
+is_deeply( \@sent, ['10.0.0.1'], 'the same source on an uncleared account is banished' );
+
+feed( $galla, 'pair', event => 'clear', user => 'bob', ip => '10.0.0.2' );
+feed( $galla, 'pair', event => 'lift', user => 'bob', ip => '10.0.0.2' );
+ok( !defined( $galla->{marks}{cleared}{"10.0.0.2\x1fbob"} ), 'a vars unmark lifts the compound brand' );
+@sent = ();
+feed( $galla, 'pair', event => 'fail', user => 'bob', ip => '10.0.0.2' );
+is_deeply( \@sent, ['10.0.0.2'], 'and the lifted pair trips the gate again' );
+
+#
+# a names marked gate... any listed brand satisfies it
+#
+
+@sent = ();
+feed( $galla, 'anyof', event => 'fail', ip => '11.0.0.1' );
+is_deeply( \@sent, [], 'a names gate with neither brand live does not fire' );
+feed( $galla, 'anyof', event => 'a', ip => '11.0.0.1' );
+feed( $galla, 'anyof', event => 'fail', ip => '11.0.0.1' );
+is_deeply( \@sent, ['11.0.0.1'], 'the first listed brand alone satisfies it' );
+feed( $galla, 'anyof', event => 'b', ip => '11.0.0.2' );
+@sent = ();
+feed( $galla, 'anyof', event => 'fail', ip => '11.0.0.2' );
+is_deeply( \@sent, ['11.0.0.2'], 'the second listed brand alone does too' );
+
+#
+# a value compare on not_marked... a live brand vetoes unless the compare
+# provably fails to hold
+#
+
+feed( $galla, 'sameip', event => 'login', user => 'carol', ip => '12.0.0.1' );
+is( $galla->{marks}{sess}{carol}{value}, '12.0.0.1', 'the session brand stores its source' );
+@sent = ();
+feed( $galla, 'sameip', event => 'use', user => 'carol', ip => '12.0.0.1' );
+is_deeply( \@sent, [], 'a not_marked value_is spares the source the brand stored' );
+feed( $galla, 'sameip', event => 'use', user => 'carol', ip => '12.0.0.2' );
+is_deeply( \@sent, ['12.0.0.2'], 'a differing source provably fails the compare and is banished' );
+@sent = ();
+feed( $galla, 'sameip', event => 'use', user => 'dave', ip => '12.0.0.3' );
+is_deeply( \@sent, ['12.0.0.3'], 'no brand at all still trips the gate' );
 
 #
 # the sweeper expires marks whose ttl has run out

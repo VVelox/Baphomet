@@ -38,7 +38,9 @@ sub description {
 		  'Marks are the named, expiring brands rules leave on a key, an IP or a '
 		. 'harvested capture like a username, so a later rule can gate on them. '
 		. 'This shows the live marks, per mark name a hash of the branded keys with '
-		. 'their expiries and any stored value. With no args, every galla is asked. '
+		. 'their expiries and any stored value. A compound key, a vars mark, is its '
+		. 'captures joined on the unit separator, shown in the JSON as \\u001f. '
+		. 'With no args, every galla is asked. '
 		. 'With a galla name, just that one. With --name, only that mark is shown.';
 }
 

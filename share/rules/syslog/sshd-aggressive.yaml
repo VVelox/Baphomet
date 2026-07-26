@@ -5,10 +5,13 @@
 # should accrue to one count. See those two rules for the annotated
 # regexps... this file only unions them. Noisy by nature, so opt in
 # knowingly.
-rev: 1
+rev: 2
 msg: "[SSHD] pre-auth abuse / negotiation probe (aggressive)"
 severity: medium
 classtype: network-scan
+mark:
+  - name: recon
+    ttl: 86400
 daemons:
   - sshd
   - sshd-session

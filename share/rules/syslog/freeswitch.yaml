@@ -5,10 +5,13 @@
 # default "extra" mode which combines the normal and ddos regexps, and the
 # optional duplicated timestamp that shows up when logging via syslog is
 # handled inline.
-rev: 1
+rev: 2
 msg: "[FREESWITCH] authentication failure"
 severity: high
 classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
 daemons:
   - freeswitch
 message_regexp:

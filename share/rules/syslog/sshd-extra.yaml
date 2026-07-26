@@ -7,10 +7,13 @@
 # address harvested from the connect announcement. Run this beside
 # syslog/sshd, not instead... and see syslog/sshd-aggressive for this and
 # syslog/sshd-ddos as one rule.
-rev: 1
+rev: 2
 msg: "[SSHD] algorithm negotiation probe"
 severity: medium
 classtype: attempted-recon
+mark:
+  - name: recon
+    ttl: 86400
 daemons:
   - sshd
   - sshd-session

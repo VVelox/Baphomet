@@ -3,10 +3,13 @@
 # the fail2ban squid filter, translated to Baphomet and simplified. Squid
 # access.log leads with an epoch timestamp, so this is a raw rule anchored
 # on that shape.
-rev: 1
+rev: 2
 msg: "[SQUID] denied proxy attempt"
 severity: medium
 classtype: attempted-recon
+mark:
+  - name: recon
+    ttl: 86400
 message_regexp:
   - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+[A-Z_]+_DENIED/403 .*$'
   - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+NONE/405 .*$'

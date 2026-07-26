@@ -45,13 +45,20 @@ the galla. None of these has a fail2ban equivalent.
   could only threshold a whole jail at once. Inert unless the config opts in
   with `allow_per_rule_thresholds`.
 - **Marks, cross-rule state (`xbits` / `flexbits`).** A galla-wide store of
-  expiring named marks, keyed by the offender IP or by any capture or field
-  (`var`), optionally harvesting and gating on a value (`value_var`,
-  `value_is`/`value_not`). Rule keys `mark`/`unmark`/`marked`/`not_marked`/
-  `mark_only` let one rule brand a line and a later rule fire only on the
-  branded. This is how distributed brute force is caught...
+  expiring named marks, keyed by the offender IP, by any capture or field
+  (`var`), or by several joined into one compound key (`vars`, Sagan's
+  `track ip_username`), optionally harvesting and gating on a value
+  (`value_var`, `value_is`/`value_not`... on `marked` and `not_marked`
+  both). Rule keys `mark`/`unmark`/`marked`/`not_marked`/`mark_only` let
+  one rule brand a line and a later rule fire only on the branded, and a
+  `marked` entry may hold on any of several brands (`names`, Sagan's
+  `isset a|b`). This is how distributed brute force is caught...
   `syslog/sshd-mark-users` brands each account with the source that hit it,
   `syslog/sshd-spray` fires when a second source hits the same account.
+  And the shipped rules brand Sagan's own standard bit vocabulary name for
+  name... `brute_force`, `recon`, `exploit_attempt`, `honeypot` at its
+  TTLs, set by classtype and read by the shipped `-condemned` and
+  `-escalation` rules (the standard brands in [rules](rules)).
   `baphomet marked` reads the store.
 - **A country gate (`country_code`).** A rule key
   `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
@@ -130,12 +137,22 @@ The options translate like so:
 | `reference: url,...` | `references` |
 | `threshold:` / `after: count N, seconds M` | `max_score` / `find_time` |
 | `xbits` / `flexbits` (set/isset) | `mark` / `marked` (see [rules](rules)) |
+| the bit's `track` (`ip_src`/`by_src`, `by_username`, `ip_username`/`ip_both`) | the mark's keying... var-less for the offender IP, `var` for one capture, `vars` for a compound key |
+| a `\|`-joined isset (`isset, a\|b`) | a `marked` entry with `names` |
+| a `&`-joined set (`set, a&b`) | two entries under `mark` |
 | `country_code:` | the `country` gate |
 | `blacklist:` | the `namtar_list` gate |
 | `alert_time:` | the `active_time` gate |
 | `sid`, `rev`, `metadata` | dropped |
 
-Two things the table does not settle.
+Three things the table does not settle.
+
+**Keep the bit names.** The shipped rules brand Sagan's standard vocabulary
+name for name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at
+the corpus's own TTLs... so port a rule's xbits without renaming them and it
+interlocks with the shipped setters and the `-condemned`/`-escalation`
+readers instead of a private namespace. The corpus's correlation graph
+survives the port whole. See the standard brands in [rules](rules).
 
 **Ban or detect.** A Sagan rule alerts, it does not firewall. To keep that...
 surface the signature without banning... port it as a detection rule with

@@ -3,10 +3,13 @@
 # shellshock bug, as complained about by the shell itself. Based on the
 # fail2ban apache-shellshock filter, translated to Baphomet and
 # simplified.
-rev: 1
+rev: 2
 msg: "[APACHE] shellshock exploit attempt"
 severity: critical
 classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
 level:
   - error
 message_regexp:

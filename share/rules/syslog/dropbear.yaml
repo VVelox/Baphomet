@@ -1,10 +1,13 @@
 ---
 # Matches dropbear auth failures. Based on the fail2ban dropbear filter,
 # translated to Baphomet and simplified.
-rev: 1
+rev: 2
 msg: "[DROPBEAR] authentication failure"
 severity: high
 classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
 daemons:
   - dropbear
 message_regexp:

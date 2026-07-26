@@ -96,10 +96,12 @@ share/rules/json/suricata-bad-unknown.yaml
 share/rules/json/suricata-blocked.yaml
 share/rules/json/suricata-coin-mining.yaml
 share/rules/json/suricata-command-and-control.yaml
+share/rules/json/suricata-condemned.yaml
 share/rules/json/suricata-credential-theft.yaml
 share/rules/json/suricata-default-login-attempt.yaml
 share/rules/json/suricata-denial-of-service.yaml
 share/rules/json/suricata-domain-c2.yaml
+share/rules/json/suricata-escalation.yaml
 share/rules/json/suricata-exploit-kit.yaml
 share/rules/json/suricata-external-ip-check.yaml
 share/rules/json/suricata-icmp-event.yaml
@@ -203,6 +205,7 @@ share/rules/syslog/sieve.yaml
 share/rules/syslog/slapd.yaml
 share/rules/syslog/solid-pop3d.yaml
 share/rules/syslog/sshd-aggressive.yaml
+share/rules/syslog/sshd-condemned.yaml
 share/rules/syslog/sshd-ddos.yaml
 share/rules/syslog/sshd-extra.yaml
 share/rules/syslog/sshd-mark-users.yaml
@@ -243,6 +246,7 @@ t/load-state-helpers.t
 t/manager-fanout-async.t
 t/manager-new.t
 t/manifest.t
+t/marks-vocabulary.t
 t/marks.t
 t/marks-sync.t
 t/mmdb/GeoLite2-Country-Test.mmdb

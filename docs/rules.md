@@ -449,16 +449,18 @@ how one rule remembers something for another, Sagan's xbits and flexbits. The
 keys are legal on every rule type.
 
 The key defaults to the offender IP, but any capture or field of the matched
-line can be the key (`var`), and a mark can carry a value harvested from the
-line too (`value_var`)... so a mark can remember not just "this IP" but "this
-username", and store "the address that used it".
+line can be the key (`var`), or several joined into one compound key
+(`vars`), and a mark can carry a value harvested from the line too
+(`value_var`)... so a mark can remember not just "this IP" but "this
+username", "this source on this account", and store "the address that used
+it".
 
 | key | what |
 | --- | --- |
-| `mark` | Array of brands to set on match, each `{name, ttl, var?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var` the brand is keyed by each offender IP, with it by that capture. `value_var` names a capture to store on the brand. |
-| `unmark` | Array of brands to lift on match, each `{name, var?}`. A successful login lifting a suspicion, say. |
-| `marked` | Gate array, ANDed... the result only counts if every named brand is set. Each `{name, var?, value_is?, value_not?}`. A var-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
-| `not_marked` | Gate array, the inverse... the result only counts if none of the named brands is set. Same keying. |
+| `mark` | Array of brands to set on match, each `{name, ttl, var?, vars?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var`/`vars` the brand is keyed by each offender IP, with `var` by that capture, with `vars` by the named captures joined into one compound key. `value_var` names a capture to store on the brand. |
+| `unmark` | Array of brands to lift on match, each `{name, var?, vars?}`. A successful login lifting a suspicion, say. |
+| `marked` | Gate array, ANDed... the result only counts if every entry holds. Each `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
+| `not_marked` | Gate array, the inverse... the result only counts if none of the named brands is set. Same keying, and the same value compares... with one, a live brand only vetoes when the compare holds, so `value_is` spares a brand storing a *different* value and `value_not` one storing the *same*. A compare that can not be evaluated still vetoes. |
 | `mark_only` | When true the rule only brands and gates, never counting toward a ban, and does not consume the line, so matching falls through to the later rules. |
 
 A rule whose mark gates veto, like a mark_only rule, does not consume the
@@ -499,12 +501,76 @@ established the account rather than the one the same line would re-brand it
 with. Since `sshd-spray` carries `max_score: 1`, it only fires where the kur
 sets `allow_per_rule_thresholds`.
 
+A `vars` key brands a *pair* instead... `vars: [ SRC, USER ]` joins both
+captures into one compound key, so "this source cleared this account" and
+"this pair is still suspect" write and read the same brand:
+
+```yaml
+# brand the pair on a good login
+mark_only: true
+mark:
+  - name: cleared
+    ttl: 3600
+    vars: [ SRC, USER ]
+```
+
+```yaml
+# count only the pairs never cleared
+not_marked:
+  - name: cleared
+    vars: [ SRC, USER ]
+```
+
+This is Sagan's `track ip_username`, with the `not_marked` its `isnotset`.
+The joined key shows up in `baphomet marked` and on tablets as the captures
+joined on the unit separator, `\u001f` in the JSON.
+
 Marks are galla state, so a rule's own embedded tests can not exercise
 them... they prove only that the rule matches and captures. The live marks
 are visible with `baphomet marked`, and survive a restart via a marks tablet,
 unlike correlation context. Scope is the galla, so marks cross watchers and
 rules but not kurs. Each mark name is capped, and the ignored are never
 branded.
+
+#### The standard brands
+
+The shipped rules share a standard vocabulary of brands, Sagan's own bit
+names kept name for name so a rule ported from its corpus lands already
+wired into the same mesh:
+
+| brand | ttl | earned by |
+| --- | --- | --- |
+| `brute_force` | 21600 | every shipped rule of classtype `brute-force`... sshd and its variants, the mail/FTP/VoIP auth rules, the panel and database logins |
+| `recon` | 86400 | the scanning classes, classtypes `attempted-recon`, `network-scan`, and the successful-recon pair... scanlogd and portsentry through the fake Googlebot and the matching Suricata classes |
+| `exploit_attempt` | 86400 | the exploit classes, classtypes `web-application-attack`, `attempted-admin`, `attempted-user`, and `shellcode-detect`... the bot searches, shellshock, suhosin, mod_security, and the matching Suricata classes |
+| `honeypot` | 86400 | `raw/portsentry`, a trap by nature... otherwise reserved for your own decoy rules |
+
+The mapping is classtype-driven, so a site rule joins the mesh by carrying
+the classtype's `mark` entry itself... the names are convention, not
+machinery. Every setter brands var-less, keyed by each offender IP, on top
+of whatever the rule already counts, so branding changes no rule's own
+behavior.
+
+Three shipped readers gate on the vocabulary, weighted heavy so that under
+`allow_per_rule_thresholds` one hit from the already-branded is a verdict
+(`weight: 10`, `max_score: 10`)... without that consent the weight is inert
+and they count like any other rule, just under their own name:
+
+| rule | fires on |
+| --- | --- |
+| `syslog/sshd-condemned` | a sshd auth failure from a source branded `brute_force`, wherever the brand was earned |
+| `json/suricata-condemned` | any Suricata alert from a src branded `brute_force`, whatever the alert's own class |
+| `json/suricata-escalation` | any Suricata alert from a src holding `recon` then `exploit_attempt` in that order... scanned, then exploited |
+
+List a reader ahead of the rules it upgrades... when its gate vetoes the
+line falls through to the normal rules untouched, and when it holds the
+reader speaks instead, counting the same line into its own heavier bucket.
+None ride the shipped groups, so they are opt-in by listing.
+
+The vocabulary is what makes marks a mesh rather than pairwise plumbing.
+The brand crosses watchers within the galla, and rides the mark bus of a
+Redis tablet across a fleet, so a source that brute-forced the mail host
+arrives at the web host already condemned.
 
 ### country... narrowing an offense by geography
 

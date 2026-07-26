@@ -6,10 +6,13 @@
 # path so a referer that merely contains =http:// does not trip it.
 #
 # Source: fail2ban config/filter.d/php-url-fopen.conf
-rev: 1
+rev: 2
 msg: "[PHP] http:// URL handed to script param (fopen injection)"
 severity: medium
 classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
 method:
   - GET
   - POST

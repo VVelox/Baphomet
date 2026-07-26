@@ -8,10 +8,13 @@
 # is covered elsewhere. The vocabulary is checked against the missing
 # path in the message rather than the request URI, so it is anchored to
 # any slash of the path rather than the start of the URI.
-rev: 1
+rev: 2
 msg: "[NGINX] bot probe for missing admin panel"
 severity: medium
 classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
 test_parser: nginx_error
 level:
   - error

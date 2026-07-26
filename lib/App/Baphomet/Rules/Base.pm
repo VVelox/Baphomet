@@ -829,9 +829,10 @@ sub rev {
 
 Returns the array of marks the rule sets on match, each a hash of C<name>,
 C<ttl>, and optionally C<var> (key by this capture instead of the offender
-IP) and C<value_var> (store this capture as the mark's value)... a empty
-array for a rule setting none. The galla is what has the marks store and
-does the branding, this just exposes the def key.
+IP), C<vars> (key by these captures joined into one compound key... never
+beside C<var>), and C<value_var> (store this capture as the mark's
+value)... a empty array for a rule setting none. The galla is what has the
+marks store and does the branding, this just exposes the def key.
 
     foreach my $mark ( @{ $rule->marks } ) { ... }
 
@@ -846,7 +847,7 @@ sub marks {
 =head2 unmarks
 
 Returns the array of marks the rule lifts on match, each a hash of C<name>
-and optionally C<var>... a empty array for a rule lifting none.
+and optionally C<var> or C<vars>... a empty array for a rule lifting none.
 
     foreach my $unmark ( @{ $rule->unmarks } ) { ... }
 
@@ -861,10 +862,13 @@ sub unmarks {
 =head2 mark_gates
 
 Returns the rule's mark gates as a hash of two arrays, C<marked> and
-C<not_marked>, either possibly empty. Each entry is a hash of C<name> and
-optionally C<var>, and marked entries may also carry one of C<value_is> or
-C<value_not>, naming a capture the stored value must equal or differ from.
-The galla evaluates these against its marks store... a found result only
+C<not_marked>, either possibly empty. Each entry keys by C<var> or the
+compound C<vars>, or var-less by the offender IP. A marked entry names its
+brand with C<name>, or with C<names> holds on any of a list, and either
+kind of entry may carry one of C<value_is> or C<value_not>, naming a
+capture the stored value must equal or differ from... on a not_marked
+entry the compare narrows the veto to a brand carrying that value. The
+galla evaluates these against its marks store... a found result only
 counts if every gate holds.
 
     my $gates = $rule->mark_gates;
@@ -1535,10 +1539,24 @@ sub _check_marks {
 	my $name = $self->{name};
 
 	my %shapes = (
-		'mark'       => { 'name' => 'required', 'ttl' => 'ttl', 'var' => 'string', 'value_var' => 'string' },
-		'unmark'     => { 'name' => 'required', 'var' => 'string' },
-		'marked'     => { 'name' => 'required', 'var' => 'string', 'value_is' => 'string', 'value_not' => 'string' },
-		'not_marked' => { 'name' => 'required', 'var' => 'string' },
+		'mark' =>
+			{ 'name' => 'required', 'ttl' => 'ttl', 'var' => 'string', 'vars' => 'vars', 'value_var' => 'string' },
+		'unmark' => { 'name' => 'required', 'var' => 'string', 'vars' => 'vars' },
+		'marked' => {
+			'name'      => 'required',
+			'names'     => 'names',
+			'var'       => 'string',
+			'vars'      => 'vars',
+			'value_is'  => 'string',
+			'value_not' => 'string'
+		},
+		'not_marked' => {
+			'name'      => 'required',
+			'var'       => 'string',
+			'vars'      => 'vars',
+			'value_is'  => 'string',
+			'value_not' => 'string'
+		},
 	);
 
 	foreach my $key ( keys(%shapes) ) {
@@ -1558,9 +1576,27 @@ sub _check_marks {
 					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
 				}
 			}
-			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ ) {
+			# a marked entry may carry names, a any-of list, in place of its
+			# one name... everything else requires the one
+			if ( defined( $shapes{$key}{names} ) && defined( $entry->{names} ) ) {
+				if ( defined( $entry->{name} ) ) {
+					die( $where . ' has a entry carrying both name and names' );
+				}
+				if ( ref( $entry->{names} ) ne 'ARRAY' || !@{ $entry->{names} } ) {
+					die( $where . ' has a entry whose names is not a non-empty array' );
+				}
+				foreach my $mark_name ( @{ $entry->{names} } ) {
+					if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ /^[a-zA-Z0-9_\-]+$/ ) {
+						die( $where . ' has a entry with a names entry not matching /^[a-zA-Z0-9_\-]+$/' );
+					}
+				}
+			} elsif ( !defined( $entry->{name} )
+				|| ref( $entry->{name} ) ne ''
+				|| $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ )
+			{
 				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
 			}
+			my $entry_name = defined( $entry->{name} ) ? $entry->{name} : join( '|', @{ $entry->{names} } );
 			if (
 				defined( $shapes{$key}{ttl} )
 				&& (  !defined( $entry->{ttl} )
@@ -1569,8 +1605,23 @@ sub _check_marks {
 					|| !$entry->{ttl} )
 				)
 			{
-				die( $where . ' entry "' . $entry->{name} . '" lacks a ttl that is a positive int of seconds' );
+				die( $where . ' entry "' . $entry_name . '" lacks a ttl that is a positive int of seconds' );
 			} ## end if ( defined( $shapes{$key}{ttl} ) && ( !defined...))
+			# vars, a compound key... two or more captures joined into one
+			# brandable key, and never beside the single var
+			if ( defined( $entry->{vars} ) ) {
+				if ( defined( $entry->{var} ) ) {
+					die( $where . ' entry "' . $entry_name . '" carries both var and vars' );
+				}
+				if ( ref( $entry->{vars} ) ne 'ARRAY' || !@{ $entry->{vars} } ) {
+					die( $where . ' entry "' . $entry_name . '" has a vars that is not a non-empty array' );
+				}
+				foreach my $var ( @{ $entry->{vars} } ) {
+					if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
+						die( $where . ' entry "' . $entry_name . '" has a vars entry that is not a non-empty string' );
+					}
+				}
+			} ## end if ( defined( $entry->{vars} ) )
 			foreach my $string_key (
 				grep { defined( $shapes{$key}{$_} ) && $shapes{$key}{$_} eq 'string' }
 				keys( %{$entry} )
@@ -1582,14 +1633,14 @@ sub _check_marks {
 				{
 					die(      $where
 							. ' entry "'
-							. $entry->{name}
+							. $entry_name
 							. '" has a '
 							. $string_key
 							. ' that is not a non-empty string' );
 				} ## end if ( !defined( $entry->{$string_key} ) || ...)
 			} ## end foreach my $string_key ( grep { defined( $shapes...)})
 			if ( defined( $entry->{value_is} ) && defined( $entry->{value_not} ) ) {
-				die( $where . ' entry "' . $entry->{name} . '" carries both value_is and value_not' );
+				die( $where . ' entry "' . $entry_name . '" carries both value_is and value_not' );
 			}
 		} ## end foreach my $entry ( @{ $def->{$key} } )
 	} ## end foreach my $key ( keys(%shapes) )
@@ -1606,7 +1657,7 @@ sub _check_marks {
 				die( $where . ' contains a entry that is not a hash' );
 			}
 			foreach my $entry_key ( keys( %{$entry} ) ) {
-				if ( $entry_key !~ /^(?:marks|var)$/ ) {
+				if ( $entry_key !~ /^(?:marks|var|vars)$/ ) {
 					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
 				}
 			}
@@ -1621,6 +1672,19 @@ sub _check_marks {
 			if ( defined( $entry->{var} ) && ( ref( $entry->{var} ) ne '' || $entry->{var} eq '' ) ) {
 				die( $where . ' entry has a var that is not a non-empty string' );
 			}
+			if ( defined( $entry->{vars} ) ) {
+				if ( defined( $entry->{var} ) ) {
+					die( $where . ' entry carries both var and vars' );
+				}
+				if ( ref( $entry->{vars} ) ne 'ARRAY' || !@{ $entry->{vars} } ) {
+					die( $where . ' entry has a vars that is not a non-empty array' );
+				}
+				foreach my $var ( @{ $entry->{vars} } ) {
+					if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
+						die( $where . ' entry has a vars entry that is not a non-empty string' );
+					}
+				}
+			} ## end if ( defined( $entry->{vars} ) )
 		} ## end foreach my $entry ( @{ $def->{sequence} } )
 	} ## end if ( defined( $def->{sequence} ) )
 

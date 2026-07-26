@@ -17,6 +17,13 @@ freeswitch at 10), as do the priority 1 Suricata classes and
 unless the `allow_per_rule_thresholds` config setting says otherwise...
 see [configuration](configuration) and [rules](rules).
 
+Rules of the brute-force, recon, and exploit classtypes also brand the
+matching standard mark as they count... `brute_force`, `recon`,
+`exploit_attempt`, and portsentry `honeypot` besides... read by the
+`-condemned` and `-escalation` reader rules below. Branding is additive
+and changes no rule's own behavior. See the standard brands in
+[rules](rules).
+
 | rule | watches for | daemon gate |
 | --- | --- | --- |
 | `syslog/asterisk` | Asterisk auth/registration failures | `asterisk` |
@@ -46,6 +53,7 @@ see [configuration](configuration) and [rules](rules).
 | `syslog/sshd-aggressive` | the union of sshd-ddos and sshd-extra as one rule (fail2ban's aggressive mode)... enable instead of those two | `sshd`, `sshd-session` |
 | `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
 | `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_score 1`) | `sshd`, `sshd-session` |
+| `syslog/sshd-condemned` | a sshd auth failure from a source already branded the standard `brute_force`, wherever it earned the brand... list ahead of `syslog/sshd` (`weight 10`, `max_score 10`) | `sshd`, `sshd-session` |
 | `syslog/sshd-worked` | a brute force that landed... counted password failures then an Accepted from the same source (staged, detection-only, excludes agent publickey walks) | `sshd`, `sshd-session` |
 | `syslog/systemd-flap` | a service crash loop... three scheduled restarts of one unit inside two minutes (staged, detection-only, counts by unit per host) | `systemd` |
 | `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
@@ -113,6 +121,8 @@ output shapes.
 | `json/caddy-botsearch` | probes for admin panels that 40x, per Caddy's JSON access log |
 | `json/suricata` | sources of Suricata eve.json alerts at severities 1 and 2... mind the false positive warning in the rule header |
 | `json/suricata-blocked` | sources Suricata itself decided to block, per `alert.action == "blocked"`... reject rules in any mode, drop rules when inline. The strongest of the Suricata rules, deferring to Suricata's own disposition. In pure IDS mode it catches only rejects, as drop-intent then logs as allowed... run Suricata inline or use the class/severity rules for passive setups. |
+| `json/suricata-condemned` | any alert from a src already branded the standard `brute_force`, whatever the alert's own class... list ahead of the per-class rules (`weight 10`, `max_score 10`) |
+| `json/suricata-escalation` | any alert from a src holding the standard `recon` then `exploit_attempt` brands in that order... scanned, then exploited... list ahead of the per-class rules (`weight 10`, `max_score 10`) |
 
 ### The per-class Suricata rules
 

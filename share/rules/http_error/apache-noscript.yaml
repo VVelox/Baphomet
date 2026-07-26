@@ -3,10 +3,13 @@
 # pl, and cgi-bin things, including the php-fpm "Primary script unknown"
 # shape. Based on the fail2ban apache-noscript filter, translated to
 # Baphomet and simplified.
-rev: 1
+rev: 2
 msg: "[APACHE] request for missing script"
 severity: medium
 classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
 level:
   - error
 message_regexp:
