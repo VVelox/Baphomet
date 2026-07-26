@@ -1,0 +1,41 @@
+---
+# The condemned returns, cross-product... any Suricata alert whose src is
+# already branded brute_force, the standard brand every shipped
+# brute-force rule sets (see rules.md, the standard brands). A source
+# that hammered sshd or the mail auth and now trips the IDS is not a
+# stranger, whatever the alert's own class.
+#
+# List it AHEAD of the per-class suricata rules in the watcher. For an
+# unbranded src the marked gate vetoes and the alert falls through to
+# the class rules untouched; for a branded one this rule speaks instead,
+# weight 10 into its own bucket, one alert a verdict. Weight and score
+# are honored only under allow_per_rule_thresholds... without that
+# consent it counts like any other hit, just under this rule's name.
+rev: 1
+msg: "[SURICATA] the condemned returns... alert from a branded brute forcer"
+severity: critical
+classtype: misc-attack
+gate:
+  - field: event_type
+    values: [ alert ]
+marked:
+  - name: brute_force
+    var: src_ip
+ban_var:
+  - src_ip
+  - dest_ip
+ban_not_internal: true
+weight: 10
+max_score: 10
+tests:
+  positive:
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST condemned","category":"Attempted Information Leak","severity":2}}'
+      found: 1
+      data:
+        src_ip: "192.0.2.66"
+        dest_ip: "203.0.113.5"
+  negative:
+    # not a alert event... nothing to weigh
+    - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","event_type":"flow","src_ip":"192.0.2.67","dest_ip":"203.0.113.5","proto":"TCP"}'
+      found: 0
+      undefed: ["src_ip"]

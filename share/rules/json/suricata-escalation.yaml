@@ -1,0 +1,42 @@
+---
+# Scanned, then exploited... any Suricata alert from a src holding the
+# standard recon and exploit_attempt brands in that order, the classic
+# escalation no single alert shows. The brands are set by the shipped
+# recon and exploit rules across every product (see rules.md, the
+# standard brands), so the scan may have been seen by the IDS and the
+# exploit by the web server's own rules, or the reverse.
+#
+# List it AHEAD of the per-class suricata rules in the watcher. The
+# sequence gate vetoes until both brands are live and ordered, the alert
+# falling through untouched; once they are, this rule speaks instead,
+# weight 10 into its own bucket, one alert a verdict. Weight and score
+# are honored only under allow_per_rule_thresholds... without that
+# consent it counts like any other hit, just under this rule's name.
+rev: 1
+msg: "[SURICATA] escalation... scanned then exploited, per the standard brands"
+severity: critical
+classtype: misc-attack
+gate:
+  - field: event_type
+    values: [ alert ]
+sequence:
+  - marks: [ recon, exploit_attempt ]
+    var: src_ip
+ban_var:
+  - src_ip
+  - dest_ip
+ban_not_internal: true
+weight: 10
+max_score: 10
+tests:
+  positive:
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2101219,"rev":1,"signature":"TEST escalation","category":"Web Application Attack","severity":1}}'
+      found: 1
+      data:
+        src_ip: "192.0.2.66"
+        dest_ip: "203.0.113.5"
+  negative:
+    # not a alert event... nothing to weigh
+    - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","event_type":"flow","src_ip":"192.0.2.67","dest_ip":"203.0.113.5","proto":"TCP"}'
+      found: 0
+      undefed: ["src_ip"]

@@ -1,0 +1,59 @@
+---
+# The condemned returns... a sshd auth failure from a source already
+# branded brute_force. The brand is the standard one every shipped
+# brute-force rule sets (see rules.md, the standard brands), so the
+# source may have earned it here, against the mail host's IMAP, or on
+# another galla entirely when the marks tablet is a bus... this rule only
+# reads.
+#
+# List it AHEAD of syslog/sshd in the watcher. For a source not yet
+# branded the marked gate vetoes and the line falls through to the
+# normal rule untouched; for a branded one this rule speaks instead,
+# counting the same failure at weight 10 into its own bucket, one hit a
+# verdict. The weight and score are honored only under
+# allow_per_rule_thresholds... without that consent it counts like any
+# other hit, just under this rule's name. It re-brands as it counts, so
+# the branding never lapses by being read.
+rev: 1
+msg: "[SSHD] the condemned returns... auth failure from a branded brute forcer"
+severity: critical
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - sshd
+  - sshd-session
+message_regexp:
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%'
+  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%'
+marked:
+  - name: brute_force
+    var: SRC
+ban_var:
+  - SRC
+weight: 10
+max_score: 10
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 1
+      data:
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+    - message: "Jul 12 08:15:50 vixen42 sshd[7113]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=192.0.2.33  user=root"
+      found: 1
+      data:
+        SRC: "192.0.2.33"
+  negative:
+    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      found: 0
+      undefed: ["SRC"]
+    - message: "Jul 12 08:25:49 vixen42 cron[1234]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 0
+      undefed: ["SRC"]
