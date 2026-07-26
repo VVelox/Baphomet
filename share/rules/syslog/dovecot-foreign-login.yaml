@@ -1,0 +1,76 @@
+---
+# A successful Dovecot IMAP/POP3/submission login from outside your home
+# countries... the mail-account analogue of syslog/sshd-foreign-login, the
+# traveling user or the stolen mailbox credential, and the rule can not
+# tell which, so it sights rather than banishes. Detection-only... flip
+# detection_var to ban_var only if a foreign mailbox login is grounds for
+# a ban at your site.
+#
+# The country gate imports country_codes{home}, your policy defined in the
+# config (see configuration.md and rules.md, the country gate). Opt-in by
+# both listing this rule and naming your home countries, or it refuses to
+# load. Needs geoip_db and IP::Geolocation::MMDB. The vars-form gate keys
+# on the captured client rip= and fails closed on an unplaceable address,
+# so a database gap misses rather than false-alarms.
+rev: 1
+msg: "[DOVECOT] login success from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - dovecot
+  - dovecot-auth
+  - //^dovecot//
+message_regexp:
+  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+detection_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a mailbox login from abroad... counted
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.9, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    - message: "Jun 13 21:48:07 platypus dovecot: pop3-login: Login: user=<moth3r>, method=PLAIN, rip=198.51.100.23, lip=192.0.2.1"
+      geo:
+        countries:
+          "198.51.100.23": FR
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+        USER: "moth3r"
+  negative:
+    # a login from home... vetoed
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=198.51.100.5, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # an aborted login is not a Login: line... nothing to gate
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Disconnected (auth failed, 1 attempts): user=<kitsune>, rip=203.0.113.9, lip=192.0.2.1"
+      found: 0
+      undefed: ["SRC"]
+    # unplaceable fails closed
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=192.0.2.66, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0

@@ -19,6 +19,7 @@ use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::Marks      ();
 use App::Baphomet::RDNS       ();
+use App::Baphomet::Geo        ();
 use App::Baphomet::ClayTablet ();
 use App::Baphomet::LogDrek    qw( log_drek );
 
@@ -2559,82 +2560,34 @@ sub _country_of {
 	return $iso;
 } ## end sub _country_of
 
-# resolves a rule's country gate against a watcher's country code lists into
-# a concrete gate, a mode, a set of codes, and the vars... or undef when the
-# rule has no gate. a %%%country_codes{name}%%% import of a list this
-# watcher does not define is fatal
+# resolves a rule\x27s country gate against a watcher\x27s country code lists into
+# a concrete gate via the core... a %%%country_codes{name}%%% import of a
+# list this watcher does not define is fatal
 sub _resolve_country_gate {
 	my ( $self, $rule_obj, $codes, $where ) = @_;
 
-	my $country = $rule_obj->country;
-	if ( !defined($country) ) {
-		return undef;
-	}
-
-	my %set;
-	foreach my $entry ( @{ $country->{entries} } ) {
-		if ( $entry =~ /^%%%country_codes\{([a-zA-Z0-9_\-]+)\}%%%$/ ) {
-			my $list = $codes->{$1};
-			if ( ref($list) ne 'ARRAY' ) {
-				die( $where . ' imports country_codes{' . $1 . '}, which is not a defined list for it' );
-			}
-			foreach my $code ( @{$list} ) {
-				$set{ uc($code) } = 1;
-			}
-		} else {
-			$set{ uc($entry) } = 1;
-		}
-	} ## end foreach my $entry ( @{ $country->{entries} } )
-
-	return {
-		'mode'  => $country->{mode},
-		'codes' => \%set,
-		'vars'  => $country->{vars},
-	};
+	return App::Baphomet::Geo::resolve_country_gate( $rule_obj->country, $codes, $where );
 } ## end sub _resolve_country_gate
 
-# evaluates a rule's country gate in one of two modes, mirroring the mark
-# gates... a vars gate is data-driven and ran once per found result (ip
-# undef), a var-less one is offender-keyed and ran per candidate (ip set).
-# every checked value's country must satisfy the gate, and a value that
-# does not locate fails closed... an unknown country can not be cleared
+# the country gate\x27s judgment lives in App::Baphomet::Geo, over an
+# injectable locator, so run_tests can drive it from a rule file\x27s geo
+# fixtures... the galla passes a closure over its cached GeoIP lookups, or
+# none at all with no database up, which fails closed
 sub _country_gate_pass {
 	my ( $self, $gate, $data, $ip ) = @_;
 
-	if ( !defined($gate) ) {
-		return 1;
+	return App::Baphomet::Geo::country_gate_pass( $self->_country_locator, $gate, $data, $ip );
+}
+
+# the locator the core judges over... a closure on the cached lookups
+sub _country_locator {
+	my ($self) = @_;
+
+	if ( !defined( $self->{country_locator} ) ) {
+		$self->{country_locator} = sub { return $self->_country_of( $_[0] ); };
 	}
-
-	my @check;
-	if ( defined( $gate->{vars} ) ) {
-		# a vars gate belongs to the data pass... let the offender pass by
-		if ( defined($ip) ) {
-			return 1;
-		}
-		foreach my $var ( @{ $gate->{vars} } ) {
-			push( @check, $data->{$var} );
-		}
-	} else {
-		# a var-less gate belongs to the offender pass... let the data pass by
-		if ( !defined($ip) ) {
-			return 1;
-		}
-		@check = ($ip);
-	}
-
-	foreach my $value (@check) {
-		my $country = $self->_country_of($value);
-		if ( !defined($country) ) {
-			return 0;
-		}
-		my $in = $gate->{codes}{$country} ? 1 : 0;
-		if ( $gate->{mode} eq 'is' ? !$in : $in ) {
-			return 0;
-		}
-	} ## end foreach my $value (@check)
-
-	return 1;
-} ## end sub _country_gate_pass
+	return $self->{country_locator};
+} ## end sub _country_locator
 
 # the reverse_dns gate... a var entry is data-driven and ran once per found
 # result (ip undef), a var-less one is offender-keyed and ran per candidate

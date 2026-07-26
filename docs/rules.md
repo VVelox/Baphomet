@@ -362,6 +362,7 @@ must not. Each is a hash...
 | `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base. |
 | `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`... what proves a rule's own `mark`/`unmark` did what it claims. |
 | `dns` | A fixture resolver for the [reverse_dns](#reverse_dns-the-client-is-who-its-address-says) gate... `ptr` maps an address to its names, `forward` a name to its addresses, either answer a list, `nxdomain` (authoritative absence), or `servfail` (a failure). Anything unfixtured answers servfail, fail-closed as an unanswerable question is live. With the fixture present the gate runs exactly as in the galla, offender pass and all; without it the gate is skipped, as it always was. |
+| `geo` | A fixture locator for the [country](#country-narrowing-an-offense-by-geography) gate... `countries` maps an address to its ISO code (or `unknown` for one the database would not place), and `lists` names the code sets a `%%%country_codes{name}%%%` token resolves against, standing in for the config. Anything unfixtured is unplaceable, fail-closed as it is live. Present, the gate runs as in the galla; absent, it is skipped. |
 
 A test may use `messages`, an array of lines fed through in order, instead of
 a single `message`, with `found` the expected count across the sequence...
@@ -554,6 +555,43 @@ hit, the authoritative absence (`nxdomain`), the spoof that fails forward
 confirmation, the legitimate name spared, and the outage. Anything
 unfixtured answers servfail, so a fixture only needs the names the test
 actually walks.
+
+A `country`-gated rule carries `geo` fixtures the same way... a
+`countries` map placing each address and a `lists` map standing in for
+the config's `country_codes`, so an "outside the home countries" rule
+proves its judgment cold. The shipped `syslog/sshd-foreign-login` and its
+mail siblings are the worked example:
+
+```yaml
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+tests:
+  positive:
+    # a login from abroad... the isnot gate lets it count
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 203.0.113.9 port 4711 ssh2"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+  negative:
+    # at home, spared... and an unplaceable address fails closed, so a
+    # database gap misses rather than false-alarms
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.66 port 4711 ssh2"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+```
+
+Prove both the home and the away, and the unplaceable... the last is the
+one that catches a rule mistakenly written to fire on database gaps.
 
 ## Refining a match... the gates
 
@@ -832,10 +870,17 @@ ban_var: [ src_ip ]
 
 The gate always **fails closed**: a value that does not locate, or a missing
 database, blocks the count rather than risking a wrong ban. A galla with
-country-gated rules and no loadable database says so loudly at start. There
-is no shipped country rule, since a geography ban is your policy... compose
-one from an offense rule plus a `country` gate and your own `country_codes`
-lists.
+country-gated rules and no loadable database says so loudly at start.
+
+The shipped `syslog/sshd-foreign-login` and its `dovecot`/`postfix-sasl`
+siblings ship the gate but not the policy... each matches a successful
+login and imports `country_codes{home}`, so it does nothing until you both
+list it in a watcher and name your home countries in the config, and dies
+loudly if listed without them. They are detection-only, since a foreign
+login is a traveler or a takeover and the rule can not tell which. Beyond
+those, a geography ban is your policy... compose one from any offense rule
+plus a `country` gate and your own `country_codes` lists. All of them prove
+their gate from their own tests with a [`geo` fixture](#tests).
 
 ### namtar_list... only the already-condemned
 

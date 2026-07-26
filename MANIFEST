@@ -32,6 +32,7 @@ lib/App/Baphomet/ClayTablet.pm
 lib/App/Baphomet/ClayTablet/File.pm
 lib/App/Baphomet/ClayTablet/Redis.pm
 lib/App/Baphomet/Config.pm
+lib/App/Baphomet/Geo.pm
 lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
 lib/App/Baphomet/Marks.pm
@@ -244,6 +245,7 @@ share/rules/syslog/courier-auth.yaml
 share/rules/syslog/courier-breach.yaml
 share/rules/syslog/courier-smtp.yaml
 share/rules/syslog/cyrus-imap.yaml
+share/rules/syslog/dovecot-foreign-login.yaml
 share/rules/syslog/dovecot.yaml
 share/rules/syslog/dropbear.yaml
 share/rules/syslog/drupal-auth.yaml
@@ -259,6 +261,7 @@ share/rules/syslog/openvpn.yaml
 share/rules/syslog/pam-generic.yaml
 share/rules/syslog/perdition.yaml
 share/rules/syslog/phpmyadmin-syslog.yaml
+share/rules/syslog/postfix-sasl-foreign.yaml
 share/rules/syslog/postfix-sasl.yaml
 share/rules/syslog/postfix.yaml
 share/rules/syslog/postgresql.yaml
@@ -279,6 +282,7 @@ share/rules/syslog/sshd-breach.yaml
 share/rules/syslog/sshd-condemned.yaml
 share/rules/syslog/sshd-ddos.yaml
 share/rules/syslog/sshd-extra.yaml
+share/rules/syslog/sshd-foreign-login.yaml
 share/rules/syslog/sshd-mark-users.yaml
 share/rules/syslog/sshd-spray.yaml
 share/rules/syslog/sshd-worked.yaml
@@ -360,6 +364,7 @@ t/rules-json.t
 t/rules-multiline.t
 t/rules-raw.t
 t/rules-shipped.t
+t/rule-tests-geo.t
 t/rule-tests-marks.t
 t/rule-tests-rdns.t
 t/rules.t

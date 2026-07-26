@@ -12,6 +12,7 @@ use App::Baphomet::Parser ();
 use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
 use App::Baphomet::Marks  ();
 use App::Baphomet::RDNS   ();
+use App::Baphomet::Geo    ();
 
 =pod
 
@@ -1352,7 +1353,8 @@ sub run_tests {
 			# never runs... the very silence this machinery exists to end
 			my $bad_key = 0;
 			foreach my $test_key ( keys( %{$test} ) ) {
-				if ( $test_key !~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|dns)$/ ) {
+				if ( $test_key !~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|dns|geo)$/ )
+				{
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
 					$bad_key = 1;
@@ -1394,12 +1396,31 @@ sub run_tests {
 				}
 			}
 
+			# the geo fixture likewise... a locator and the named code lists
+			# a %%%country_codes{...}%%% token resolves against, so the
+			# country gate runs here exactly as it would in the galla
+			my ( $geo_locator, $geo_gate );
+			if ( defined( $test->{geo} ) ) {
+				my $geo_lists;
+				( $geo_locator, $geo_lists ) = $self->_test_geo_locator( $test->{geo}, $where, $results );
+				if ( !defined($geo_locator) ) {
+					next;
+				}
+				eval { $geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where ); };
+				if ($@) {
+					$results->{fail}++;
+					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $@ );
+					next;
+				}
+			} ## end if ( defined( $test->{geo} ) )
+
 			my $gates            = $self->mark_gates;
 			my $marks            = $self->marks;
 			my $unmarks          = $self->unmarks;
 			my $is_detection     = $self->is_detection;
 			my $rdns_gate        = defined($dns_resolver) ? $self->reverse_dns : undef;
 			my $rdns_has_varless = defined($rdns_gate) && grep { !defined( $_->{var} ) } @{$rdns_gate};
+			my $geo_varless      = defined($geo_gate) && !defined( $geo_gate->{vars} );
 
 			my @found_all;
 			my $entry_failed = 0;
@@ -1476,6 +1497,13 @@ sub run_tests {
 						{
 							next;
 						}
+						# the vars-form country gate likewise, when a geo
+						# fixture stands in for the database
+						if ( defined($geo_gate)
+							&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $one->{data}, undef ) )
+						{
+							next;
+						}
 						# offenders as the galla resolves them, sans the
 						# usedns/internal filtering no test needs... a
 						# detection rule has none, so its var-less brands
@@ -1498,6 +1526,18 @@ sub run_tests {
 						if ( $rdns_has_varless && !$is_detection ) {
 							my @survivors = grep {
 								App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $one->{data}, $_ )
+							} @offenders;
+							if ( !@survivors ) {
+								next;
+							}
+						}
+						# and the var-less country gate the same way... note a
+						# var-less country or mark gate on a detection rule is
+						# inert in the galla and so inert here, which is why
+						# a detection rule's gate wants the vars form
+						if ( $geo_varless && !$is_detection ) {
+							my @survivors = grep {
+								App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $one->{data}, $_ )
 							} @offenders;
 							if ( !@survivors ) {
 								next;
@@ -1664,6 +1704,65 @@ sub _test_dns_resolver {
 		'forward' => sub { return $answer_for->( $fixture->{forward}, $_[0] ); },
 	};
 } ## end sub _test_dns_resolver
+
+# builds the locator and code lists from a test entry's geo fixture...
+# countries maps a address to its ISO code, or the string unknown for a
+# address the database would not place, and lists names the code sets a
+# %%%country_codes{name}%%% token resolves against. anything unfixtured is
+# unknown, fail-closed as an unplaceable address is in the galla. returns
+# (locator, lists), or a lone undef on a malformed fixture, the failure
+# pushed
+sub _test_geo_locator {
+	my ( $self, $fixture, $where, $results ) = @_;
+
+	if ( ref($fixture) ne 'HASH' ) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' geo is not a hash' );
+		return undef;
+	}
+	foreach my $fixture_key ( keys( %{$fixture} ) ) {
+		if ( $fixture_key !~ /^(?:countries|lists)$/ ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' geo has the unknown key "' . $fixture_key . '"' );
+			return undef;
+		}
+		if ( ref( $fixture->{$fixture_key} ) ne 'HASH' ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' geo ' . $fixture_key . ' is not a hash' );
+			return undef;
+		}
+	}
+	foreach my $address ( keys( %{ $fixture->{countries} || {} } ) ) {
+		my $code = $fixture->{countries}{$address};
+		if ( ref($code) ne '' || $code !~ /^(?:[a-zA-Z]{2}|unknown)$/ ) {
+			$results->{fail}++;
+			push(
+				@{ $results->{failures} },
+				$where . ' geo countries "' . $address . '" is not a 2-letter code or unknown'
+			);
+			return undef;
+		}
+	}
+	foreach my $list_name ( keys( %{ $fixture->{lists} || {} } ) ) {
+		if ( ref( $fixture->{lists}{$list_name} ) ne 'ARRAY' ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' geo lists "' . $list_name . '" is not a array' );
+			return undef;
+		}
+	}
+
+	my $countries = $fixture->{countries} || {};
+	my $locator   = sub {
+		my ($address) = @_;
+		my $code = $countries->{$address};
+		if ( !defined($code) || $code eq 'unknown' ) {
+			return undef;
+		}
+		return uc($code);
+	};
+
+	return ( $locator, $fixture->{lists} || {} );
+} ## end sub _test_geo_locator
 
 # joins a marks_before/marks_expected key... a list is a vars compound,
 # joined the way the store joins one

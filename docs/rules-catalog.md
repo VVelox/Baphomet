@@ -31,6 +31,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/courier-smtp` | Courier SMTP rejects | `courieresmtpd` |
 | `syslog/cyrus-imap` | Cyrus IMAP/POP3 login failures | `imapd`/`pop3d`, optionally `cyrus/` prefixed |
 | `syslog/dovecot` | Dovecot auth failures | `dovecot`, `dovecot-auth`, auth workers |
+| `syslog/dovecot-foreign-login` | a successful Dovecot login from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db | `dovecot` |
 | `syslog/dropbear` | Dropbear auth failures | `dropbear` |
 | `syslog/freeswitch` | FreeSWITCH auth failures | `freeswitch` |
 | `syslog/monit` | Monit httpd access failures | `monit` (carries a live `ignore_regexp` for the empty first-connect user) |
@@ -40,6 +41,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/perdition` | Perdition auth failures | `perdition.*` |
 | `syslog/postfix` | Postfix smtpd rejects and abuse | `postfix/smtpd` and variants |
 | `syslog/postfix-sasl` | Postfix SASL auth failures | `postfix/smtpd` and variants |
+| `syslog/postfix-sasl-foreign` | authenticated Postfix relay use from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db | `postfix/smtpd` and variants |
 | `syslog/proftpd` | ProFTPD login failures | `proftpd` |
 | `syslog/pure-ftpd` | Pure-FTPd auth failures | `pure-ftpd` (ASCII locales only) |
 | `syslog/qmail` | qmail/rblsmtpd rejects | `qmail`, `rblsmtpd` |
@@ -59,6 +61,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/vsftpd-breach-upload` | a vsftpd upload by a source holding any standard brand (detection-only, from sagan-rules vsftpd-correlated) | `vsftpd` |
 | `syslog/courier-breach` | a successful Courier IMAP/POP3 login from a source holding any standard brand (detection-only, from sagan-rules imapd-correlated) | courier imapd/pop3d variants |
 | `syslog/sshd-worked` | a brute force that landed... counted password failures then an Accepted from the same source (staged, detection-only, excludes agent publickey walks) | `sshd`, `sshd-session` |
+| `syslog/sshd-foreign-login` | a successful ssh login from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db and your home list (see [rules](rules), the country gate) | `sshd`, `sshd-session` |
 | `syslog/systemd-flap` | a service crash loop... three scheduled restarts of one unit inside two minutes (staged, detection-only, counts by unit per host) | `systemd` |
 | `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |

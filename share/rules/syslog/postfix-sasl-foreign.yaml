@@ -1,0 +1,76 @@
+---
+# Authenticated Postfix relay use from outside your home countries...
+# Postfix logs no login event, so the signal is the authenticated message
+# itself, a client that passed SASL and is now handing mail to the MTA.
+# From a foreign source that is the traveling sender or a compromised
+# account relaying spam, and the rule can not tell which, so it sights
+# rather than banishes. Detection-only... flip detection_var to ban_var
+# only if a foreign authenticated relay is grounds for a ban at your site.
+#
+# The country gate imports country_codes{home}, your policy defined in the
+# config (see configuration.md and rules.md, the country gate). Opt-in by
+# both listing this rule and naming your home countries, or it refuses to
+# load. Needs geoip_db and IP::Geolocation::MMDB. The vars-form gate keys
+# on the captured client address and fails closed on an unplaceable one.
+# Pairs with syslog/postfix-sasl, which catches the failures... this
+# catches the successes that got in.
+rev: 1
+msg: "[POSTFIX] authenticated relay from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - //^postfix(?:-\w+)?\/\w+(?:\/smtpd)?$//
+message_regexp:
+  - '^[0-9A-F]+: client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+detection_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # an authenticated relay from abroad... counted
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9], sasl_method=LOGIN, sasl_username=sender@example.com"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "sender@example.com"
+    - message: "Jul 12 08:15:50 vixen42 postfix/submission/smtpd[9182]: D4E5F6: client=unknown[198.51.100.23], sasl_method=PLAIN, sasl_username=moth3r"
+      geo:
+        countries:
+          "198.51.100.23": GB
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+        USER: "moth3r"
+  negative:
+    # a relay from home... vetoed
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # an unauthenticated client... no sasl_username, not this rule's line
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9]"
+      found: 0
+      undefed: ["SRC"]
+    # unplaceable fails closed
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=unknown[192.0.2.66], sasl_method=LOGIN, sasl_username=sender@example.com"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
