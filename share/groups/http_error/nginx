@@ -1,0 +1,8 @@
+# Nginx error-log rules... auth, bot/scanner probes, and rate-limit hits.
+# Reference as %http_error/nginx%.
+#
+# See docs/rules.md (Rule groups).
+
+http_error/nginx-botsearch
+http_error/nginx-http-auth
+http_error/nginx-limit-req

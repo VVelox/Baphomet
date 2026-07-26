@@ -1,13 +1,13 @@
 # Baphomet
 
-In Sumerian myth the galla are the demons of Kur, the underworld. They
-answer to no bribe and accept no gift... they exist to seize the condemned
-and drag them below, where Ereshkigal rules.
+The galla are the demons of Kur, the underworld. They answer to no bribe and
+accept no gift... they exist to seize the condemned and drag them below, where
+Ereshkigal rules.
 
 In the world above, Baphomet is a log watcher in the same family as
 fail2ban, and the accuser half of a pair whose punisher half is
 [Ereshkigal](https://github.com/LilithSec/Ereshkigal). A `baphomet` manager
-daemon spawns one `galla` worker per kur configured. Each galla follows the
+daemon looses one `galla` worker per kur configured. Each galla follows the
 log files of its kur, parses the lines, reads them against its rules like
 omen tablets, and counts the offenses of each IP. An IP that racks up
 `max_score` offenses with in `find_time` seconds is seized and banished

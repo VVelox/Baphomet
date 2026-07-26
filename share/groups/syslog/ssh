@@ -1,0 +1,9 @@
+# The base SSH daemons. Deliberately excludes the sshd-aggressive / sshd-ddos
+# / sshd-extra / sshd-spray tuning variants, which are alternative modes of
+# the same detection, not additive rules... pick one of those by hand if the
+# plain sshd rule is not enough. Reference as %syslog/ssh%.
+#
+# See docs/rules.md (Rule groups).
+
+syslog/dropbear
+syslog/sshd

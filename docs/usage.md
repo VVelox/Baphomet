@@ -8,7 +8,7 @@ running manager do so over its unix socket, by default
 ## Loosing and quieting the galla
 
 ```shell
-# read the config, daemonize, and spawn a galla per kur
+# read the config, daemonize, and loose a galla per kur
 baphomet start
 
 # with a different config

@@ -111,6 +111,13 @@ Top level keys are as below.
           overrides of the shipped ones.
         Default :: /usr/local/etc/baphomet/rules
 
+    - groups_dir :: The site override dir for rule groups, searched ahead of
+          the groups shipped with the dist, exactly as rules_dir is for rules.
+          A group C<%json/suricata-all%> is the file C<json/suricata-all>
+          under here (no extension), shadowing the shipped group of the same
+          name. It need not exist. See L<App::Baphomet::Rules/expand_rules>.
+        Default :: /usr/local/etc/baphomet/groups
+
     - ereshkigal_socket :: The Ereshkigal manager socket bans are sent to.
         Default :: /var/run/ereshkigal/socket
 
@@ -384,10 +391,12 @@ Watcher hashes take the keys below.
         Default :: syslog
 
     - rule :: The rule, or a array of rules, to match parsed lines
-          against, relative to rules_dir, in the form C<type/name>. With a
-          array, rules are checked in order and the first to match a line
+          against, relative to rules_dir, in the form C<type/name>. An entry
+          wrapped in percent signs, C<%json/suricata-all%>, is a rule group
+          that expands in place to its member rules. With a array, rules
+          (post-expansion) are checked in order and the first to match a line
           wins, which suits logs carrying several daemons, like a maillog.
-          See L<App::Baphomet::Rules>.
+          See L<App::Baphomet::Rules> and L<App::Baphomet::Rules/expand_rules>.
 
     - journal :: Follow the journal instead of a log... a journalctl
           match, a array of them, or true to follow the whole journal.
@@ -477,6 +486,7 @@ sub load_config {
 		'run_base_dir'              => '/var/run/baphomet',
 		'tablet_base_dir'           => '/var/db/baphomet',
 		'rules_dir'                 => '/usr/local/etc/baphomet/rules',
+		'groups_dir'                => '/usr/local/etc/baphomet/groups',
 		'ereshkigal_socket'         => '/var/run/ereshkigal/socket',
 		'galla_bin'                 => 'galla',
 		'journalctl_bin'            => 'journalctl',
@@ -964,6 +974,17 @@ sub check_kur_def {
 		foreach my $rule (@rules) {
 			if ( !defined($rule) || ref($rule) ne '' ) {
 				die( $where . 'has a non-string rule entry' );
+			}
+			# a %group% entry pulls in a named list of rules from the groups
+			# dir... only its token syntax is vetted here, the members and
+			# their type/parser pairing checked when the galla expands and
+			# loads them, the way a missing rule file is only caught at load
+			if ( $rule =~ /^%(.+)%$/ ) {
+				my $group = $1;
+				if ( $group !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+					die( $where . 'has a invalid rule group, "' . $rule . '"... should be like "%json/suricata-all%"' );
+				}
+				next;
 			}
 			if ( $rule !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
 				die( $where . 'has a invalid rule, "' . $rule . '"... should be like "syslog/sshd"' );

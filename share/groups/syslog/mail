@@ -1,0 +1,18 @@
+# The mail stack... MTA, IMAP, POP, and sieve auth failures, for a single
+# maillog watcher. Reference as %syslog/mail%.
+#
+# See docs/rules.md (Rule groups).
+
+syslog/courier-auth
+syslog/courier-smtp
+syslog/cyrus-imap
+syslog/dovecot
+syslog/perdition
+syslog/postfix
+syslog/postfix-sasl
+syslog/qmail
+syslog/sendmail-auth
+syslog/sendmail-reject
+syslog/sieve
+syslog/solid-pop3d
+syslog/uwimap-auth

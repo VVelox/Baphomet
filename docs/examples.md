@@ -153,8 +153,8 @@ rule = [ "http_error/apache-auth", "http_error/apache-botsearch", "http_error/ap
 
 ## The systemd journal
 
-On a host where sshd only logs to the journal, a watcher takes a `journal`
-of journalctl matches instead of a `log`... the galla runs
+On a host where sshd only logs to the journal, a watcher follows a `journal`,
+a set of journalctl matches, instead of a `log`... the galla runs
 `journalctl -f -o json` for it, and the shipped `syslog/*` rules apply
 unchanged, since the journal parser maps onto the syslog shape.
 

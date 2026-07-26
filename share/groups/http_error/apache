@@ -1,0 +1,13 @@
+# Apache error-log rules... auth, bot/scanner probes, modsecurity, and the
+# classic overflow/shellshock/noscript/nohome patterns. Reference as
+# %http_error/apache%.
+#
+# See docs/rules.md (Rule groups).
+
+http_error/apache-auth
+http_error/apache-botsearch
+http_error/apache-modsecurity
+http_error/apache-nohome
+http_error/apache-noscript
+http_error/apache-overflows
+http_error/apache-shellshock

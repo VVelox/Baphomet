@@ -1,0 +1,7 @@
+# VoIP and voice servers. Reference as %syslog/voip%.
+#
+# See docs/rules.md (Rule groups).
+
+syslog/asterisk
+syslog/freeswitch
+syslog/murmur

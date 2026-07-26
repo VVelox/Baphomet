@@ -1,0 +1,9 @@
+# The FTP daemons. Reference as %syslog/ftp%.
+#
+# See docs/rules.md (Rule groups).
+
+syslog/gssftpd
+syslog/proftpd
+syslog/pure-ftpd
+syslog/vsftpd
+syslog/wuftpd

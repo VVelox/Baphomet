@@ -1,0 +1,50 @@
+# Every shipped Suricata classtype rule, one per line. Reference it in a
+# watcher's rule list as %json/suricata-all% to pull them all in at once
+# without naming each. Tune individual members with a rule_config table.
+#
+# See docs/rules.md (Rule groups) and docs/configuration.md.
+
+json/suricata-attempted-admin
+json/suricata-attempted-dos
+json/suricata-attempted-recon
+json/suricata-attempted-user
+json/suricata-bad-unknown
+json/suricata-blocked
+json/suricata-coin-mining
+json/suricata-command-and-control
+json/suricata-credential-theft
+json/suricata-default-login-attempt
+json/suricata-denial-of-service
+json/suricata-domain-c2
+json/suricata-exploit-kit
+json/suricata-external-ip-check
+json/suricata-icmp-event
+json/suricata-inappropriate-content
+json/suricata-misc-activity
+json/suricata-misc-attack
+json/suricata-network-scan
+json/suricata-non-standard-protocol
+json/suricata-not-suspicious
+json/suricata-policy-violation
+json/suricata-protocol-command-decode
+json/suricata-pup-activity
+json/suricata-rpc-portmap-decode
+json/suricata-shellcode-detect
+json/suricata-social-engineering
+json/suricata-string-detect
+json/suricata-successful-admin
+json/suricata-successful-dos
+json/suricata-successful-recon-largescale
+json/suricata-successful-recon-limited
+json/suricata-successful-user
+json/suricata-suspicious-filename-detect
+json/suricata-suspicious-login
+json/suricata-system-call-detect
+json/suricata-targeted-activity
+json/suricata-tcp-connection
+json/suricata-trojan-activity
+json/suricata-unknown
+json/suricata-unsuccessful-user
+json/suricata-unusual-client-port-connection
+json/suricata-web-application-activity
+json/suricata-web-application-attack

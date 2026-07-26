@@ -53,6 +53,18 @@ MANIFEST			This list of files
 rc/freebsd/baphomet
 rc/systemd/baphomet.service
 README.md
+share/groups/http/scanners
+share/groups/http_error/apache
+share/groups/http_error/nginx
+share/groups/json/suricata-all
+share/groups/json/suricata-attack
+share/groups/json/suricata-bad
+share/groups/json/suricata-malware
+share/groups/json/suricata-recon
+share/groups/syslog/ftp
+share/groups/syslog/mail
+share/groups/syslog/ssh
+share/groups/syslog/voip
 share/rules/http/apache-pass.yaml
 share/rules/http/badbots.yaml
 share/rules/http/fakegooglebot.yaml
@@ -216,6 +228,7 @@ t/eve-log.t
 t/eve-only.t
 t/galla-join.t
 t/galla-journal.t
+t/groups-shipped.t
 t/dns-async.t
 t/dns-async-live.t
 t/galla.t
@@ -250,6 +263,7 @@ t/rule-config.t
 t/rule-distinct.t
 t/rule-gate-http.t
 t/rule-gate-syslog.t
+t/rule-groups.t
 t/rule-keywords.t
 t/rule-message-json.t
 t/rule-predicates.t

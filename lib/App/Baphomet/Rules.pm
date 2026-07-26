@@ -89,10 +89,18 @@ Initiates the object. Will die on errors.
 
     - shipped :: Whether to append the shipped rules dir, resolved with
           L<File::ShareDir>, to the search path. Turned off by callers that
-          want to look at a single dir in isolation.
+          want to look at a single dir in isolation. Also gates the shipped
+          groups dir.
         Default :: 1
 
-At least one usable dir must resolve or new dies.
+    - groups_dir :: The override dir for rule groups, searched ahead of the
+          shipped C<share/groups>, C<$base/etc/baphomet/groups> by
+          convention. Searched only if it exists. May be undef. Unlike the
+          rules dirs, no groups dir resolving is not an error... a config
+          referencing no C<%group%> needs none. See L</expand_rules>.
+        Default :: undef
+
+At least one usable rules dir must resolve or new dies.
 
 =cut
 
@@ -149,8 +157,26 @@ sub new {
 				. ' nor the shipped rules dir exists' );
 	}
 
+	# the groups search path mirrors the rules one... an override groups_dir
+	# ahead of the shipped share/groups, resolved the same way. unlike the
+	# rules path an empty groups path is not fatal here... a config that never
+	# references a %group% needs none, and expand_rules is where a
+	# unresolvable reference dies loudly
+	my @groups_dirs;
+	if ( defined( $opts{groups_dir} ) && -d $opts{groups_dir} ) {
+		push( @groups_dirs, $opts{groups_dir} );
+	}
+	if ( $opts{shipped} ) {
+		my $shipped_groups;
+		eval { $shipped_groups = File::ShareDir::dist_dir('App-Baphomet') . '/groups'; };
+		if ( defined($shipped_groups) && -d $shipped_groups ) {
+			push( @groups_dirs, $shipped_groups );
+		}
+	}
+
 	my $self = {
 		rules_dirs  => \@rules_dirs,
+		groups_dirs => \@groups_dirs,
 		shipped_dir => $shipped_dir,
 		cache       => {},
 	};
@@ -273,6 +299,124 @@ sub rule_path {
 
 	return undef;
 } ## end sub rule_path
+
+=head2 group_path
+
+Returns the path of the file backing the named group, searching the groups
+dirs in order and returning the first that exists, so an override groups dir
+shadows the shipped group of the same name. Returns undef when the group is
+found in none of them. A group name is a C<type/name> relative path like a
+rule, but the file carries no extension... C<json/suricata-all> is the file
+C<json/suricata-all> backing the reference C<%json/suricata-all%>.
+
+    my $path = $rules->group_path($name);
+
+=cut
+
+sub group_path {
+	my ( $self, $name ) = @_;
+
+	foreach my $dir ( @{ $self->{groups_dirs} } ) {
+		my $path = $dir . '/' . $name;
+		if ( -f $path ) {
+			return $path;
+		}
+	}
+
+	return undef;
+} ## end sub group_path
+
+=head2 group_members
+
+Reads the named group and returns its member rule names in file order. A
+group file is newline delimited... a line whose first non-whitespace
+character is C<#> is a comment, a whitespace-only line is ignored, leading
+and trailing whitespace on a line is trimmed, and every surviving line is one
+rule name to include. Dies on a group that resolves to no file, a member not
+in C<type/name> form, or a group with no members at all.
+
+    my @names = $rules->group_members('json/suricata-all');
+
+=cut
+
+sub group_members {
+	my ( $self, $name ) = @_;
+
+	if ( !defined($name) || $name !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+		die( 'The group name, "' . ( defined($name) ? $name : 'undef' ) . '", is not in the form "type/name"' );
+	}
+
+	my $path = $self->group_path($name);
+	if ( !defined($path) ) {
+		die(      'The group "'
+				. $name
+				. '" does not exist under any of the groups dirs... '
+				. ( @{ $self->{groups_dirs} }
+				? join( ', ', map { '"' . $_ . '"' } @{ $self->{groups_dirs} } )
+				: 'none are configured or shipped' ) );
+	}
+
+	open( my $fh, '<', $path ) || die( 'Failed to open the group "' . $name . '", "' . $path . '"... ' . $! );
+	my @members;
+	while ( my $line = <$fh> ) {
+		$line =~ s/^\s+//;
+		$line =~ s/\s+$//;
+		next if ( $line eq '' || $line =~ /^#/ );
+		if ( $line !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+			close($fh);
+			die(      'The group "'
+					. $name . '", "'
+					. $path
+					. '", has the invalid rule "'
+					. $line
+					. '"... should be like "syslog/sshd"' );
+		} ## end if ( $line !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/)
+		push( @members, $line );
+	} ## end while ( my $line = <$fh> )
+	close($fh);
+
+	if ( !@members ) {
+		die( 'The group "' . $name . '", "' . $path . '", has no members' );
+	}
+
+	return @members;
+} ## end sub group_members
+
+=head2 expand_rules
+
+Expands a watcher's rule list, replacing every group reference with its
+members and passing bare rule names through untouched. A entry wrapped in
+percent signs, C<%json/suricata-all%>, is a group reference resolved via
+L</group_members>; anything else is a rule name kept as is. The result keeps
+order and is deduplicated to the first occurrence, since first-match-wins
+already makes a repeat inert. Dies through group_members on a unresolvable
+group or a bad member.
+
+    my @names = $rules->expand_rules(@entries);
+
+=cut
+
+sub expand_rules {
+	my ( $self, @entries ) = @_;
+
+	my @expanded;
+	my %seen;
+	foreach my $entry (@entries) {
+		my @names;
+		if ( defined($entry) && $entry =~ /^%(.+)%$/ ) {
+			@names = $self->group_members($1);
+		} else {
+			@names = ($entry);
+		}
+		foreach my $name (@names) {
+			next if ( defined($name) && $seen{$name} );
+			$seen{$name} = 1 if defined($name);
+			push( @expanded, $name );
+		}
+	} ## end foreach my $entry (@entries)
+
+	return @expanded;
+} ## end sub expand_rules
 
 # the EVE gid for a resolved rule path... 0 when the file came from the
 # shipped rules dir, 1 from the site override dir. A rule resolved with no

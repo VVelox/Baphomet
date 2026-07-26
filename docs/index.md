@@ -7,10 +7,9 @@ matches lines against rules, counts the offenses of each IP, and banishes
 repeat offenders to Kur... a ban request sent to the Ereshkigal manager,
 which does the actual firewalling.
 
-The mythology carries the architecture. The galla are the demons of Kur who
-seize the condemned and drag them below, and here each `galla` is a worker
-process doing exactly that, one per kur configured. The `baphomet` manager
-looses and oversees them.
+The galla are the demons of Kur who seize the condemned and drag them below,
+and here each `galla` is a worker process, one per kur configured. The
+`baphomet` manager looses and oversees them.
 
 ## The docs
 

@@ -41,6 +41,76 @@ the override dir fall through to the shipped set, so a fresh install needs
 nothing copied into place... the shipped rules answer on their own. See the
 [catalog](rules-catalog.md) for what ships.
 
+## Rule groups
+
+A group is a named list of rules a watcher can pull in by reference, so a
+large set need not be spelled out entry by entry. In a watcher's `rule` list,
+an entry wrapped in percent signs is a group... `%json/suricata-all%` expands,
+in place, to every rule the group names:
+
+```toml
+[kur.ids.eve]
+log = "/var/log/suricata/eve.json"
+parser = "json"
+rule = [ "%json/suricata-all%", "json/caddy-botsearch" ]
+```
+
+Groups live and resolve exactly as rules do... a **site override dir**,
+`groups_dir` from the config (`/usr/local/etc/baphomet/groups` by default),
+searched ahead of the **shipped groups** under the dist share dir. A group
+named `json/suricata-all` is the file `groups/json/suricata-all`, and a file
+of that name in the override dir shadows the shipped one. Unlike a rule, a
+group file carries no extension.
+
+The file is newline delimited, one rule per line:
+
+- a line whose first non-whitespace character is `#` is a comment,
+- a blank or whitespace-only line is ignored,
+- leading and trailing whitespace on a line is trimmed,
+- every surviving line is one rule name to include.
+
+```
+# every shipped Suricata classtype rule
+json/suricata-attempted-admin
+json/suricata-denial-of-service
+
+json/suricata-exploit-kit
+```
+
+Expansion happens once, before any rule loads. The result keeps order and is
+deduplicated to the first occurrence... so a rule named by two groups, or by a
+group and again explicitly, loads once and sits at its first position, which
+[first-match-wins](#how-it-is-counted) already made the only one that can
+fire. A group that resolves to no file, a member not in `type/name` form, an
+empty group, or a member of a type the watcher's parser can not feed all fail
+loudly at start, never silently. Groups do not nest... a member is a rule, not
+another `%group%`.
+
+Groups pair naturally with per-rule
+[config overrides](configuration.md#per-rule-config-overrides): pull the bulk
+in with a group, then tune the handful of exceptions by name with a
+`rule_config` table, no need to list the rest.
+
+### Shipped groups
+
+A group's members are all of one type, so it drops into a single-parser
+watcher whole. What ships:
+
+| group | for | holds |
+| --- | --- | --- |
+| `json/suricata-all` | a Suricata `eve.json` | every classtype rule |
+| `json/suricata-bad` | " | all of them bar the noise and the too-generic... no `icmp-event`, `inappropriate-content`, generic protocol-command-decode, or `policy-violation` |
+| `json/suricata-attack` | " | the high-confidence hostile set... malware plus active intrusion attempts and successes |
+| `json/suricata-malware` | " | the critical "host is compromised" classtypes (C2, trojan, exploit kit, credential theft, coin mining) |
+| `json/suricata-recon` | " | scanning and probing... noisier, suits `eve_only` observe mode |
+| `syslog/mail` | a maillog | postfix, sendmail, dovecot, courier, cyrus, perdition, sieve, qmail, and the rest of the MTA/IMAP/POP auth rules |
+| `syslog/ftp` | an FTP log | proftpd, pure-ftpd, vsftpd, wuftpd, gssftpd |
+| `syslog/voip` | a VoIP log | asterisk, freeswitch, murmur |
+| `syslog/ssh` | an auth log | the base `sshd` and `dropbear`... not the `sshd-*` tuning variants, which are alternative modes, not additive |
+| `http_error/apache` | an Apache error log | the `apache-*` error-log rules |
+| `http_error/nginx` | an Nginx error log | the `nginx-*` error-log rules |
+| `http/scanners` | an HTTP access log | bad bots, panel sweeps, the fake-Googlebot check, PHP url-fopen abuse, protected-area probes |
+
 ## Anatomy of a rule
 
 Every rule, whatever its type, is a YAML hash that does four things:
@@ -274,7 +344,7 @@ must not. Each is a hash...
 | `message` | The full log line, as it would appear in the log. Required (or `messages`, below). |
 | `parser` | The parser to parse it with. Defaults per type (`bsd_syslog` for syslog, `http_access` for http, and so on)... a stricter parser is better inside a rule's own tests, and one may be named per test. |
 | `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and 0 for negative. |
-| `data` | For positive tests, capture names to the values they should of captured. |
+| `data` | For positive tests, capture names to the values they should have captured. |
 | `undefed` | For negative tests, capture names that should not be defined. |
 
 A test may use `messages`, an array of lines fed through in order, instead of
@@ -576,7 +646,7 @@ absent. `forward_confirm: false` is for cheap heuristics only.
 authoritative empty PTR set compares false... so `negate` counts the
 client with no reverse DNS at all, which is most fake bots. A timeout or
 SERVFAIL vetoes the count regardless of `negate`, so an outage can never
-get the real Googlebot banned. Both verdicts are the entry's to override:
+get the real Googlebot banished. Both verdicts are the entry's to override:
 
 | key | default | values |
 | --- | --- | --- |
@@ -855,7 +925,7 @@ raw watchers on single purpose app logs rather than busy shared ones.
 Rules of the `http` type work on lines parsed by the `http_access` parser
 (common and combined access logs). There is nothing to extract... the client
 is already the `host` field of the parsed line, so a http rule just decides
-which lines are offenses, and what gets banned is always `host` (unless a
+which lines are offenses, and what gets banished is always `host` (unless a
 [`detection_var`](#detection_var) overrides it).
 
 ```yaml
@@ -899,7 +969,7 @@ for the full reference.
 
 Rules of the `http_error` type work on lines parsed by the `apache_error` or
 `nginx_error` parsers. As with http rules, the offender is already the
-`client` field of the parsed line and is what gets banned, and lines with no
+`client` field of the parsed line and is what gets banished, and lines with no
 client (startup notices) are never offenses. As with syslog rules, the
 matching is `message_regexp`/`ignore_regexp` against the message free text...
 for apache that is what follows the `[client ip]` and the optional

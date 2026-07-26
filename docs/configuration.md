@@ -14,10 +14,11 @@ The config file is TOML, by default
 | `checkpoint` | `60` | Seconds between periodic rewrites of the tablets (rounded up to the ten second sweeper cadence). 0 disables the periodic rewrite; a checkpoint on stop still happens. |
 | `ledger_keep` | `2592000` | How long rows are kept in the shared banishment ledger, 30 days by default. 0 means forever. Rows still inside the recidive `find_time` are always kept. |
 | `rules_dir` | `/usr/local/etc/baphomet/rules` | Site override dir for rules, searched ahead of the rules shipped with the dist. A rule here shadows the shipped one of the same name. It need not exist... names absent here fall through to the shipped rules, so this is only for a site's own rules or overrides. See [rules.md](rules.md#where-rules-live). |
+| `groups_dir` | `/usr/local/etc/baphomet/groups` | Site override dir for rule groups, searched ahead of the groups shipped with the dist, exactly as `rules_dir` is for rules. It need not exist. See [rules.md](rules.md#rule-groups). |
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
 | `galla_bin` | `galla` | The galla bin to spawn workers with. |
 | `timeout` | `30` | Timeout in seconds for socket calls, both to gallas and to Ereshkigal. |
-| `max_score` | `5` | The accumulated score with in `find_time` at which a IP is banned. Each match adds its rule's `weight` (default 1), so with unweighted rules this is just an offense count. |
+| `max_score` | `5` | The accumulated score with in `find_time` at which a IP is banished. Each match adds its rule's `weight` (default 1), so with unweighted rules this is just an offense count. |
 | `find_time` | `600` | The window in seconds offenses are counted across. |
 | `ban_time` | unset | Ban time in seconds forwarded with ban requests, 0 meaning eternal. Unset means it is left out and the Ereshkigal side default applies. |
 | `ban_subnet_v4` | unset | IPv4 prefix length (1..32). Set, an offender also feeds a second bucket keyed by its `/prefix` network, alongside the per-IP count, and crossing `subnet_max_score` banishes the whole CIDR via Ereshkigal's `cidr_ban`. Unset, IPv4 offenders are not subnet-bucketed. Global, per kur, and per watcher. See [eve](eve). |
@@ -182,7 +183,7 @@ Watcher keys...
 | `log` | The log file, or an array of them, to follow. Entries containing glob metacharacters are expanded, and re-expanded every ten seconds while running... new matches get followed, vanished matches get dropped, and literal entries are kept even if the file does not exist yet. Required unless `journal` is given. |
 | `journal` | The systemd journal instead of a file. A array of journalctl matches, `FIELD=VALUE` like fail2ban's journalmatch, ANDed across fields and ORed with in one, or `true` for the whole journal. A galla runs `journalctl -f -o json` for it, resuming from the last cursor across restarts. Mutually exclusive with `log`. |
 | `parser` | The parser for lines of that log. Defaults to `syslog`. |
-| `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. With an array, rules are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
+| `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. An entry wrapped in percent signs, `%json/suricata-all%`, is a [rule group](rules.md#rule-groups) that expands to its member rules in place. With an array, rules (post-expansion) are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `parser` (journal) | A journal watcher's parser defaults to `journal`. |
 | `max_score` / `find_time` / `ban_time` | Optional overrides for this watcher. |
 | `ban_subnet_v4` / `ban_subnet_v6` / `subnet_max_score` / `subnet_find_time` | Optional subnet-ban overrides for this watcher. |

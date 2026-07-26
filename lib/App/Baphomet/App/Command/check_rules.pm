@@ -62,11 +62,16 @@ sub execute {
 	if ( defined( $opt->rules_dir ) ) {
 		$rules = App::Baphomet::Rules->new( 'rules_dir' => $opt->rules_dir, 'shipped' => 0 );
 	} else {
-		$rules = App::Baphomet::Rules->new( 'rules_dir' => load_config( $opt->config )->{rules_dir} );
+		my $config = load_config( $opt->config );
+		$rules = App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
 	}
 
+	# a named arg may be a %group%, which expands to its members... with no
+	# args the whole shipped-plus-override rule set is walked
 	my @names = @{$args};
-	if ( !@names ) {
+	if (@names) {
+		@names = $rules->expand_rules(@names);
+	} else {
 		@names = $rules->rule_names;
 	}
 

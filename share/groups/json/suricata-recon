@@ -1,0 +1,14 @@
+# Scanning and probing Suricata classtypes... noisier, often paired with
+# eve_only observe mode. Reference as %json/suricata-recon%.
+#
+# See docs/rules.md (Rule groups).
+
+json/suricata-attempted-recon
+json/suricata-external-ip-check
+json/suricata-network-scan
+json/suricata-non-standard-protocol
+json/suricata-protocol-command-decode
+json/suricata-rpc-portmap-decode
+json/suricata-successful-recon-largescale
+json/suricata-successful-recon-limited
+json/suricata-unusual-client-port-connection

@@ -293,7 +293,10 @@ sub new {
 		$self->_ensure_eve_dir;
 	}
 
-	eval { $self->{rules} = App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir} ); };
+	eval {
+		$self->{rules}
+			= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
+	};
 	if ($@) {
 		$self->{perror}      = 1;
 		$self->{error}       = 6;
@@ -304,7 +307,21 @@ sub new {
 	foreach my $watcher_name ( sort( keys( %{$watchers} ) ) ) {
 		my $watcher = $watchers->{$watcher_name};
 
-		my @rule_names = watcher_rules($watcher);
+		my $is_journal = watcher_is_journal($watcher);
+		my $parser     = defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' );
+
+		# expand any %group% entries in the rule list into their member rules
+		# ahead of loading, deduped and in order... a unresolvable group or a
+		# bad member dies loudly here, the same as a bad rule does below
+		my @rule_names;
+		eval { @rule_names = $self->{rules}->expand_rules( watcher_rules($watcher) ); };
+		if ($@) {
+			$self->{perror}      = 1;
+			$self->{error}       = 6;
+			$self->{errorString} = 'Failed to expand the rules for the watcher "' . $watcher_name . '"... ' . $@;
+			$self->warn;
+		}
+
 		my @rule_objs;
 		foreach my $rule_name (@rule_names) {
 			my $rule;
@@ -316,6 +333,29 @@ sub new {
 					= 'Failed to load the rule "' . $rule_name . '" for the watcher "' . $watcher_name . '"... ' . $@;
 				$self->warn;
 			}
+
+			# check_kur_def already vetted the type/parser pairing of the
+			# explicit rules, but a rule pulled in through a %group% never
+			# passed under its eye... so a group member of a type this
+			# watcher's parser can not feed is caught here, loudly, rather
+			# than silently matching nothing
+			my ($rule_type) = split( /\//, $rule_name );
+			if ( defined($rule) && !App::Baphomet::Rules::type_accepts_parser( $rule_type, $parser ) ) {
+				$self->{perror} = 1;
+				$self->{error}  = 6;
+				$self->{errorString}
+					= 'The rule "'
+					. $rule_name
+					. '" of the watcher "'
+					. $watcher_name
+					. '" is of the type "'
+					. $rule_type
+					. '", whose lines the parser "'
+					. $parser
+					. '" does not produce';
+				$self->warn;
+			} ## end if ( defined($rule) && !App::Baphomet::Rules::type_accepts_parser...)
+
 			push( @rule_objs, $rule );
 		} ## end foreach my $rule_name (@rule_names)
 
@@ -367,12 +407,11 @@ sub new {
 			$self->warn;
 		}
 
-		my $is_journal = watcher_is_journal($watcher);
 		$self->{watchers}{$watcher_name} = {
 			'is_journal'      => $is_journal,
-			'log_spec'        => $is_journal          ? []                            : [ watcher_logs($watcher) ],
-			'journal_matches' => $is_journal          ? [ watcher_journal($watcher) ] : [],
-			'parser' => defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' ),
+			'log_spec'        => $is_journal ? [] : [ watcher_logs($watcher) ],
+			'journal_matches' => $is_journal ? [ watcher_journal($watcher) ] : [],
+			'parser'          => $parser,
 			'join'            => $join_compiled,
 			'rules'           => \@rule_names,
 			'rule_objs'       => \@rule_objs,

@@ -53,7 +53,7 @@ To override a shipped rule or add your own, drop the YAML under
 shipped rules); a fresh install needs nothing there. See
 [rules.md](rules.md#where-rules-live).
 
-Then check the rules and start it up...
+Then check the rules and loose the galla...
 
 ```shell
 baphomet check_rules

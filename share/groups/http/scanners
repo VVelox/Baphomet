@@ -1,0 +1,11 @@
+# Bot, scanner, and probe rules over an HTTP access log... bad bots, admin/
+# login panel sweeps, the fake-Googlebot check, PHP url-fopen abuse, and
+# password-protected-area probes. Reference as %http/scanners%.
+#
+# See docs/rules.md (Rule groups).
+
+http/apache-pass
+http/badbots
+http/botsearch
+http/fakegooglebot
+http/php-url-fopen

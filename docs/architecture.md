@@ -6,7 +6,7 @@ Baphomet and [Ereshkigal](https://github.com/LilithSec/Ereshkigal) split
 the fail2ban job in two...
 
 - **Ereshkigal** rules Kur. It owns the firewalls, holds the state of who
-  is banned where, times sentences, and releases the served. Its manager
+  is banished where, times sentences, and releases the served. Its manager
   listens on `/var/run/ereshkigal/socket` speaking newline delimited JSON.
 - **Baphomet** is the accuser. It reads logs, decides which IPs have
   offended enough, and delivers them to that socket. It never touches a
