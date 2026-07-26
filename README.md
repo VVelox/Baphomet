@@ -5,7 +5,7 @@ accept no gift... they exist to seize the condemned and drag them below, where
 Ereshkigal rules.
 
 In the world above, Baphomet is a log watcher in the same family as
-fail2ban, and the accuser half of a pair whose punisher half is
+fail2ban or Sagan, and the accuser half of a pair whose punisher half is
 [Ereshkigal](https://github.com/LilithSec/Ereshkigal). A `baphomet` manager
 daemon looses one `galla` worker per kur configured. Each galla follows the
 log files of its kur, parses the lines, reads them against its rules like
@@ -15,6 +15,12 @@ to Kur... a ban request sent to the Ereshkigal manager socket, targeted at
 the kur of the same name over there, a real kur or a fan_out gate relaying
 to several. Ereshkigal does the actual firewalling. Baphomet never touches
 the firewall itself.
+
+That is the accuser. The same galla is also a log analysis engine, in the
+family of Sagan and Wazuh... a rule may **detect** in place of banishing,
+counting any subject and raising a triageable alert to the EVE event stream
+with out touching a firewall at all. Ban or detect is one key's difference.
+See [docs/log-analysis.md](docs/log-analysis.md).
 
 Watching sshd looks like this in `/usr/local/etc/baphomet/config.toml`...
 

@@ -1,11 +1,17 @@
 # Baphomet
 
-Baphomet is a log watcher in the same family as fail2ban, and the accuser
-half of a pair whose punisher half is
+Baphomet has two faces. It is a log watcher in the same family as fail2ban,
+the **accuser** half of a pair whose punisher half is
 [Ereshkigal](https://github.com/LilithSec/Ereshkigal). It reads logs,
 matches lines against rules, counts the offenses of each IP, and banishes
 repeat offenders to Kur... a ban request sent to the Ereshkigal manager,
 which does the actual firewalling.
+
+It is also a **log analysis engine** in the family of Sagan, Wazuh, and the
+Sigma detection model... the same galla that bans can instead detect,
+counting any subject and raising a triageable alert to the EVE stream with
+out banishing anyone. Ban or detect is one key's difference. See
+[log-analysis](log-analysis) for that half.
 
 The galla are the demons of Kur who seize the condemned and drag them below,
 and here each `galla` is a worker process, one per kur configured. The
@@ -22,6 +28,9 @@ and here each `galla` is a worker process, one per kur configured. The
   tests. Read this to write your own.
 - [rules-catalog](rules-catalog) ... the shipped rules, what each
   watches for, and what was deliberately not ported from fail2ban.
+- [log-analysis](log-analysis) ... the detection half... rules that alert
+  with out banishing, the alert metadata, the EVE stream, and how the galla
+  is a log analysis engine in the Sagan/Wazuh/Sigma family.
 - [eve](eve) ... the EVE event log, a Suricata-shaped NDJSON record
   of what the gallas do.
 - [usage](usage) ... the `baphomet` CLI.
@@ -30,6 +39,9 @@ and here each `galla` is a worker process, one per kur configured. The
   still missing, and how to migrate a jail.
 - [sagan](sagan) ... the gates folded in from Sagan's rule language,
   and what a full log-analysis engine still does that this does not.
+- [wazuh](wazuh) ... the log-analysis slice of Wazuh mapped rule for
+  rule, why the pair with Ereshkigal is its detect-and-respond, and the
+  platform around it (agents, FIM, storage) that stays out of charter.
 - [sigma](sigma) ... how the json rule type speaks Sigma's detection
   model, the modifier mapping, and porting a Sigma rule by hand.
 

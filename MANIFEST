@@ -7,9 +7,13 @@ docs/examples.md
 docs/fail2ban.md
 docs/index.md
 docs/install.md
+docs/log-analysis.md
 docs/rules-catalog.md
 docs/rules.md
+docs/sagan.md
+docs/sigma.md
 docs/usage.md
+docs/wazuh.md
 lib/App/Baphomet.pm
 lib/App/Baphomet/App.pm
 lib/App/Baphomet/App/FanoutCmd.pm

@@ -1,15 +1,21 @@
 # Coming from Sagan
 
-Baphomet is not Sagan... Sagan is a full log-analysis engine, a Snort for
-text logs that matches, correlates, and alerts across dozens of products.
-Baphomet is narrower by design, an accuser that counts an IP's offenses and
-banishes the repeat ones to Kur, leaving the firewalling to
-[Ereshkigal](https://github.com/LilithSec/Ereshkigal). But fail2ban, the
-tool Baphomet most resembles ([fail2ban](fail2ban)), counts one regexp per
-jail and stops there, and Sagan's rule language reaches much further. The
-gates Sagan has that fail2ban lacks were read end to end and folded into
-the galla... they run between a rule matching and the offense being
-counted, so rules stay pure matchers.
+Run in eve mode, Baphomet is basically Sagan... the same real-time engine
+that parses a stream, matches each line against signatures, correlates, and
+emits a Suricata-shaped alert (see [log-analysis](log-analysis)). Neither
+keeps the events; both stream and forget, feeding their alerts onward. What
+Sagan has more of is reach... thousands of rules across dozens of products,
+and more ways to ship an alert out... not a deeper engine.
+
+The two part company at the other end. Sagan only alerts, while Baphomet can
+also count an offender's hits and banish the repeat ones to Kur, the
+firewalling left to [Ereshkigal](https://github.com/LilithSec/Ereshkigal). It
+is, in one program, Sagan's detection welded to fail2ban's banishing... and
+fail2ban, the tool it otherwise most resembles ([fail2ban](fail2ban)), counts
+one regexp per jail and stops there, where Sagan's rule language reaches much
+further. The gates Sagan has that fail2ban lacks were read end to end and
+folded into the galla... they run between a rule matching and the offense
+being counted, so rules stay pure matchers.
 
 ## The concept map
 
@@ -77,15 +83,20 @@ not act.
 
 ## What Sagan does that this does not
 
-Honesty section... Sagan is a full log-analysis engine and Baphomet is not.
+Honesty section... the two are the same class of engine, but Sagan is the
+broader build.
 
-- **A correlation language.** Sagan's xbits and flexbits compose into
-  multi-stage, cross-signature state machines. Marks cover the offender- and
-  capture-keyed cases (the spray example above), but they brand and gate...
-  there is no rule graph, no `after`, no threshold-across-signatures engine.
-- **The full signature library.** Sagan ships thousands of rules across dozens
-  of products and protocols. Baphomet ports the shapes that end in a ban, an
-  offender IP counted toward a judgment, not the broader alerting corpus.
+- **A more general correlation language.** Sagan's xbits and flexbits compose
+  into explicit multi-stage, cross-signature state machines. Baphomet reaches
+  much of the same ground by other means... marks brand a key for a later rule
+  to gate on, staged sequences match ordered multi-stage signatures, and
+  weighted scoring lets several rules accrue toward one threshold on an IP...
+  but there is no single state-machine language naming and wiring them the way
+  flexbits do.
+- **The shipped signature library.** Sagan ships thousands of rules across
+  dozens of products and protocols. Baphomet's shipped set is far smaller and
+  IP-focused... a detection rule (`detection_var`) carries any alerting shape
+  you care to port, but the corpus that comes in the box is not Sagan's.
 - **Output beyond EVE.** Sagan feeds unified2, syslog, and assorted output
   plugins onward. Here there is one stream, the Suricata-shaped EVE log
   ([eve](eve)), and acting on the alert is Ereshkigal's half.
