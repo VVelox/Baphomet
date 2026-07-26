@@ -12,8 +12,10 @@
 # call, so this sights rather than banishes. Flip detection_var to
 # ban_var to make it act. NetScaler emits syslog natively but stuffs
 # the date where the program name goes, so this is a raw rule anchored
-# on the SSLVPN module tokens, never on line start.
-rev: 1
+# on the SSLVPN module tokens, never on line start. The embedded tests
+# seed the brand (marks_before) and so prove the gate both ways... a
+# branded source fires, the unbranded does not.
+rev: 2
 msg: "[CITRIX] the condemned walked in... VPN login success from a branded source"
 severity: critical
 classtype: correlated-attack
@@ -30,6 +32,9 @@ max_score: 1
 tests:
   positive:
     - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      marks_before:
+        - name: brute_force
+          key: "203.0.113.5"
       found: 1
       data:
         USER: "jdoe"
@@ -41,3 +46,7 @@ tests:
     - message: "Jul 12 08:16:05 ns01 07/12/2026:08:16:05 GMT ns01 0-PPE-0 : default SSLVPN LOGOUT 4351 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Start_time \"07/12/2026:08:16:02 GMT\" - End_time \"07/12/2026:08:16:05 GMT\""
       found: 0
       undefed: ["SRC"]
+    # a login from a source holding no brand at all passes unremarked...
+    # the gate vetoes
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      found: 0

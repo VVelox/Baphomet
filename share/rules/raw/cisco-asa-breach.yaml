@@ -17,9 +17,10 @@
 #
 # Detection-only... banning a source that just SUCCEEDED is a policy
 # call, so this sights rather than banishes. Flip detection_var to
-# ban_var to make it act. The marked gate is galla state, so the
-# embedded tests prove only the matching layer.
-rev: 1
+# ban_var to make it act. The embedded tests seed the brands
+# (marks_before) and so prove the gate both ways... a branded source
+# fires, the unbranded does not.
+rev: 2
 msg: "[CISCO-ASA] the condemned walked in... success from a branded source"
 severity: critical
 classtype: correlated-attack
@@ -39,31 +40,53 @@ detection_var: [ SRC ]
 max_score: 1
 tests:
   positive:
+    # any one of the standard brands satisfies the any-of gate
     - message: 'Jul 12 09:02:11 fw01 %ASA-6-605005: Login permitted from 192.0.2.44/51522 to outside:203.0.113.10/ssh for user "admin"'
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: 'Jul 12 09:02:12 fw01 %ASA-6-716001: Group <vpn-users> User <jsmith> IP <192.0.2.44> WebVPN session started.'
+      marks_before:
+        - name: recon
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: 'Jul 12 09:02:13 fw01 %ASA-6-716038: Group <vpn-users> User <jsmith> IP <192.0.2.44> Authentication: successful, Session Type: WebVPN.'
+      marks_before:
+        - name: exploit_attempt
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: 'Jul 12 09:02:14 fw01 %ASA-6-734001: DAP: User jsmith, Addr 192.0.2.44, Connection AnyConnect: The following DAP records were selected for this connection: DfltAccessPolicy'
+      marks_before:
+        - name: honeypot
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: 'Jul 12 09:02:15 fw01 %ASA-6-722022: Group <vpn-users> User <jsmith> IP <192.0.2.44> TCP SVC connection established without compression'
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: 'Jul 12 09:02:16 fw01 %ASA-6-722023: Group <vpn-users> User <jsmith> IP <192.0.2.44> UDP SVC connection established without compression'
+      marks_before:
+        - name: recon
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: 'Jul 12 09:02:17 fw01 %ASA-6-303002: FTP connection from outside:192.0.2.44/51544 to dmz:10.1.2.20/21, user jsmith Stored file passwd.txt'
+      marks_before:
+        - name: exploit_attempt
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
@@ -74,3 +97,7 @@ tests:
     - message: 'Jul 12 09:05:01 fw01 %ASA-6-716002: Group <vpn-users> User <jsmith> IP <192.0.2.44> WebVPN session terminated: User Requested.'
       found: 0
       undefed: ["SRC"]
+    # a success from a source holding no brand at all passes unremarked...
+    # the gate vetoes
+    - message: 'Jul 12 09:02:11 fw01 %ASA-6-605005: Login permitted from 192.0.2.44/51522 to outside:203.0.113.10/ssh for user "admin"'
+      found: 0

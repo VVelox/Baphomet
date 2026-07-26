@@ -10,6 +10,8 @@ use Digest::MD5           qw( md5 );
 use Encode                ();
 use App::Baphomet::Parser ();
 use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
+use App::Baphomet::Marks  ();
+use App::Baphomet::RDNS   ();
 
 =pod
 
@@ -1286,6 +1288,20 @@ on test failures... that is the caller's call to make.
 
     my $results = $rule->run_tests;
 
+Each test entry runs the galla's own order per message... parse, match,
+the data-keyed mark gates against a throwaway store, then the rule's
+brands applied, so C<found> counts what would really have fired. The
+store starts empty per entry, seedable via C<marks_before> (each
+C<< {name, key, value?, set?, ttl?} >>, C<key> a string or a list joined
+as a C<vars> compound is), and assertable after the run via
+C<marks_expected> (each C<< {name, key, value?, absent?} >>). Time is a
+virtual clock, base 1000000000, threaded through matching and the store
+both... a C<messages> entry may be a hash C<< {message, advance?|at?,
+found_after?, marks_after?} >> to steer it and assert mid-run. Var-less
+mark gates are offender-time and run only in the galla's ban path, so
+they are not provable here... key a testable gate by C<var>/C<vars>, as
+the shipped readers do.
+
 =cut
 
 sub run_tests {
@@ -1332,6 +1348,20 @@ sub run_tests {
 				next;
 			}
 
+			# a typo'd assertion key would otherwise be a assertion that
+			# never runs... the very silence this machinery exists to end
+			my $bad_key = 0;
+			foreach my $test_key ( keys( %{$test} ) ) {
+				if ( $test_key !~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|dns)$/ ) {
+					$results->{fail}++;
+					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
+					$bad_key = 1;
+				}
+			}
+			if ($bad_key) {
+				next;
+			}
+
 			my @messages = defined( $test->{message} ) ? ( $test->{message} ) : @{ $test->{messages} };
 
 			my $parser
@@ -1339,19 +1369,78 @@ sub run_tests {
 				: defined( $self->{def}{test_parser} ) ? $self->{def}{test_parser}
 				:                                        $self->default_test_parser;
 
-			# each test entry gets a throwaway correlation scope of its own
+			# each test entry gets a throwaway correlation scope of its own,
+			# a throwaway mark store, and a virtual clock... the galla state
+			# a rule file may seed, exercise, and assert with no galla up
 			my $test_scope = 'run_tests ' . $where;
+			my %marks_store;
+			my $clock = 1_000_000_000;
+
+			if ( defined( $test->{marks_before} )
+				&& $self->_test_marks_seed( \%marks_store, $test->{marks_before}, $clock, $where, $results ) )
+			{
+				next;
+			}
+
+			# the dns fixture, when the test carries one... a resolver the
+			# reverse_dns gate judges over, so the gate runs here exactly as
+			# it would in the galla. absent the fixture the gate is skipped,
+			# as it always was
+			my $dns_resolver;
+			if ( defined( $test->{dns} ) ) {
+				$dns_resolver = $self->_test_dns_resolver( $test->{dns}, $where, $results );
+				if ( !defined($dns_resolver) ) {
+					next;
+				}
+			}
+
+			my $gates            = $self->mark_gates;
+			my $marks            = $self->marks;
+			my $unmarks          = $self->unmarks;
+			my $is_detection     = $self->is_detection;
+			my $rdns_gate        = defined($dns_resolver) ? $self->reverse_dns : undef;
+			my $rdns_has_varless = defined($rdns_gate) && grep { !defined( $_->{var} ) } @{$rdns_gate};
 
 			my @found_all;
-			my $parse_failed = 0;
+			my $entry_failed = 0;
 			my $message_int  = 0;
-			foreach my $message (@messages) {
+			foreach my $message_entry (@messages) {
+				my $message = $message_entry;
+				my ( $found_after, $marks_after );
+				if ( ref($message_entry) eq 'HASH' ) {
+					foreach my $entry_key ( keys( %{$message_entry} ) ) {
+						if ( $entry_key !~ /^(?:message|advance|at|found_after|marks_after)$/ ) {
+							$results->{fail}++;
+							push( @{ $results->{failures} },
+								$where . ' has a messages entry with the unknown key "' . $entry_key . '"' );
+							$entry_failed = 1;
+						}
+					}
+					if ( !$entry_failed && !defined( $message_entry->{message} ) ) {
+						$results->{fail}++;
+						push( @{ $results->{failures} }, $where . ' has a messages entry hash with no message' );
+						$entry_failed = 1;
+					}
+					if ($entry_failed) {
+						last;
+					}
+					$message = $message_entry->{message};
+					# the clock steered ahead of the line, absolute or relative
+					if ( defined( $message_entry->{at} ) ) {
+						$clock = $message_entry->{at};
+					} elsif ( defined( $message_entry->{advance} ) ) {
+						$clock += $message_entry->{advance};
+					}
+					$found_after = $message_entry->{found_after};
+					$marks_after = $message_entry->{marks_after};
+				} ## end if ( ref($message_entry) eq 'HASH' )
+
 				my $parsed;
 				eval { $parsed = App::Baphomet::Parser::parse( $parser, $message ); };
 				if ($@) {
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has a unusable parser... ' . $@ );
-					$parse_failed = 1;
+					$entry_failed = 1;
 					last;
 				}
 				if ( !defined($parsed) ) {
@@ -1360,22 +1449,89 @@ sub run_tests {
 						@{ $results->{failures} },
 						$where . ' message did not parse via ' . $parser . '... "' . $message . '"'
 					);
-					$parse_failed = 1;
+					$entry_failed = 1;
 					last;
 				}
 
 				# the line context a staged rule's skip bound reads... the
-				# message index is the sequence with in the test entry
-				my $found = $self->check( $parsed, $test_scope, { 'seq' => $message_int, 'source' => '' } );
+				# message index is the sequence with in the test entry, and
+				# now the virtual clock, so windows prove deterministically
+				my $found = $self->check( $parsed, $test_scope,
+					{ 'seq' => $message_int, 'source' => '', 'now' => $clock } );
 				$message_int++;
 				if ( defined($found) ) {
-					push( @found_all, $found );
-					if ( ref( $found->{more} ) eq 'ARRAY' ) {
-						push( @found_all, @{ $found->{more} } );
-					}
+					foreach my $one ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () ) {
+						# the galla's own order... the data-keyed mark gates
+						# vet the result, a veto meaning it never really
+						# fired, then the survivors brand
+						if ( !App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $one->{data}, undef,
+							$clock ) )
+						{
+							next;
+						}
+						# the data-keyed reverse_dns entries, when a fixture
+						# stands in for the resolver
+						if ( defined($rdns_gate)
+							&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $one->{data}, undef ) )
+						{
+							next;
+						}
+						# offenders as the galla resolves them, sans the
+						# usedns/internal filtering no test needs... a
+						# detection rule has none, so its var-less brands
+						# brand nothing, there as here
+						my @offenders;
+						if ( !$is_detection ) {
+							foreach my $ban_var ( $self->ban_var ) {
+								my $offender = $one->{data}{$ban_var};
+								if ( defined($offender) ) {
+									push( @offenders, $offender );
+								}
+							}
+						}
+						App::Baphomet::Marks::apply_marks( \%marks_store, $marks, $unmarks, $one->{data},
+							\@offenders, $clock );
+						# the var-less reverse_dns entries run per offender in
+						# the galla's ban path, after the branding as there...
+						# with a fixture up they run here too, the result
+						# counting only when an offender survives
+						if ( $rdns_has_varless && !$is_detection ) {
+							my @survivors = grep {
+								App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $one->{data}, $_ )
+							} @offenders;
+							if ( !@survivors ) {
+								next;
+							}
+						}
+						push( @found_all, $one );
+					} ## end foreach my $one ( $found, ref( $found->{more} ...))
+				} ## end if ( defined($found) )
+
+				# the mid-run assertions a hash entry carries
+				if ( defined($found_after) && scalar(@found_all) != $found_after ) {
+					$results->{fail}++;
+					push(
+						@{ $results->{failures} },
+						$where
+							. ' expected found_after='
+							. $found_after
+							. ' but had found='
+							. scalar(@found_all)
+							. ' after message '
+							. ( $message_int - 1 )
+					);
+					$entry_failed = 1;
+					last;
+				} ## end if ( defined($found_after) && scalar(@found_all...))
+				if ( defined($marks_after)
+					&& $self->_test_marks_assert( \%marks_store, $marks_after, $clock,
+						$where . ' after message ' . ( $message_int - 1 ), $results ) )
+				{
+					$entry_failed = 1;
+					last;
 				}
-			} ## end foreach my $message (@messages)
-			if ($parse_failed) {
+			} ## end foreach my $message_entry (@messages)
+			if ($entry_failed) {
 				next;
 			}
 
@@ -1383,6 +1539,7 @@ sub run_tests {
 			my $got_found      = scalar(@found_all);
 
 			if ( $got_found != $expected_found ) {
+				my $last_message = ref( $messages[-1] ) eq 'HASH' ? $messages[-1]{message} : $messages[-1];
 				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
@@ -1392,7 +1549,7 @@ sub run_tests {
 						. ' but got found='
 						. $got_found
 						. ' for "'
-						. $messages[-1] . '"'
+						. $last_message . '"'
 				);
 				next;
 			} ## end if ( $got_found != $expected_found )
@@ -1435,6 +1592,13 @@ sub run_tests {
 				} ## end foreach my $key ( @{ $test->{undefed} } )
 			} ## end if ( defined( $test->{undefed} ) && ref( $test...))
 
+			if (  !$data_failed
+				&& defined( $test->{marks_expected} )
+				&& $self->_test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results ) )
+			{
+				$data_failed = 1;
+			}
+
 			if ( !$data_failed ) {
 				$results->{pass}++;
 			}
@@ -1443,6 +1607,188 @@ sub run_tests {
 
 	return $results;
 } ## end sub run_tests
+
+# builds the resolver pair from a test entry's dns fixture... ptr maps a
+# address to its names, forward a name to its addresses, either answer a
+# list, the string nxdomain (authoritative absence), or servfail (a
+# failure). anything unfixtured answers servfail, fail-closed as an
+# unanswerable question is in the galla. returns undef on a malformed
+# fixture, the failure pushed
+sub _test_dns_resolver {
+	my ( $self, $fixture, $where, $results ) = @_;
+
+	if ( ref($fixture) ne 'HASH' ) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' dns is not a hash' );
+		return undef;
+	}
+	foreach my $fixture_key ( keys( %{$fixture} ) ) {
+		if ( $fixture_key !~ /^(?:ptr|forward)$/ ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' dns has the unknown key "' . $fixture_key . '"' );
+			return undef;
+		}
+		if ( ref( $fixture->{$fixture_key} ) ne 'HASH' ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' dns ' . $fixture_key . ' is not a hash' );
+			return undef;
+		}
+		foreach my $subject ( keys( %{ $fixture->{$fixture_key} } ) ) {
+			my $answer = $fixture->{$fixture_key}{$subject};
+			if ( ref($answer) ne 'ARRAY' && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
+				$results->{fail}++;
+				push(
+					@{ $results->{failures} },
+					$where . ' dns ' . $fixture_key . ' "' . $subject
+						. '" is not a list of names/addresses, nxdomain, or servfail'
+				);
+				return undef;
+			}
+		} ## end foreach my $subject ( keys( %{ $fixture->{$fixture_key...}}))
+	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
+
+	my $answer_for = sub {
+		my ( $map, $subject ) = @_;
+		my $answer = defined($map) ? $map->{$subject} : undef;
+		if ( !defined($answer) || ( !ref($answer) && $answer eq 'servfail' ) ) {
+			return undef;
+		}
+		if ( !ref($answer) && $answer eq 'nxdomain' ) {
+			return [];
+		}
+		return $answer;
+	};
+
+	return {
+		'reverse' => sub { return $answer_for->( $fixture->{ptr},     $_[0] ); },
+		'forward' => sub { return $answer_for->( $fixture->{forward}, $_[0] ); },
+	};
+} ## end sub _test_dns_resolver
+
+# joins a marks_before/marks_expected key... a list is a vars compound,
+# joined the way the store joins one
+sub _test_mark_store_key {
+	my ($key) = @_;
+
+	if ( ref($key) eq 'ARRAY' ) {
+		return join( "\x1f", @{$key} );
+	}
+	return $key;
+}
+
+# seeds a test entry's throwaway store from its marks_before... brands
+# other rules would have set, without which a reader rule's gate can
+# never be armed from its own file. returns true on a malformed entry,
+# the failure pushed
+sub _test_marks_seed {
+	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
+
+	if ( ref($seeds) ne 'ARRAY' ) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' marks_before is not a array' );
+		return 1;
+	}
+
+	foreach my $seed ( @{$seeds} ) {
+		if ( ref($seed) ne 'HASH' || !defined( $seed->{name} ) || !defined( $seed->{key} ) ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' has a marks_before entry lacking a name and key' );
+			return 1;
+		}
+		foreach my $seed_key ( keys( %{$seed} ) ) {
+			if ( $seed_key !~ /^(?:name|key|value|set|ttl)$/ ) {
+				$results->{fail}++;
+				push( @{ $results->{failures} },
+					$where . ' has a marks_before entry with the unknown key "' . $seed_key . '"' );
+				return 1;
+			}
+		}
+		my $key = _test_mark_store_key( $seed->{key} );
+		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
+		$store->{ $seed->{name} }{$key} = {
+			'expires' => $clock + $ttl,
+			'set'     => defined( $seed->{set} ) ? $seed->{set} : $clock,
+			defined( $seed->{value} ) ? ( 'value' => $seed->{value} ) : (),
+		};
+	} ## end foreach my $seed ( @{$seeds} )
+
+	return 0;
+} ## end sub _test_marks_seed
+
+# asserts a marks_expected/marks_after list against the throwaway
+# store... presence and value by default, absence under absent. returns
+# true on any miss, the failures pushed
+sub _test_marks_assert {
+	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
+
+	if ( ref($expected) ne 'ARRAY' ) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' marks assertion is not a array' );
+		return 1;
+	}
+
+	my $failed = 0;
+	foreach my $expect ( @{$expected} ) {
+		if ( ref($expect) ne 'HASH' || !defined( $expect->{name} ) || !defined( $expect->{key} ) ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' has a marks assertion lacking a name and key' );
+			$failed = 1;
+			next;
+		}
+		my $assert_bad = 0;
+		foreach my $expect_key ( keys( %{$expect} ) ) {
+			if ( $expect_key !~ /^(?:name|key|value|absent)$/ ) {
+				$results->{fail}++;
+				push( @{ $results->{failures} },
+					$where . ' has a marks assertion with the unknown key "' . $expect_key . '"' );
+				$failed     = 1;
+				$assert_bad = 1;
+			}
+		}
+		if ($assert_bad) {
+			next;
+		}
+		my $key   = _test_mark_store_key( $expect->{key} );
+		my $shown = ref( $expect->{key} ) eq 'ARRAY' ? join( '|', @{ $expect->{key} } ) : $expect->{key};
+		my $mark  = $store->{ $expect->{name} }{$key};
+		my $live  = defined($mark) && $mark->{expires} > $clock;
+		if ( $expect->{absent} ) {
+			if ($live) {
+				$results->{fail}++;
+				push( @{ $results->{failures} },
+					$where . ' expected no live mark ' . $expect->{name} . ' on "' . $shown . '" but one is' );
+				$failed = 1;
+			}
+			next;
+		}
+		if ( !$live ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} },
+				$where . ' expected a live mark ' . $expect->{name} . ' on "' . $shown . '" but found none' );
+			$failed = 1;
+			next;
+		}
+		if ( defined( $expect->{value} )
+			&& ( !defined( $mark->{value} ) || $mark->{value} ne $expect->{value} ) )
+		{
+			$results->{fail}++;
+			push(
+				@{ $results->{failures} },
+				$where
+					. ' expected mark '
+					. $expect->{name} . ' on "'
+					. $shown
+					. '" to hold value "'
+					. $expect->{value}
+					. '" but it holds '
+					. ( defined( $mark->{value} ) ? '"' . $mark->{value} . '"' : 'none' )
+			);
+			$failed = 1;
+		}
+	} ## end foreach my $expect ( @{$expected} )
+
+	return $failed;
+} ## end sub _test_marks_assert
 
 # the TLD atom, like the label atoms ahead of it, may not end on a hyphen
 my $dns_re = qr/(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?/;

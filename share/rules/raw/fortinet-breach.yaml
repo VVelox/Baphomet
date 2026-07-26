@@ -18,8 +18,10 @@
 # Detection-only... banning a source that just SUCCEEDED is a policy
 # call, so this sights rather than banishes. Flip detection_var to
 # ban_var to make it act. List it ahead of any rule that would consume
-# the same success line.
-rev: 1
+# the same success line. The embedded tests seed the brands
+# (marks_before) and so prove the gate both ways... a branded source
+# fires, the unbranded does not.
+rev: 2
 msg: "[FORTINET] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: correlated-attack
@@ -37,15 +39,25 @@ detection_var:
 max_score: 1
 tests:
   positive:
+    # any one of the standard brands satisfies the any-of gate
     - message: 'Jul 12 18:25:49 fw01 date=2026-07-12 time=18:25:49 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032001" type="event" subtype="system" level="information" vd="root" eventtime=1752362749000000000 tz="-0500" logdesc="Admin login successful" sn="0" user="admin" ui="https(203.0.113.45)" method="https" srcip=203.0.113.45 dstip=192.168.1.99 action="login" status="success" reason="none" profile="super_admin" msg="Administrator admin logged in successfully from https(203.0.113.45)"'
+      marks_before:
+        - name: brute_force
+          key: "203.0.113.45"
       found: 1
       data:
         SRC: "203.0.113.45"
     - message: 'Jul 12 18:27:19 fw01 date=2026-07-12 time=18:27:19 devname="FGT100F" devid="FG100FTK20012345" logid="0101039424" type="event" subtype="vpn" level="information" vd="root" eventtime=1752362839000000000 tz="-0500" logdesc="SSL VPN login succeeded" action="ssl-login" tunneltype="ssl-web" tunnelid=451929954 remip=198.51.100.23 user="jsmith" group="vpn-users" dst_host="N/A" reason="login successfully" msg="SSL user logged in successfully"'
+      marks_before:
+        - name: recon
+          key: "198.51.100.23"
       found: 1
       data:
         SRC: "198.51.100.23"
     - message: 'Jul 12 18:28:40 fw01 date=2026-07-12 time=18:28:40 devname="FGT100F" devid="FG100FTK20012345" logid="0100029002" type="event" subtype="ppp" level="information" vd="root" eventtime=1752362920000000000 tz="-0500" logdesc="PPP authentication succeeded" action="auth_success" user="lily" srcip=203.0.113.77 msg="User lily authenticated successfully"'
+      marks_before:
+        - name: honeypot
+          key: "203.0.113.77"
       found: 1
       data:
         SRC: "203.0.113.77"
@@ -56,3 +68,7 @@ tests:
     - message: 'Jul 12 18:32:44 fw01 date=2026-07-12 time=18:32:44 devname="FGT100F" devid="FG100FTK20012345" logid="0101039426" type="event" subtype="vpn" level="alert" vd="root" eventtime=1752363164000000000 tz="-0500" logdesc="SSL VPN login fail" action="ssl-login-fail" tunneltype="ssl-web" tunnelid=0 remip=198.51.100.23 user="jsmith" group="N/A" dst_host="N/A" reason="sslvpn_login_unknown_user" msg="SSL user failed to logged in"'
       found: 0
       undefed: ["SRC"]
+    # a success from a source holding no brand at all passes unremarked...
+    # the gate vetoes
+    - message: 'Jul 12 18:27:19 fw01 date=2026-07-12 time=18:27:19 devname="FGT100F" devid="FG100FTK20012345" logid="0101039424" type="event" subtype="vpn" level="information" vd="root" eventtime=1752362839000000000 tz="-0500" logdesc="SSL VPN login succeeded" action="ssl-login" tunneltype="ssl-web" tunnelid=451929954 remip=198.51.100.23 user="jsmith" group="vpn-users" dst_host="N/A" reason="login successfully" msg="SSL user logged in successfully"'
+      found: 0

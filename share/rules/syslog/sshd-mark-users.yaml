@@ -7,7 +7,7 @@
 # syslog/sshd-spray, which reads these marks. List sshd-spray BEFORE this
 # in the watcher so the gate sees the source that established the account,
 # not the one this line would re-brand it with.
-rev: 1
+rev: 2
 msg: "[SSHD] brand account with source"
 severity: info
 classtype: not-suspicious
@@ -29,16 +29,25 @@ mark:
     value_var: SRC
 tests:
   positive:
+    # and the brand lands keyed by the account, carrying the source
     - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 1
       data:
         USER: "moth3r"
         SRC: "216.137.179.214"
+      marks_expected:
+        - name: sshd-account-src
+          key: moth3r
+          value: "216.137.179.214"
     - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
       found: 1
       data:
         USER: "admin"
         SRC: "192.0.2.7"
+      marks_expected:
+        - name: sshd-account-src
+          key: admin
+          value: "192.0.2.7"
     - message: "Jul 12 08:15:50 vixen42 sshd-session[2279]: Failed password for root from 2001:db8::badc:0ffe port 62022 ssh2"
       found: 1
       data:

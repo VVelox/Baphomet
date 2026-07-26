@@ -6,8 +6,10 @@
 # into one by the any-of names gate. The login sibling is
 # syslog/vsftpd-breach.
 #
-# Detection-only... flip detection_var to ban_var to make it act.
-rev: 1
+# Detection-only... flip detection_var to ban_var to make it act. The
+# embedded tests seed the brand (marks_before) and so prove the gate
+# both ways... a branded source fires, the unbranded does not.
+rev: 2
 msg: "[VSFTPD] upload by a branded source... the condemned is moving in"
 severity: critical
 classtype: successful-user
@@ -23,6 +25,9 @@ max_score: 1
 tests:
   positive:
     - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK UPLOAD: Client "::ffff:192.0.2.60", "/srv/ftp/sh.php", 4823 bytes, 122.13Kbyte/sec'
+      marks_before:
+        - name: exploit_attempt
+          key: "192.0.2.60"
       found: 1
       data:
         SRC: "192.0.2.60"
@@ -30,3 +35,7 @@ tests:
     - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK DOWNLOAD: Client "::ffff:192.0.2.60", "/srv/ftp/readme.txt", 120 bytes, 12.1Kbyte/sec'
       found: 0
       undefed: ["SRC"]
+    # an upload from a source holding no brand at all passes unremarked...
+    # the gate vetoes
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK UPLOAD: Client "::ffff:192.0.2.60", "/srv/ftp/sh.php", 4823 bytes, 122.13Kbyte/sec'
+      found: 0

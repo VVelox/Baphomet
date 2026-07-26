@@ -7,13 +7,15 @@
 # Googlebot passes and the pretenders are banished on the first request.
 # The gate needs enable_rdns (on by default) and the optional Net::DNS
 # module... with out either it fails closed and this rule counts
-# nothing, loudly at start. Gates are galla state, so the embedded tests
-# prove only the user-agent match. The max_score of 1 makes one faked
-# request the verdict where the watcher sets allow_per_rule_thresholds.
-# A resolver outage holds this rule back rather than misaiming it... to
-# keep counting through outages (fail2ban's stance) set
-# on_servfail: compare on the gate entry, knowingly.
-rev: 2
+# nothing, loudly at start. The embedded tests carry dns fixtures and so
+# prove the gate's whole judgment... the pretender, the PTR-less, the
+# spoofed, the real crawler spared, and the outage holding back. The
+# max_score of 1 makes one faked request the verdict where the watcher
+# sets allow_per_rule_thresholds. A resolver outage holds this rule back
+# rather than misaiming it... to keep counting through outages
+# (fail2ban's stance) set on_servfail: compare on the gate entry,
+# knowingly.
+rev: 3
 msg: "[HTTP] fake Googlebot"
 severity: medium
 classtype: network-scan
@@ -29,10 +31,46 @@ reverse_dns:
 max_score: 1
 tests:
   positive:
+    # the pretender... a confirmed PTR that is nobody's crawler
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+      dns:
+        ptr:
+          "203.0.113.9": [ "residential-9.isp.example" ]
+        forward:
+          "residential-9.isp.example": [ "203.0.113.9" ]
       found: 1
       data:
         host: "203.0.113.9"
+    # no reverse DNS at all... most of the pretenders
+    - message: '203.0.113.10 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+      dns:
+        ptr:
+          "203.0.113.10": nxdomain
+      found: 1
+    # a spoofed PTR claiming googlebot.com that does not resolve back...
+    # as good as absent
+    - message: '203.0.113.11 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+      dns:
+        ptr:
+          "203.0.113.11": [ "crawl-66-249-66-1.googlebot.com" ]
+        forward:
+          "crawl-66-249-66-1.googlebot.com": [ "66.249.66.1" ]
+      found: 1
   negative:
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET / HTTP/1.1" 200 5124 "-" "Mozilla/5.0 (X11; FreeBSD amd64; rv:109.0) Gecko/20100101 Firefox/115.0"'
+      found: 0
+    # the real Googlebot... forward-confirmed into google's domain, the
+    # negated gate spares it
+    - message: '66.249.66.1 - - [12/Jul/2026:08:15:50 -0500] "GET /robots.txt HTTP/1.1" 200 512 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+      dns:
+        ptr:
+          "66.249.66.1": [ "crawl-66-249-66-1.googlebot.com" ]
+        forward:
+          "crawl-66-249-66-1.googlebot.com": [ "66.249.66.1" ]
+      found: 0
+    # a resolver outage holds the rule back rather than misaiming it
+    - message: '203.0.113.12 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"'
+      dns:
+        ptr:
+          "203.0.113.12": servfail
       found: 0

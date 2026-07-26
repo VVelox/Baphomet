@@ -34,6 +34,7 @@ lib/App/Baphomet/ClayTablet/Redis.pm
 lib/App/Baphomet/Config.pm
 lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
+lib/App/Baphomet/Marks.pm
 lib/App/Baphomet/Parser.pm
 lib/App/Baphomet/Parser/ApacheError.pm
 lib/App/Baphomet/Parser/BSDSyslog.pm
@@ -45,6 +46,7 @@ lib/App/Baphomet/Parser/JSONSyslog.pm
 lib/App/Baphomet/Parser/NginxError.pm
 lib/App/Baphomet/Parser/Raw.pm
 lib/App/Baphomet/Parser/Syslog.pm
+lib/App/Baphomet/RDNS.pm
 lib/App/Baphomet/Rules.pm
 lib/App/Baphomet/Rules/Base.pm
 lib/App/Baphomet/Rules/HTTP.pm
@@ -358,6 +360,8 @@ t/rules-json.t
 t/rules-multiline.t
 t/rules-raw.t
 t/rules-shipped.t
+t/rule-tests-marks.t
+t/rule-tests-rdns.t
 t/rules.t
 t/state-tablets.t
 t/stop-wait.t

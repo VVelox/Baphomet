@@ -7,8 +7,10 @@
 #
 # Detection-only... flip detection_var to ban_var to make it act. List
 # it beside syslog/courier-auth; they match disjoint lines, so order
-# between them does not matter.
-rev: 1
+# between them does not matter. The embedded tests seed the brands
+# (marks_before) and so prove the gate both ways... a branded source
+# fires, the unbranded does not.
+rev: 2
 msg: "[COURIER] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: successful-user
@@ -23,11 +25,18 @@ detection_var: [ SRC ]
 max_score: 1
 tests:
   positive:
+    # any one of the standard brands satisfies the any-of gate
     - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN, user=moth3r, ip=[::ffff:192.0.2.70], port=[41842], protocol=IMAP"
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.70"
       found: 1
       data:
         SRC: "192.0.2.70"
     - message: "Jul 12 08:25:49 vixen42 pop3d-ssl: LOGIN, user=moth3r, ip=[192.0.2.71], port=[41843]"
+      marks_before:
+        - name: honeypot
+          key: "192.0.2.71"
       found: 1
       data:
         SRC: "192.0.2.71"
@@ -38,3 +47,7 @@ tests:
     - message: "Jul 12 08:25:49 vixen42 dovecot: LOGIN, user=moth3r, ip=[::ffff:192.0.2.70]"
       found: 0
       undefed: ["SRC"]
+    # a login from a source holding no brand at all passes unremarked...
+    # the gate vetoes
+    - message: "Jul 12 08:25:49 vixen42 pop3d-ssl: LOGIN, user=moth3r, ip=[192.0.2.71], port=[41843]"
+      found: 0

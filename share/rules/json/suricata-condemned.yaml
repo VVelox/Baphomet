@@ -11,7 +11,9 @@
 # weight 10 into its own bucket, one alert a verdict. Weight and score
 # are honored only under allow_per_rule_thresholds... without that
 # consent it counts like any other hit, just under this rule's name.
-rev: 1
+# The embedded tests seed the brand (marks_before) and so prove the
+# gate both ways... a branded src fires, the unbranded does not.
+rev: 2
 msg: "[SURICATA] the condemned returns... alert from a branded brute forcer"
 severity: critical
 classtype: misc-attack
@@ -30,6 +32,9 @@ max_score: 10
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST condemned","category":"Attempted Information Leak","severity":2}}'
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.66"
       found: 1
       data:
         src_ip: "192.0.2.66"
@@ -39,3 +44,7 @@ tests:
     - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","event_type":"flow","src_ip":"192.0.2.67","dest_ip":"203.0.113.5","proto":"TCP"}'
       found: 0
       undefed: ["src_ip"]
+    # an alert from a src never branded... the gate vetoes and the alert
+    # falls through to the per-class rules
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST condemned","category":"Attempted Information Leak","severity":2}}'
+      found: 0

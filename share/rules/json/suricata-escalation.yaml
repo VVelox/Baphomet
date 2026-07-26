@@ -12,7 +12,10 @@
 # weight 10 into its own bucket, one alert a verdict. Weight and score
 # are honored only under allow_per_rule_thresholds... without that
 # consent it counts like any other hit, just under this rule's name.
-rev: 1
+# The embedded tests seed both brands in order (marks_before with set:
+# times) and so prove the sequence gate both ways... scanned-then-
+# exploited fires, unbranded and reversed do not.
+rev: 2
 msg: "[SURICATA] escalation... scanned then exploited, per the standard brands"
 severity: critical
 classtype: misc-attack
@@ -30,7 +33,15 @@ weight: 10
 max_score: 10
 tests:
   positive:
+    # recon first, exploit_attempt after... the ordered pair the gate wants
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2101219,"rev":1,"signature":"TEST escalation","category":"Web Application Attack","severity":1}}'
+      marks_before:
+        - name: recon
+          key: "192.0.2.66"
+          set: 1000000000
+        - name: exploit_attempt
+          key: "192.0.2.66"
+          set: 1000000100
       found: 1
       data:
         src_ip: "192.0.2.66"
@@ -40,3 +51,18 @@ tests:
     - message: '{"timestamp":"2026-07-12T08:15:51.123456+0000","event_type":"flow","src_ip":"192.0.2.67","dest_ip":"203.0.113.5","proto":"TCP"}'
       found: 0
       undefed: ["src_ip"]
+    # an alert from a src holding neither brand... the gate vetoes and the
+    # alert falls through to the per-class rules
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2101219,"rev":1,"signature":"TEST escalation","category":"Web Application Attack","severity":1}}'
+      found: 0
+    # exploited then scanned is not escalation... the sequence gate reads
+    # the order, not just the presence
+    - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":80,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2101219,"rev":1,"signature":"TEST escalation","category":"Web Application Attack","severity":1}}'
+      marks_before:
+        - name: recon
+          key: "192.0.2.66"
+          set: 1000000100
+        - name: exploit_attempt
+          key: "192.0.2.66"
+          set: 1000000000
+      found: 0

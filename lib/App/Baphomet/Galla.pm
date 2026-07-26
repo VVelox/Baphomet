@@ -17,6 +17,8 @@ use App::Baphomet::Config
 	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
+use App::Baphomet::Marks      ();
+use App::Baphomet::RDNS       ();
 use App::Baphomet::ClayTablet ();
 use App::Baphomet::LogDrek    qw( log_drek );
 
@@ -2637,133 +2639,43 @@ sub _country_gate_pass {
 # the reverse_dns gate... a var entry is data-driven and ran once per found
 # result (ip undef), a var-less one is offender-keyed and ran per candidate
 # (ip set). every entry checked must hold
+# the reverse_dns gate's judgment lives in App::Baphomet::RDNS, over an
+# injectable resolver, so run_tests can drive it from a rule file's dns
+# fixtures... the galla passes closures over its cached background
+# lookups, or no resolver at all when rdns is off, which fails closed
 sub _reverse_dns_gate_pass {
 	my ( $self, $gate, $data, $ip ) = @_;
 
-	if ( !defined($gate) ) {
-		return 1;
+	return App::Baphomet::RDNS::rdns_gate_pass( $self->_rdns_resolver, $gate, $data, $ip );
+}
+
+# the resolver pair the core judges over... undef with rdns off or no
+# transport, the core failing closed on that as the old inline check did.
+# not to be confused with rdns_resolver, the Net::DNS handle the query
+# engine rides... this is the judgment-side pair of cached-lookup closures
+sub _rdns_resolver {
+	my ($self) = @_;
+
+	if ( !$self->{enable_rdns} || !defined( $self->{dns_reverse} ) ) {
+		return undef;
 	}
+	if ( !defined( $self->{rdns_gate_resolver} ) ) {
+		$self->{rdns_gate_resolver} = {
+			'reverse' => sub { return $self->_rdns_names( $_[0] ); },
+			'forward' => sub { return $self->_rdns_forward( $_[0] ); },
+		};
+	}
+	return $self->{rdns_gate_resolver};
+} ## end sub _rdns_resolver
 
-	foreach my $entry ( @{$gate} ) {
-		if ( defined( $entry->{var} ) ) {
-			# a var entry belongs to the data pass... let the offender pass by
-			if ( defined($ip) ) {
-				next;
-			}
-			my $value = $data->{ $entry->{var} };
-			if ( !defined($value) || !$self->_rdns_entry_pass( $entry, $value, $data ) ) {
-				return 0;
-			}
-		} else {
-			# a var-less entry belongs to the offender pass... let the data
-			# pass by
-			if ( !defined($ip) ) {
-				next;
-			}
-			if ( !$self->_rdns_entry_pass( $entry, $ip, $data ) ) {
-				return 0;
-			}
-		} ## end else [ if ( defined( $entry->{var} ) ) ]
-	} ## end foreach my $entry ( @{$gate} )
-
-	return 1;
-} ## end sub _reverse_dns_gate_pass
-
-# runs one reverse_dns entry against one address... the PTR names, forward
-# confirmed unless refused, compared against the regexp or the named found
-# value, negated when asked. by default authoritative absence is data...
-# no names means the comparison is false and negate makes it count...
-# while inability to ask is not... a lookup failure vetoes regardless of
-# negate, so an outage can never get anyone counted by a negated gate.
-# the entry's on_nxdomain and on_servfail knobs override those defaults
-# per rule. always fails closed with out a resolver, on a non-address
-# value, and on a missing matches_var
+# one reverse_dns entry against one address, the core judging over the
+# galla's cached lookups... kept as a method so the engine tests can
+# drive the async machinery through the judgment
 sub _rdns_entry_pass {
 	my ( $self, $entry, $address, $data ) = @_;
 
-	if ( !$self->{enable_rdns} || !defined( $self->{dns_reverse} ) ) {
-		return 0;
-	}
-	if ( !defined( ip_family($address) ) ) {
-		return 0;
-	}
-
-	# the lookup outcome knobs... pass and fail are terminal verdicts the
-	# comparison and negate never touch, compare proceeds over whatever
-	# names there are
-	my $names = $self->_rdns_names($address);
-	if ( !defined($names) ) {
-		if ( $entry->{on_servfail} eq 'pass' ) {
-			return 1;
-		}
-		if ( $entry->{on_servfail} eq 'fail' ) {
-			return 0;
-		}
-		$names = [];
-	} elsif ( !@{$names} ) {
-		if ( $entry->{on_nxdomain} eq 'pass' ) {
-			return 1;
-		}
-		if ( $entry->{on_nxdomain} eq 'fail' ) {
-			return 0;
-		}
-	}
-
-	# forward confirmation... a name only participates when it resolves
-	# back to the address, a spoofed PTR being as good as absent
-	my @confirmed;
-	if ( !$entry->{forward_confirm} ) {
-		@confirmed = @{$names};
-	} else {
-		foreach my $ptr_name ( @{$names} ) {
-			my $addrs = $self->_rdns_forward($ptr_name);
-			if ( !defined($addrs) ) {
-				if ( $entry->{on_servfail} eq 'pass' ) {
-					return 1;
-				}
-				if ( $entry->{on_servfail} eq 'fail' ) {
-					return 0;
-				}
-				# compare... this name is simply unconfirmed
-				next;
-			} ## end if ( !defined($addrs) )
-			if ( grep { $self->_rdns_addr_eq( $_, $address ) } @{$addrs} ) {
-				push( @confirmed, $ptr_name );
-			}
-		} ## end foreach my $ptr_name ( @{$names} )
-	} ## end else [ if ( !$entry->{forward_confirm} ) ]
-
-	my $hit = 0;
-	if ( defined( $entry->{regexp} ) ) {
-		foreach my $ptr_name (@confirmed) {
-			if ( $ptr_name =~ $entry->{regexp} ) {
-				$hit = 1;
-				last;
-			}
-		}
-	} else {
-		my $expected = $data->{ $entry->{matches_var} };
-		if ( !defined($expected) || $expected eq '' ) {
-			return 0;
-		}
-		$expected = lc($expected);
-		$expected =~ s/\.+$//;
-		foreach my $ptr_name (@confirmed) {
-			my $folded = lc($ptr_name);
-			$folded =~ s/\.+$//;
-			if ( $folded eq $expected ) {
-				$hit = 1;
-				last;
-			}
-		}
-	} ## end else [ if ( defined( $entry->{regexp} ) ) ]
-
-	if ( $entry->{negate} ) {
-		$hit = $hit ? 0 : 1;
-	}
-
-	return $hit;
-} ## end sub _rdns_entry_pass
+	return App::Baphomet::RDNS::rdns_entry_pass( $self->_rdns_resolver, $entry, $address, $data );
+}
 
 # the cached tri-state lookups behind the reverse_dns gate... a array ref
 # (possibly empty, authoritative absence) or undef (failure), both
@@ -2887,15 +2799,7 @@ sub _rdns_forward {
 sub _rdns_addr_eq {
 	my ( $self, $left, $right ) = @_;
 
-	foreach my $family ( AF_INET, AF_INET6 ) {
-		my $left_packed  = inet_pton( $family, $left );
-		my $right_packed = inet_pton( $family, $right );
-		if ( defined($left_packed) && defined($right_packed) ) {
-			return $left_packed eq $right_packed ? 1 : 0;
-		}
-	}
-
-	return 0;
+	return App::Baphomet::RDNS::rdns_addr_eq( $left, $right );
 } ## end sub _rdns_addr_eq
 
 # loads one namtar list slot into the galla's cache, keyed by (type, nocase,
@@ -3185,215 +3089,55 @@ sub _active_time_pass {
 	return 1;
 } ## end sub _active_time_pass
 
-# resolves a mark entry's key against a line... vars joins each named
-# capture's value on the unit separator into one compound key, var takes
-# that capture alone, and neither takes the passed offender IP. any piece
-# missing means no key at all, a undef... never a partial join
-sub _mark_key {
-	my ( $self, $entry, $data, $ip ) = @_;
+# the mark machinery's pure core lives in App::Baphomet::Marks, over an
+# explicit store, so run_tests can drive it against a throwaway store and
+# a virtual clock... the galla passes its live store and layers on what is
+# not the store: the fleet gossip, the tablet, and the ignore pre-filter
 
-	if ( defined( $entry->{vars} ) ) {
-		my @parts;
-		foreach my $var ( @{ $entry->{vars} } ) {
-			if ( !defined( $data->{$var} ) ) {
-				return undef;
-			}
-			push( @parts, $data->{$var} );
-		}
-		return join( "\x1f", @parts );
-	} ## end if ( defined( $entry->{vars} ) )
-
-	if ( defined( $entry->{var} ) ) {
-		return $data->{ $entry->{var} };
-	}
-
-	return $ip;
-} ## end sub _mark_key
-
-# evaluates a rule's marked/not_marked gates in one of two modes... with a
-# undef ip the data-keyed entries (a var or vars), ran once per found
-# result, with a ip the var-less entries, offender-keyed and ran once per
-# candidate. returns true when every applicable gate holds. a marked gate
-# with nothing to look up fails, a not_marked one passes, and a value
-# compare with either side missing counts as holding... conservative on
-# every count
 sub _mark_gates_pass {
 	my ( $self, $gates, $data, $ip, $now ) = @_;
 
-	foreach my $entry ( @{ $gates->{marked} } ) {
-		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
-		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
-			next;
-		}
-		my $key = $self->_mark_key( $entry, $data, $ip );
-		if ( !defined($key) ) {
-			return 0;
-		}
-		# a names entry holds on any of its listed brands, a name entry on
-		# its one... whichever brand is live must also pass the value
-		# compares, so a any-of never rides a value it did not prove
-		my @names = defined( $entry->{names} ) ? @{ $entry->{names} } : ( $entry->{name} );
-		my $held;
-	NAME: foreach my $mark_name (@names) {
-			my $mark = $self->{marks}{$mark_name}{$key};
-			if ( !defined($mark) || $mark->{expires} <= $now ) {
-				next NAME;
-			}
-			foreach my $compare ( 'value_is', 'value_not' ) {
-				if ( !defined( $entry->{$compare} ) ) {
-					next;
-				}
-				my $against = $data->{ $entry->{$compare} };
-				if ( !defined( $mark->{value} ) || !defined($against) ) {
-					next NAME;
-				}
-				if ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) {
-					next NAME;
-				}
-			} ## end foreach my $compare ( 'value_is', 'value_not' )
-			$held = 1;
-			last NAME;
-		} ## end NAME: foreach my $mark_name (@names)
-		if ( !$held ) {
-			return 0;
-		}
-	} ## end foreach my $entry ( @{ $gates->{marked} } )
+	return App::Baphomet::Marks::mark_gates_pass( $self->{marks}, $gates, $data, $ip, $now );
+}
 
-	foreach my $entry ( @{ $gates->{not_marked} } ) {
-		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
-		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
-			next;
-		}
-		my $key = $self->_mark_key( $entry, $data, $ip );
-		if ( !defined($key) ) {
-			next;
-		}
-		my $mark = $self->{marks}{ $entry->{name} }{$key};
-		if ( !defined($mark) || $mark->{expires} <= $now ) {
-			next;
-		}
-		# a live brand vetoes, unless a value compare provably fails to
-		# hold... "not marked with this value" spares a brand whose stored
-		# value differs (value_is) or agrees (value_not), while a compare
-		# with either side missing still vetoes
-		my $vetoes = 1;
-		foreach my $compare ( 'value_is', 'value_not' ) {
-			if ( !defined( $entry->{$compare} ) ) {
-				next;
-			}
-			my $against = $data->{ $entry->{$compare} };
-			if (   defined( $mark->{value} )
-				&& defined($against)
-				&& ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) )
-			{
-				$vetoes = 0;
-			}
-		} ## end foreach my $compare ( 'value_is', 'value_not' )
-		if ($vetoes) {
-			return 0;
-		}
-	} ## end foreach my $entry ( @{ $gates->{not_marked} } )
-
-	# the sequence gate... ordered temporal correlation. every named mark must
-	# be live for the key and their first-seen times non-decreasing in the
-	# listed order, so "stage a then b then c" only holds when a fired no later
-	# than b and b no later than c. keyed like the marked gate, by a var's
-	# capture, a vars compound, or, var-less, by the offender
-	foreach my $entry ( @{ $gates->{sequence} } ) {
-		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
-		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
-			next;
-		}
-		my $key = $self->_mark_key( $entry, $data, $ip );
-		if ( !defined($key) ) {
-			return 0;
-		}
-		my $prev_set;
-		foreach my $mark_name ( @{ $entry->{marks} } ) {
-			my $mark = $self->{marks}{$mark_name}{$key};
-			if ( !defined($mark) || $mark->{expires} <= $now ) {
-				return 0;
-			}
-			my $set = $mark->{set};
-			# order only enforced between marks that both carry a set time... a
-			# mark from before set times existed simply is not ordered against
-			if ( defined($set) && defined($prev_set) && $set < $prev_set ) {
-				return 0;
-			}
-			if ( defined($set) ) {
-				$prev_set = $set;
-			}
-		} ## end foreach my $mark_name ( @{ $entry->{marks} } )
-	} ## end foreach my $entry ( @{ $gates->{sequence} } )
-
-	return 1;
-} ## end sub _mark_gates_pass
-
-# bounds a store of expiring entries at the shared 10000 cap ahead of
-# inserting a new key... expired entries are pruned first, then the soonest
-# to expire is evicted, found by a linear min-scan rather than a sort, as
-# this can run per line under a deliberate key flood. the twin of the
-# rules-side store bound in App::Baphomet::Rules::Base
+# the shared expiring-store bound... also used by the DNS, rDNS, and geo
+# caches, being nothing mark-specific
 sub _bound_expiring_store {
 	my ( $self, $store, $key_value, $now ) = @_;
 
-	if ( defined( $store->{$key_value} ) || scalar( keys( %{$store} ) ) < 10000 ) {
-		return;
-	}
-
-	foreach my $key ( keys( %{$store} ) ) {
-		if ( $store->{$key}{expires} <= $now ) {
-			delete( $store->{$key} );
-		}
-	}
-	if ( scalar( keys( %{$store} ) ) >= 10000 ) {
-		my $soonest;
-		foreach my $key ( keys( %{$store} ) ) {
-			if ( !defined($soonest) || $store->{$key}{expires} < $store->{$soonest}{expires} ) {
-				$soonest = $key;
-			}
-		}
-		delete( $store->{$soonest} );
-	}
+	App::Baphomet::Marks::bound_expiring_store( $store, $key_value, $now );
 
 	return;
-} ## end sub _bound_expiring_store
+}
 
-# brands a key into a mark name's store... setting refreshes the expiry,
-# and a full store first drops the expired, then the soonest-expiring,
-# same bounds as the rules' correlation stores
+# brands a key into a mark name's store via the core, gossiping the brand
+# to the fleet when a bus is up... best-effort and after the local set, so
+# a failed publish never unmakes the brand that just happened
 sub _mark_set {
 	my ( $self, $name, $key, $value, $ttl, $now ) = @_;
 
-	my $store = $self->{marks}{$name};
-	if ( !defined($store) ) {
-		$store = $self->{marks}{$name} = {};
-	}
-
-	$self->_bound_expiring_store( $store, $key, $now );
-
-	# the set time is first-seen... a re-brand refreshes the expiry but keeps
-	# when the mark first appeared, so the sequence gate orders by when each
-	# stage first fired rather than when it was last touched
-	my $set
-		= ( defined( $store->{$key} ) && defined( $store->{$key}{set} ) && $store->{$key}{expires} > $now )
-		? $store->{$key}{set}
-		: $now;
-	$store->{$key} = { 'expires' => $now + $ttl, 'set' => $set, defined($value) ? ( 'value' => $value ) : () };
-
-	# gossip the brand to the fleet, best-effort, after the local set... a
-	# failed publish never unmakes the brand that just happened
-	if ( $self->{mark_sync} ) {
-		$self->{tablet}->mark_publish( 'set', $name, $key, $value, $now + $ttl, $set );
-	}
+	App::Baphomet::Marks::mark_set( $self->{marks}, $name, $key, $value, $ttl, $now, $self->_mark_publish_set );
 
 	return;
-} ## end sub _mark_set
+}
 
-# applies a rule's mark and unmark entries for one found result... var
-# entries key by that capture, vars ones by the joined captures, var-less
-# ones by each passed offender IP, with the ignored never branded. returns
-# the set and lifted lists for the EVE event
+# the on_set callback the core calls per landed brand... undef with no bus
+sub _mark_publish_set {
+	my ($self) = @_;
+
+	if ( !$self->{mark_sync} ) {
+		return undef;
+	}
+	return sub {
+		my ( $name, $key, $value, $expires, $set ) = @_;
+		$self->{tablet}->mark_publish( 'set', $name, $key, $value, $expires, $set );
+		return;
+	};
+} ## end sub _mark_publish_set
+
+# applies a rule's mark and unmark entries for one found result via the
+# core, with the ignored never branded and each set or lift gossiped to
+# the fleet. returns the set and lifted lists for the EVE event
 sub _apply_marks {
 	my ( $self, $rule_obj, $data, $offenders, $now ) = @_;
 
@@ -3408,46 +3152,17 @@ sub _apply_marks {
 
 	my @brandable = grep { !ip_ignored( $self->{ignore_ips}, $_ ) } @{$offenders};
 
-	my @set;
-	foreach my $entry ( @{$marks} ) {
-		my $value = defined( $entry->{value_var} ) ? $data->{ $entry->{value_var} } : undef;
-		my @keys;
-		if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
-			my $key = $self->_mark_key( $entry, $data, undef );
-			@keys = defined($key) ? ($key) : ();
-		} else {
-			@keys = @brandable;
-		}
-		foreach my $key (@keys) {
-			$self->_mark_set( $entry->{name}, $key, $value, $entry->{ttl}, $now );
-			push( @set, { 'name' => $entry->{name}, 'key' => $key } );
-		}
-	} ## end foreach my $entry ( @{ $rule_obj->marks } )
+	my $on_unset;
+	if ( $self->{mark_sync} ) {
+		$on_unset = sub {
+			my ( $name, $key ) = @_;
+			$self->{tablet}->mark_publish( 'unset', $name, $key, undef, undef );
+			return;
+		};
+	}
 
-	my @lifted;
-	foreach my $entry ( @{$unmarks} ) {
-		my @keys;
-		if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
-			my $key = $self->_mark_key( $entry, $data, undef );
-			@keys = defined($key) ? ($key) : ();
-		} else {
-			@keys = @brandable;
-		}
-		foreach my $key (@keys) {
-			if ( defined( $self->{marks}{ $entry->{name} } ) && defined( $self->{marks}{ $entry->{name} }{$key} ) ) {
-				delete( $self->{marks}{ $entry->{name} }{$key} );
-				if ( !%{ $self->{marks}{ $entry->{name} } } ) {
-					delete( $self->{marks}{ $entry->{name} } );
-				}
-				push( @lifted, { 'name' => $entry->{name}, 'key' => $key } );
-				if ( $self->{mark_sync} ) {
-					$self->{tablet}->mark_publish( 'unset', $entry->{name}, $key, undef, undef );
-				}
-			} ## end if ( defined( $self->{marks}{ $entry->{name...}}))
-		} ## end foreach my $key (@keys)
-	} ## end foreach my $entry ( @{ $rule_obj->unmarks } )
-
-	return ( \@set, \@lifted );
+	return App::Baphomet::Marks::apply_marks( $self->{marks}, $marks, $unmarks, $data, \@brandable, $now,
+		$self->_mark_publish_set, $on_unset );
 } ## end sub _apply_marks
 
 # drains the fleet mark bus and folds the new deltas into the live marks,

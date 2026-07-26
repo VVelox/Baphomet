@@ -27,11 +27,18 @@ detection_var: [ SRC ]
 max_score: 1
 tests:
   positive:
+    # any one of the standard brands satisfies the any-of gate
     - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 192.0.2.44 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.44"
       found: 1
       data:
         SRC: "192.0.2.44"
     - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+      marks_before:
+        - name: honeypot
+          key: "192.0.2.7"
       found: 1
       data:
         SRC: "192.0.2.7"
@@ -42,3 +49,15 @@ tests:
     - message: "Jul 12 08:25:49 vixen42 cron[1234]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
       found: 0
       undefed: ["SRC"]
+    # a success from a source holding no brand at all passes unremarked
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.9 port 4711 ssh2"
+      found: 0
+    # and a brand outlived is a brand gone
+    - marks_before:
+        - name: brute_force
+          key: "192.0.2.9"
+          ttl: 21600
+      messages:
+        - message: "Jul 12 14:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.9 port 4711 ssh2"
+          advance: 21601
+      found: 0

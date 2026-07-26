@@ -336,6 +336,19 @@ still [`ban_var`](#ban_var) / [`ban_not_internal`](#ban_not_internal).
 
 ## Tests
 
+Every rule carries its own tests and they run at every load... a rule that
+fails its own refuses to load, so `baphomet start` and `check_rules` are
+the proof, not a hope. This section is both the reference and the writing
+guide: [the shape](#the-shape) of a test entry, then how to write them for
+[plain matchers](#writing-them-the-matcher-and-its-near-misses), for
+[marks and gated rules](#proving-brands-and-gates), for
+[order and time](#proving-order-and-time), and for
+[lookup-gated rules](#proving-lookups). The working loop lives under
+[writing one](#writing-one)... `test_line` to poke a draft,
+`check_rules` to run the tests.
+
+### The shape
+
 Positive tests are lines the rule must match, negative tests are lines it
 must not. Each is a hash...
 
@@ -346,6 +359,9 @@ must not. Each is a hash...
 | `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and 0 for negative. |
 | `data` | For positive tests, capture names to the values they should have captured. |
 | `undefed` | For negative tests, capture names that should not be defined. |
+| `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base. |
+| `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`... what proves a rule's own `mark`/`unmark` did what it claims. |
+| `dns` | A fixture resolver for the [reverse_dns](#reverse_dns-the-client-is-who-its-address-says) gate... `ptr` maps an address to its names, `forward` a name to its addresses, either answer a list, `nxdomain` (authoritative absence), or `servfail` (a failure). Anything unfixtured answers servfail, fail-closed as an unanswerable question is live. With the fixture present the gate runs exactly as in the galla, offender pass and all; without it the gate is skipped, as it always was. |
 
 A test may use `messages`, an array of lines fed through in order, instead of
 a single `message`, with `found` the expected count across the sequence...
@@ -353,9 +369,191 @@ this is how [correlation](#syslog-rules) rules, whose offense and address
 span lines, are tested. The whole `test_parser` key sets a rule-wide default
 parser for its tests.
 
-Marks and the geography/blocklist/time gates are galla state or need outside
-data, so a rule's embedded tests prove only its matching layer, not those
-gates (see each gate below).
+Each test entry runs the galla's own order per line... parse, match, the
+data-keyed mark gates against the throwaway store, then the rule's own
+brands applied... so `found` counts what would really have fired, a gate
+veto and all. Time inside a test is a virtual clock, base `1000000000`,
+threading through matching (correlation windows, staged `within`) and the
+mark store alike. A `messages` entry may be a hash instead of a bare line
+to steer and probe it mid-run:
+
+| key | what |
+| --- | --- |
+| `message` | The line itself. Required in the hash form. |
+| `advance` / `at` | Move the clock forward by seconds, or pin it absolutely, before the line runs... ttl expiry and sequence ordering become provable. |
+| `found_after` | The cumulative `found` count expected once this line has run. |
+| `marks_after` | A `marks_expected`-shaped assertion ran at this point rather than the end. |
+
+An unknown key anywhere in a test entry is itself a failure, so a typo'd
+assertion can not silently become one that never runs. Two bounds: var-less
+mark gates run per offender in the galla's ban path and are not evaluated
+here (key a gate by `var`/`vars` to make it provable... the shipped readers
+all do), and the geography/blocklist/time gates need config-side data a
+rule file does not carry, so those stay proven galla-side only (see each
+gate below).
+
+### Writing them... the matcher and its near-misses
+
+Start every test from a real line... your own logs, the daemon's
+documentation, or the corpus the rule was ported from, with a full
+collector-shaped line including whatever syslog header the parser expects.
+A line you invented to fit the regexp proves the regexp agrees with
+itself, nothing more.
+
+The discipline that makes a test suite worth carrying:
+
+- **One positive per regexp, at least.** A rule with five `message_regexp`
+  entries and one positive test has four regexps nothing proves. The
+  shipped `syslog/sshd` carries a positive per pattern for exactly this
+  reason.
+- **Assert the captures, not just the match.** A positive without a
+  `data:` block proves the line matched *somewhere*... `data: { SRC: ... }`
+  proves the offender came out right, which is what the ban aims with. A
+  regexp edit that still matches but grabs the wrong field is invisible to
+  `found` and loud under `data`.
+- **The best negatives are near-misses.** A blank line proves little.
+  Lines that look temptingly close and must not match are what fence a
+  regexp in: the *successful* login beside the failures, the same message
+  from the wrong daemon, the `FAIL LOGIN` beside the `OK LOGIN`. Give
+  negatives `undefed: ["SRC"]` so a half-match cannot leak a capture.
+- **Prefer the strict parser.** `test_parser` (or a per-test `parser`)
+  pinned to the strictest parser that fits keeps a test line honest about
+  its header shape rather than sliding through a permissive fallback.
+
+```yaml
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+  negative:
+    # the success right beside the failures... the classic near-miss
+    - message: "Jul 12 08:25:49 vixen42 sshd[36748]: Accepted publickey for kitsune from 192.0.2.7 port 21680 ssh2"
+      found: 0
+      undefed: ["SRC"]
+    # right message, wrong daemon
+    - message: "Jul 12 08:25:49 vixen42 cron[1234]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 0
+      undefed: ["SRC"]
+```
+
+### Proving brands and gates
+
+A rule that sets marks proves them with `marks_expected`... the brand, the
+key it landed on, and any harvested value. This is what catches a regexp
+edit that shifts which capture feeds the brand:
+
+```yaml
+# syslog/sshd-mark-users... brand the account with the source that hit it
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 1
+      marks_expected:
+        - name: sshd-account-src
+          key: moth3r
+          value: "216.137.179.214"
+```
+
+A rule that *reads* marks needs its gate armed, and no sequence of its own
+messages can do that... the brands come from other rules. `marks_before`
+seeds them, and the discipline is to prove the gate **both ways**: the
+seeded positive fires, and the same matching line unseeded is a negative.
+Without that negative, a typo'd brand name in the gate passes every test
+and silently never fires in the field... the exact failure this machinery
+exists to end.
+
+```yaml
+# a reader... success from a source holding any standard brand
+marked:
+  - names: [ brute_force, recon, exploit_attempt, honeypot ]
+    var: SRC
+tests:
+  positive:
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+      marks_before:
+        - name: honeypot          # any listed brand... vary it across tests
+          key: "192.0.2.7"
+      found: 1
+  negative:
+    # the same line, no seed... the gate must veto
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+      found: 0
+```
+
+Value compares prove both ways too, by seeding the stored value: the
+shipped `syslog/sshd-spray` (gate `value_not: SRC`) seeds the account's
+brand with a *different* source for its positive, and with the *same*
+source for a negative... the second attacker fires, the established
+source is spared. Note that a gate-vetoed line is not a match at all...
+its result is dropped whole, so a gated negative asserts `found: 0`
+without `undefed` (the captures existed, the gate discarded them). A
+`mark_only` rule still counts its firings toward `found`... what it never
+does is count toward a ban, and `marks_expected` is what proves its
+branding.
+
+### Proving order and time
+
+The `messages` form feeds lines in order through one throwaway scope, and
+the hash entry form steers the clock and asserts mid-run... which is what
+correlation windows, staged `within` bounds, mark ttls, and `sequence`
+ordering all need, none of them being provable against a wall clock.
+
+```yaml
+# a brand outlives its ttl... the clock advanced past it, the gate vetoes
+tests:
+  negative:
+    - marks_before:
+        - name: brute_force
+          key: "192.0.2.9"
+          ttl: 21600
+      messages:
+        - message: "Jul 12 14:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.9 port 4711 ssh2"
+          advance: 21601
+      found: 0
+```
+
+A `sequence` gate orders by the brands' first-seen `set` times, so its
+tests seed them explicitly... the shipped `json/suricata-escalation`
+proves scanned-then-exploited fires and, with the same two seeds and the
+`set:` times swapped, that exploited-then-scanned does not. `found_after`
+and `marks_after` assert between lines... a staged rule proving its third
+line is the one that fires says `found_after: 0` on the first two and
+`found_after: 1` on the last, rather than only a final count.
+
+### Proving lookups
+
+A `reverse_dns`-gated rule carries `dns` fixtures... maps standing in for
+the resolver, so the judgment runs cold exactly as it would live. The
+shipped `http/fakegooglebot` is the worked example, one test per behavior
+the gate exists for:
+
+```yaml
+tests:
+  positive:
+    # a spoofed PTR claiming googlebot.com that does not resolve back
+    - message: '203.0.113.11 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1)"'
+      dns:
+        ptr:
+          "203.0.113.11": [ "crawl-66-249-66-1.googlebot.com" ]
+        forward:
+          "crawl-66-249-66-1.googlebot.com": [ "66.249.66.1" ]
+      found: 1
+  negative:
+    # a resolver outage holds the rule back rather than misaiming it
+    - message: '203.0.113.12 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "Mozilla/5.0 (compatible; Googlebot/2.1)"'
+      dns:
+        ptr:
+          "203.0.113.12": servfail
+      found: 0
+```
+
+Cover the judgment's whole ladder the way that rule does: the confirmed
+hit, the authoritative absence (`nxdomain`), the spoof that fails forward
+confirmation, the legitimate name spared, and the outage. Anything
+unfixtured answers servfail, so a fixture only needs the names the test
+actually walks.
 
 ## Refining a match... the gates
 
@@ -525,12 +723,14 @@ This is Sagan's `track ip_username`, with the `not_marked` its `isnotset`.
 The joined key shows up in `baphomet marked` and on tablets as the captures
 joined on the unit separator, `\u001f` in the JSON.
 
-Marks are galla state, so a rule's own embedded tests can not exercise
-them... they prove only that the rule matches and captures. The live marks
-are visible with `baphomet marked`, and survive a restart via a marks tablet,
-unlike correlation context. Scope is the galla, so marks cross watchers and
-rules but not kurs. Each mark name is capped, and the ignored are never
-branded.
+A rule's own embedded tests exercise the mark machinery against a
+throwaway store... `marks_before` seeds the brands other rules would have
+set, `marks_expected` asserts what this one branded, and the virtual clock
+proves ttls and sequence ordering (see [tests](#tests)). Live marks are
+galla state... visible with `baphomet marked`, surviving a restart via a
+marks tablet, unlike correlation context. Scope is the galla, so marks
+cross watchers and rules but not kurs. Each mark name is capped, and the
+ignored are never branded.
 
 #### The standard brands
 
@@ -752,8 +952,11 @@ non-address value, a missing `matches_var`.
 
 Lookups happen per match, not per line, bounded by `rdns_timeout` and
 cached... still, keep the gate behind a cheap matcher, never on a rule
-that matches everything. Like the other galla-state gates, a rule's
-embedded tests can not exercise it... they prove the matching layer only.
+that matches everything. Unlike the config-side gates, a rule's embedded
+tests exercise this one whole... a `dns` fixture in the test stands in
+for the resolver, PTRs, forwards, absences, and outages alike (see
+[tests](#tests)), which is how `http/fakegooglebot` proves its judgment
+from its own file.
 
 ## How the types differ
 
@@ -1195,6 +1398,14 @@ baphomet check_rules
 `test_line` loads the rule with its tests skipped, so a rule you are midway
 through writing can still be poked at.
 
+The loop is: find a real offending line, poke it at the draft with
+`test_line` until the match and captures come out right, then move that
+very line into the rule's `tests:` with its `data:` assertions and let
+`check_rules` carry it forever. Repeat per regexp, then add the
+near-misses. The [tests](#tests) section is the full writing guide...
+the matcher discipline, and the seeds, fixtures, and clock that prove
+marks, gates, sequences, and lookups from the rule's own file.
+
 Things worth knowing...
 
 - Anchor with `^` where you can... it keeps a regexp from matching inside
@@ -1203,8 +1414,5 @@ Things worth knowing...
 - The fail2ban filters (`config/filter.d/` in its source) are a rich vein of
   patterns to translate. Drop their `<HOST>` style tags in favor of the
   tokens above and their `%(...)s` includes in favor of spelling things out.
-- Every regexp should have at least one positive test, and lines that look
-  temptingly close but must not match (successful logins above all) make the
-  best negative tests.
 - Rules load once at start. After editing one, restart baphomet or verify
   first with `check_rules`.

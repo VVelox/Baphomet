@@ -39,14 +39,27 @@ max_score: 10
 tests:
   positive:
     - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      marks_before:
+        - name: brute_force
+          key: "216.137.179.214"
       found: 1
       data:
         SRC: "216.137.179.214"
+      # and the seizure re-brands, so the branding never lapses by being read
+      marks_expected:
+        - name: brute_force
+          key: "216.137.179.214"
     - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.7"
       found: 1
       data:
         SRC: "192.0.2.7"
     - message: "Jul 12 08:15:50 vixen42 sshd[7113]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=192.0.2.33  user=root"
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.33"
       found: 1
       data:
         SRC: "192.0.2.33"
@@ -57,3 +70,7 @@ tests:
     - message: "Jul 12 08:25:49 vixen42 cron[1234]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 0
       undefed: ["SRC"]
+    # a matching failure from a source never branded... the gate vetoes and
+    # the line falls through to syslog/sshd
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 0

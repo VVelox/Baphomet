@@ -10,9 +10,10 @@
 #
 # Requires syslog/sshd-mark-users to run in the same watcher, listed AFTER
 # this rule so the gate reads the established source rather than this
-# line's. The embedded tests only prove the matching layer... the mark
-# gate is galla state and is exercised by t/marks.t.
-rev: 2
+# line's. The embedded tests seed that rule's brand (marks_before) and so
+# prove the gate both ways... a second source fires, the established one
+# and the unbranded do not.
+rev: 3
 msg: "[SSHD] distributed brute force across sources"
 severity: high
 classtype: brute-force
@@ -37,11 +38,19 @@ max_score: 1
 tests:
   positive:
     - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      marks_before:
+        - name: sshd-account-src
+          key: moth3r
+          value: "203.0.113.9"
       found: 1
       data:
         USER: "moth3r"
         SRC: "216.137.179.214"
     - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      marks_before:
+        - name: sshd-account-src
+          key: admin
+          value: "203.0.113.9"
       found: 1
       data:
         USER: "admin"
@@ -50,3 +59,13 @@ tests:
     - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
       found: 0
       undefed: ["SRC", "USER"]
+    # a matching failure with no brand on the account... the gate vetoes
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      found: 0
+    # and the established source on its own account is not a spray
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 203.0.113.9 port 4711 ssh2"
+      marks_before:
+        - name: sshd-account-src
+          key: admin
+          value: "203.0.113.9"
+      found: 0

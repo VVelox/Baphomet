@@ -14,8 +14,10 @@
 # line falls through to the plain rule untouched. NetScaler emits
 # syslog natively but stuffs the date where the program name goes,
 # so this is a raw rule anchored on the AAA module tokens, never on
-# line start.
-rev: 1
+# line start. The embedded tests seed the brand (marks_before) and so
+# prove the gate both ways... a branded source fires, the unbranded
+# does not.
+rev: 2
 msg: "[CITRIX] AAA login failure from a branded source"
 severity: high
 classtype: correlated-attack
@@ -31,7 +33,12 @@ detection_var:
 max_score: 1
 tests:
   positive:
+    # any of recon, exploit_attempt, honeypot satisfies the gate...
+    # brute_force is not on it, so it is not seeded here
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      marks_before:
+        - name: recon
+          key: "198.51.100.9"
       found: 1
       data:
         USER: "serviceacct"
@@ -43,3 +50,7 @@ tests:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"
       found: 0
       undefed: ["SRC"]
+    # a matching failure from a source never branded... the gate vetoes
+    # and the line falls through to citrix-auth-bruteforce
+    - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
+      found: 0
