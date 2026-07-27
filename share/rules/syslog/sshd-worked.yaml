@@ -12,13 +12,15 @@
 # makes one completed sequence the alert where the watcher sets
 # allow_per_rule_thresholds... with out that consent the watcher's own
 # threshold applies, in completed sequences.
-rev: 1
+rev: 2
 msg: "[SSHD] brute force succeeded... possible credential compromise"
 severity: critical
 classtype: successful-user
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 stages:
   - message_regexp:
       - '^Failed (?:password|keyboard-interactive\S*) for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
@@ -43,6 +45,9 @@ tests:
       data:
         SRC: "192.0.2.7"
         USER: "root"
+        # the sshd munger enriches from the completing (Accepted) line
+        ssh_method: "password"
+        ssh_src_ip: "192.0.2.7"
     # a spray... failures across accounts, the success on one, still one
     # source. the reported USER is the account that worked
     - messages:
@@ -56,6 +61,9 @@ tests:
       data:
         SRC: "192.0.2.8"
         USER: "backup"
+        # enriched from the completing publickey Accepted line
+        ssh_method: "publickey"
+        ssh_src_ip: "192.0.2.8"
   negative:
     # an ssh agent walking its keyring is not a brute force
     - messages:

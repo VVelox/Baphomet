@@ -1048,13 +1048,17 @@ choosing a looser (or different) read than the munger's for that one field,
 on purpose. Everything the munger decoded that the rule did not recapture
 rides along untouched.
 
-Mungers are supported on `syslog` and `raw` rules, and not beside `stages`
-(the staged matcher is its own thing). Like the `country` gate's GeoIP, the
-dependency is optional but **not** fail-soft: a rule that asks for
-enrichment it can not get is a misconfiguration, so a missing Log::Munger or
-a munger file that will not resolve is fatal... caught and named at galla
-load (an `err` to the log), never silently skipped and never a surprise
-mid-line. A malformed `mungers` key is refused when the rule loads.
+Mungers are supported on `syslog` and `raw` rules, including
+[staged](#stages-ordered-sequences-with-in-one-rule) ones... a staged rule enriches the *completed
+sequence* from its final, sequence-completing line (the same line whose
+`raw` the event carries), so a `sshd-worked` alarm arrives with the
+`Accepted` line's decoded fields beside the sequence's own captures. Like
+the `country` gate's GeoIP, the dependency is optional but **not**
+fail-soft: a rule that asks for enrichment it can not get is a
+misconfiguration, so a missing Log::Munger or a munger file that will not
+resolve is fatal... caught and named at galla load (an `err` to the log),
+never silently skipped and never a surprise mid-line. A malformed `mungers`
+key is refused when the rule loads.
 
 ## How the types differ
 

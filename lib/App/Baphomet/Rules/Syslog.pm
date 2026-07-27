@@ -333,9 +333,6 @@ sub new {
 					. '" has stages beside message_regexp, capture_regexp, or message_json... stages are the whole matcher'
 			);
 		}
-		if ( @{ $self->{mungers} } ) {
-			die( 'The rule "' . $name . '" has mungers beside stages... enrichment is not wired through the staged matcher' );
-		}
 		$self->_compile_ignore_regexps($def);
 		$self->_compile_stages($def);
 		$self->_compile_boolean( $def, $name );
@@ -416,13 +413,15 @@ sub check {
 		};
 	}
 
+	# mungers run first, their decoded fields laid down under the offense so
+	# the rule's own captures overwrite them on a name clash. a staged rule
+	# enriches the completed sequence from its final (completing) line
+	my $munge = $self->_munge_enrich($parsed);
+
 	if ( defined( $self->{stages} ) ) {
-		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, $envelope );
+		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, $envelope, $munge );
 	}
 
-	# mungers run first, their decoded fields laid down under $extra so the
-	# rule's own message_regexp captures overwrite them on a name clash
-	my $munge = $self->_munge_enrich($parsed);
 	if ( defined($munge) && %{$munge} ) {
 		$extra = defined($extra) ? { %{$munge}, %{$extra} } : { %{$munge} };
 	}

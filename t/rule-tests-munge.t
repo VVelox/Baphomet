@@ -148,21 +148,46 @@ ok(
 	'an empty munger name is fatal'
 );
 
-ok(
-	!eval {
-		App::Baphomet::Rules::Syslog->new(
-			name => 'syslog/st',
-			def  => {
-				daemons        => ['sshd'],
-				mungers        => ['sshd'],
-				stages         => [ { message_regexp => ['a (?<SRC>\S+)'] } ],
-				ban_var        => ['SRC'],
-			}
-		);
-		1;
+#
+# staged... mungers are wired through the staged matcher too, enriching the
+# completed sequence from its final (completing) line
+#
+my $staged = App::Baphomet::Rules::Syslog->new(
+	name => 'syslog/staged-munge',
+	def  => {
+		daemons => ['sshd'],
+		mungers => ['sshd'],
+		stages  => [
+			{ message_regexp => ['^Failed password for \S+ from (?<SRC>\S+) port'], count => 2, within => 300 },
+			{ message_regexp => ['^Accepted \w+ for (?<USER>\S+) from (?<SRC>\S+) port'], within => 600 },
+		],
+		per           => ['SRC'],
+		detection_var => ['SRC'],
+		max_score     => 1,
+		tests         => {
+			positive => [
+				{
+					messages => [
+						'Jul 12 08:15:50 vixen42 sshd[1]: Failed password for root from 192.0.2.7 port 4711 ssh2',
+						'Jul 12 08:15:51 vixen42 sshd[2]: Failed password for root from 192.0.2.7 port 4712 ssh2',
+						'Jul 12 08:15:57 vixen42 sshd[3]: Accepted password for root from 192.0.2.7 port 4716 ssh2',
+					],
+					found => 1,
+					data  => {
+						SRC  => '192.0.2.7',
+						USER => 'root',
+						# enriched from the completing Accepted line, not the failures
+						ssh_method => 'password',
+						ssh_user   => 'root',
+					},
+				},
+			],
+		},
 	},
-	'mungers beside stages is fatal'
 );
+my $staged_r = $staged->run_tests;
+is( $staged_r->{fail}, 0, 'a staged rule enriches the completed sequence from its final line' )
+	|| diag( join( "\n", @{ $staged_r->{failures} } ) );
 
 # an unresolvable munger is fatal at processor build... the galla prewarms
 # this at load, turning the die into a log_drek error and refusing to run

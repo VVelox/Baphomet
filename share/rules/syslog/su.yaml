@@ -1,0 +1,58 @@
+---
+# A detection-only rule... a failed su is an attempt to become another user
+# (usually root), a local escalation signal rather than a thing to firewall,
+# and the offender is the invoking local user, not an address. It counts by
+# that user via detection_var, so an account failing su repeatedly raises a
+# sighting per attempt and a sighted at the threshold, banishing nobody. The
+# sudo twin is syslog/sudo-policy. Only failures match... the success forms
+# (a bare "(to root) user on tty", or a "+" prefixed line) are left to sail
+# past, so a normal su never trips it. See docs/rules and docs/eve.
+rev: 1
+msg: "[SU] authentication failure"
+severity: medium
+classtype: attempted-admin
+daemons:
+  - su
+mungers:
+  - su
+message_regexp:
+  # util-linux, verbose... "FAILED SU (to root) kitsune on pts/0"
+  - '^FAILED SU \(to \S+\) (?<USER>\S+) on \S+'
+  # util-linux, terse... a "-" prefix is the failure, "+" the success
+  - '^- \S+ (?<USER>[^:\s]+):\S+\s*$'
+  # PAM stack under su / su -l
+  - '^pam_unix\(su(?:-l)?:auth\): authentication failure;.*\bruser=(?<USER>\S+)'
+  # the shadow-suite phrasing seen on some distros
+  - '^FAILED su for \S+ by (?<USER>\S+)'
+detection_var:
+  - USER
+tests:
+  positive:
+    # the verbose failure, enriched by the su munger from the same line
+    - message: "Jul 12 08:15:50 vixen42 su[4092]: FAILED SU (to root) kitsune on pts/0"
+      found: 1
+      data:
+        USER: "kitsune"
+        su_by_user: "kitsune"
+        su_result: "FAILED"
+    # the terse "-" failure
+    - message: "Jul 12 08:15:51 vixen42 su[4093]: - pts/0 eve:root"
+      found: 1
+      data:
+        USER: "eve"
+        su_by_user: "eve"
+    # the PAM phrasing... the munger does not decode this shape, so USER is
+    # the rule's own capture and no su_* rides along
+    - message: "Jul 12 08:15:52 vixen42 su[4094]: pam_unix(su:auth): authentication failure; logname=mallory uid=1000 euid=0 tty=pts/2 ruser=mallory rhost=  user=root"
+      found: 1
+      data:
+        USER: "mallory"
+  negative:
+    # a successful su, verbose form... not this rule's business
+    - message: "Jul 12 08:15:53 vixen42 su[4095]: (to root) kitsune on pts/0"
+      found: 0
+      undefed: ["USER"]
+    # a successful su, the "+" prefix
+    - message: "Jul 12 08:15:54 vixen42 su[4096]: + pts/0 kitsune:root"
+      found: 0
+      undefed: ["USER"]

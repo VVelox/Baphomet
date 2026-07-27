@@ -290,6 +290,7 @@ share/rules/syslog/sshd-mark-users.yaml
 share/rules/syslog/sshd-spray.yaml
 share/rules/syslog/sshd-worked.yaml
 share/rules/syslog/sshd.yaml
+share/rules/syslog/su.yaml
 share/rules/syslog/sudo-policy.yaml
 share/rules/syslog/suhosin.yaml
 share/rules/syslog/systemd-flap.yaml

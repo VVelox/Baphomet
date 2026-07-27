@@ -64,6 +64,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/sshd-foreign-login` | a successful ssh login from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db and your home list (see [rules](rules), the country gate) | `sshd`, `sshd-session` |
 | `syslog/systemd-flap` | a service crash loop... three scheduled restarts of one unit inside two minutes (staged, detection-only, counts by unit per host) | `systemd` |
 | `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
+| `syslog/su` | failed su attempts (verbose, terse, PAM, and shadow forms)... detection-only, counts by the invoking username, the local-escalation twin of `sudo-policy` | `su` |
 | `syslog/vsftpd` | vsftpd login failures | `vsftpd` |
 | `syslog/webmin-auth` | Webmin login failures | `webmin` |
 | `syslog/xinetd-fail` | xinetd connection failures | `xinetd` |

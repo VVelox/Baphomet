@@ -469,7 +469,9 @@ own captures, so a C<message_regexp> capture of the same name overwrites (a
 looser or different read chosen on purpose), while everything the munger
 decoded that the rule did not recapture rides along.
 
-Supported on C<syslog> and C<raw> rules, not beside C<stages>. The
+Supported on C<syslog> and C<raw> rules, staged ones included... a staged
+rule enriches the completed sequence from its final, sequence-completing
+line (the line whose C<raw> the event carries). The
 dependency is optional but not fail-soft... a missing L<Log::Munger> or a
 munger file that will not resolve is fatal, surfaced as a die the loader (or
 the galla's load-time prewarm, as a C<log_drek> error) raises rather than
@@ -2779,7 +2781,7 @@ sub _compile_stages {
 # undef until the final stage completes, then the found carrying the
 # merged captures and the stage hits
 sub _check_stages {
-	my ( $self, $message, $scope, $line_ctx, $envelope ) = @_;
+	my ( $self, $message, $scope, $line_ctx, $envelope, $munge ) = @_;
 
 	if ( !defined($message) ) {
 		return undef;
@@ -2870,7 +2872,7 @@ sub _check_stages {
 			last;
 		}
 
-		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq );
+		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge );
 	} ## end for ( my $stage_int = 0; $stage_int < scalar...)
 
 	# no slot advanced... a line matching the first stage heads a fresh
@@ -2885,13 +2887,13 @@ sub _check_stages {
 	}
 	$self->_stage_slot_new( $store, $key_value, $now );
 
-	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq );
+	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq, $munge );
 } ## end sub _check_stages
 
 # lands a hit on a slot's awaited stage... counts, merges captures later
 # stages authoritative, and fires the found when the final stage completes
 sub _stage_hit {
-	my ( $self, $store, $key_value, $stage_int, $caps, $message, $now, $seq ) = @_;
+	my ( $self, $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge ) = @_;
 
 	my $slot  = $store->{$key_value};
 	my $stage = $self->{stages}[$stage_int];
@@ -2911,7 +2913,14 @@ sub _stage_hit {
 	# filters the completed sequence like any other found
 	if ( $stage_int == scalar( @{ $self->{stages} } ) - 1 ) {
 		delete( $store->{$key_value} );
-		my $found = { 'data' => $slot->{data}, 'regexp' => undef, 'stages' => $slot->{hits} };
+		# the completing line's munger enrichment rides under the sequence's
+		# accumulated captures, which win on a clash... the same precedence a
+		# non-staged rule gives, and the completing line is what EVE records
+		my $data = $slot->{data};
+		if ( ref($munge) eq 'HASH' && %{$munge} ) {
+			$data = { %{$munge}, %{ $slot->{data} } };
+		}
+		my $found = { 'data' => $data, 'regexp' => undef, 'stages' => $slot->{hits} };
 		if ( $self->{has_boolean} ) {
 			if ( !$self->_boolean_pass( $found->{data}, $message ) ) {
 				return undef;
