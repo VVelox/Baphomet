@@ -312,6 +312,7 @@ t/country.t
 t/detection.t
 t/eve-log.t
 t/eve-only.t
+t/eve-utf8.t
 t/galla-join.t
 t/galla-journal.t
 t/groups-shipped.t

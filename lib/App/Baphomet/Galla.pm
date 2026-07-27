@@ -9,6 +9,7 @@ use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                       qw( bsd_glob );
 use JSON::MaybeXS                    qw( encode_json decode_json );
+use Encode                           ();
 use POSIX                            qw( strftime );
 use Socket                           qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                    ();
@@ -1331,6 +1332,14 @@ sub _eve_emit {
 		%{$fields},
 	};
 
+	# log data is raw bytes of unknown encoding... scrub the record to valid
+	# UTF-8 characters before encoding, so a captured field that is real
+	# UTF-8 rides through faithfully (café stays café, not Latin-1 mojibake)
+	# and one carrying hostile or malformed bytes becomes U+FFFD rather than
+	# breaking the JSON... the offender IP is ASCII and always survives, so
+	# the audit record emits whatever the surrounding text was
+	$record = $self->_eve_utf8($record);
+
 	my $line;
 	eval { $line = encode_json($record); };
 	if ($@) {
@@ -1383,6 +1392,35 @@ sub _eve_raw {
 
 	return $raw;
 } ## end sub _eve_raw
+
+# scrubs a EVE record to valid UTF-8 characters, cloning as it goes so the
+# live found/parsed/marks data is never touched. a scalar carrying a high
+# byte is a byte string of unknown encoding: it is decoded as UTF-8, with a
+# malformed run replaced by U+FFFD rather than croaking, so hostile bytes
+# can never break the encode. a pure-ASCII scalar or a number has no high
+# byte and is left byte-identical, so JSON numbers stay numbers, and a
+# string already decoded to characters (a JSON parser's output, flagged
+# utf8) is left as is rather than double-decoded
+sub _eve_utf8 {
+	my ( $self, $value ) = @_;
+
+	my $ref = ref($value);
+	if ( $ref eq 'HASH' ) {
+		return { map { ( $_ => $self->_eve_utf8( $value->{$_} ) ) } keys( %{$value} ) };
+	}
+	if ( $ref eq 'ARRAY' ) {
+		return [ map { $self->_eve_utf8($_) } @{$value} ];
+	}
+	if ( $ref ne '' || !defined($value) ) {
+		return $value;
+	}
+
+	if ( !utf8::is_utf8($value) && $value =~ /[^\x00-\x7f]/ ) {
+		return Encode::decode( 'UTF-8', $value, Encode::FB_DEFAULT() );
+	}
+
+	return $value;
+} ## end sub _eve_utf8
 
 =head2 start_server
 

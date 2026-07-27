@@ -14,6 +14,16 @@ eve_enable = true
 One file, shared by every galla, appended to under a lock, so all the kurs
 land in one stream filterable by `.kur`.
 
+Every line is valid UTF-8. Log lines are raw bytes of whatever encoding
+(or none) the source emits, and an attacker controls parts of them... a
+username, a path, a user agent. Before an event is encoded, its captured
+fields are scrubbed to UTF-8: a field that is already valid UTF-8 rides
+through faithfully, and one carrying malformed or hostile bytes has those
+runs replaced with the Unicode replacement character (`U+FFFD`) rather
+than breaking the JSON or being dropped. The offender address is ASCII and
+always survives intact, so the audit record is written whatever the
+surrounding text was.
+
 ## The events
 
 One JSON object per line. Six kinds, in `.event_type`... a real pair, an
