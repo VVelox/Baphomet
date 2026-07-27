@@ -1,0 +1,35 @@
+---
+# A detection-only rule... auditd SELinux AVC "denied" records forwarded to
+# syslog. A denial is the policy stopping a process from doing something it
+# was not allowed to, which is either an attack caught or a policy to fix,
+# never a network offender to firewall. It counts by the denied process
+# (comm) via detection_var and banishes nobody... each denial a sighting, a
+# process denied repeatedly a sighted. Only "denied" is matched, not
+# "granted". The auditd munger decodes the action, the perms, and the
+# source/target SELinux contexts. See docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] SELinux AVC denial"
+severity: medium
+classtype: policy-violation
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=(?:AVC|USER_AVC) msg=audit\([\d.]+:\d+\): avc: +denied +\{[^}]*\} +for +.*\bcomm="(?<COMM>[^"]+)"'
+detection_var:
+  - COMM
+tests:
+  positive:
+    - message: "Nov 14 12:00:00 vixen42 audisp-syslog[3000]: type=AVC msg=audit(1700000300.1:700): avc:  denied  { read write } for  pid=3000 comm=\"nginx\" name=\"shadow\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
+      found: 1
+      data:
+        COMM: "nginx"
+        audit_avc_action: "denied"
+        audit_avc_perms: "read write"
+  negative:
+    # a granted decision is not a denial
+    - message: "Nov 14 12:00:01 vixen42 audisp-syslog[3001]: type=AVC msg=audit(1700000301.1:701): avc:  granted  { read } for  pid=3001 comm=\"httpd\" name=\"index.html\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:httpd_sys_content_t:s0 tclass=file"
+      found: 0
+      undefed: ["COMM"]

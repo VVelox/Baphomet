@@ -1,0 +1,38 @@
+---
+# Matches the auditd ANOM_LOGIN_FAILURES record forwarded to syslog... the
+# audit subsystem's own verdict that an account has crossed its failed-login
+# threshold (pam_faillock and friends raise it). When the record names a
+# remote addr, this bans that source outright: the kernel has already done
+# the counting, so one such record is the alarm, not a tally to accumulate.
+# A record with no address (addr=?) is a local lockout and is left alone. The
+# auditd munger enriches the hit with the decoded audit_* fields. See
+# docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] login-failure anomaly... account threshold crossed"
+severity: critical
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=ANOM_LOGIN_FAILURES msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Nov 14 10:05:00 vixen42 audisp-syslog[1300]: type=ANOM_LOGIN_FAILURES msg=audit(1700000100.1:500): pid=1 uid=0 auid=1000 ses=3 msg='op=pam_faillock acct=\"oracle\" exe=\"/usr/sbin/sshd\" hostname=? addr=198.51.100.7 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "198.51.100.7"
+        audit_type: "ANOM_LOGIN_FAILURES"
+        audit_msg_acct: "oracle"
+  negative:
+    # a local account lockout carries no address
+    - message: "Nov 14 10:05:01 vixen42 audisp-syslog[1301]: type=ANOM_LOGIN_FAILURES msg=audit(1700000101.1:501): pid=1 uid=0 auid=1000 ses=4 msg='op=pam_faillock acct=\"kitsune\" exe=\"/usr/bin/login\" hostname=? addr=? terminal=tty1 res=failed'"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,40 @@
+---
+# A detection-only rule... auditd account and group lifecycle records
+# (ADD_USER, DEL_USER, ADD_GROUP, DEL_GROUP, USER_MGMT, GRP_MGMT, ROLE_*)
+# forwarded to syslog. These are administrative changes, an audit trail to
+# record rather than a thing to firewall, so it counts by the responsible
+# login uid (auid) via detection_var and banishes nobody... every change
+# raises a sighting in EVE, and a session churning accounts raises a sighted.
+# The auditd munger decodes the op, the acct/grp/id touched, and the exe for
+# each. See docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] account or group management"
+severity: medium
+classtype: policy-violation
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=(?:ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT|ROLE_ASSIGN|ROLE_REMOVE) msg=audit\([\d.]+:\d+\): .*\bauid=(?<AUID>\d+)'
+detection_var:
+  - AUID
+tests:
+  positive:
+    - message: "Nov 14 11:00:00 vixen42 audisp-syslog[2000]: type=ADD_USER msg=audit(1700000200.1:600): pid=2000 uid=0 auid=1000 ses=2 msg='op=adding-user id=1001 exe=\"/usr/sbin/useradd\" hostname=box addr=? terminal=pts/0 res=success'"
+      found: 1
+      data:
+        AUID: "1000"
+        audit_type: "ADD_USER"
+        audit_msg_op: "adding-user"
+    - message: "Nov 14 11:00:01 vixen42 audisp-syslog[2001]: type=USER_MGMT msg=audit(1700000201.1:601): pid=2001 uid=0 auid=1000 ses=2 msg='op=add-shadow-group grp=\"wheel\" acct=\"mallory\" exe=\"/usr/sbin/usermod\" hostname=box addr=? terminal=pts/0 res=success'"
+      found: 1
+      data:
+        AUID: "1000"
+        audit_msg_acct: "mallory"
+  negative:
+    # not a management record
+    - message: "Nov 14 11:00:02 vixen42 audisp-syslog[2002]: type=USER_LOGIN msg=audit(1700000202.1:602): pid=2002 uid=0 auid=0 ses=3 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=success'"
+      found: 0
+      undefed: ["AUID"]

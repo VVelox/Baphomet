@@ -1,0 +1,13 @@
+# Linux auditd records forwarded to syslog by the audisp-syslog plugin (ident
+# audisp-syslog / audispd / audit)... remote authentication failures and the
+# audit subsystem's own login-failure anomaly, both banning the source, plus
+# the account/group management and SELinux AVC denial audit trails, both
+# detection-only. For a watcher tailing the forwarded audit stream. Reference
+# as %syslog/audit%.
+#
+# See docs/rules.md (Rule groups).
+
+syslog/auditd-anom-login-failures
+syslog/auditd-auth-failed
+syslog/auditd-avc-denied
+syslog/auditd-user-mgmt

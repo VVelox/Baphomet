@@ -1,0 +1,57 @@
+---
+# Matches Linux auditd authentication failures forwarded to syslog by the
+# audisp-syslog plugin (ident audisp-syslog / audispd / audit). Forwarded
+# records arrive as "type=X msg=audit(<id>): <fields> msg='<nested>'", the
+# nested blob carrying the acct, the remote addr, and res. This bans the
+# source of a remote USER_LOGIN / USER_AUTH / USER_ERR / USER_ACCT / CRED_ACQ
+# that failed, reading the offender straight from the audit addr field. A
+# local attempt (addr=?) carries no address, so the SRC token does not match
+# and it is left alone. The general, forwarded-via-syslog counterpart to the
+# raw, SELinux-only raw/selinux-ssh. The auditd munger enriches every hit with
+# the decoded audit_* fields (type, acct, exe, terminal, res) for triage. See
+# docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=(?:USER_LOGIN|USER_AUTH|USER_ERR|USER_ACCT|CRED_ACQ) msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b.* res=failed'
+ban_var:
+  - SRC
+tests:
+  positive:
+    # a remote ssh login failure recorded by auditd, enriched from the same line
+    - message: "Nov 14 10:00:00 vixen42 audisp-syslog[1234]: type=USER_LOGIN msg=audit(1700000000.123:456): pid=1234 uid=0 auid=4294967295 ses=4294967295 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+        audit_type: "USER_LOGIN"
+        audit_msg_acct: "root"
+        audit_msg_res: "failed"
+    # a USER_AUTH PAM failure, other forwarder ident
+    - message: "Nov 14 10:00:01 vixen42 audispd[1235]: type=USER_AUTH msg=audit(1700000001.222:457): pid=1235 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:authentication grantors=? acct=\"admin\" exe=\"/usr/sbin/sshd\" hostname=badhost addr=203.0.113.9 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    # USER_ERR with a bad ident, no SELinux subj required
+    - message: "Nov 14 10:00:02 vixen42 audit[1236]: type=USER_ERR msg=audit(1700000002.1:458): pid=1236 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:bad_ident acct=\"?\" exe=\"/usr/sbin/sshd\" hostname=? addr=198.51.100.7 terminal=ssh res=failed'"
+      found: 1
+      data:
+        SRC: "198.51.100.7"
+  negative:
+    # a successful login is not this rule's business
+    - message: "Nov 14 10:00:03 vixen42 audisp-syslog[1237]: type=USER_LOGIN msg=audit(1700000003.1:459): pid=1237 uid=0 auid=0 ses=5 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.9 terminal=ssh res=success'"
+      found: 0
+      undefed: ["SRC"]
+    # a local failure carries no address... nothing to banish
+    - message: "Nov 14 10:00:04 vixen42 audisp-syslog[1238]: type=USER_AUTH msg=audit(1700000004.1:460): pid=1238 uid=0 auid=1000 ses=6 msg='op=PAM:authentication acct=\"kitsune\" exe=\"/usr/bin/login\" hostname=? addr=? terminal=tty1 res=failed'"
+      found: 0
+      undefed: ["SRC"]

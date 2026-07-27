@@ -27,6 +27,10 @@ and changes no rule's own behavior. See the standard brands in
 | rule | watches for | daemon gate |
 | --- | --- | --- |
 | `syslog/asterisk` | Asterisk auth/registration failures | `asterisk` |
+| `syslog/auditd-auth-failed` | auditd remote authentication failures forwarded via audisp-syslog (USER_LOGIN/USER_AUTH/USER_ERR/CRED_ACQ, `res=failed` with a network `addr`)... bans the source | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/auditd-anom-login-failures` | auditd `ANOM_LOGIN_FAILURES`... the audit subsystem's own verdict that an account crossed its failure threshold; bans the source when the record names one | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/auditd-user-mgmt` | auditd account/group lifecycle (ADD_USER/DEL_USER/USER_MGMT/...)... detection-only audit trail, counts by the responsible login uid | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/auditd-avc-denied` | auditd SELinux AVC `denied` records... detection-only, counts by the denied process (`comm`) | `audisp-syslog`, `audispd`, `audit` |
 | `syslog/courier-auth` | Courier IMAP/POP3 login failures | `imapd`, `pop3d`, and ssl/login variants |
 | `syslog/courier-smtp` | Courier SMTP rejects | `courieresmtpd` |
 | `syslog/cyrus-imap` | Cyrus IMAP/POP3 login failures | `imapd`/`pop3d`, optionally `cyrus/` prefixed |
