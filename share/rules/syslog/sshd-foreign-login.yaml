@@ -18,13 +18,15 @@
 # never raises a false alarm... it only misses. List it beside syslog/sshd
 # and the breach/worked readers; a domestic login is vetoed here and falls
 # through untouched.
-rev: 1
+rev: 2
 msg: "[SSHD] login success from outside the home countries"
 severity: high
 classtype: suspicious-login
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 message_regexp:
   - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
 country:

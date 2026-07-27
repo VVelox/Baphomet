@@ -14,12 +14,14 @@
 # on the captured client address and fails closed on an unplaceable one.
 # Pairs with syslog/postfix-sasl, which catches the failures... this
 # catches the successes that got in.
-rev: 1
+rev: 2
 msg: "[POSTFIX] authenticated relay from outside the home countries"
 severity: high
 classtype: suspicious-login
 daemons:
   - //^postfix(?:-\w+)?\/\w+(?:\/smtpd)?$//
+mungers:
+  - postfix
 message_regexp:
   - '^[0-9A-F]+: client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
 country:

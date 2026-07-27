@@ -12,7 +12,7 @@
 # load. Needs geoip_db and IP::Geolocation::MMDB. The vars-form gate keys
 # on the captured client rip= and fails closed on an unplaceable address,
 # so a database gap misses rather than false-alarms.
-rev: 1
+rev: 2
 msg: "[DOVECOT] login success from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -20,6 +20,8 @@ daemons:
   - dovecot
   - dovecot-auth
   - //^dovecot//
+mungers:
+  - dovecot
 message_regexp:
   - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%'
 country:

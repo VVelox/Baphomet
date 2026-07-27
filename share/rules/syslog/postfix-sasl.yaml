@@ -3,7 +3,7 @@
 # fail2ban postfix filter, translated to Baphomet and simplified. Pairs
 # with syslog/postfix, which handles the rejects... a maillog watcher
 # usually wants both, via a rule array.
-rev: 2
+rev: 3
 msg: "[POSTFIX] SASL authentication failure"
 severity: high
 classtype: brute-force
@@ -12,6 +12,8 @@ mark:
     ttl: 21600
 daemons:
   - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+mungers:
+  - postfix
 message_regexp:
   - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
 ban_var:

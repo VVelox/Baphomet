@@ -2,7 +2,7 @@
 # Matches dovecot auth failures. Based on the fail2ban dovecot filter in
 # its normal mode, translated to Baphomet and simplified... the aggressive
 # mode no-auth-attempt matching is dropped.
-rev: 2
+rev: 3
 msg: "[DOVECOT] authentication failure"
 severity: high
 classtype: brute-force
@@ -14,6 +14,8 @@ daemons:
   - dovecot-auth
   - //^dovecot//
   - //^auth(?:-worker)?\b//
+mungers:
+  - dovecot
 message_regexp:
   - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\):(?: user=<[^>]*>,)?(?: method=\S+,)? rip=%%%%SRC%%%%'
   - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'

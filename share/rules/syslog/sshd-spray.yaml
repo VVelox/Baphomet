@@ -13,7 +13,7 @@
 # line's. The embedded tests seed that rule's brand (marks_before) and so
 # prove the gate both ways... a second source fires, the established one
 # and the unbranded do not.
-rev: 3
+rev: 4
 msg: "[SSHD] distributed brute force across sources"
 severity: high
 classtype: brute-force
@@ -23,6 +23,8 @@ mark:
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 message_regexp:
   - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%'
   - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'

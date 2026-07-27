@@ -5,7 +5,7 @@
 # should accrue to one count. See those two rules for the annotated
 # regexps... this file only unions them. Noisy by nature, so opt in
 # knowingly.
-rev: 2
+rev: 3
 msg: "[SSHD] pre-auth abuse / negotiation probe (aggressive)"
 severity: medium
 classtype: network-scan
@@ -15,6 +15,8 @@ mark:
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 capture_regexp:
   - regexp: '^Connection from %%%%SRC%%%% port \d+'
     key: [ syslog.host, syslog.daemon, syslog.pid ]

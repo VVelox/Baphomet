@@ -11,13 +11,15 @@
 # ban_var to make it act. List it after syslog/sshd-worked... on a
 # success both would tell, worked speaks for the in-watcher staged story
 # and this one catches the cross-product rest.
-rev: 1
+rev: 2
 msg: "[SSHD] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: successful-user
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 message_regexp:
   - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
 marked:

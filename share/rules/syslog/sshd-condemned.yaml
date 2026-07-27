@@ -14,7 +14,7 @@
 # allow_per_rule_thresholds... without that consent it counts like any
 # other hit, just under this rule's name. It re-brands as it counts, so
 # the branding never lapses by being read.
-rev: 1
+rev: 2
 msg: "[SSHD] the condemned returns... auth failure from a branded brute forcer"
 severity: critical
 classtype: brute-force
@@ -24,6 +24,8 @@ mark:
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 message_regexp:
   - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
   - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'

@@ -7,13 +7,15 @@
 # syslog/sshd-spray, which reads these marks. List sshd-spray BEFORE this
 # in the watcher so the gate sees the source that established the account,
 # not the one this line would re-brand it with.
-rev: 2
+rev: 3
 msg: "[SSHD] brand account with source"
 severity: info
 classtype: not-suspicious
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 message_regexp:
   - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%'
   - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'

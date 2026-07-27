@@ -9,7 +9,7 @@
 # version, banner exchange) are not repeated here... run this beside it,
 # not instead. Preauth disconnects are routine noise on any public sshd,
 # so opt in knowingly.
-rev: 2
+rev: 3
 msg: "[SSHD] pre-auth abuse / scanner disconnect"
 severity: medium
 classtype: network-scan
@@ -19,6 +19,8 @@ mark:
 daemons:
   - sshd
   - sshd-session
+mungers:
+  - sshd
 capture_regexp:
   - regexp: '^Connection from %%%%SRC%%%% port \d+'
     key: [ syslog.host, syslog.daemon, syslog.pid ]
