@@ -1,0 +1,93 @@
+---
+# A detection-only rule... auditd AppArmor "DENIED" records forwarded to
+# syslog. The AppArmor half of what linux-auditd-avc-denied does for SELinux:
+# the policy stopping a confined program from doing something it was not
+# allowed to, which is either an attack caught or a profile to fix, never a
+# network offender to firewall. It counts by the profile the denial names via
+# detection_var and banishes nobody... each denial a sighting, a profile
+# denied repeatedly a sighted. The auditd munger decodes the operation, the
+# masks, and the rest of the k=v blob, and normalizes the verdict to
+# mac_result regardless of which LSM raised it. See docs/rules and docs/eve.
+#
+# AppArmor does NOT write the "avc: denied { perms } for" prose SELinux does,
+# which is why it needs a rule of its own. Three things this must not assume,
+# each of them a shape seen in the wild:
+#
+#   - that the record type is AVC. Older kernels file these under type=AVC
+#     (1400); newer ones under a 1500-range APPARMOR_* name. The apparmor="
+#     token is the real discriminator, so both are accepted.
+#   - that the tail starts with operation=. A disconnected-path denial leads
+#     with info= and carries no operation= at all, so nothing here anchors on
+#     it... only apparmor="DENIED" and the profile are required.
+#   - that the blob is at the top level. dbus mediation denials arrive from
+#     dbus-daemon as USER_AVC with the AppArmor blob nested inside the
+#     single-quoted msg='...', where the confined side is named by label=
+#     rather than profile=. That is the second regexp.
+#
+# Only "DENIED" is matched. "ALLOWED" is a complain-mode profile saying what
+# it WOULD have denied, and "STATUS"/"ERROR" are profile-load bookkeeping...
+# the latter is linux-auditd-mac-tamper's business, not this rule's.
+rev: 1
+msg: "[AUDITD] AppArmor denial"
+severity: medium
+classtype: policy-violation
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  # the ordinary form... apparmor= is the first key of the tail, so everything
+  # else, profile= included, follows it
+  - '^type=(?:AVC|APPARMOR_\w+) msg=audit\([\d.]+:\d+\): apparmor="DENIED" .*?\bprofile="(?<PROFILE>[^"]+)"'
+  # the dbus form... nested blob, keyed by the caller's label. \b before label
+  # cannot match inside peer_label= (the underscore is a word character), so a
+  # peer never stands in for the confined side.
+  - '^type=USER_AVC msg=audit\([\d.]+:\d+\): .*\bmsg=''apparmor="DENIED" .*?\blabel="(?<PROFILE>[^"]+)"'
+detection_var:
+  - PROFILE
+tests:
+  positive:
+    # a file denial under the old type=AVC filing
+    - message: "Nov 14 12:10:00 vixen42 audisp-syslog[3100]: type=AVC msg=audit(1700000012.000:468): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+      found: 1
+      data:
+        PROFILE: "/usr/bin/foo"
+        mac_result: "denied"
+        audit_apparmor: "DENIED"
+        audit_operation: "open"
+        audit_denied_mask: "r"
+    # the same thing under a 1500-range APPARMOR_* type
+    - message: "Nov 14 12:10:01 vixen42 audisp-syslog[3101]: type=APPARMOR_DENIED msg=audit(1700000013.000:469): apparmor=\"DENIED\" operation=\"exec\" profile=\"/usr/sbin/nginx\" name=\"/bin/sh\" pid=4321 comm=\"nginx\" requested_mask=\"x\" denied_mask=\"x\" fsuid=33 ouid=0"
+      found: 1
+      data:
+        PROFILE: "/usr/sbin/nginx"
+        mac_result: "denied"
+        audit_operation: "exec"
+    # info= ahead of everything and no operation= at all
+    - message: "Nov 14 12:10:02 vixen42 audisp-syslog[3102]: type=AVC msg=audit(1700000014.000:470): apparmor=\"DENIED\" info=\"Failed name lookup - disconnected path\" error=-13 profile=\"snap.foo\" name=\"/\" pid=1 comm=\"foo\""
+      found: 1
+      data:
+        PROFILE: "snap.foo"
+        mac_result: "denied"
+    # the dbus form, the confined side named by label= inside the nested msg
+    - message: "Nov 14 12:10:03 vixen42 audisp-syslog[3103]: type=USER_AVC msg=audit(1700000015.000:471): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='apparmor=\"DENIED\" operation=\"dbus_method_call\" bus=\"system\" path=\"/org/freedesktop/systemd1\" interface=\"org.freedesktop.systemd1.Manager\" member=\"StartUnit\" mask=\"send\" name=\"org.freedesktop.systemd1\" pid=2222 label=\"snap.foo.bar\" peer_pid=1 peer_label=\"unconfined\" exe=\"/usr/bin/dbus-daemon\" sauid=0 hostname=? addr=? terminal=?'"
+      found: 1
+      data:
+        PROFILE: "snap.foo.bar"
+        mac_result: "denied"
+        audit_msg_apparmor: "DENIED"
+        audit_msg_operation: "dbus_method_call"
+  negative:
+    # the SELinux prose is linux-auditd-avc-denied's, not this rule's
+    - message: "Nov 14 12:10:04 vixen42 audisp-syslog[3104]: type=AVC msg=audit(1700000016.000:472): avc:  denied  { read } for  pid=4444 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
+      found: 0
+      undefed: ["PROFILE"]
+    # complain mode saying what it would have denied is not a denial
+    - message: "Nov 14 12:10:05 vixen42 audisp-syslog[3105]: type=AVC msg=audit(1700000017.000:473): apparmor=\"ALLOWED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1235 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+      found: 0
+      undefed: ["PROFILE"]
+    # profile-load bookkeeping belongs to linux-auditd-mac-tamper
+    - message: "Nov 14 12:10:06 vixen42 audisp-syslog[3106]: type=APPARMOR_STATUS msg=audit(1700000018.000:474): apparmor=\"STATUS\" operation=\"profile_replace\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2200 comm=\"apparmor_parser\""
+      found: 0
+      undefed: ["PROFILE"]

@@ -1,0 +1,44 @@
+---
+# A detection-only rule... auditd catching a write to the dynamic-linker
+# preload configuration: /etc/ld.so.preload, or the /etc/ld.so.conf family.
+# ld.so.preload is the userland-rootkit foothold, a library injected ahead of
+# every dynamically linked program on the host, hooking libc from underneath.
+# The PATH record names the file touched; a SYSCALL the operator has tagged
+# with an ldpreload watch key names the program that touched it. Blinding the
+# linker is a host event to keep close, not a network offender to firewall.
+# Counts by the target via detection_var, banishes nobody... each touch a
+# sighting in EVE. The auditd munger decodes the name and key. See docs/rules
+# and docs/eve.
+rev: 1
+msg: "[AUDITD] dynamic-linker preload config touched... possible rootkit"
+severity: critical
+classtype: trojan-activity
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<TARGET>/etc/ld\.so\.(?:preload|conf)[^"]*)"'
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<TARGET>[^"]+)".*\bkey="ldpreload"'
+detection_var:
+  - TARGET
+tests:
+  positive:
+    # the file itself being written, seen as a PATH record
+    - message: "Nov 14 11:10:00 vixen42 audisp-syslog[2100]: type=PATH msg=audit(1700000030.1:930): item=0 name=\"/etc/ld.so.preload\" inode=1 dev=fd:00 mode=0100644 ouid=0 ogid=0 nametype=NORMAL"
+      found: 1
+      data:
+        TARGET: "/etc/ld.so.preload"
+        audit_nametype: "NORMAL"
+    # the program that touched it, seen through an operator watch key
+    - message: "Nov 14 11:10:01 vixen42 audisp-syslog[2101]: type=SYSCALL msg=audit(1700000031.1:931): arch=c000003e syscall=257 success=yes exit=3 ppid=1 pid=4500 auid=1000 uid=0 comm=\"tee\" exe=\"/usr/bin/tee\" key=\"ldpreload\""
+      found: 1
+      data:
+        TARGET: "/usr/bin/tee"
+        audit_key: "ldpreload"
+  negative:
+    # an unrelated config file is not the linker preload
+    - message: "Nov 14 11:10:02 vixen42 audisp-syslog[2102]: type=PATH msg=audit(1700000032.1:932): item=0 name=\"/etc/passwd\" inode=2 dev=fd:00 mode=0100644 ouid=0 ogid=0 nametype=NORMAL"
+      found: 0
+      undefed: ["TARGET"]

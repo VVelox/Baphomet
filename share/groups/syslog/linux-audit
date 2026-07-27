@@ -1,0 +1,33 @@
+# Linux auditd records forwarded to syslog by the audisp-syslog plugin (ident
+# audisp-syslog / audispd / audit). Two banning rules for remote authentication
+# failures and the audit subsystem's own login-failure anomaly, plus a broad
+# detection-only sweep of the shapes a compromise leaves in the audit trail:
+# account/group management, SELinux AVC denials and AppArmor denials; a NIC
+# going promiscuous; mandatory access control switched off, by setenforce or
+# by profile removal; the audit subsystem tampered with; a process ending on a
+# fault signal or an execution the kernel forbade; a kernel module load; the
+# dynamic-linker preload config touched; an exec out of a writable directory;
+# and paths named to hide. For a watcher tailing the forwarded audit stream.
+# Reference as %syslog/linux-audit%.
+#
+# NOT a member: syslog/linux-apparmor-denied. It reads the same AppArmor
+# denials off the kernel ring buffer (PROGRAM=kernel) for hosts with no auditd
+# at all, so it will never see a line on this stream. Name it on whatever
+# watcher tails the kernel facility.
+#
+# See docs/rules.md (Rule groups).
+
+syslog/linux-auditd-abend
+syslog/linux-auditd-anom-exec
+syslog/linux-auditd-anom-login-failures
+syslog/linux-auditd-apparmor-denied
+syslog/linux-auditd-audit-tamper
+syslog/linux-auditd-auth-failed
+syslog/linux-auditd-avc-denied
+syslog/linux-auditd-exec-from-writable
+syslog/linux-auditd-kmod-load
+syslog/linux-auditd-mac-tamper
+syslog/linux-auditd-odd-path
+syslog/linux-auditd-preload-tamper
+syslog/linux-auditd-promiscuous
+syslog/linux-auditd-user-mgmt

@@ -43,6 +43,10 @@ one place.
   is a log analysis engine in the Sagan/Wazuh/Sigma family.
 - [eve](eve) ... the EVE event log, a Suricata-shaped NDJSON record
   of what the gallas do.
+- [linux-auditd](linux-auditd) ... forwarding the Linux auditd stream to
+  syslog and configuring the kernel's audit rules to feed the
+  `%syslog/linux-audit%` group, plus the shorter road for AppArmor denials
+  on a host running no auditd at all.
 - [usage](usage) ... the `baphomet` CLI.
 - [examples](examples) ... copy-paste scenarios.
 - [fail2ban](fail2ban) ... the concept map, what is better, what is

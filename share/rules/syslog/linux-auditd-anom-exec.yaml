@@ -1,0 +1,32 @@
+---
+# A detection-only rule... auditd ANOM_EXEC, an execution the kernel flagged as
+# forbidden (an execute-deny watch, a locked-down account running a shell). The
+# executable named is the thing to look at, so it counts by that exe via
+# detection_var and banishes nobody. Each flagged execution a sighting in EVE.
+# The auditd munger decodes the acct, exe, and result from the nested record.
+# See docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] execution flagged as forbidden"
+severity: high
+classtype: trojan-activity
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=ANOM_EXEC msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)"'
+detection_var:
+  - EXE
+tests:
+  positive:
+    - message: "Nov 14 10:40:00 vixen42 audisp-syslog[1800]: type=ANOM_EXEC msg=audit(1700000011.1:911): pid=4100 uid=33 auid=33 ses=5 msg='op=exec rule acct=\"www-data\" exe=\"/tmp/.x/backdoor\" terminal=? res=failed'"
+      found: 1
+      data:
+        EXE: "/tmp/.x/backdoor"
+        audit_msg_acct: "www-data"
+  negative:
+    # a different record type is not this rule's business
+    - message: "Nov 14 10:40:01 vixen42 audisp-syslog[1801]: type=USER_LOGIN msg=audit(1700000012.1:912): pid=4101 uid=0 auid=0 ses=6 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=success'"
+      found: 0
+      undefed: ["EXE"]

@@ -1,0 +1,36 @@
+---
+# A detection-only rule... auditd ANOM_PROMISCUOUS, a network interface put
+# into promiscuous mode. The kernel raises this on its own, no auditctl rule
+# needed, so it works wherever the audit stream is forwarded. A NIC going
+# promiscuous is a packet sniffer coming up, a classic post-compromise move
+# (credential harvesting, traffic capture), never a network offender to
+# firewall. Counts by the device via detection_var, banishes nobody... each
+# entry into promiscuous mode a sighting in EVE. Only the transition INTO
+# promiscuous (prom nonzero) is matched, not the drop back out. The auditd
+# munger decodes the device and the flag. See docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] interface entered promiscuous mode... possible sniffer"
+severity: critical
+classtype: trojan-activity
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=ANOM_PROMISCUOUS msg=audit\([\d.]+:\d+\): .*\bdev=(?<DEV>\S+)\b.*\bprom=(?<PROM>[1-9]\d*)\b'
+detection_var:
+  - DEV
+tests:
+  positive:
+    - message: "Nov 14 10:00:00 vixen42 audisp-syslog[1400]: type=ANOM_PROMISCUOUS msg=audit(1700000003.1:903): dev=eth0 prom=256 old_prom=0 auid=1000 uid=0 ses=3"
+      found: 1
+      data:
+        DEV: "eth0"
+        audit_type: "ANOM_PROMISCUOUS"
+        audit_prom: "256"
+  negative:
+    # dropping back out of promiscuous mode is not the alarm
+    - message: "Nov 14 10:00:01 vixen42 audisp-syslog[1401]: type=ANOM_PROMISCUOUS msg=audit(1700000004.1:904): dev=eth0 prom=0 old_prom=256 auid=1000 uid=0 ses=3"
+      found: 0
+      undefed: ["DEV"]

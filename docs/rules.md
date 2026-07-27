@@ -107,7 +107,7 @@ watcher whole. What ships:
 | `syslog/ftp` | an FTP log | proftpd, pure-ftpd, vsftpd, wuftpd, gssftpd |
 | `syslog/voip` | a VoIP log | asterisk, freeswitch, murmur |
 | `syslog/ssh` | an auth log | the base `sshd` and `dropbear`... not the `sshd-*` tuning variants, which are alternative modes, not additive |
-| `syslog/audit` | a forwarded auditd stream (audisp-syslog) | the auditd auth-failure and login-failure-anomaly ban rules, and the account-management and SELinux AVC detection rules |
+| `syslog/linux-audit` | a forwarded auditd stream (audisp-syslog) | the auditd auth-failure and login-failure-anomaly ban rules, plus a detection-only sweep for the shapes a compromise leaves in the audit trail: account management, SELinux AVC and AppArmor denials, promiscuous NICs, MAC/audit tampering, fault-signal crashes, forbidden execs, kernel module loads, linker-preload writes, execs from writable dirs, and paths named to hide. Not `syslog/linux-apparmor-denied`, which reads the kernel ring buffer, not this stream |
 | `http_error/apache` | an Apache error log | the `apache-*` error-log rules |
 | `http_error/nginx` | an Nginx error log | the `nginx-*` error-log rules |
 | `http/scanners` | an HTTP access log | bad bots, panel sweeps, the fake-Googlebot check, PHP url-fopen abuse, protected-area probes |

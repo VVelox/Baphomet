@@ -1,0 +1,84 @@
+---
+# A detection-only rule... the mandatory access control being switched OUT of
+# enforcing. The kernel raises these on its own, no auditctl rule needed.
+# Turning off the MAC is a defense-evasion step, clearing the way for what
+# comes next, not a network offender to firewall. Counts by the subject via
+# detection_var, banishes nobody... each disable a sighting in EVE. The auditd
+# munger decodes the lsm, the enforcing states, and the AppArmor k=v blob.
+# See docs/rules and docs/eve.
+#
+# The two LSMs are switched off by wholly different means and are matched
+# separately:
+#
+#   - SELinux has a global switch. setenforce 0 raises MAC_STATUS (and
+#     MAC_CONFIG_CHANGE) carrying enforcing=0 and the auid of whoever did it,
+#     so those count by AUID. Only the transition OUT of enforcing is matched,
+#     never a re-enable.
+#   - AppArmor has no enforcing= to zero. Its analog is a profile being
+#     unloaded (apparmor_parser -R, or aa-teardown, which unloads the lot),
+#     leaving that program confined by nothing. No auid rides these records,
+#     so they count by the profile that was removed instead... hence PROFILE
+#     alongside AUID in detection_var, whichever the matched line carries.
+#     profile_replace is deliberately NOT matched: an ordinary reload looks
+#     identical to a switch into complain mode, so alerting on it would be
+#     alerting on every package upgrade. That is the blind spot, named.
+#
+# Worth knowing before this goes on a snap-heavy Ubuntu: removing a snap
+# unloads its profiles, and each unload is a profile_remove of its own. On
+# such a host the AppArmor half wants eve_only until you know the volume.
+rev: 1
+msg: "[AUDITD] mandatory access control set permissive/disabled"
+severity: high
+classtype: policy-violation
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=MAC_STATUS msg=audit\([\d.]+:\d+\): enforcing=0\b.*\bauid=(?<AUID>\d+)'
+  - '^type=MAC_CONFIG_CHANGE msg=audit\([\d.]+:\d+\): .*\benforcing=0\b.*\bauid=(?<AUID>\d+)'
+  # AppArmor: the profile being unloaded. name= is the profile operated ON;
+  # profile= on these records is the actor's own confinement (unconfined,
+  # for apparmor_parser), which is not what we want to count by.
+  - '^type=(?:AVC|APPARMOR_\w+) msg=audit\([\d.]+:\d+\): apparmor="STATUS" .*?\boperation="profile_remove" .*?\bname="(?<PROFILE>[^"]+)"'
+detection_var:
+  - AUID
+  - PROFILE
+tests:
+  positive:
+    - message: "Nov 14 10:10:00 vixen42 audisp-syslog[1500]: type=MAC_STATUS msg=audit(1700000005.1:905): enforcing=0 old_enforcing=1 auid=1000 ses=3"
+      found: 1
+      data:
+        AUID: "1000"
+        audit_enforcing: "0"
+    - message: "Nov 14 10:10:01 vixen42 audisp-syslog[1501]: type=MAC_CONFIG_CHANGE msg=audit(1700000006.1:906): op=setenforce lsm=selinux enforcing=0 old_enforcing=1 auid=1000 ses=3"
+      found: 1
+      data:
+        AUID: "1000"
+        audit_lsm: "selinux"
+    # AppArmor: a profile unloaded, counted by the profile since no auid rides it
+    - message: "Nov 14 10:10:03 vixen42 audisp-syslog[1503]: type=AVC msg=audit(1700000008.1:908): apparmor=\"STATUS\" operation=\"profile_remove\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2200 comm=\"apparmor_parser\""
+      found: 1
+      data:
+        PROFILE: "/usr/bin/foo"
+        audit_operation: "profile_remove"
+    # the same, filed under a 1500-range APPARMOR_* type
+    - message: "Nov 14 10:10:04 vixen42 audisp-syslog[1504]: type=APPARMOR_STATUS msg=audit(1700000009.1:909): apparmor=\"STATUS\" operation=\"profile_remove\" profile=\"unconfined\" name=\"snap.foo.bar\" pid=2201 comm=\"apparmor_parser\""
+      found: 1
+      data:
+        PROFILE: "snap.foo.bar"
+  negative:
+    # re-enabling enforcement is not the alarm
+    - message: "Nov 14 10:10:02 vixen42 audisp-syslog[1502]: type=MAC_STATUS msg=audit(1700000007.1:907): enforcing=1 old_enforcing=0 auid=1000 ses=3"
+      found: 0
+      undefed: ["AUID"]
+    # a profile reload is indistinguishable from a switch to complain mode, so
+    # it is left alone rather than alerted on at every package upgrade
+    - message: "Nov 14 10:10:05 vixen42 audisp-syslog[1505]: type=AVC msg=audit(1700000010.1:910): apparmor=\"STATUS\" operation=\"profile_replace\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2202 comm=\"apparmor_parser\""
+      found: 0
+      undefed: ["PROFILE"]
+    # an AppArmor denial belongs to linux-auditd-apparmor-denied
+    - message: "Nov 14 10:10:06 vixen42 audisp-syslog[1506]: type=AVC msg=audit(1700000011.1:911): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=2203 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+      found: 0
+      undefed: ["PROFILE"]

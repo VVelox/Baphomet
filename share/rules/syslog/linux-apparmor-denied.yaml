@@ -1,0 +1,87 @@
+---
+# A detection-only rule... AppArmor "DENIED" records read straight off the
+# kernel ring buffer, PROGRAM=kernel, no auditd anywhere in the picture.
+#
+# This is the SAME event linux-auditd-apparmor-denied reads, arriving by the
+# other road. When auditd runs it swallows the audit socket and the records
+# leave via audisp-syslog wearing "type=AVC"; when it does not, the kernel
+# prints them itself and they leave via the klog reader wearing
+# "audit: type=1400". That second case is not an edge... it is the default
+# state of a stock Debian or Ubuntu, where AppArmor is enforcing out of the
+# box and auditd is not installed at all. Hence a rule that needs nothing set
+# up on the watched host: point a watcher at the file the kernel facility
+# already lands in and the denials are read.
+#
+# It counts by the denied profile via detection_var and banishes nobody...
+# a policy tripwire, never a network offender to firewall. The kernel munger
+# decodes the rest (operation, masks, the audit id that ties the record to
+# its siblings) and normalizes the verdict to mac_result, the same field the
+# auditd munger sets, so a consumer tests one name whichever road the record
+# took and whichever LSM raised it.
+#
+# The bracketed printk uptime ("[ 1234.567890]") is optional here on purpose:
+# rsyslog's klog reader keeps it, journald's kmsg reader strips it, and which
+# one wrote the file being tailed is not this rule's business.
+#
+# Log-Munger's kernel file steps over the same prefix, so both shapes arrive
+# enriched. The profile is nonetheless captured by the rule itself rather than
+# leaned out of the munger: the match is then independent of whether the
+# decoder read the line the same way this rule did. That is also why the
+# prefixed test below asserts PROFILE alone and no kernel_* field... it proves
+# the rule's own read, which is the part this file is responsible for.
+#
+# Only "DENIED" is matched... "ALLOWED" is a complain-mode profile saying what
+# it would have refused, and "STATUS" is profile-load bookkeeping.
+rev: 1
+msg: "[APPARMOR] denial (kernel ring buffer)"
+severity: medium
+classtype: policy-violation
+daemons:
+  - kernel
+mungers:
+  - kernel
+message_regexp:
+  - '^(?:\[\s*\d+\.\d+\] +)?audit: type=\d+ audit\([\d.]+:\d+\): apparmor="DENIED" .*?\bprofile="(?<PROFILE>[^"]+)"'
+detection_var:
+  - PROFILE
+tests:
+  positive:
+    # no printk prefix... the kernel munger matches and the enrichment rides along
+    - message: "Nov 14 12:20:00 vixen42 kernel: audit: type=1400 audit(1626345600.123:456): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+      found: 1
+      data:
+        PROFILE: "/usr/bin/foo"
+        mac_result: "denied"
+        kernel_apparmor_mode: "DENIED"
+        kernel_apparmor_operation: "open"
+        kernel_audit_id: "1626345600.123:456"
+    # the 1500-range numeric types, not just 1400
+    - message: "Nov 14 12:20:01 vixen42 kernel: audit: type=1502 audit(1700000000.000:102): apparmor=\"DENIED\" operation=\"mkdir\" profile=\"/usr/bin/foo\" name=\"/tmp/x\" pid=77 comm=\"foo\" requested_mask=\"c\" denied_mask=\"c\" fsuid=0 ouid=0"
+      found: 1
+      data:
+        PROFILE: "/usr/bin/foo"
+        kernel_apparmor_operation: "mkdir"
+    # with the printk uptime rsyslog's klog reader leaves on, the shape a
+    # Debian or Ubuntu kern.log actually holds
+    - message: "Nov 14 12:20:02 vixen42 kernel: [ 1234.567890] audit: type=1400 audit(1700000001.000:103): apparmor=\"DENIED\" operation=\"exec\" profile=\"/usr/sbin/nginx\" name=\"/bin/sh\" pid=4321 comm=\"nginx\" requested_mask=\"x\" denied_mask=\"x\" fsuid=33 ouid=0"
+      found: 1
+      data:
+        PROFILE: "/usr/sbin/nginx"
+    # info= first, no operation= at all
+    - message: "Nov 14 12:20:03 vixen42 kernel: audit: type=1400 audit(1700000002.000:104): apparmor=\"DENIED\" info=\"Failed name lookup - disconnected path\" error=-13 profile=\"snap.foo\" name=\"/\" pid=1 comm=\"foo\""
+      found: 1
+      data:
+        PROFILE: "snap.foo"
+  negative:
+    # complain mode is not a denial
+    - message: "Nov 14 12:20:04 vixen42 kernel: audit: type=1400 audit(1700000003.000:105): apparmor=\"ALLOWED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1236 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+      found: 0
+      undefed: ["PROFILE"]
+    # a SELinux AVC on the same ring buffer is not AppArmor's
+    - message: "Nov 14 12:20:05 vixen42 kernel: audit: type=1400 audit(1700000004.000:106): avc:  denied  { read } for  pid=4444 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
+      found: 0
+      undefed: ["PROFILE"]
+    # an ordinary kernel line carrying none of this
+    - message: "Nov 14 12:20:06 vixen42 kernel: usb 1-1: new high-speed USB device number 5 using ehci-hcd"
+      found: 0
+      undefed: ["PROFILE"]

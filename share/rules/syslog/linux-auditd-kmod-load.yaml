@@ -1,0 +1,44 @@
+---
+# A detection-only rule... auditd catching a kernel module being loaded. On
+# x86_64 (arch=c000003e) the init_module / finit_module / delete_module
+# syscalls (175 / 313 / 176), or any exec the operator has tagged with a
+# module-related watch key. A loadable kernel module is the deepest a rootkit
+# reaches, running in ring 0 with the audit trail itself at its mercy, so it is
+# a host event to keep close, not a network offender to firewall. Counts by the
+# loading program via detection_var, banishes nobody... each load a sighting in
+# EVE. The auditd munger decodes the syscall, comm, and key. See docs/rules and
+# docs/eve.
+rev: 1
+msg: "[AUDITD] kernel module load/unload... possible rootkit"
+severity: critical
+classtype: trojan-activity
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\barch=c000003e\b.*\bsyscall=(?:175|176|313)\b.*\bcomm="(?<COMM>[^"]+)"'
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bcomm="(?<COMM>[^"]+)".*\bkey="(?:modules|module_load|module-load|kmod|kernel_modules)"'
+detection_var:
+  - COMM
+tests:
+  positive:
+    # init_module by the standard loader
+    - message: "Nov 14 11:00:00 vixen42 audisp-syslog[2000]: type=SYSCALL msg=audit(1700000020.1:920): arch=c000003e syscall=175 success=yes exit=0 a0=7f a1=0 items=0 ppid=1 pid=4200 auid=0 uid=0 comm=\"insmod\" exe=\"/usr/bin/kmod\" key=\"modules\""
+      found: 1
+      data:
+        COMM: "insmod"
+        audit_syscall: "175"
+        audit_exe: "/usr/bin/kmod"
+    # an operator-tagged module watch, whatever the syscall
+    - message: "Nov 14 11:00:01 vixen42 audisp-syslog[2001]: type=SYSCALL msg=audit(1700000021.1:921): arch=c000003e syscall=1 success=yes exit=0 ppid=1 pid=4300 auid=0 uid=0 comm=\"loader\" exe=\"/tmp/loader\" key=\"module_load\""
+      found: 1
+      data:
+        COMM: "loader"
+        audit_key: "module_load"
+  negative:
+    # an ordinary syscall on an unrelated watch is not a module load
+    - message: "Nov 14 11:00:02 vixen42 audisp-syslog[2002]: type=SYSCALL msg=audit(1700000022.1:922): arch=c000003e syscall=2 success=yes exit=3 ppid=1 pid=4400 auid=0 uid=0 comm=\"cat\" exe=\"/usr/bin/cat\" key=\"etcwatch\""
+      found: 0
+      undefed: ["COMM"]

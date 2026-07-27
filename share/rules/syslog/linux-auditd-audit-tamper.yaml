@@ -1,0 +1,45 @@
+---
+# A detection-only rule... auditd recording its own subversion: audit rules
+# being removed (CONFIG_CHANGE op=remove_rule), auditing switched off
+# (audit_enabled=0), or the daemon aborting (DAEMON_ABORT). The kernel and the
+# daemon raise these on their own, no auditctl rule needed. Blinding the audit
+# trail is what an intruder does before the noisy part, so it is a signal to
+# keep even as the records around it stop, not a network offender to firewall.
+# Counts by the responsible login uid (or the daemon op) via detection_var,
+# banishes nobody. The auditd munger decodes the op and key. See docs/rules
+# and docs/eve.
+rev: 1
+msg: "[AUDITD] audit subsystem tampered with"
+severity: high
+classtype: policy-violation
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=CONFIG_CHANGE msg=audit\([\d.]+:\d+\):(?=.*\bop=remove_rule\b).*\bauid=(?<SUBJECT>\d+)'
+  - '^type=CONFIG_CHANGE msg=audit\([\d.]+:\d+\):(?=.*\baudit_enabled=0\b).*\bauid=(?<SUBJECT>\d+)'
+  - '^type=DAEMON_ABORT msg=audit\([\d.]+:\d+\): .*\bop=(?<SUBJECT>\S+)'
+detection_var:
+  - SUBJECT
+tests:
+  positive:
+    - message: "Nov 14 10:20:00 vixen42 audisp-syslog[1600]: type=CONFIG_CHANGE msg=audit(1700000004.1:904): auid=1000 ses=3 op=remove_rule key=\"identity\" list=4 res=1"
+      found: 1
+      data:
+        SUBJECT: "1000"
+        audit_op: "remove_rule"
+    - message: "Nov 14 10:20:01 vixen42 audisp-syslog[1601]: type=CONFIG_CHANGE msg=audit(1700000005.1:905): op=set audit_enabled=0 old=1 auid=1000 ses=3 res=1"
+      found: 1
+      data:
+        SUBJECT: "1000"
+    - message: "Nov 14 10:20:02 vixen42 audisp-syslog[1602]: type=DAEMON_ABORT msg=audit(1700000006.1:906): op=error msg=\"auditd error halt\""
+      found: 1
+      data:
+        SUBJECT: "error"
+  negative:
+    # a benign rule add on startup is not tampering
+    - message: "Nov 14 10:20:03 vixen42 audisp-syslog[1603]: type=CONFIG_CHANGE msg=audit(1700000007.1:907): auid=0 ses=1 op=add_rule key=\"identity\" list=4 res=1"
+      found: 0
+      undefed: ["SUBJECT"]

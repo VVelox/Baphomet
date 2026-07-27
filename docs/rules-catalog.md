@@ -27,10 +27,21 @@ and changes no rule's own behavior. See the standard brands in
 | rule | watches for | daemon gate |
 | --- | --- | --- |
 | `syslog/asterisk` | Asterisk auth/registration failures | `asterisk` |
-| `syslog/auditd-auth-failed` | auditd remote authentication failures forwarded via audisp-syslog (USER_LOGIN/USER_AUTH/USER_ERR/CRED_ACQ, `res=failed` with a network `addr`)... bans the source | `audisp-syslog`, `audispd`, `audit` |
-| `syslog/auditd-anom-login-failures` | auditd `ANOM_LOGIN_FAILURES`... the audit subsystem's own verdict that an account crossed its failure threshold; bans the source when the record names one | `audisp-syslog`, `audispd`, `audit` |
-| `syslog/auditd-user-mgmt` | auditd account/group lifecycle (ADD_USER/DEL_USER/USER_MGMT/...)... detection-only audit trail, counts by the responsible login uid | `audisp-syslog`, `audispd`, `audit` |
-| `syslog/auditd-avc-denied` | auditd SELinux AVC `denied` records... detection-only, counts by the denied process (`comm`) | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-auth-failed` | auditd remote authentication failures forwarded via audisp-syslog (USER_LOGIN/USER_AUTH/USER_ERR/CRED_ACQ, `res=failed` with a network `addr`)... bans the source | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-anom-login-failures` | auditd `ANOM_LOGIN_FAILURES`... the audit subsystem's own verdict that an account crossed its failure threshold; bans the source when the record names one | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-user-mgmt` | auditd account/group lifecycle (ADD_USER/DEL_USER/USER_MGMT/...)... detection-only audit trail, counts by the responsible login uid | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-avc-denied` | auditd SELinux AVC `denied` records... detection-only, counts by the denied process (`comm`) | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-apparmor-denied` | auditd AppArmor `apparmor="DENIED"` records, top-level and dbus-nested alike (any record type... the `apparmor=` token is the discriminator, not the type)... detection-only, counts by the denied profile | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-apparmor-denied` | the same AppArmor denials read off the kernel ring buffer (`audit: type=1400 ... apparmor="DENIED"`) on a host running no auditd, the stock Debian/Ubuntu case... detection-only, counts by the denied profile | `kernel` |
+| `syslog/linux-auditd-promiscuous` | auditd `ANOM_PROMISCUOUS`... a NIC entering promiscuous mode (a sniffer coming up); detection-only, counts by the device | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-mac-tamper` | auditd `MAC_STATUS`/`MAC_CONFIG_CHANGE` with `enforcing=0` (SELinux dropped out of enforcing), or an AppArmor `operation="profile_remove"` (a profile unloaded)... detection-only, counts by the responsible login uid or, for AppArmor, by the profile removed | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-audit-tamper` | auditd recording its own subversion (`CONFIG_CHANGE op=remove_rule`, `audit_enabled=0`, `DAEMON_ABORT`)... detection-only, counts by the responsible login uid | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-abend` | auditd `ANOM_ABEND` on a memory-corruption fault signal (SIGILL/ABRT/BUS/FPE/SEGV)... detection-only, counts by the crashing program (`comm`) | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-anom-exec` | auditd `ANOM_EXEC`... an execution the kernel flagged as forbidden; detection-only, counts by the executable (`exe`) | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-kmod-load` | auditd kernel module load/unload (x86_64 init/finit/delete_module syscalls, or a module watch key)... detection-only, counts by the loading program (`comm`) | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-preload-tamper` | auditd a write to the dynamic-linker preload config (`/etc/ld.so.preload`, `ld.so.conf*`, or an `ldpreload` watch key)... detection-only, counts by the target | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-exec-from-writable` | auditd an exec out of `/tmp`, `/var/tmp`, `/dev/shm`, or a `susp_exec` watch key... detection-only, counts by the executable (`exe`) | `audisp-syslog`, `audispd`, `audit` |
+| `syslog/linux-auditd-odd-path` | auditd a path named to hide (`...` dir, dotfile in a system bin/lib dir or `/dev/shm`, or a bare hex-encoded name)... detection-only, counts by the path | `audisp-syslog`, `audispd`, `audit` |
 | `syslog/courier-auth` | Courier IMAP/POP3 login failures | `imapd`, `pop3d`, and ssl/login variants |
 | `syslog/courier-smtp` | Courier SMTP rejects | `courieresmtpd` |
 | `syslog/cyrus-imap` | Cyrus IMAP/POP3 login failures | `imapd`/`pop3d`, optionally `cyrus/` prefixed |

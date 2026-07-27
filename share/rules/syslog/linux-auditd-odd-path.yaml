@@ -1,0 +1,61 @@
+---
+# A detection-only rule... auditd surfacing a path that has no honest reason to
+# exist. A '...' directory (three dots, easily mistaken for the '..' the eye
+# skips over); a hidden dotfile sitting in a system bin/lib directory or in
+# /dev/shm; or a filename audit itself had to hex-encode because it carried
+# spaces or control characters, arriving as a bare, unquoted name= value. These
+# are the names a rootkit chooses to hide in plain sight among the system's own
+# files, so they are host events to keep close, not network offenders to
+# firewall. Counts by the path via detection_var, banishes nobody... each one a
+# sighting in EVE. The auditd munger decodes the name and exe. See docs/rules
+# and docs/eve.
+rev: 1
+msg: "[AUDITD] path with a name chosen to hide... possible rootkit"
+severity: high
+classtype: trojan-activity
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  # an executable hidden as a dotfile inside a system bin/lib directory
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<PATH>[^"]*/(?:s?bin|lib(?:64)?|libexec)/\.[^"]*)"'
+  # an executable living under a '...' directory
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<PATH>[^"]*/\.\.\.[^"]*)"'
+  # the same, seen as a PATH record: dotfile in a system dir
+  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/(?:s?bin|lib(?:64)?|libexec)/\.[^"]*)"'
+  # a '...' directory in a PATH record
+  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/\.\.\.[^"]*)"'
+  # a hidden name dropped into /dev/shm
+  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/dev/shm/\.[^"]*)"'
+  # a bare, unquoted hex name... audit encodes filenames with spaces or control
+  # characters, and an honest filename is rarely bare hex
+  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname=(?<PATH>[0-9A-Fa-f]{4,})(?:\s|$)'
+detection_var:
+  - PATH
+tests:
+  positive:
+    # a binary hidden as a dotfile under /usr/sbin
+    - message: "Nov 14 11:30:00 vixen42 audisp-syslog[2300]: type=SYSCALL msg=audit(1700000050.1:950): arch=c000003e syscall=59 success=yes exit=0 ppid=1 pid=4900 auid=0 uid=0 comm=\"rk\" exe=\"/usr/sbin/.hidden/rk\" key=\"exec\""
+      found: 1
+      data:
+        PATH: "/usr/sbin/.hidden/rk"
+        audit_comm: "rk"
+    # a '...' directory in a PATH record
+    - message: "Nov 14 11:30:01 vixen42 audisp-syslog[2301]: type=PATH msg=audit(1700000051.1:951): item=0 name=\"/var/.../rootkit\" inode=3 dev=fd:00 mode=0100755 nametype=CREATE"
+      found: 1
+      data:
+        PATH: "/var/.../rootkit"
+        audit_nametype: "CREATE"
+    # a bare hex-encoded filename... a name audit had to escape
+    - message: "Nov 14 11:30:02 vixen42 audisp-syslog[2302]: type=PATH msg=audit(1700000052.1:952): item=0 name=2E2E2E20 inode=4 dev=fd:00 mode=040755 nametype=CREATE"
+      found: 1
+      data:
+        PATH: "2E2E2E20"
+        audit_type: "PATH"
+  negative:
+    # an ordinary system binary at an ordinary path is fine
+    - message: "Nov 14 11:30:03 vixen42 audisp-syslog[2303]: type=PATH msg=audit(1700000053.1:953): item=0 name=\"/usr/bin/ls\" inode=5 dev=fd:00 mode=0100755 ouid=0 ogid=0 nametype=NORMAL"
+      found: 0
+      undefed: ["PATH"]

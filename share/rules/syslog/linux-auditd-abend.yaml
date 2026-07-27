@@ -1,0 +1,36 @@
+---
+# A detection-only rule... auditd ANOM_ABEND, a process ending abnormally on a
+# fault signal. The kernel raises it on its own, no auditctl rule needed.
+# Restricted to the memory-corruption family (SIGILL/SIGABRT/SIGBUS/SIGFPE/
+# SIGSEGV), the shape a exploit attempt against a service leaves when it does
+# not land cleanly, so an operator kill (SIGTERM/SIGKILL) is left out. A crash
+# is a host event to triage, not a network offender to firewall... it counts by
+# the crashing program via detection_var, banishing nobody. A service crashing
+# repeatedly raises a sighted. The auditd munger decodes the exe and signal.
+# See docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] process abnormal end on a fault signal... possible exploit"
+severity: medium
+classtype: program-error
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=ANOM_ABEND msg=audit\([\d.]+:\d+\): .*\bcomm="(?<COMM>[^"]+)".*\bsig=(?<SIG>4|6|7|8|11)\b'
+detection_var:
+  - COMM
+tests:
+  positive:
+    - message: "Nov 14 10:30:00 vixen42 audisp-syslog[1700]: type=ANOM_ABEND msg=audit(1700000010.1:910): auid=1000 uid=1000 ses=3 pid=4000 comm=\"nginx\" exe=\"/usr/sbin/nginx\" sig=11 res=1"
+      found: 1
+      data:
+        COMM: "nginx"
+        SIG: "11"
+        audit_exe: "/usr/sbin/nginx"
+  negative:
+    # a normal SIGTERM shutdown is not a fault
+    - message: "Nov 14 10:30:01 vixen42 audisp-syslog[1701]: type=ANOM_ABEND msg=audit(1700000011.1:911): auid=1000 uid=1000 ses=3 pid=4001 comm=\"myapp\" exe=\"/usr/bin/myapp\" sig=15 res=1"
+      found: 0
+      undefed: ["COMM"]

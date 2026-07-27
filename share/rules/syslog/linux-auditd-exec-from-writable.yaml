@@ -1,0 +1,42 @@
+---
+# A detection-only rule... auditd catching a program executing out of a
+# world-writable scratch directory (/tmp, /var/tmp, /dev/shm), or any exec the
+# operator has tagged with a suspicious-exec watch key. Dropping a payload in a
+# writable directory and running it there is the plainest shape a foothold
+# takes, the second stage after a download or an upload. A local execution is a
+# host event to triage, not a network offender to firewall... it counts by the
+# executable via detection_var, banishing nobody. Each run a sighting in EVE.
+# The auditd munger decodes the exe, comm, and key. See docs/rules and docs/eve.
+rev: 1
+msg: "[AUDITD] execution from a writable directory... possible payload"
+severity: high
+classtype: trojan-activity
+daemons:
+  - //^audisp(?:-syslog|d)?$//
+  - audit
+mungers:
+  - auditd
+message_regexp:
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>/(?:tmp|var/tmp|dev/shm)/[^"]+)"'
+  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)".*\bkey="susp_exec"'
+detection_var:
+  - EXE
+tests:
+  positive:
+    # a binary run straight out of /tmp
+    - message: "Nov 14 11:20:00 vixen42 audisp-syslog[2200]: type=SYSCALL msg=audit(1700000040.1:940): arch=c000003e syscall=59 success=yes exit=0 ppid=1 pid=4600 auid=1000 uid=1000 comm=\"backdoor\" exe=\"/tmp/.x/backdoor\" key=\"exec\""
+      found: 1
+      data:
+        EXE: "/tmp/.x/backdoor"
+        audit_comm: "backdoor"
+    # an operator-tagged suspicious exec, wherever it lives
+    - message: "Nov 14 11:20:01 vixen42 audisp-syslog[2201]: type=SYSCALL msg=audit(1700000041.1:941): arch=c000003e syscall=59 success=yes exit=0 ppid=1 pid=4700 auid=1000 uid=1000 comm=\"sh\" exe=\"/usr/bin/dash\" key=\"susp_exec\""
+      found: 1
+      data:
+        EXE: "/usr/bin/dash"
+        audit_key: "susp_exec"
+  negative:
+    # an ordinary binary from a system path on an unrelated watch is fine
+    - message: "Nov 14 11:20:02 vixen42 audisp-syslog[2202]: type=SYSCALL msg=audit(1700000042.1:942): arch=c000003e syscall=59 success=yes exit=0 ppid=1 pid=4800 auid=1000 uid=1000 comm=\"ls\" exe=\"/usr/bin/ls\" key=\"rootcmd\""
+      found: 0
+      undefed: ["EXE"]
