@@ -432,7 +432,14 @@ sub start_server {
 		$self->{enable_auth} ? ( 'permissions' => $self->_neti_permissions ) : (),
 		'on_error' => sub {
 			my ( $operation, $errnum, $errstr ) = @_;
-			log_drek( 'err', 'socket error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')' );
+			log_drek( 'err',
+					  'socket error during '
+					. $operation . ' on "'
+					. $self->socket_path
+					. '"... '
+					. $errstr . ' ('
+					. $errnum
+					. ')' );
 		},
 		'commands' => \%command_handlers,
 	);
@@ -781,15 +788,27 @@ sub _galla_async_client {
 	my ( $self, $name ) = @_;
 
 	if ( !defined( $self->{galla_clients}{$name} ) ) {
+		my $socket = $self->galla_socket_path($name);
 		$self->{galla_clients}{$name} = POE::Component::Server::JSONUnix::Client->spawn(
-			'socket_path'     => $self->galla_socket_path($name),
+			'socket_path'     => $socket,
 			'alias'           => 'baphomet-galla-client-' . $name,
 			'auto_connect'    => 0,
 			'request_timeout' => $self->{timeout},
 			'on_error'        => sub {
 				my ( $operation, $errnum, $errstr ) = @_;
+				# name the socket... a connect failure most often means the
+				# galla is not up (its socket absent), and the path says which
 				log_drek( 'err',
-					'galla client "' . $name . '" error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')' );
+						  'galla client "'
+						. $name
+						. '" error during '
+						. $operation
+						. ' to "'
+						. $socket
+						. '"... '
+						. $errstr . ' ('
+						. $errnum
+						. ')' );
 			},
 		);
 	} ## end if ( !defined( $self->{galla_clients}{$name...}))

@@ -81,11 +81,55 @@ Every record carries these fields...
 | `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
 | `src_ip` | the flow's source IP, lifted from the found var the rule's `src_ip_var` names (default `src_ip`)... always present, `null` when that var is absent. |
 | `dest_ip` | the flow's destination IP, lifted from the found var the rule's `dest_ip_var` names (default `dest_ip`)... always present, `null` when that var is absent. |
-| `raw` | the line as received, or, when that line is itself a JSON object or array, the decoded structure rather than a escaped string. |
-| `parsed` | the parser's output, or the parsed JSON itself for a JSON log. |
-| `found` | all the found hash keys, what the rule captured. |
+| `raw` | the log line exactly as received (bytes untouched), or, when that line is itself a JSON object or array, the decoded structure rather than an escaped string blob. The unprocessed input. See [raw, parsed, found](#raw-parsed-found). |
+| `parsed` | the record the parser made of that line, before the rule touched it... the structural fields. The unit of what the rule matched against. See [raw, parsed, found](#raw-parsed-found). |
+| `found` | the assembled offense... the fields the rule matched, extracted, or correlated, and the ones `ban_var`/`detection_var`, the gates, and the marks resolve against. See [raw, parsed, found](#raw-parsed-found). |
 | `stages` | a staged rule's whole story... an array of every stage hit (`stage` index, `time` epoch, `line`), `raw` above being only the final line. Present only on staged-rule events. |
 | `rule` | the rule's name and def, with its tests stripped to save space. |
+
+### raw, parsed, found
+
+Three views of the same event, in the order the line moves through the
+engine... `raw` is the input, `parsed` is what a parser made of it, and
+`found` is what the rule made of that. They overlap, and for some rules
+two of them coincide, but each answers a different question.
+
+- **`raw`** ... the line as it arrived, nothing done to it (beyond the
+  UTF-8 scrub above). The one exception is a line that is itself JSON,
+  which rides along decoded to its structure rather than as an escaped
+  string, so the stream carries the object and not a blob. This is the
+  forensic copy... what was on the wire.
+
+- **`parsed`** ... the record a [parser](rules.md) produced from that
+  line, before any rule ran. What it holds depends on the parser: a
+  `bsd_syslog` line becomes `daemon`, `pid`, `host`, `facility`, `level`,
+  `message`, `time`; a `json` line becomes the object flattened to dotted
+  paths (`alert.category`, `flow.src_ip`); an `http_access` line becomes
+  the access-log fields; a `raw` line is just the message. This is the
+  line *as delivered*, the common structure the rule's gates and regexps
+  are tested against.
+
+- **`found`** ... the offense the rule assembled, and the hash that
+  `ban_var`/`detection_var`, the gates, the marks, and `src_ip_var`/
+  `dest_ip_var` all read. For a regexp rule (syslog/raw/http_error) it is
+  the rule's named captures... often a small subset, like just `SRC` and
+  `USER`, extracted from the message. For a `json` rule it is the
+  flattened record *plus* anything the rule pulled out or brought in: a
+  token capture a `match` regexp extracted (the shipped `json/mongodb-auth`
+  turns the logged `attr.remote` of `"1.2.3.4:5678"` into a `SRC` of
+  `1.2.3.4`), and any context a [correlation](rules.md) rule merged from an
+  earlier line keyed by a connection id.
+
+So `parsed` answers "what did this line say?" and `found` answers "what is
+the offense?". They **coincide** when the rule neither captures nor
+correlates and the parse already carries the offender natively... a
+Suricata class rule that only gates on `event_type`/`alert.category` and
+bans on the native `src_ip`/`dest_ip` has a `found` byte-identical to its
+`parsed`, since nothing was extracted. They **diverge** the moment the
+rule synthesizes a field the line did not literally contain (mongodb-auth's
+`SRC`) or a correlation rule folds in fields from a remembered line. When
+in doubt, read `found` for the offense and `parsed` for the untouched
+record.
 
 A **banish** event adds `.ip` and `.ban_time`, and `.recidive` is true
 when it is a seventh-gate escalation to the recidive kur. A banish

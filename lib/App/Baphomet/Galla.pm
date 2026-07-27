@@ -1475,13 +1475,15 @@ sub start_server {
 
 	my $ident = 'galla-' . $self->{name};
 
+	my $socket = $self->socket_path;
 	my $server = POE::Component::Server::JSONUnix->spawn(
-		'socket_path' => $self->socket_path,
+		'socket_path' => $socket,
 		'socket_mode' => oct('0600'),
 		'alias'       => $ident,
 		'on_error'    => sub {
 			my ( $operation, $errnum, $errstr ) = @_;
-			log_drek( 'err', 'socket error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')',
+			log_drek( 'err',
+				'socket error during ' . $operation . ' on "' . $socket . '"... ' . $errstr . ' (' . $errnum . ')',
 				undef, $ident );
 		},
 		'commands' => {
@@ -4103,8 +4105,18 @@ sub _spawn_kur_client {
 		'request_timeout' => $self->{timeout},
 		'on_error'        => sub {
 			my ( $operation, $errnum, $errstr ) = @_;
-			log_drek( 'err', 'kur client error during ' . $operation . '... ' . $errstr . ' (' . $errnum . ')',
-				undef, $ident );
+			# name the Ereshkigal socket... a connect failure usually means
+			# Ereshkigal is down or the path is wrong, and the path says which
+			log_drek(
+				'err',
+				'kur client error during '
+					. $operation . ' to "'
+					. $self->{ereshkigal_socket}
+					. '"... '
+					. $errstr . ' ('
+					. $errnum . ')',
+				undef, $ident
+			);
 		},
 		'on_disconnect' => sub {
 			my ( undef, $reason ) = @_;

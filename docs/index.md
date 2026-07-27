@@ -13,12 +13,22 @@ counting any subject and raising a triageable alert to the EVE stream with
 out banishing anyone. Ban or detect is one key's difference. See
 [log-analysis](log-analysis) for that half.
 
-The galla are the demons of Kur who seize the condemned and drag them below,
-and here each `galla` is a worker process, one per kur configured. The
-`baphomet` manager looses and oversees them.
+A **kur** is a named group of watchers that share thresholds and one ban
+destination... Baphomet's equivalent of a fail2ban jail, defined by a
+`[kur.NAME]` table in the config. It is named for **Kur**, the underworld
+realm [Ereshkigal](https://github.com/LilithSec/Ereshkigal) rules, because
+that is where its bans are sent... so mind the case: lowercase `kur` is the
+jail, capital `Kur` is where the banished go. Each kur is run by one
+**galla**, a worker process (in myth the demons of Kur who seize the
+condemned and drag them below); the `baphomet` manager looses and oversees
+them. New to the vocabulary? The [glossary](glossary) defines every term in
+one place.
 
 ## The docs
 
+- [glossary](glossary) ... every borrowed term (kur, Kur, galla, Namtar,
+  Neti, ...) in plain language, in one place. Start here if a name is
+  unfamiliar.
 - [architecture](architecture) ... the processes, the sockets, how a
   line becomes a ban, and how Baphomet relates to Ereshkigal.
 - [install](install) ... dependencies and installing.

@@ -80,8 +80,9 @@ A rule imports a list with the `%%%country_codes{name}%%%` token in its
 
 `namtar_lists` names lists a `namtar_list` gate checks a value against...
 the inverse of `ignore_ips`, so a rule can banish only what appears on a
-feed. Named so a rule stays policy-neutral and imports a feed the operator
-supplies. Layered watcher over kur over global, merged per name, and every
+feed. A blocklist, in short, named for Namtar, the underworld's messenger
+of fate and disease. The naming keeps a rule policy-neutral: it imports a
+feed the operator supplies rather than baking one in. Layered watcher over kur over global, merged per name, and every
 file is reloaded when its mtime changes, so a feed that updates on disk
 takes effect with in a sweep... no restart.
 
@@ -149,9 +150,12 @@ of both ends. A rule references a window with the `active_time` gate. See
 
 ## Kurs and watchers
 
-Hashes under `kur` define kurs, one galla each. The name is the hash name
-and is also what ban requests are targeted at on the Ereshkigal side, so it
-should match a kur over there. The kur over there may be a real one or a
+A **kur** is a named group of watchers that share thresholds and one ban
+destination... Baphomet's equivalent of a fail2ban jail. (It is named for
+Kur, the realm bans are sent to; see the [glossary](glossary) if the
+vocabulary is new.) Each `[kur.NAME]` table defines one, run by one galla.
+The name is also what ban requests are targeted at on the Ereshkigal side,
+so it should match a kur over there. The kur over there may be a real one or a
 gate (a `fan_out` kur)... a gate has no firewall of its own and relays
 each banishment to its members, so one Baphomet kur can feed a whole set
 of Ereshkigal kurs through a single name. With Ereshkigal's `enable_auth`
