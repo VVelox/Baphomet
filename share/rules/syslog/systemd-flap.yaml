@@ -11,11 +11,13 @@
 # restart on a tight timer will trip it; ignore those per deployment.
 # The max_score of 1 makes one loop the alert where the watcher sets
 # allow_per_rule_thresholds.
-rev: 1
+rev: 2
 msg: "[SYSTEMD] service crash loop / flapping"
 severity: high
 classtype: program-error
 daemons:
+  - systemd
+mungers:
   - systemd
 stages:
   - message_regexp:
@@ -34,6 +36,9 @@ tests:
       found: 1
       data:
         UNIT: "myapp.service"
+        # the systemd munger enriches from the completing restart line
+        systemd_unit: "myapp.service"
+        systemd_restart_counter: "3"
   negative:
     # two restarts is an upgrade, not a loop
     - messages:

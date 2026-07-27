@@ -1477,6 +1477,15 @@ sub run_tests {
 		'failures' => [],
 	};
 
+	# start from clean matching state. each test entry already gets its own
+	# correlation scope, but the per-object stores outlive a single run... so a
+	# repeat call (load validates once, a harness may run again) could inherit a
+	# half-built staged sequence or correlation window under a reused scope and
+	# complete it spuriously. reset them so run_tests is idempotent
+	$self->{stage_state} = {};
+	$self->{context}     = {};
+	$self->{pending}     = {};
+
 	my $tests = $self->{def}{tests};
 	if ( ref($tests) ne 'HASH' ) {
 		return $results;
