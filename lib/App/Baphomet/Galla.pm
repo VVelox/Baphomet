@@ -20,6 +20,7 @@ use App::Baphomet::Rules      ();
 use App::Baphomet::Marks      ();
 use App::Baphomet::RDNS       ();
 use App::Baphomet::Geo        ();
+use App::Baphomet::Offense    ();
 use App::Baphomet::ClayTablet ();
 use App::Baphomet::LogDrek    qw( log_drek );
 
@@ -2078,22 +2079,24 @@ sub _process_record {
 		my @all_found = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
 		my $consumed  = 0;
 		foreach my $one (@all_found) {
-			# the var-keyed mark gates and a vars country gate are data-driven
-			# and vet the whole result... a veto means the rule did not really
-			# fire, so it neither counts nor consumes the line
-			if ( !$self->_mark_gates_pass( $gates, $one->{data}, undef, $now ) ) {
-				next;
-			}
-			if ( !$self->_country_gate_pass( $country_gate, $one->{data}, undef ) ) {
-				next;
-			}
-			if ( !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef ) ) {
-				next;
-			}
-			if ( !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef ) ) {
-				next;
-			}
-			if ( !$self->_active_time_pass( $active_gate, $one->{data}, $now ) ) {
+			# the data-level gates vet the whole result once... the var-keyed
+			# mark and country gates, the namtar and reverse_dns gates, and
+			# active_time. a veto means the rule did not really fire, so it
+			# neither counts nor consumes the line. ran through the shared
+			# App::Baphomet::Offense pass so the self-tester keeps the same
+			# short-circuit-and-veto shape
+			if (
+				!App::Baphomet::Offense::data_gate_pass(
+					[
+						sub { return $self->_mark_gates_pass( $gates, $one->{data}, undef, $now ); },
+						sub { return $self->_country_gate_pass( $country_gate, $one->{data}, undef ); },
+						sub { return $self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef ); },
+						sub { return $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef ); },
+						sub { return $self->_active_time_pass( $active_gate, $one->{data}, $now ); },
+					]
+				)
+				)
+			{
 				next;
 			}
 
@@ -2167,7 +2170,8 @@ sub _process_record {
 				# buckets and never banishes. a subject crossing threshold
 				# raises a sighted, a match itself is a sighting. it consumes
 				# the line the same as any firing non-mark_only rule
-				( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, [], $now );
+				my $outcome = $self->_resolve_offense( $rule_obj, $one->{data}, [], $now, undef );
+				( $set, $lifted ) = ( $outcome->{set}, $outcome->{lifted} );
 				$context->{marks_set} = $set;
 				$context->{unmarked}  = $lifted;
 				$consumed             = 1;
@@ -2188,29 +2192,35 @@ sub _process_record {
 					$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
 				}
 			} else {
-				# the offenders that clear every per-offender gate... the
-				# var-less mark, country, namtar, and reverse_dns gates. an
-				# offender gated out here is not an offense, so it is neither
-				# branded nor counted. a result whose every offender is gated
-				# out did not fire at all: it brands nobody, emits nothing,
-				# and does not consume, falling through to the later rules...
-				# the legit crawler the reverse_dns gate cleared, say
-				my @survivors = grep {
-					       $self->_mark_gates_pass( $gates, $one->{data}, $_, $now )
-					    && $self->_country_gate_pass( $country_gate, $one->{data}, $_ )
-					    && $self->_namtar_gate_pass( $namtar_gate, $one->{data}, $_ )
-					    && $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $_ )
-				} @offenders;
-
-				if ( @offenders && !@survivors ) {
+				# resolve to the surviving offenders and brand them, in the
+				# shared order... the per-offender gates (the var-less mark,
+				# country, namtar, and reverse_dns gates) filter the
+				# candidates, a offender any gate vetoes is neither branded
+				# nor counted, and a result whose every offender is gated out
+				# did not fire: it brands nobody, emits nothing, and does not
+				# consume, falling through to the later rules... the legit
+				# crawler the reverse_dns gate cleared, say
+				my $outcome = $self->_resolve_offense(
+					$rule_obj,
+					$one->{data},
+					\@offenders,
+					$now,
+					sub {
+						my ($ip) = @_;
+						return
+							     $self->_mark_gates_pass( $gates, $one->{data}, $ip, $now )
+							  && $self->_country_gate_pass( $country_gate, $one->{data}, $ip )
+							  && $self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip )
+							  && $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip );
+					}
+				);
+				if ( !$outcome->{fired} ) {
 					next;
 				}
-
-				# brand only the survivors (the var-less marks) and the
-				# data-keyed marks... a gated-out offender is never branded
-				( $set, $lifted ) = $self->_apply_marks( $rule_obj, $one->{data}, \@survivors, $now );
+				( $set, $lifted ) = ( $outcome->{set}, $outcome->{lifted} );
 				$context->{marks_set} = $set;
 				$context->{unmarked}  = $lifted;
+				my @survivors = @{ $outcome->{survivors} };
 
 				# the offender promoted to the event's top-level ip, the first
 				# survivor... undef and absent when the rule branded only or
@@ -3124,22 +3134,13 @@ sub _mark_publish_set {
 	};
 } ## end sub _mark_publish_set
 
-# applies a rule's mark and unmark entries for one found result via the
-# core, with the ignored never branded and each set or lift gossiped to
-# the fleet. returns the set and lifted lists for the EVE event
-sub _apply_marks {
-	my ( $self, $rule_obj, $data, $offenders, $now ) = @_;
-
-	my $marks   = $rule_obj->marks;
-	my $unmarks = $rule_obj->unmarks;
-
-	# the overwhelmingly common rule carries neither, so it skips the
-	# per-offender ignore_ips walk entirely
-	if ( !@{$marks} && !@{$unmarks} ) {
-		return ( [], [] );
-	}
-
-	my @brandable = grep { !ip_ignored( $self->{ignore_ips}, $_ ) } @{$offenders};
+# resolves one found result to its surviving offenders and brands them,
+# through the shared App::Baphomet::Offense core so the galla and the rule
+# self-tester share the one gate-and-brand order. the per-offender gates
+# are the galla's live ones, injected as the predicate; the ignored are
+# never branded, and each set or lift is gossiped to the fleet
+sub _resolve_offense {
+	my ( $self, $rule_obj, $data, $offenders, $now, $gate ) = @_;
 
 	my $on_unset;
 	if ( $self->{mark_sync} ) {
@@ -3150,9 +3151,19 @@ sub _apply_marks {
 		};
 	}
 
-	return App::Baphomet::Marks::apply_marks( $self->{marks}, $marks, $unmarks, $data, \@brandable, $now,
-		$self->_mark_publish_set, $on_unset );
-} ## end sub _apply_marks
+	return App::Baphomet::Offense::resolve_offense(
+		'store'     => $self->{marks},
+		'marks'     => $rule_obj->marks,
+		'unmarks'   => $rule_obj->unmarks,
+		'data'      => $data,
+		'offenders' => $offenders,
+		'now'       => $now,
+		'gate'      => $gate,
+		'brandable' => sub { return !ip_ignored( $self->{ignore_ips}, $_[0] ); },
+		'on_set'    => $self->_mark_publish_set,
+		'on_unset'  => $on_unset,
+	);
+} ## end sub _resolve_offense
 
 # drains the fleet mark bus and folds the new deltas into the live marks,
 # advancing the stream cursor... a no-op unless the store carries a bus. the

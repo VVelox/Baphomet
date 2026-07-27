@@ -10,9 +10,10 @@ use Digest::MD5           qw( md5 );
 use Encode                ();
 use App::Baphomet::Parser ();
 use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
-use App::Baphomet::Marks  ();
-use App::Baphomet::RDNS   ();
-use App::Baphomet::Geo    ();
+use App::Baphomet::Marks   ();
+use App::Baphomet::RDNS    ();
+use App::Baphomet::Geo     ();
+use App::Baphomet::Offense ();
 
 =pod
 
@@ -1482,25 +1483,31 @@ sub run_tests {
 				$message_int++;
 				if ( defined($found) ) {
 					foreach my $one ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () ) {
-						# the galla's own order... the data-keyed mark gates
-						# vet the result, a veto meaning it never really
-						# fired, then the survivors brand
-						if ( !App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $one->{data}, undef,
-							$clock ) )
-						{
-							next;
-						}
-						# the data-keyed reverse_dns entries, when a fixture
-						# stands in for the resolver
-						if ( defined($rdns_gate)
-							&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $one->{data}, undef ) )
-						{
-							next;
-						}
-						# the vars-form country gate likewise, when a geo
-						# fixture stands in for the database
-						if ( defined($geo_gate)
-							&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $one->{data}, undef ) )
+						# the data-level gates vet the whole result once, through
+						# the same shared App::Baphomet::Offense pass the galla
+						# uses... the mark gates always, the reverse_dns and
+						# vars country gates when a fixture stands in. namtar
+						# and active_time are galla-only, not fixtured here
+						if (
+							!App::Baphomet::Offense::data_gate_pass(
+								[
+									sub {
+										return App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates,
+											$one->{data}, undef, $clock );
+									},
+									sub {
+										return 1 if !defined($rdns_gate);
+										return App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate,
+											$one->{data}, undef );
+									},
+									sub {
+										return 1 if !defined($geo_gate);
+										return App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate,
+											$one->{data}, undef );
+									},
+								]
+							)
+							)
 						{
 							next;
 						}
@@ -1516,30 +1523,45 @@ sub run_tests {
 								}
 							}
 						}
-						# the var-less gates filter to the surviving offenders,
-						# as in the galla's ban path... an offender a gate
-						# vetoes is not an offense, so it is neither branded nor
-						# counted, and a result whose every offender is gated
-						# out did not fire at all
-						my @survivors = @offenders;
-						if ( $rdns_has_varless && !$is_detection ) {
-							@survivors = grep {
-								App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $one->{data}, $_ )
-							} @survivors;
-						}
-						if ( $geo_varless && !$is_detection ) {
-							@survivors = grep {
-								App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $one->{data}, $_ )
-							} @survivors;
-						}
-						if ( @offenders && !@survivors ) {
+						# the per-offender gates a rule file can fixture... the
+						# reverse_dns and the vars country. a var-less mark gate
+						# is offender-time, not provable here, as the tests
+						# section documents, so it is not among them
+						my $data = $one->{data};
+						my $gate;
+						if ( $rdns_has_varless || $geo_varless ) {
+							$gate = sub {
+								my ($ip) = @_;
+								if ( $rdns_has_varless
+									&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
+								{
+									return 0;
+								}
+								if ( $geo_varless
+									&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
+								{
+									return 0;
+								}
+								return 1;
+							};
+						} ## end if ( $rdns_has_varless...)
+
+						# the survivor filter and the branding of survivors run
+						# through the shared App::Baphomet::Offense core, the
+						# same the galla uses, so the self-test can not drift
+						# from the engine
+						my $offense = App::Baphomet::Offense::resolve_offense(
+							'store'     => \%marks_store,
+							'marks'     => $marks,
+							'unmarks'   => $unmarks,
+							'data'      => $data,
+							'offenders' => \@offenders,
+							'now'       => $clock,
+							'gate'      => $gate,
+						);
+						if ( !$offense->{fired} ) {
 							next;
 						}
-						# brand only the survivors, matching the galla... a
-						# gated-out offender earns no mark, and a detection rule
-						# brands with its empty offender list (data marks only)
-						App::Baphomet::Marks::apply_marks( \%marks_store, $marks, $unmarks, $one->{data},
-							\@survivors, $clock );
 						push( @found_all, $one );
 					} ## end foreach my $one ( $found, ref( $found->{more} ...))
 				} ## end if ( defined($found) )
