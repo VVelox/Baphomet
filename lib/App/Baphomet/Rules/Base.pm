@@ -446,6 +446,36 @@ outage-can-not-misaim guarantee. Lookups are per match, bounded and
 cached galla-side, so a rule's embedded tests can not exercise this
 gate.
 
+=head2 Enrichment... mungers
+
+An optional list of Log-Munger decoders to run over the line before the
+rule's own C<message_regexp>, folding their decoded fields into the offense.
+
+    mungers:
+      - sshd
+
+Each entry is a B<leaf> munger... a L<Log::Munger> rule file (C<sshd>,
+C<postfix>, C<http_access_logs>, ...) named with out its C<.yaml>. Log-Munger
+resolves a file's own dependencies, so only the relevant decoder is named,
+never C<base>. A set builds one C<Log::Munger::LogProcessor>, memoized and
+shared by every rule naming it.
+
+The line is fed as the fields the parser already split out. For a syslog
+rule the message maps to Log-Munger's C<MESSAGE>, the daemon to its
+C<PROGRAM> gate, the level to C<PRIORITY>, the facility to C<FACILITY>; a raw
+rule has only its message. The munger's first matching rule decides, and its
+captures come back as the enrichment... laid down B<underneath> the rule's
+own captures, so a C<message_regexp> capture of the same name overwrites (a
+looser or different read chosen on purpose), while everything the munger
+decoded that the rule did not recapture rides along.
+
+Supported on C<syslog> and C<raw> rules, not beside C<stages>. The
+dependency is optional but not fail-soft... a missing L<Log::Munger> or a
+munger file that will not resolve is fatal, surfaced as a die the loader (or
+the galla's load-time prewarm, as a C<log_drek> error) raises rather than
+silently skipping the enrichment. A malformed C<mungers> key is refused when
+the rule loads.
+
 =head2 tests
 
 Positive and negative tests for verifying the rule works. These are ran at
@@ -1186,6 +1216,135 @@ sub dest_ip_var {
 
 	return defined( $self->{def}{dest_ip_var} ) ? $self->{def}{dest_ip_var} : 'dest_ip';
 }
+
+=head2 mungers
+
+Returns the array of Log-Munger rule-file names this rule applies for
+enrichment (its C<mungers> key), or an empty list for a rule declaring none.
+Each entry is a leaf munger... a Log::Munger rule file whose own dependencies
+(C<base> and any others) resolve themselves, so only the relevant munger is
+named, never C<base>. The parsed line is run through them before the rule's
+own C<message_regexp>, and the fields they decode are laid down under the
+offense... a C<message_regexp> capture of the same name overwrites, that
+divergence being deliberate (a looser parse than the munger had).
+
+    my @mungers = $rule->mungers;   # ('postfix')
+
+=cut
+
+sub mungers {
+	my ($self) = @_;
+
+	return ref( $self->{mungers} ) eq 'ARRAY' ? @{ $self->{mungers} } : ();
+}
+
+# validates and stores the mungers key... a non-empty array of non-empty
+# rule-file names, deduped and sorted so a set shares one memoized processor
+# whatever the order named. dies on a malformed key. the processor is built
+# lazily on first use (or prewarmed by the galla), so a rule declaring none
+# never so much as loads Log::Munger
+sub _compile_mungers {
+	my ( $self, $def, $name ) = @_;
+
+	$self->{mungers} = [];
+	if ( !defined( $def->{mungers} ) ) {
+		return;
+	}
+	if ( ref( $def->{mungers} ) ne 'ARRAY' || !@{ $def->{mungers} } ) {
+		die( 'The mungers of the rule "' . $name . '" is not a non-empty array' );
+	}
+	my %seen;
+	foreach my $munger ( @{ $def->{mungers} } ) {
+		if ( !defined($munger) || ref($munger) ne '' || $munger eq '' ) {
+			die( 'The mungers of the rule "' . $name . '" contains a entry that is not a non-empty string' );
+		}
+		$seen{$munger} = 1;
+	}
+	$self->{mungers} = [ sort keys(%seen) ];
+
+	return;
+} ## end sub _compile_mungers
+
+# the memoized Log::Munger::LogProcessor for this rule's munger-set, shared
+# across every rule naming the same set (keyed on the sorted list). built on
+# first use... a Log::Munger that is not loadable, or a munger file that will
+# not resolve, is fatal per the feature's contract, surfaced as a die the
+# loader (or the galla's prewarm) turns into a log_drek error. undef for a
+# rule declaring no mungers
+my %munge_processor_cache;
+
+sub _munge_processor {
+	my ($self) = @_;
+
+	if ( ref( $self->{mungers} ) ne 'ARRAY' || !@{ $self->{mungers} } ) {
+		return undef;
+	}
+
+	my $key = join( "\x1f", @{ $self->{mungers} } );
+	if ( exists( $munge_processor_cache{$key} ) ) {
+		return $munge_processor_cache{$key};
+	}
+
+	eval { require Log::Munger::LogProcessor; };
+	if ($@) {
+		die(      'The rule "'
+				. $self->{name}
+				. '" names mungers ('
+				. join( ', ', @{ $self->{mungers} } )
+				. ') but Log::Munger is not loadable... '
+				. $@ );
+	}
+
+	my $processor;
+	eval { $processor = Log::Munger::LogProcessor->new( 'rules' => [ @{ $self->{mungers} } ] ); };
+	if ( $@ || !defined($processor) ) {
+		die(      'The rule "'
+				. $self->{name}
+				. '" names mungers ('
+				. join( ', ', @{ $self->{mungers} } )
+				. ') that could not be loaded... '
+				. ( $@ ? $@ : 'Log::Munger::LogProcessor->new returned undef' ) );
+	}
+
+	$munge_processor_cache{$key} = $processor;
+
+	return $processor;
+} ## end sub _munge_processor
+
+# runs the parsed line through the rule's mungers and returns the decoded
+# fields as a hash ref, or undef when the rule names none, the line carries no
+# message, or nothing matched. the syslog envelope maps onto Log-Munger's own
+# field names... daemon is the PROGRAM gate, level the PRIORITY, facility the
+# FACILITY. process_item never dies, so a non-match is simply undef, never a
+# error... a munger that could not load already died at load or prewarm
+sub _munge_enrich {
+	my ( $self, $parsed ) = @_;
+
+	if ( ref( $self->{mungers} ) ne 'ARRAY' || !@{ $self->{mungers} } || ref($parsed) ne 'HASH' ) {
+		return undef;
+	}
+	if ( !defined( $parsed->{message} ) ) {
+		return undef;
+	}
+
+	my $processor = $self->_munge_processor;
+	if ( !defined($processor) ) {
+		return undef;
+	}
+
+	my %feed = ( 'message' => $parsed->{message} );
+	$feed{program}  = $parsed->{daemon}   if ( defined( $parsed->{daemon} ) );
+	$feed{priority} = $parsed->{level}    if ( defined( $parsed->{level} ) );
+	$feed{facility} = $parsed->{facility} if ( defined( $parsed->{facility} ) );
+
+	my $fields;
+	eval { $fields = $processor->process_item(%feed); };
+	if ( $@ || ref($fields) ne 'HASH' ) {
+		return undef;
+	}
+
+	return $fields;
+} ## end sub _munge_enrich
 
 =head2 info
 

@@ -1009,6 +1009,53 @@ for the resolver, PTRs, forwards, absences, and outages alike (see
 [tests](#tests)), which is how `http/fakegooglebot` proves its judgment
 from its own file.
 
+## Enriching a match... mungers
+
+Where the [primitive fragments](#primitive-fragments-building-blocks-not-captures)
+above borrow Log-Munger's regexp *pieces* to help write a pattern, a
+**munger** borrows a whole Log-Munger decoder to *read* the line for you. A
+rule names the mungers that apply to it, they run over the line before the
+rule's own `message_regexp`, and every field they decode is laid into the
+offense... available to the gates, the marks, `ban_var`/`detection_var`,
+`src_ip_var`/`dest_ip_var`, and the EVE `found` alike, no rule-format change.
+
+```yaml
+# a sshd rule that leans on Log-Munger's sshd decoder for the ssh_* fields
+daemons: [sshd]
+mungers: [sshd]
+message_regexp:
+  - 'Failed password for (?:invalid user )?\S+ from %%%%SRC%%%% port'
+ban_var: [SRC]
+```
+
+Each entry is a **leaf** munger... a
+[Log-Munger](https://github.com/LilithSec/Log-Munger) rule file (`sshd`,
+`postfix`, `http_access_logs`, ...) named without its `.yaml`. Log-Munger
+resolves a file's own dependencies, so you name only the relevant decoder,
+never `base`. A set builds one processor, memoized and shared by every rule
+naming it, so a fleet of sshd rules pays the compile once.
+
+The line is handed over as the fields the parser already split out... for a
+syslog rule the message maps to Log-Munger's `MESSAGE`, the daemon to its
+`PROGRAM` gate, the level to `PRIORITY`, the facility to `FACILITY`; a raw
+rule has only its message to give. The munger's first matching rule decides,
+and its captures come back as the enrichment.
+
+Order is deliberate: the munger runs **first**, its fields laid down
+underneath, and the rule's own `message_regexp` captures then overwrite any
+of the same name. A divergence there is meaningful... it is the rule
+choosing a looser (or different) read than the munger's for that one field,
+on purpose. Everything the munger decoded that the rule did not recapture
+rides along untouched.
+
+Mungers are supported on `syslog` and `raw` rules, and not beside `stages`
+(the staged matcher is its own thing). Like the `country` gate's GeoIP, the
+dependency is optional but **not** fail-soft: a rule that asks for
+enrichment it can not get is a misconfiguration, so a missing Log::Munger or
+a munger file that will not resolve is fatal... caught and named at galla
+load (an `err` to the log), never silently skipped and never a surprise
+mid-line. A malformed `mungers` key is refused when the rule loads.
+
 ## How the types differ
 
 Everything above is shared. What each type changes is the **matcher** ... how

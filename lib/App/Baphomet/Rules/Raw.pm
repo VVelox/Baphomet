@@ -94,13 +94,17 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:message_regexp|ignore_regexp|capture_regexp|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|mungers|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
 	$self->_check_common( $def, $name );
+
+	# the optional Log-Munger enrichment pass... a raw line has only its
+	# message to feed, no syslog envelope
+	$self->_compile_mungers( $def, $name );
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var
@@ -114,6 +118,9 @@ sub new {
 			die(      'The rule "'
 					. $name
 					. '" has stages beside message_regexp or capture_regexp... stages are the whole matcher' );
+		}
+		if ( @{ $self->{mungers} } ) {
+			die( 'The rule "' . $name . '" has mungers beside stages... enrichment is not wired through the staged matcher' );
 		}
 		$self->_compile_ignore_regexps($def);
 		$self->_compile_stages($def);
@@ -157,7 +164,15 @@ sub check {
 		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, undef );
 	}
 
-	return $self->_check_message( $parsed->{message}, $scope, undef, undef, $line_ctx );
+	# mungers run first, their decoded fields carried in as $extra so the
+	# rule's own message_regexp captures overwrite them on a name clash
+	my $extra;
+	my $munge = $self->_munge_enrich($parsed);
+	if ( defined($munge) && %{$munge} ) {
+		$extra = { %{$munge} };
+	}
+
+	return $self->_check_message( $parsed->{message}, $scope, $extra, undef, $line_ctx );
 } ## end sub check
 
 =head2 ban_var

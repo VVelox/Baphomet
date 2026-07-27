@@ -245,7 +245,8 @@ C<distinct>), the triage metadata (C<msg>,
 C<severity>/C<classtype>/C<references>/C<attack>), the C<selections> /
 C<condition> / C<keywords> boolean forms, the marks
 (C<mark>/C<unmark>/C<marked>/C<not_marked>/C<mark_only>, C<sequence>), the
-C<country> / C<namtar_list> / C<active_time> gates, and C<tests>... is shared
+C<country> / C<namtar_list> / C<active_time> gates, the C<mungers> enrichment
+pass, and C<tests>... is shared
 by every rule type and documented in full under
 L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 
@@ -285,13 +286,17 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|mungers|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
 		}
 	}
 	$self->_check_common( $def, $name );
+
+	# the optional Log-Munger enrichment pass... validated and stored here,
+	# the processor built lazily (or prewarmed by the galla)
+	$self->_compile_mungers( $def, $name );
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var... daemons is required either way
@@ -327,6 +332,9 @@ sub new {
 					. $name
 					. '" has stages beside message_regexp, capture_regexp, or message_json... stages are the whole matcher'
 			);
+		}
+		if ( @{ $self->{mungers} } ) {
+			die( 'The rule "' . $name . '" has mungers beside stages... enrichment is not wired through the staged matcher' );
 		}
 		$self->_compile_ignore_regexps($def);
 		$self->_compile_stages($def);
@@ -410,6 +418,13 @@ sub check {
 
 	if ( defined( $self->{stages} ) ) {
 		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, $envelope );
+	}
+
+	# mungers run first, their decoded fields laid down under $extra so the
+	# rule's own message_regexp captures overwrite them on a name clash
+	my $munge = $self->_munge_enrich($parsed);
+	if ( defined($munge) && %{$munge} ) {
+		$extra = defined($extra) ? { %{$munge}, %{$extra} } : { %{$munge} };
 	}
 
 	return $self->_check_message( $parsed->{message}, $scope, $extra, $envelope, $line_ctx );

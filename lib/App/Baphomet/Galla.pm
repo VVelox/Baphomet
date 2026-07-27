@@ -542,6 +542,37 @@ sub new {
 		);
 	} ## end if ( $country_gated && !defined( $self->{geoip...}))
 
+	# a rule naming mungers pulls Log-Munger in for enrichment. unlike the
+	# fail-closed gates above, a munger that will not load is fatal... the rule
+	# asked for enrichment it can not get, so there is no safe degraded mode.
+	# prewarm every declared set once here (the processors memoize, shared
+	# across rules), so a bad munger is caught at startup, named loudly, and
+	# refuses the galla rather than dying mid-line later
+	my %munge_reps;
+	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
+		foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
+			if ( !defined($rule_obj) || !$rule_obj->can('mungers') ) {
+				next;
+			}
+			my @mungers = $rule_obj->mungers;
+			if (@mungers) {
+				# one rep per distinct set is enough... the processor is
+				# memoized on the set, so warming it warms it for all
+				$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
+			}
+		}
+	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+	foreach my $set ( sort keys(%munge_reps) ) {
+		eval { $munge_reps{$set}->_munge_processor; };
+		if ($@) {
+			$self->{perror}      = 1;
+			$self->{error}       = 6;
+			$self->{errorString} = 'the mungers (' . $set . ') could not be loaded... ' . $@;
+			log_drek( 'err', $self->{errorString}, undef, 'galla-' . $self->{name} );
+			$self->warn;
+		}
+	} ## end foreach my $set ( sort keys(%munge_reps) )
+
 	# load every namtar list slot the gates reference once, up front... the
 	# sweeper refreshes them on mtime change from here on. a slot that loads
 	# empty or unreadable matches nobody, so those gates banish nobody from
