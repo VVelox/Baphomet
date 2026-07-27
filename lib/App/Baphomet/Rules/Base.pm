@@ -10,10 +10,11 @@ use Digest::MD5           qw( md5 );
 use Encode                ();
 use App::Baphomet::Parser ();
 use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
-use App::Baphomet::Marks   ();
-use App::Baphomet::RDNS    ();
-use App::Baphomet::Geo     ();
-use App::Baphomet::Offense ();
+use App::Baphomet::Marks      ();
+use App::Baphomet::RDNS       ();
+use App::Baphomet::Geo        ();
+use App::Baphomet::Offense    ();
+use App::Baphomet::Primitives ();
 
 =pod
 
@@ -2928,7 +2929,9 @@ sub _compile_tokened_regexp {
 
 	my %aliases;
 	my $expanded = $regexp;
-	$expanded =~ s/%%%%([A-Z0-9]+)%%%%/$self->_expand_token( $1, \%aliases, $where, $regexp )/ge;
+	# token names may carry underscores now that the primitive fragment
+	# library (TIMESTAMP_ISO8601, DATE_US, ...) rides the same syntax
+	$expanded =~ s/%%%%([A-Z0-9_]+)%%%%/$self->_expand_token( $1, \%aliases, $where, $regexp )/ge;
 
 	my $compiled;
 	eval { $compiled = qr/$expanded/; };
@@ -2944,25 +2947,40 @@ sub _compile_tokened_regexp {
 	};
 } ## end sub _compile_tokened_regexp
 
-# expands a single token occurrence into a named capture group, numbering
-# the capture name if the token has already been seen in this entry given
-# perl does not allow duplicate capture names in a single regexp
+# expands a single token occurrence. two flavors, dispatched by which map
+# the name is in. the offender tokens (SRC/ADDR/HOST/...) are CAPTURING:
+# each becomes a named capture (?<NAME>...) whose name is the found field,
+# numbered on repeat since perl forbids duplicate capture names in one
+# regexp. the primitive fragments (INT/USERNAME/TIMESTAMP_ISO8601/...) are
+# NON-capturing: each becomes a bare (?:...) building block that adds no
+# field, so a author composes patterns without hand-rolling sub-regexps
+# and wraps one in their own (?<FIELD>...) when they do want the capture.
+# an offender token wins any name collision, being checked first
 sub _expand_token {
 	my ( $self, $token, $aliases, $where, $original ) = @_;
 
-	if ( !defined( $tokens{$token} ) ) {
-		die( $where . ', "' . $original . '", uses the unknown token "' . $token . '"' );
+	if ( defined( $tokens{$token} ) ) {
+		if ( !defined( $aliases->{$token} ) ) {
+			$aliases->{$token} = [$token];
+			return '(?<' . $token . '>' . $tokens{$token} . ')';
+		}
+
+		my $alias = $token . '_' . ( scalar( @{ $aliases->{$token} } ) + 1 );
+		push( @{ $aliases->{$token} }, $alias );
+
+		return '(?<' . $alias . '>' . $tokens{$token} . ')';
+	} ## end if ( defined( $tokens{$token...}))
+
+	# a primitive fragment... non-capturing, so it may repeat freely and
+	# nest inside a caller's own capture without aliasing. resolved lazily
+	# (and cached) from Log-Munger's base library the first time any rule
+	# reaches for one, so a offender-tokens-only deployment never pays it
+	my $primitives = App::Baphomet::Primitives::primitives();
+	if ( defined( $primitives->{$token} ) ) {
+		return '(?:' . $primitives->{$token} . ')';
 	}
 
-	if ( !defined( $aliases->{$token} ) ) {
-		$aliases->{$token} = [$token];
-		return '(?<' . $token . '>' . $tokens{$token} . ')';
-	}
-
-	my $alias = $token . '_' . ( scalar( @{ $aliases->{$token} } ) + 1 );
-	push( @{ $aliases->{$token} }, $alias );
-
-	return '(?<' . $alias . '>' . $tokens{$token} . ')';
+	die( $where . ', "' . $original . '", uses the unknown token "' . $token . '"' );
 } ## end sub _expand_token
 
 # checks a message against the compiled capture, ignore, and message

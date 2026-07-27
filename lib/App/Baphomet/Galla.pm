@@ -297,6 +297,13 @@ sub new {
 		$self->_ensure_eve_dir;
 	}
 
+	# point the primitive fragment library at the tablet dir cache before
+	# any rule compiles... just names the dir, resolving nothing, so a
+	# offender-tokens-only deployment pays nothing. the first rule to use a
+	# fragment resolves Log-Munger's base once and caches it there, and a
+	# restart or a sibling galla reads the cache instead of re-parsing
+	App::Baphomet::Primitives::configure( 'cache_dir' => $self->{tablet_base_dir} );
+
 	eval {
 		$self->{rules}
 			= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );

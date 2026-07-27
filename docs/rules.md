@@ -1070,8 +1070,12 @@ Everything else is a plain string equality check.
 
 The regexps tried, in order, against the message portion of a parsed line...
 the part after `daemon[pid]: `, not the whole line. The first to match wins.
-These are Perl regexps plus `%%%%TOKEN%%%%` tokens, each of which compiles to
-a named capture group:
+These are Perl regexps plus `%%%%TOKEN%%%%` tokens, of which there are two
+kinds: the **offender tokens**, which capture, and the **primitive
+fragments**, which do not.
+
+The offender tokens each compile to a named capture group whose name is the
+field:
 
 | token | matches |
 | --- | --- |
@@ -1083,9 +1087,43 @@ a named capture group:
 | `DNS` | a domainname |
 | `SRC` / `DEST` | a IPv4 or IPv6 address... meant to be used in combination, and when a regexp uses both, a match only regards as found if both matched |
 
-A token may appear more than once in one regexp... whichever occurrence
-matched is what comes out under the token name. The captured value is what
-`ban_var` or `detection_var` names.
+An offender token may appear more than once in one regexp... whichever
+occurrence matched is what comes out under the token name (a repeat is
+numbered internally, since Perl forbids a duplicate capture name). The
+captured value is what `ban_var` or `detection_var` names.
+
+#### Primitive fragments... building blocks, not captures
+
+The other `%%%%NAME%%%%` kind is a **primitive fragment**: a named regexp
+building block (`INT`, `WORD`, `USERNAME`, `HOSTNAME`, `MONTH`,
+`SYSLOGTIMESTAMP`, `TIMESTAMP_ISO8601`, `QUOTEDSTRING`, `GREEDYDATA`, and
+~60 more) that expands to a bare, **non-capturing** `(?:...)` sub-pattern.
+It contributes no field... it is there so a pattern can lean on a curated,
+tested regexp for a timestamp or a username instead of hand-rolling it. The
+library is [Log-Munger](https://github.com/LilithSec/Log-Munger)'s `base`
+primitives, resolved through
+[`App::Baphomet::Primitives`](https://metacpan.org/pod/App::Baphomet::Primitives)
+the first time a rule reaches for a fragment and cached under the galla's
+tablet dir (re-resolved only when the Log-Munger version or its `base`
+file changes), so the parse-and-template cost is paid once for the fleet
+and a deployment using only the offender tokens never loads Log-Munger at
+all. The fragments are validated by Log-Munger's own tests, so they arrive
+known-good.
+
+Because a fragment captures nothing, wrap one in your own named capture
+when you want its value as a field... the fragment writes the pattern, the
+capture names the field:
+
+```yaml
+message_regexp:
+  # SYSLOGTIMESTAMP and INT are fragments (no field); SRC and the wrapped
+  # USER are captures
+  - '^%%%%SYSLOGTIMESTAMP%%%% \S+ myapp\[%%%%INT%%%%\]: login (?<USER>%%%%USERNAME%%%%) from %%%%SRC%%%%'
+```
+
+An offender token wins any name collision, and an unknown name in either
+set is a load error. A fragment may repeat freely, having no capture name
+to clash.
 
 ### ignore_regexp
 

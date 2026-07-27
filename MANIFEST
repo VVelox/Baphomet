@@ -37,6 +37,7 @@ lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
 lib/App/Baphomet/Marks.pm
 lib/App/Baphomet/Offense.pm
+lib/App/Baphomet/Primitives.pm
 lib/App/Baphomet/Parser.pm
 lib/App/Baphomet/Parser/ApacheError.pm
 lib/App/Baphomet/Parser/BSDSyslog.pm
@@ -375,6 +376,7 @@ t/subnet-bans.t
 t/unit-marks.t
 t/unit-rdns.t
 t/unit-geo.t
+t/unit-primitives.t
 t/unit-offense.t
 t/usedns.t
 t/weighted.t

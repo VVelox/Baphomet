@@ -31,6 +31,7 @@ my %WriteMakefileArgs = (
 		'Error::Helper'                    => '0',
 		'File::ShareDir'                   => '0',
 		'JSON::MaybeXS'                    => '0',
+		'Log::Munger'                      => '0',
 		'Net::Server::Daemonize'           => '0',
 		'POE'                              => '0',
 		'POE::Component::Server::JSONUnix' => '0.1.0',
