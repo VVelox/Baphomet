@@ -273,7 +273,7 @@ is( $galla->{stats}{matched}, $matched_before + 1, 'a line is counted once acros
 
 #
 # overlap... first is first-match-wins, shadow demotes later firing rules to
-# sightings, all judges every firing rule for real
+# observe mode, all judges every firing rule for real
 #
 
 is( $galla->{watchers}{multilog}{settings}{overlap},  'first',  'overlap defaults to first' );
@@ -293,13 +293,14 @@ is( $galla->{stats}{matched}, $matched_before_overlap + 2, 'both firing rules ma
 is( $galla->{stats}{demoted}, 1, 'the demotion counted' );
 
 # the real judgment is the winner's alone... max_score 2 bans on the second
-# line, the demoted rule's shadow crossing raising a sighted instead
+# line, the demoted rule's shadow crossing raising a alert instead, just as
+# observe mode would
 my $overlap_sent_before = scalar(@sent);
 $galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.6' );
 is( scalar(@sent), $overlap_sent_before + 1, 'the winner banned at max_score, the demoted rule banned nothing' );
 is( $sent[-1]{ip}, '6.6.6.6', 'and banned the right IP' );
-is( $galla->{stats}{sightings}, 1, 'the demoted crossing raised a sighted' );
-ok( !defined( $galla->{shadow_counters}{'6.6.6.6'} ), 'shadow counter reset by the sighted' );
+is( $galla->{stats}{alerts}, 1, 'the demoted crossing raised a alert' );
+ok( !defined( $galla->{shadow_counters}{'6.6.6.6'} ), 'shadow counter reset by the alert' );
 
 # a demoted rule honors ignore_ips as a real judgment would
 my $overlap_ignored_before = $galla->{stats}{ignored};

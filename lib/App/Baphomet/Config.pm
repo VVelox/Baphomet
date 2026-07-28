@@ -184,11 +184,12 @@ Top level keys are as below.
           list is judged. C<first> is first-match-wins... the first rule
           to fire consumes the record and the later rules never see it.
           C<shadow> keeps the real judgment on the first rule to fire and
-          demotes every later one that also fires to a detection-style
-          sighting... the demoted rule still runs its gates and still
-          brands its marks, but its counting rides the shadow buckets,
-          where it can neither cause nor delay a real ban, a crossing
-          raising a sighted. C<all> judges every firing rule for real,
+          demotes every later one that also fires to observe mode for
+          that hit... the demoted rule still runs its gates and still
+          brands its marks, but its counting rides the same shadow
+          buckets observe mode fills, where it can neither cause nor
+          delay a real ban, its match surfacing as a noted and a
+          crossing as a alert. C<all> judges every firing rule for real,
           the Suricata way, each depositing toward the one judgment. May
           be overridden per kur and per watcher.
         Default :: first

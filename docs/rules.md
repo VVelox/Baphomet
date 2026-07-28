@@ -715,8 +715,8 @@ line either, so a branding rule and the rule that reads it can both act on
 the same line by falling through. What consuming means is the watcher's
 [`overlap`](configuration.md) setting... under the default `first` the first
 rule to fire eats the line, under `shadow` every later rule that also fires
-is demoted to a detection-style `sighting`, and under `all` every firing
-rule judges for real.
+is demoted to observe mode for that hit, surfacing as `noted`, and under
+`all` every firing rule judges for real.
 
 The shipped `syslog/sshd-mark-users` and `syslog/sshd-spray` pair catch a
 single account hit from more than one source... the distributed brute-force
