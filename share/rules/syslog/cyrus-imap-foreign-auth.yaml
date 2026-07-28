@@ -1,0 +1,83 @@
+---
+# ANY cyrus IMAP/POP3 authentication event from outside your home countries,
+# failed or successful. See syslog/sshd-foreign-auth for the reasoning, the
+# ordering rule, and the traveler risk, all of which apply here unchanged.
+#
+# The failure pattern is syslog/cyrus-imap's, verbatim. The success pattern is
+# written from cyrus's own output rather than mined from a corpus... fail2ban
+# annotates only failures. Confirm the success half against a live log; the
+# failure half is corpus-proven either way.
+#
+# List AHEAD of syslog/cyrus-imap: a domestic event is vetoed here without
+# being consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[CYRUS] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
+message_regexp:
+  # the success... "login: host [ip] user mech User logged in"
+  - '^login: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] (?<USER>\S+) \S+ User logged in'
+  # and the failure syslog/cyrus-imap counts, verbatim
+  - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Jul 12 08:25:49 vixen42 imap[12345]: login: mail.example.com [203.0.113.9] kitsune plaintext+TLS User logged in SESSIONID=<vixen42-12345>"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign failure
+    - message: "Jul 12 08:15:50 vixen42 imap[12345]: badlogin: mail.example.com [198.51.100.23] PLAIN [SASL(-13): authentication failure: checkpass failed]"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+  negative:
+    # domestic success... vetoed, falls through
+    - message: "Jul 12 08:25:49 vixen42 imap[12345]: login: mail.example.com [198.51.100.5] kitsune plaintext+TLS User logged in SESSIONID=<vixen42-12345>"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/cyrus-imap's business
+    - message: "Jul 12 08:15:50 vixen42 imap[12345]: badlogin: mail.example.com [198.51.100.5] PLAIN [SASL(-13): authentication failure: checkpass failed]"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jul 12 08:15:50 vixen42 imap[12345]: badlogin: mail.example.com [192.0.2.66] PLAIN [SASL(-13): authentication failure: checkpass failed]"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a disconnect carries no login verdict
+    - message: "Jul 12 08:15:50 vixen42 imap[12345]: Connection closed by client"
+      found: 0
+      undefed: ["SRC"]

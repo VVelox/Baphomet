@@ -1,0 +1,96 @@
+---
+# ANY dropbear authentication event from outside your home countries, failed
+# or successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
+# rule, and the traveler risk, all of which apply here unchanged.
+#
+# The failure patterns are syslog/dropbear's, entire and verbatim. The success
+# pattern is written from dropbear's own output rather than mined from a
+# corpus... fail2ban annotates only failures, so no shipped test log carries a
+# successful line. Confirm it against a live log before trusting the success
+# half; the failure half is corpus-proven either way.
+#
+# List AHEAD of syslog/dropbear: a domestic event is vetoed here without being
+# consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[DROPBEAR] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - dropbear
+message_regexp:
+  # the success... password and pubkey alike
+  - '^(?:Password|Pubkey) auth succeeded for ''(?<USER>[^'']*)''(?: with \S+ key \S+)? from (?:::ffff:)?%%%%SRC%%%%:\d+'
+  # and everything syslog/dropbear counts, verbatim
+  - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
+  - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
+  - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'kitsune' from 203.0.113.9:5543"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Pubkey auth succeeded for 'moth3r' with ssh-ed25519 key SHA256:hjUf from ::ffff:198.51.100.23:5544"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+        USER: "moth3r"
+    # a foreign failure, from the corpus
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: bad password attempt for 'root' from 203.0.113.14:5543"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'kitsune' from 198.51.100.5:5543"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/dropbear's business
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: bad password attempt for 'root' from 198.51.100.5:5543"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: bad password attempt for 'root' from 192.0.2.66:5543"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # an exit with no auth verdict
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Exit (kitsune): Disconnect received"
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,50 @@
+# Any authentication event, failed OR successful, reaching a login service
+# from outside your home countries. Thirteen banishing rules, one per daemon, each
+# carrying its service's whole offense vocabulary plus the successful login on
+# top, gated on country_codes{home} and scored so that ONE event is enough.
+# For the drive-by that probes a handful of credentials and moves on, which no
+# per-service threshold is fast enough to catch. Reference as
+# %syslog/foreign-auth%.
+#
+# THREE THINGS BEFORE YOU LIST THIS.
+#
+# 1. It does nothing until you define country_codes{home} in the config, and
+#    it refuses to load, loudly, if you list it without them. It also needs
+#    geoip_db and IP::Geolocation::MMDB. The gate fails closed, so an address
+#    the database cannot place is not banished... internal addresses included,
+#    which never locate.
+#
+# 2. ORDER. List this group AHEAD of the per-service rules it shadows
+#    (syslog/sshd, syslog/dovecot, syslog/postfix-sasl, and the rest). A rule
+#    whose country gate vetoes does not consume the line, so a domestic event
+#    falls straight through and is counted by the ordinary rule exactly as
+#    before. Listed after them, the ordinary rules consume the failures first
+#    and only foreign successes reach these.
+#
+# 3. It banishes on a SUCCESSFUL login. That is the point... a right password
+#    from a country you do no business with is worse news than a wrong one...
+#    but it means an admin logging in from abroad is banished mid-session by
+#    their own good credentials. Set eve_only and watch it for a week before
+#    letting it act. openvpn especially: a VPN reached from abroad is usually
+#    the entire reason the VPN exists.
+#
+# The three %syslog/...-foreign-login% rules are the gentler policy for the
+# same ground: they sight a foreign SUCCESS and banish nobody. Run one family
+# or the other per service, not both... whichever is listed first consumes the
+# successes and the other never sees them.
+#
+# See docs/rules.md (Rule groups, and the country gate).
+
+syslog/courier-foreign-auth
+syslog/cyrus-imap-foreign-auth
+syslog/dovecot-foreign-auth
+syslog/dropbear-foreign-auth
+syslog/openvpn-foreign-auth
+syslog/perdition-foreign-auth
+syslog/postfix-sasl-foreign-auth
+syslog/proftpd-foreign-auth
+syslog/pure-ftpd-foreign-auth
+syslog/sshd-foreign-auth
+syslog/uwimap-foreign-auth
+syslog/vsftpd-foreign-auth
+syslog/wuftpd-foreign-auth

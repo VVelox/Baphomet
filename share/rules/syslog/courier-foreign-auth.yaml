@@ -1,0 +1,96 @@
+---
+# ANY courier IMAP/POP3 authentication event from outside your home countries,
+# failed or successful. See syslog/sshd-foreign-auth for the reasoning, the
+# ordering rule, and the traveler risk, all of which apply here unchanged.
+#
+# Courier makes this the tidiest rule in the family: it logs the verdict as a
+# leading word on one shape, "LOGIN FAILED, user=..., ip=[...]" against
+# "LOGIN, user=..., ip=[...]", so making the FAILED optional matches both
+# halves at once. syslog/courier-auth reads the first, syslog/courier-breach
+# the second; this rule takes them together, which is the whole ask.
+#
+# List AHEAD of syslog/courier-auth and syslog/courier-breach: a domestic
+# event is vetoed here without being consumed, and falls through to be counted
+# there exactly as before.
+rev: 1
+msg: "[COURIER] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
+message_regexp:
+  # success and failure in one shape... the FAILED is the only difference
+  - '^LOGIN(?: FAILED)?, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN, user=moth3r, ip=[::ffff:203.0.113.9], port=[41842], protocol=IMAP"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    - message: "Jul 12 08:25:49 vixen42 pop3d-ssl: LOGIN, user=moth3r, ip=[198.51.100.23], port=[41843]"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    # a foreign login that failed
+    - message: "Apr 23 21:59:01 dns2 imapd: LOGIN FAILED, user=sales@example.com, ip=[::ffff:203.0.113.14]"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through to syslog/courier-breach
+    - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN, user=moth3r, ip=[::ffff:198.51.100.5], port=[41842], protocol=IMAP"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/courier-auth's business
+    - message: "Apr 23 21:59:01 dns2 imapd: LOGIN FAILED, user=sales@example.com, ip=[::ffff:198.51.100.5]"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Apr 23 21:59:01 dns2 imapd: LOGIN FAILED, user=sales@example.com, ip=[::ffff:192.0.2.66]"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a timeout carries no login verdict
+    - message: "Apr 23 21:59:01 dns2 imapd: TIMEOUT, user=sales@example.com, ip=[::ffff:203.0.113.9]"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

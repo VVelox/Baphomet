@@ -1,0 +1,106 @@
+---
+# ANY openvpn authentication event from outside your home countries, failed or
+# successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
+# rule, and the traveler risk, all of which apply here unchanged.
+#
+# Read the traveler risk twice for this one. A VPN is the service people most
+# often reach from abroad ON PURPOSE... that is frequently the entire reason it
+# exists. A foreign-auth ban here banishes the remote worker it was built for.
+# Enable it only where the VPN is meant to be reached from home soil alone,
+# and stand it up with eve_only first regardless.
+#
+# The failure patterns are syslog/openvpn's, entire and verbatim. The success
+# pattern is written from openvpn's own output rather than mined from a
+# corpus... fail2ban ships no openvpn filter at all, so the shipped rule was
+# itself hand-built (from Sagan) and flagged for live-log confirmation. Both
+# halves here want confirming against your own log.
+#
+# List AHEAD of syslog/openvpn: a domestic event is vetoed here without being
+# consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[OPENVPN] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - openvpn
+message_regexp:
+  # the success... the peer is up
+  - '^%%%%SRC%%%%:\d+ \[(?<USER>[^\]]*)\] Peer Connection Initiated with \[AF_INET\d?\]'
+  # and everything syslog/openvpn counts, verbatim
+  - '^%%%%SRC%%%%:\d+ TLS Auth Error: Auth Username/Password verification failed for peer'
+  - '^%%%%SRC%%%%:\d+ Decrypt packet error'
+  - 'TLS Error: incoming packet authentication failed from \[AF_INET\]%%%%SRC%%%%:\d+'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign peer that got in
+    - message: "Jul 12 08:25:49 vixen42 openvpn[12345]: 203.0.113.9:41842 [kitsune] Peer Connection Initiated with [AF_INET]203.0.113.9:41842"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign credential failure
+    - message: "Jul 12 08:15:50 vixen42 openvpn[12345]: 198.51.100.23:41843 TLS Auth Error: Auth Username/Password verification failed for peer"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: "Jul 12 08:15:50 vixen42 openvpn[12345]: TLS Error: incoming packet authentication failed from [AF_INET]203.0.113.14:41844"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # a domestic peer that got in... vetoed, falls through
+    - message: "Jul 12 08:25:49 vixen42 openvpn[12345]: 198.51.100.5:41842 [kitsune] Peer Connection Initiated with [AF_INET]198.51.100.5:41842"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/openvpn's business
+    - message: "Jul 12 08:15:50 vixen42 openvpn[12345]: 198.51.100.5:41843 TLS Auth Error: Auth Username/Password verification failed for peer"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jul 12 08:15:50 vixen42 openvpn[12345]: 192.0.2.66:41843 TLS Auth Error: Auth Username/Password verification failed for peer"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a routine keepalive is not an authentication event
+    - message: "Jul 12 08:25:49 vixen42 openvpn[12345]: 203.0.113.9:41842 SIGUSR1[soft,ping-restart] received, client-instance restarting"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

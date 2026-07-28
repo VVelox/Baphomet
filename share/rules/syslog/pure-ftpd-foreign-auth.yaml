@@ -1,0 +1,101 @@
+---
+# ANY pure-ftpd authentication event from outside your home countries, failed
+# or successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
+# rule, and the traveler risk, all of which apply here unchanged.
+#
+# The failure pattern is syslog/pure-ftpd's, verbatim, localizations and all...
+# pure-ftpd translates its failure text, so the same event reads differently
+# per locale and the pattern carries every spelling fail2ban collected. The
+# success pattern is written from pure-ftpd's own output rather than mined
+# from a corpus, and its text is NOT localized in the same way. Confirm the
+# success half against a live log, especially on a non-English install; the
+# failure half is corpus-proven either way.
+#
+# List AHEAD of syslog/pure-ftpd: a domestic event is vetoed here without
+# being consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[PURE-FTPD] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - pure-ftpd
+message_regexp:
+  # the success... "[INFO] user is now logged in"
+  - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[INFO\] (?<USER>\S+) is now logged in'
+  # and the failure syslog/pure-ftpd counts, verbatim
+  - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Jul 12 08:25:49 vixen42 pure-ftpd: (?@203.0.113.9) [INFO] kitsune is now logged in"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign failure
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@198.51.100.23) [WARNING] Authentication failed for user [moth3r]"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    # a localized failure is still a failure
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@203.0.113.14) [WARNING] Godkendelse mislykkedes for [moth3r]"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through
+    - message: "Jul 12 08:25:49 vixen42 pure-ftpd: (?@198.51.100.5) [INFO] kitsune is now logged in"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/pure-ftpd's business
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@198.51.100.5) [WARNING] Authentication failed for user [moth3r]"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@192.0.2.66) [WARNING] Authentication failed for user [moth3r]"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a transfer notice is not an authentication event
+    - message: "Jul 12 08:25:49 vixen42 pure-ftpd: (?@203.0.113.9) [NOTICE] /home/kitsune/x.txt downloaded (1 bytes, 1.00KB/sec)"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

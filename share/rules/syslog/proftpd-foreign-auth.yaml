@@ -1,0 +1,99 @@
+---
+# ANY proftpd authentication event from outside your home countries, failed or
+# successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
+# rule, and the traveler risk, all of which apply here unchanged.
+#
+# The failure patterns are syslog/proftpd's, entire and verbatim. The success
+# pattern is written from proftpd's own output rather than mined from a
+# corpus... fail2ban annotates only failures. Confirm the success half against
+# a live log; the failure half is corpus-proven either way.
+#
+# List AHEAD of syslog/proftpd: a domestic event is vetoed here without being
+# consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[PROFTPD] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - proftpd
+message_regexp:
+  # the success... same envelope as the failures, different verdict
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+USER (?<USER>\S+): Login successful'
+  # and everything syslog/proftpd counts, verbatim
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+USER (?:\S+|.*?)(?: \(Login failed\))?: (?:[uU]ser not authorized for login|[nN]o such user found|[iI]ncorrect password|[pP]assword expired|[aA]ccount disabled|[iI]nvalid shell: ''\S+''|[uU]ser in \S+|[lL]imit (?:access|configuration) denies login|[nN]ot a UserAlias|[mM]aximum login length exceeded)'
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+SECURITY VIOLATION: (?:\S+|.*?) login attempted'
+  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+Maximum login attempts \(\d+\) exceeded'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Jul 12 08:25:49 vixen42 proftpd[12345]: vixen42.example.com (mail.example.com[203.0.113.9]): USER kitsune: Login successful."
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign failure, from the corpus
+    - message: "Jun 09 07:30:58 platypus.ace-hosting.com.au proftpd[11864]: platypus.ace-hosting.com.au (mail.bloodymonster.net[::ffff:198.51.100.23]): USER username (Login failed): Incorrect password."
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: "Jun 13 22:07:23 platypus.ace-hosting.com.au proftpd[15719]: platypus.ace-hosting.com.au (::ffff:203.0.113.14[::ffff:203.0.113.14]): SECURITY VIOLATION: root login attempted."
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through
+    - message: "Jul 12 08:25:49 vixen42 proftpd[12345]: vixen42.example.com (mail.example.com[198.51.100.5]): USER kitsune: Login successful."
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/proftpd's business
+    - message: "Jun 09 07:30:58 platypus proftpd[11864]: platypus (mail.example[::ffff:198.51.100.5]): USER username (Login failed): Incorrect password."
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jun 09 07:30:58 platypus proftpd[11864]: platypus (mail.example[::ffff:192.0.2.66]): USER username (Login failed): Incorrect password."
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a data transfer is not an authentication event
+    - message: "Jul 12 08:25:49 vixen42 proftpd[12345]: vixen42.example.com (mail.example.com[203.0.113.9]): FTP session closed."
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

@@ -1,0 +1,137 @@
+---
+# ANY ssh authentication event from outside your home countries, failed or
+# successful. A banishing rule, and the blunt one of the family: the drive-by
+# that tries three passwords and moves on never reaches syslog/sshd's
+# threshold, but from a country you do no business with the first touch is
+# already the whole verdict. max_score 1... one is enough.
+#
+# The pattern list is syslog/sshd's, entire and verbatim, plus the successful
+# login on top. Nothing is carved out: if syslog/sshd would have counted the
+# line, this rule counts it too when it comes from abroad, and a login that
+# WORKED counts the same as one that failed. That is the point of the rule...
+# from outside the home countries there is no such thing as a harmless
+# authentication event, and a right password is worse news than a wrong one.
+#
+# The sibling syslog/sshd-foreign-login sights a foreign success and banishes
+# nobody. This rule is the other policy... run one or the other, not both.
+# Listed together, whichever comes first consumes the successes.
+#
+# ORDER MATTERS, and in your favor. A rule whose gate vetoes does not consume
+# the line, so a domestic event falls straight through to syslog/sshd and is
+# counted there exactly as before. List this one AHEAD of syslog/sshd and the
+# foreign traffic is peeled off the top while the domestic path is untouched.
+#
+# The country gate is your policy, not the rule's... it imports the named list
+# country_codes{home}, which you define in the config. Ship nothing and the
+# rule refuses to load, loudly. Needs geoip_db and IP::Geolocation::MMDB. The
+# gate fails closed: an address the database cannot place does not count, so a
+# database gap misses rather than banishes wrongly. Internal addresses do not
+# locate either, so they are excluded for free.
+#
+# Read the traveler risk before turning this on: an admin logging in from
+# abroad is banished by their own successful login, mid-session. Stand it up
+# with eve_only first and watch what it would have caught.
+rev: 1
+msg: "[SSHD] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - sshd
+  - sshd-session
+mungers:
+  - sshd
+message_regexp:
+  # the success... the same line sshd-foreign-login reads
+  - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
+  # and everything syslog/sshd counts, verbatim
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?User \S+ from %%%%SRC%%%% not allowed because'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?refused connect from \S+ \(%%%%SRC%%%%\)'
+  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%'
+  - '^Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
+  - '^Did not receive identification string from %%%%SRC%%%%'
+  - '^Bad protocol version identification .* from %%%%SRC%%%%'
+  - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a success from abroad... banished, traveler or thief alike
+    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 203.0.113.9 port 21680 ssh2: ED25519 SHA256:hjUf"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a failure from abroad... the drive-by this rule exists for
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 198.51.100.23 port 4711 ssh2"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 203.0.113.14 port 34640"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+    # not a credential, still a touch from abroad, still counted
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Did not receive identification string from 203.0.113.77"
+      geo:
+        countries:
+          "203.0.113.77": RU
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.77"
+  negative:
+    # a domestic success... vetoed here, and the line falls through untouched
+    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # a domestic failure... syslog/sshd's business, at syslog/sshd's pace
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for root from 198.51.100.5 port 4711 ssh2"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed rather than banishing on a database gap
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for root from 192.0.2.66 port 4711 ssh2"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # nothing to do with authentication at all
+    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Server listening on 0.0.0.0 port 22."
+      found: 0
+      undefed: ["SRC"]

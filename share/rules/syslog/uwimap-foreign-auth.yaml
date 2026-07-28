@@ -1,0 +1,104 @@
+---
+# ANY UW IMAP/POP3 authentication event from outside your home countries,
+# failed or successful. See syslog/sshd-foreign-auth for the reasoning, the
+# ordering rule, and the traveler risk, all of which apply here unchanged.
+#
+# The failure patterns are syslog/uwimap-auth's, entire and verbatim. The
+# success pattern is written from uw-imap's own output rather than mined from
+# a corpus... fail2ban annotates only failures. Confirm the success half
+# against a live log; the failure half is corpus-proven either way.
+#
+# The success and failure shapes are near twins here ("Login user=..." against
+# "Login failed user=..."), so the success pattern excludes the failure verbs
+# explicitly rather than by ordering... a rule should not depend on which of
+# its own regexps is tried first for correctness.
+#
+# List AHEAD of syslog/uwimap-auth: a domestic event is vetoed here without
+# being consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[UWIMAP] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - ipop3d
+  - imapd
+message_regexp:
+  # the success... "Login user=x host=y [ip]", and not one of the failure verbs
+  - '^Login (?!failed|excessive|disabled|SYSTEM BREAK-IN)user=(?<USER>\S*) .*host=.*\[%%%%SRC%%%%\]'
+  # and everything syslog/uwimap-auth counts, verbatim
+  - '^Login (?:failed|excessive login failures|disabled|SYSTEM BREAK-IN ATTEMPT) user=\S* auth=\S* host=.*\[%%%%SRC%%%%\]\s*$'
+  - '^Failed .* override of user=.* host=.*\[%%%%SRC%%%%\]\s*$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Jul 12 08:25:49 vixen42 imapd[12345]: Login user=kitsune auth=kitsune host=mail.example.com [203.0.113.9]"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign failure
+    - message: "Jul 12 08:15:50 vixen42 ipop3d[12345]: Login failed user=moth3r auth=moth3r host=mail.example.com [198.51.100.23]"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    - message: "Jul 12 08:15:50 vixen42 imapd[12345]: Login SYSTEM BREAK-IN ATTEMPT user=root auth=root host=mail.example.com [203.0.113.14]"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through
+    - message: "Jul 12 08:25:49 vixen42 imapd[12345]: Login user=kitsune auth=kitsune host=mail.example.com [198.51.100.5]"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/uwimap-auth's business
+    - message: "Jul 12 08:15:50 vixen42 ipop3d[12345]: Login failed user=moth3r auth=moth3r host=mail.example.com [198.51.100.5]"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jul 12 08:15:50 vixen42 ipop3d[12345]: Login failed user=moth3r auth=moth3r host=mail.example.com [192.0.2.66]"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a logout is not an authentication event
+    - message: "Jul 12 08:25:49 vixen42 imapd[12345]: Logout user=kitsune host=mail.example.com [203.0.113.9]"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

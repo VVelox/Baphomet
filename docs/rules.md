@@ -107,6 +107,7 @@ watcher whole. What ships:
 | `syslog/ftp` | an FTP log | proftpd, pure-ftpd, vsftpd, wuftpd, gssftpd |
 | `syslog/voip` | a VoIP log | asterisk, freeswitch, murmur |
 | `syslog/ssh` | an auth log | the base `sshd` and `dropbear`... not the `sshd-*` tuning variants, which are alternative modes, not additive |
+| `syslog/foreign-auth` | any log carrying a login service | the thirteen `*-foreign-auth` rules... any authentication event, failed or successful, from outside `country_codes{home}`, banning on the first one. Opt-in twice over (list it, and name your home countries) and **listed ahead** of the per-service rules it shadows. See [the country gate](#country-narrowing-an-offense-by-geography) |
 | `syslog/linux-audit` | a forwarded auditd stream (audisp-syslog) | the auditd auth-failure and login-failure-anomaly ban rules, plus a detection-only sweep for the shapes a compromise leaves in the audit trail: account management, SELinux AVC and AppArmor denials, promiscuous NICs, MAC/audit tampering, fault-signal crashes, forbidden execs, kernel module loads, linker-preload writes, execs from writable dirs, and paths named to hide. Not `syslog/linux-apparmor-denied`, which reads the kernel ring buffer, not this stream |
 | `http_error/apache` | an Apache error log | the `apache-*` error-log rules |
 | `http_error/nginx` | an Nginx error log | the `nginx-*` error-log rules |
@@ -879,15 +880,30 @@ The gate always **fails closed**: a value that does not locate, or a missing
 database, blocks the count rather than risking a wrong ban. A galla with
 country-gated rules and no loadable database says so loudly at start.
 
-The shipped `syslog/sshd-foreign-login` and its `dovecot`/`postfix-sasl`
-siblings ship the gate but not the policy... each matches a successful
-login and imports `country_codes{home}`, so it does nothing until you both
-list it in a watcher and name your home countries in the config, and dies
-loudly if listed without them. They are detection-only, since a foreign
-login is a traveler or a takeover and the rule can not tell which. Beyond
-those, a geography ban is your policy... compose one from any offense rule
-plus a `country` gate and your own `country_codes` lists. All of them prove
-their gate from their own tests with a [`geo` fixture](#tests).
+Two shipped families use the gate, both importing `country_codes{home}` and
+neither shipping the policy... each does nothing until you both list it in a
+watcher and name your home countries in the config, and dies loudly if listed
+without them. All of them prove their gate from their own tests with a
+[`geo` fixture](#tests).
+
+- **`syslog/sshd-foreign-login`** and its `dovecot`/`postfix-sasl` siblings...
+  each matches a successful login and is **detection-only**, since a foreign
+  login is a traveler or a takeover and the rule can not tell which.
+- **`%syslog/foreign-auth%`**, thirteen rules... each matches its service's
+  whole offense vocabulary *plus* that service's successful login, and
+  **bans**, at `max_score: 1`. The blunt policy, for the drive-by that probes
+  a few credentials and moves on faster than any per-service threshold can
+  answer. It banishes on a login that worked, which is deliberate and which
+  will banish a traveling admin mid-session, so read the group file before
+  listing it. Run one family or the other per service, not both.
+
+Order the ban family **ahead** of the per-service rules it shadows. A vetoed
+gate does not consume the line (see [how it is counted](#how-it-is-counted)),
+so a domestic event falls straight through and counts at the ordinary rule
+exactly as before, while foreign traffic is peeled off the top.
+
+Beyond these, a geography policy is yours to compose... any offense rule plus
+a `country` gate and your own `country_codes` lists.
 
 ### namtar_list... only the already-condemned
 

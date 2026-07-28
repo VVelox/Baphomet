@@ -1,0 +1,98 @@
+---
+# ANY vsftpd authentication event from outside your home countries, failed or
+# successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
+# rule, and the traveler risk, all of which apply here unchanged.
+#
+# Like courier, vsftpd logs the verdict as a word on one shape... "OK LOGIN:
+# Client" against "FAIL LOGIN: Client"... so one pattern takes both halves.
+# syslog/vsftpd reads the FAIL, syslog/vsftpd-breach the OK. The pam failure
+# shape syslog/vsftpd also counts is carried verbatim beside it.
+#
+# List AHEAD of syslog/vsftpd and syslog/vsftpd-breach: a domestic event is
+# vetoed here without being consumed, and falls through to be counted there
+# exactly as before.
+rev: 1
+msg: "[VSFTPD] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - vsftpd
+message_regexp:
+  # success and failure in one shape
+  - '^(?:\[pid \d+\] )?\[[^\]]+\] (?:OK|FAIL) LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+  # and the pam failure syslog/vsftpd counts, verbatim
+  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:203.0.113.9"'
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    # a foreign login that failed
+    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "198.51.100.23"'
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    # the pam shape, from abroad
+    - message: "Oct 23 21:15:42 vps vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=test rhost=203.0.113.14"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through to syslog/vsftpd-breach
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:198.51.100.5"'
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/vsftpd's business
+    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "198.51.100.5"'
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "192.0.2.66"'
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # another daemon''s OK LOGIN is not vsftpd''s... the gate stops it
+    - message: 'Jul 12 08:25:49 vixen42 proftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:203.0.113.9"'
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

@@ -99,6 +99,46 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/samba` | Samba connection denials | `smbd` (needs `logging = syslog`) |
 | `syslog/rsyncd` | rsync daemon module auth failures | `rsyncd`, `rsync` |
 
+### The foreign-auth family
+
+Thirteen rules, the group `%syslog/foreign-auth%`, one per login service.
+Each carries its service's entire offense vocabulary from the rule above
+**plus that service's successful login**, gated on `country_codes{home}` with
+`max_score: 1`, so any authentication event from outside your home countries
+banishes on the first one. This is the drive-by policy: the prober who tries
+four passwords and leaves never reaches a per-service threshold, and from a
+country you do no business with the first touch is the whole verdict.
+
+They ban, including on a login that **succeeded**... which is the point, and
+also the risk. Read the group file before listing it: the ordering rule (put
+these ahead of the per-service rules, so a domestic event falls through
+un-consumed and counts normally), the config it needs, and the traveler
+problem. The three `*-foreign-login` rules above are the gentler policy over
+the same ground, sighting a foreign success and banishing nobody... run one
+family or the other per service.
+
+Where a service's success line was not in fail2ban's corpus, which annotates
+only failures, the success pattern was written from the daemon's own output
+and is flagged in the rule file for live-log confirmation; every failure half
+is corpus-proven. `sshd`, `dovecot`, `postfix-sasl`, `courier` and `vsftpd`
+have both halves proven in-tree.
+
+| rule | watches for | daemon gate |
+| --- | --- | --- |
+| `syslog/sshd-foreign-auth` | any ssh authentication event from outside `country_codes{home}`, failed or successful | `sshd`, `sshd-session` |
+| `syslog/dovecot-foreign-auth` | " for Dovecot IMAP/POP3/submission | `dovecot` and variants |
+| `syslog/postfix-sasl-foreign-auth` | " for Postfix SASL | `postfix/smtpd` and variants |
+| `syslog/courier-foreign-auth` | " for Courier IMAP/POP3 | `imapd`, `pop3d` and variants |
+| `syslog/vsftpd-foreign-auth` | " for vsftpd | `vsftpd` |
+| `syslog/cyrus-imap-foreign-auth` | " for Cyrus IMAP/POP3 | `imap`, `pop3` and variants |
+| `syslog/dropbear-foreign-auth` | " for Dropbear ssh | `dropbear` |
+| `syslog/proftpd-foreign-auth` | " for ProFTPD | `proftpd` |
+| `syslog/pure-ftpd-foreign-auth` | " for Pure-FTPd | `pure-ftpd` |
+| `syslog/wuftpd-foreign-auth` | " for wu-ftpd | `wu-ftpd` |
+| `syslog/uwimap-foreign-auth` | " for UW IMAP/POP3 | `imapd`, `ipop3d` |
+| `syslog/perdition-foreign-auth` | " for perdition (verdict is the `status=` field) | `perdition.*` |
+| `syslog/openvpn-foreign-auth` | " for OpenVPN... read the traveler warning twice, a VPN is usually meant to be reached from abroad | `openvpn` |
+
 ## http rules
 
 For access logs via the `http_access` parser... these ban the client

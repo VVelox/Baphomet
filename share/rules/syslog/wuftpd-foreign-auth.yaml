@@ -1,0 +1,94 @@
+---
+# ANY wu-ftpd authentication event from outside your home countries, failed or
+# successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
+# rule, and the traveler risk, all of which apply here unchanged.
+#
+# The failure patterns are syslog/wuftpd's, entire and verbatim. The success
+# pattern is written from wu-ftpd's own output rather than mined from a
+# corpus... fail2ban annotates only failures. Confirm the success half against
+# a live log; the failure half is corpus-proven either way.
+#
+# List AHEAD of syslog/wuftpd: a domestic event is vetoed here without being
+# consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[WU-FTPD] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - wu-ftpd
+message_regexp:
+  # the success... "FTP LOGIN FROM host [ip], user"
+  - '^FTP LOGIN FROM \S+ \[%%%%SRC%%%%\], (?<USER>\S+)'
+  # and everything syslog/wuftpd counts, verbatim
+  - '^failed login from \S+ \[%%%%SRC%%%%\]\s*$'
+  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign login that worked
+    - message: "Jul 12 08:25:49 vixen42 wu-ftpd[12345]: FTP LOGIN FROM mail.example.com [203.0.113.9], kitsune"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign failure
+    - message: "Jul 12 08:15:50 vixen42 wu-ftpd[12345]: failed login from mail.example.com [198.51.100.23]"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+    # the pam shape, from abroad
+    - message: "Jul 12 08:15:50 vixen42 wu-ftpd[12345]: pam_unix(wu-ftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser= rhost=203.0.113.14"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through
+    - message: "Jul 12 08:25:49 vixen42 wu-ftpd[12345]: FTP LOGIN FROM mail.example.com [198.51.100.5], kitsune"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/wuftpd's business
+    - message: "Jul 12 08:15:50 vixen42 wu-ftpd[12345]: failed login from mail.example.com [198.51.100.5]"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jul 12 08:15:50 vixen42 wu-ftpd[12345]: failed login from mail.example.com [192.0.2.66]"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a session close is not an authentication event
+    - message: "Jul 12 08:25:49 vixen42 wu-ftpd[12345]: FTP session closed"
+      found: 0
+      undefed: ["SRC"]

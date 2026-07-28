@@ -1,0 +1,111 @@
+---
+# ANY dovecot authentication event from outside your home countries, failed or
+# successful. The IMAP/POP3/submission half of the foreign-auth family... see
+# syslog/sshd-foreign-auth for the reasoning, the ordering rule, and the
+# traveler risk, all of which apply here unchanged.
+#
+# The pattern list is syslog/dovecot's, entire and verbatim, plus the
+# successful login on top. Nothing is carved out. Mail is where a stolen
+# password is quietest... a foreign IMAP login that WORKS raises nothing
+# anywhere else, and here it is the loudest thing on the page.
+#
+# The sibling syslog/dovecot-foreign-login sights a foreign success and
+# banishes nobody. Run one or the other, not both.
+#
+# List AHEAD of syslog/dovecot: a domestic event is vetoed here without being
+# consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[DOVECOT] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - dovecot
+  - dovecot-auth
+  - //^dovecot//
+  - //^auth(?:-worker)?//
+mungers:
+  - dovecot
+message_regexp:
+  # the success... the same line dovecot-foreign-login reads
+  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%'
+  # and everything syslog/dovecot counts, verbatim
+  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\):(?: user=<[^>]*>,)?(?: method=\S+,)? rip=%%%%SRC%%%%'
+  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*?,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*?,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign IMAP login that worked... the quiet takeover this rule is for
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.9, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "kitsune"
+    # a foreign POP3 login that worked
+    - message: "Jun 13 21:48:07 platypus dovecot: pop3-login: Login: user=<moth3r>, method=PLAIN, rip=198.51.100.23, lip=192.0.2.1"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+        USER: "moth3r"
+    # a foreign failure
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Disconnected (auth failed, 1 attempts in 3 secs): user=<moth3r>, method=PLAIN, rip=203.0.113.14, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through to syslog/dovecot
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=198.51.100.5, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/dovecot's business
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Disconnected (auth failed, 1 attempts in 3 secs): user=<moth3r>, method=PLAIN, rip=198.51.100.5, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=192.0.2.66, lip=192.0.2.1, TLS"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a disconnect that is not an auth event at all
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Disconnected: Connection closed (no auth attempts in 0 secs): user=<>, rip=203.0.113.9, lip=192.0.2.1"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]

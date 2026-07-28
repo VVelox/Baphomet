@@ -1,0 +1,104 @@
+---
+# ANY postfix SASL authentication event from outside your home countries,
+# failed or successful. The submission/smtpd half of the foreign-auth
+# family... see syslog/sshd-foreign-auth for the reasoning, the ordering rule,
+# and the traveler risk, all of which apply here unchanged.
+#
+# The pattern list is syslog/postfix-sasl's, verbatim, plus the successful
+# authentication on top. Nothing is carved out. A foreign SASL login that
+# SUCCEEDS is a relay about to be used to send in your name, which is why the
+# success is not merely noted here but banished on.
+#
+# The sibling syslog/postfix-sasl-foreign sights a foreign success and
+# banishes nobody. Run one or the other, not both.
+#
+# List AHEAD of syslog/postfix-sasl: a domestic event is vetoed here without
+# being consumed, and falls through to be counted there exactly as before.
+rev: 1
+msg: "[POSTFIX] SASL authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+daemons:
+  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+mungers:
+  - postfix
+message_regexp:
+  # the success... the same line postfix-sasl-foreign reads
+  - '^[0-9A-F]+: client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
+  # and the failure syslog/postfix-sasl counts, verbatim
+  - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # a foreign SASL login that worked... a relay about to be abused
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9], sasl_method=LOGIN, sasl_username=sender@example.com"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+        USER: "sender@example.com"
+    - message: "Jul 12 08:15:50 vixen42 postfix/submission/smtpd[9182]: D4E5F6: client=unknown[198.51.100.23], sasl_method=PLAIN, sasl_username=moth3r"
+      geo:
+        countries:
+          "198.51.100.23": DE
+        lists:
+          home: [ US, CA ]
+      found: 1
+      data:
+        SRC: "198.51.100.23"
+        USER: "moth3r"
+    # a foreign SASL failure
+    - message: "Mar 10 13:33:30 gandalf postfix/smtpd[3937]: warning: HOSTNAME[203.0.113.14]: SASL LOGIN authentication failed: authentication failure"
+      geo:
+        countries:
+          "203.0.113.14": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.14"
+  negative:
+    # domestic success... vetoed, falls through to syslog/postfix-sasl
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # domestic failure... syslog/postfix-sasl's business
+    - message: "Mar 10 13:33:30 gandalf postfix/smtpd[3937]: warning: HOSTNAME[198.51.100.5]: SASL LOGIN authentication failed: authentication failure"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[192.0.2.66], sasl_method=LOGIN, sasl_username=sender@example.com"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # an unauthenticated client is not an authentication event
+    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9]"
+      geo:
+        countries:
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]
