@@ -48,6 +48,56 @@ is( $resolved->{'json/suricata-admin'}{severity},  'high', 'the watcher severity
 is( $resolved->{'json/suricata-dos'}{weight},      3,      'a watcher-only rule stands on its own' );
 
 #
+# a %group% key spreads its table over every rule the group names
+#
+
+my %groups = (
+	'json/suricata-pair' => [ 'json/suricata-admin', 'json/suricata-dos' ],
+	'json/suricata-solo' => ['json/suricata-admin'],
+);
+my $expander = sub { return @{ $groups{ $_[0] } || [] }; };
+
+# the whole family put in observe mode from one stanza... the case that
+# prompted this, standing a new ban family up under eve_only
+$resolved = resolve_rule_config(
+	{ rule_config => { '%json/suricata-pair%' => { eve_only => JSON::PP::true } } },
+	{}, $expander );
+is( $resolved->{'json/suricata-admin'}{eve_only}, 1, 'a group key reaches its first member' );
+is( $resolved->{'json/suricata-dos'}{eve_only},   1, 'a group key reaches its second member' );
+
+# a rule named outright beats the group it belongs to, at the same level
+$resolved = resolve_rule_config(
+	{
+		rule_config => {
+			'%json/suricata-pair%' => { eve_only => JSON::PP::true, max_score => 5 },
+			'json/suricata-admin'  => { eve_only => JSON::PP::false },
+		}
+	},
+	{},
+	$expander
+);
+is( $resolved->{'json/suricata-admin'}{eve_only},  0, 'a rule named outright beats its group at the same level' );
+is( $resolved->{'json/suricata-admin'}{max_score}, 5, 'the group keys it did not override still apply' );
+is( $resolved->{'json/suricata-dos'}{eve_only},    1, 'the rest of the group is untouched by the one exception' );
+
+# and a watcher group still layers over a kur group
+$resolved = resolve_rule_config(
+	{ rule_config => { '%json/suricata-pair%' => { max_score => 5, ban_time => 60 } } },
+	{ rule_config => { '%json/suricata-solo%' => { max_score => 9 } } },
+	$expander
+);
+is( $resolved->{'json/suricata-admin'}{max_score}, 9,  'a watcher group wins over a kur group' );
+is( $resolved->{'json/suricata-admin'}{ban_time},  60, 'the kur group keys it did not touch are inherited' );
+is( $resolved->{'json/suricata-dos'}{max_score},   5,  'a member of only the kur group keeps the kur value' );
+
+# a group key with no resolver is fatal, never silently dropped... an eve_only
+# that quietly did not apply is a rule banning while the operator watches
+eval {
+	resolve_rule_config( { rule_config => { '%json/suricata-pair%' => { eve_only => JSON::PP::true } } }, {} );
+};
+like( $@, qr/no group resolver was given/, 'a group key with no resolver dies rather than dropping the override' );
+
+#
 # check_kur_def... a valid rule_config at both levels, and the rejections
 #
 
@@ -68,6 +118,8 @@ is( $@, '', 'a kur with rule_config at both levels validates' );
 # bad weight, a bad severity, a non-table override, and a non-hash table
 my @bad = (
 	[ { 'notarule'          => { max_score => 1 } }, qr/invalid rule/,                       'a rule name without a slash' ],
+	[ { '%notagroup%'       => { max_score => 1 } }, qr/invalid rule/,                       'a group without a slash' ],
+	[ { '%json/x'           => { max_score => 1 } }, qr/invalid rule/,                       'a half-wrapped group key' ],
 	[ { 'json/x'            => { max_scoree => 1 } }, qr/unknown override "max_scoree"/,      'a misspelled override key' ],
 	[ { 'json/x'            => { max_score => 0 } },  qr/not a positive int/,                 'a zero max_score' ],
 	[ { 'json/x'            => { weight => 'heavy' } }, qr/not a positive number/,            'a non-numeric weight' ],

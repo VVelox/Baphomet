@@ -89,7 +89,9 @@ another `%group%`.
 Groups pair naturally with per-rule
 [config overrides](configuration.md#per-rule-config-overrides): pull the bulk
 in with a group, then tune the handful of exceptions by name with a
-`rule_config` table, no need to list the rest.
+`rule_config` table, no need to list the rest. A `rule_config` key may itself
+be a `%group%`, applying to every rule it names, so a whole family can be put
+in observe mode in one stanza and a single member excepted by name.
 
 ### Shipped groups
 

@@ -430,7 +430,9 @@ sub new {
 			'country_gates'   => $country_gates,
 			'namtar_gates'    => $namtar_gates,
 			'active_gates'    => $active_gates,
-			'rule_config'     => resolve_rule_config( $kur_settings, $watcher ),
+			'rule_config' => resolve_rule_config(
+				$kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); }
+			),
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
 			'wheels'          => {},
 			'journal_wheel'   => undef,

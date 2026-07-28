@@ -221,8 +221,9 @@ buckets out per rule.
 `allow_per_rule_thresholds` honors the numbers a rule *file* carries, the same
 everywhere that rule is used. `rule_config` is the other axis... it tunes a
 named rule from the config, differently per kur or per watcher, with no rule
-file touched. It is a table keyed by rule name, each entry any of `max_score`,
-`find_time`, `ban_time`, `weight`, `eve_only`, and `severity`.
+file touched. It is a table keyed by rule name, or by group (see
+[tuning a whole family](#tuning-a-whole-family-at-once)), each entry any of
+`max_score`, `find_time`, `ban_time`, `weight`, `eve_only`, and `severity`.
 
 ```toml
 [kur.ids.eve]
@@ -241,6 +242,33 @@ severity  = "high"
 max_score = 20
 find_time = 60
 ```
+
+### Tuning a whole family at once
+
+A key wrapped in percent signs is a **group**, the same spelling the `rule`
+list uses, and its table applies to every rule the group names. This is how a
+family is stood up in observe mode without thirteen stanzas:
+
+```toml
+[kur.mail.maillog]
+log = "/var/log/maillog"
+parser = "syslog"
+rule = [ "%syslog/foreign-auth%", "%syslog/mail%" ]
+
+# the whole foreign-auth family watched, not acting, until you trust it
+[kur.mail.maillog.rule_config."%syslog/foreign-auth%"]
+eve_only = true
+
+# ...except this one, which you have seen enough of to let act
+[kur.mail.maillog.rule_config."syslog/dovecot-foreign-auth"]
+eve_only = false
+```
+
+Within one level the groups are laid down first and the plain rule names over
+them, so a rule named outright beats the group it belongs to, whichever order
+they appear in the file. Keys a group set and the exception did not touch are
+still inherited by that rule. A group naming no rule that the watcher actually
+loads is harmless... the override simply lands on nothing.
 
 A `rule_config` table lays over the kur's then the watcher's, merged per rule
 name and then per key, so a watcher may tweak one knob of a rule the kur

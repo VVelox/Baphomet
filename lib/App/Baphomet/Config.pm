@@ -433,12 +433,14 @@ Watcher hashes take the keys below.
     - active_time :: Named time windows overriding the kur's and global's
           for this watcher's rules.
 
-    - rule_config :: Per-rule overrides keyed by rule name (C<type/name>),
+    - rule_config :: Per-rule overrides keyed by rule name (C<type/name>) or
+          by group (C<%type/name%>, the same spelling the rule list uses),
           each a table of any of max_score, find_time, ban_time, weight,
-          eve_only, and severity. Tunes a named rule from the config with no
-          rule file touched, layered watcher over kur, beating the rule
-          file's own numbers and honored regardless of
-          allow_per_rule_thresholds. See L</resolve_rule_config>.
+          eve_only, and severity. Tunes a named rule, or a whole family at
+          once, from the config with no rule file touched, layered watcher
+          over kur, beating the rule file's own numbers and honored
+          regardless of allow_per_rule_thresholds.
+          See L</resolve_rule_config>.
 
 The effective settings for a watcher are watcher over kur over global over
 default. C<rule_config> is per kur and per watcher only, with no global level.
@@ -1791,7 +1793,19 @@ sub _active_time_spec_error {
 Resolves the effective per-rule overrides for a watcher... the kur's
 C<rule_config> overlaid by the watcher's, merged per rule name and then per
 override key, so a watcher can tweak one knob of a rule the kur already tuned
-while the rest stays inherited. Returns a hash of rule name to a override
+while the rest stays inherited.
+
+A key wrapped in percent signs is a B<group>, and its override table applies
+to every rule the group names... C<%syslog/foreign-auth%> tunes the whole
+family in one stanza. Within a level the groups are laid down first and the
+plain rule names over them, so one rule of a family can be tuned out of step
+with its group. Resolving a group needs the third argument, a coderef taking
+a group name and returning its member rule names (the galla passes
+C<< $rules->group_members >>); a group key with no resolver is fatal rather
+than quietly dropped, since an override that silently did not apply is a rule
+banning while the operator believes it is only watching.
+
+Returns a hash of rule name to a override
 table holding any of C<max_score>, C<find_time>, C<ban_time>, C<weight>,
 C<eve_only> (normalized to 0 or 1), and C<severity>. A rule the config never
 names resolves to nothing, so the galla falls through to the rule's own
@@ -1806,27 +1820,57 @@ differently in two watchers of one kur shares the one bucket... tune such a
 rule at the kur level, or alike across its watchers.
 
     my $rule_config = resolve_rule_config( $kur_settings, $watcher );
+    my $rule_config = resolve_rule_config( $kur_settings, $watcher,
+        sub { return $rules->group_members( $_[0] ); } );
 
 =cut
 
 sub resolve_rule_config {
-	my ( $kur_settings, $watcher ) = @_;
+	my ( $kur_settings, $watcher, $group_members ) = @_;
 
 	my $resolved = {};
 	foreach my $level ( $kur_settings, $watcher ) {
 		if ( defined($level) && ref( $level->{rule_config} ) eq 'HASH' ) {
-			foreach my $rule_name ( keys( %{ $level->{rule_config} } ) ) {
-				my $override = $level->{rule_config}{$rule_name};
-				foreach my $key ( keys( %{$override} ) ) {
-					my $value = $override->{$key};
-					if ( $key eq 'eve_only' ) {
-						$value = $value ? 1 : 0;
-					} elsif ( $key eq 'weight' ) {
-						$value = $value + 0;
+			# a %group% key stands for every rule the group names. groups are
+			# laid down before the plain names so that, within one level, a
+			# rule tuned by name beats the group it belongs to... which is the
+			# whole point of tuning one out of a family. sorted so two groups
+			# naming the same rule resolve the same way every load
+			my @keys = (
+				sort( grep { /^%.*%$/ } keys( %{ $level->{rule_config} } ) ),
+				sort( grep { !/^%.*%$/ } keys( %{ $level->{rule_config} } ) )
+			);
+
+			foreach my $key (@keys) {
+				my @rule_names;
+				if ( $key =~ /^%(.*)%$/ ) {
+					my $group = $1;
+					if ( ref($group_members) ne 'CODE' ) {
+						# never silently drop the override... an eve_only that
+						# quietly did not apply is a rule banning when the
+						# operator believed it was only watching
+						die(      'rule_config names the group "'
+								. $key
+								. '" but no group resolver was given, so its members can not be looked up' );
 					}
-					$resolved->{$rule_name}{$key} = $value;
+					@rule_names = $group_members->($group);
+				} else {
+					@rule_names = ($key);
 				}
-			} ## end foreach my $rule_name ( keys...)
+
+				my $override = $level->{rule_config}{$key};
+				foreach my $rule_name (@rule_names) {
+					foreach my $override_key ( keys( %{$override} ) ) {
+						my $value = $override->{$override_key};
+						if ( $override_key eq 'eve_only' ) {
+							$value = $value ? 1 : 0;
+						} elsif ( $override_key eq 'weight' ) {
+							$value = $value + 0;
+						}
+						$resolved->{$rule_name}{$override_key} = $value;
+					}
+				} ## end foreach my $rule_name (@rule_names)
+			} ## end foreach my $key (@keys)
 		} ## end if ( defined($level) && ref...)
 	} ## end foreach my $level ( $kur_settings...)
 
@@ -1849,8 +1893,18 @@ sub _rule_config_error {
 		return $where . ' is not a hash of per-rule override tables';
 	}
 	foreach my $rule_name ( keys( %{$rule_config} ) ) {
-		if ( $rule_name !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
-			return $where . ' names the invalid rule "' . $rule_name . '"... should be like "syslog/sshd"';
+		# a key is either a rule name or, wrapped in percent signs, a group...
+		# the same spelling the watcher's own rule list uses
+		my $bare = $rule_name;
+		if ( $bare =~ /^%(.*)%$/ ) {
+			$bare = $1;
+		}
+		if ( $bare !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+			return
+				  $where
+				. ' names the invalid rule "'
+				. $rule_name
+				. '"... should be like "syslog/sshd", or a group like "%syslog/foreign-auth%"';
 		}
 		my $override = $rule_config->{$rule_name};
 		if ( ref($override) ne 'HASH' ) {
