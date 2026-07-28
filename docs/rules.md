@@ -80,8 +80,9 @@ json/suricata-exploit-kit
 Expansion happens once, before any rule loads. The result keeps order and is
 deduplicated to the first occurrence... so a rule named by two groups, or by a
 group and again explicitly, loads once and sits at its first position, which
-[first-match-wins](#how-it-is-counted) already made the only one that can
-fire. A group that resolves to no file, a member not in `type/name` form, an
+under the default first-match [`overlap`](configuration.md) is the only one
+that could have fired anyway... and under an `overlap` of `all` the dedup is
+what keeps a twice-named rule from counting twice. A group that resolves to no file, a member not in `type/name` form, an
 empty group, or a member of a type the watcher's parser can not feed all fail
 loudly at start, never silently. Groups do not nest... a member is a rule, not
 another `%group%`.
@@ -711,7 +712,11 @@ it".
 
 A rule whose mark gates veto, like a mark_only rule, does not consume the
 line either, so a branding rule and the rule that reads it can both act on
-the same line by falling through.
+the same line by falling through. What consuming means is the watcher's
+[`overlap`](configuration.md) setting... under the default `first` the first
+rule to fire eats the line, under `shadow` every later rule that also fires
+is demoted to a detection-style `sighting`, and under `all` every firing
+rule judges for real.
 
 The shipped `syslog/sshd-mark-users` and `syslog/sshd-spray` pair catch a
 single account hit from more than one source... the distributed brute-force

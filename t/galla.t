@@ -56,6 +56,24 @@ tests:
 EOR
 close($fh);
 
+open( $fh, '>', $dir . '/rules/syslog/sshd2.yaml' ) || die($!);
+print $fh <<'EOR';
+---
+daemons:
+  - sshd
+message_regexp:
+  - 'bad thing from %%%%ADDR%%%%'
+ban_var:
+  - ADDR
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+      found: 1
+      data:
+        ADDR: "1.2.3.4"
+EOR
+close($fh);
+
 open( $fh, '>', $dir . '/log' ) || die($!);
 print $fh '';
 close($fh);
@@ -100,6 +118,25 @@ max_score = 2
 [kur.sshd.globlog]
 log = [ "$dir/log", "$dir/glob/*.log", "$dir/notyet.log" ]
 rule = "syslog/sshd"
+
+[kur.sshd.firstlog]
+log = "$dir/log"
+parser = "bsd_syslog"
+rule = [ "syslog/sshd", "syslog/sshd2" ]
+
+[kur.sshd.shadowlog]
+log = "$dir/log"
+parser = "bsd_syslog"
+rule = [ "syslog/sshd", "syslog/sshd2" ]
+max_score = 2
+overlap = "shadow"
+
+[kur.sshd.alllog]
+log = "$dir/log"
+parser = "bsd_syslog"
+rule = [ "syslog/sshd", "syslog/sshd2" ]
+max_score = 2
+overlap = "all"
 EOC
 close($fh);
 
@@ -233,6 +270,50 @@ is( $sent[-1]{ip}, '7.7.7.7', 'second rule in the list matched and banned via it
 my $matched_before = $galla->{stats}{matched};
 $galla->_handle_line( 'multilog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 8.8.8.8' );
 is( $galla->{stats}{matched}, $matched_before + 1, 'a line is counted once across the rule list' );
+
+#
+# overlap... first is first-match-wins, shadow demotes later firing rules to
+# sightings, all judges every firing rule for real
+#
+
+is( $galla->{watchers}{multilog}{settings}{overlap},  'first',  'overlap defaults to first' );
+is( $galla->{watchers}{shadowlog}{settings}{overlap}, 'shadow', 'watcher overlap override' );
+
+# under first, only the winner deposits... the second rule never sees the line
+$galla->_handle_line( 'firstlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.8' );
+is( scalar( @{ $galla->{counters}{'6.6.6.8'} } ), 1, 'under first only the winner deposited' );
+ok( !defined( $galla->{shadow_counters}{'6.6.6.8'} ), 'and nothing was shadow counted' );
+
+# under shadow, the winner deposits real and the demoted second rule shadow
+my $matched_before_overlap = $galla->{stats}{matched};
+$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.6' );
+is( scalar( @{ $galla->{counters}{'6.6.6.6'} } ),        1, 'the winner deposited real' );
+is( scalar( @{ $galla->{shadow_counters}{'6.6.6.6'} } ), 1, 'the demoted rule deposited shadow' );
+is( $galla->{stats}{matched}, $matched_before_overlap + 2, 'both firing rules matched' );
+is( $galla->{stats}{demoted}, 1, 'the demotion counted' );
+
+# the real judgment is the winner's alone... max_score 2 bans on the second
+# line, the demoted rule's shadow crossing raising a sighted instead
+my $overlap_sent_before = scalar(@sent);
+$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.6' );
+is( scalar(@sent), $overlap_sent_before + 1, 'the winner banned at max_score, the demoted rule banned nothing' );
+is( $sent[-1]{ip}, '6.6.6.6', 'and banned the right IP' );
+is( $galla->{stats}{sightings}, 1, 'the demoted crossing raised a sighted' );
+ok( !defined( $galla->{shadow_counters}{'6.6.6.6'} ), 'shadow counter reset by the sighted' );
+
+# a demoted rule honors ignore_ips as a real judgment would
+my $overlap_ignored_before = $galla->{stats}{ignored};
+$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 127.0.0.6' );
+is( $galla->{stats}{ignored}, $overlap_ignored_before + 2, 'winner and demoted rule both honored ignore_ips' );
+ok( !defined( $galla->{shadow_counters}{'127.0.0.6'} ), 'no shadow deposit for a ignored IP' );
+
+# under all, every firing rule deposits real... two rules, one line, and the
+# max_score of 2 crossed with in the one record
+my $all_sent_before = scalar(@sent);
+$galla->_handle_line( 'alllog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.7' );
+is( scalar(@sent), $all_sent_before + 1, 'under all both rules deposited real and the one line banned' );
+is( $sent[-1]{ip}, '6.6.6.7', 'the right IP banned' );
+ok( !defined( $galla->{counters}{'6.6.6.7'} ), 'counter reset by the ban' );
 
 #
 # ignore_ips... global plus kur, checked before anything accumulates

@@ -54,11 +54,16 @@ a `found` and a `banish` for that last line both.
 - **sighting** ... the detection twin of `found`, a sub-threshold match
   under a detection-only rule (one carrying a `detection_var`). The rule
   banishes nobody, only counts its subject... the crossing match is the
-  `sighted`. See [rules](rules).
+  `sighted`. Under an `overlap` of `shadow` a later rule firing on a record
+  already consumed is demoted to a `sighting` too, an `.ip`-carrying one...
+  the winner made the real judgment, this records who else saw it. See
+  [rules](rules) and [configuration](configuration).
 - **sighted** ... the detection twin of `banish`, a subject whose count
-  crossed the threshold under a detection rule. It carries the match
-  envelope but names a `.subject`, not an `.ip`... the subject need not be a
-  address, and nothing is sent to Kur.
+  crossed the threshold under a detection rule, or a demoted overlap
+  offender whose shadow score crossed (there the `.subject` is the offender
+  IP). It carries the match envelope but names a `.subject`, not an
+  `.ip`... a detection subject need not be a address, and nothing is sent
+  to Kur.
 
 Every record carries these fields...
 
@@ -162,11 +167,13 @@ suppressed.
 
 A **sighted** event adds `.subject`, the value of the `detection_var` that
 crossed the threshold... a username, a hostname, a URI, or a IP when that is
-what the rule counts. It carries the same `.score` and match envelope a
+what the rule counts, or the offender IP when a demoted overlap rule's
+shadow score crossed. It carries the same `.score` and match envelope a
 banish would, but no `.ip`, `.ban_time`, `.country`, or `.recidive`... a
 detection rule never banishes, so none of those apply. A **sighting** carries
 the match envelope like a `found`, plus `.marks_set` / `.unmarked` when the
-rule brands.
+rule brands... a demoted overlap `sighting` also carries the `.ip` a `found`
+would have.
 
 ## Reading it
 

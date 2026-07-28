@@ -180,6 +180,19 @@ Top level keys are as below.
           would drop. May be overridden per kur and per watcher.
         Default :: 0
 
+    - overlap :: How a record matching more than one rule of a watcher's
+          list is judged. C<first> is first-match-wins... the first rule
+          to fire consumes the record and the later rules never see it.
+          C<shadow> keeps the real judgment on the first rule to fire and
+          demotes every later one that also fires to a detection-style
+          sighting... the demoted rule still runs its gates and still
+          brands its marks, but its counting rides the shadow buckets,
+          where it can neither cause nor delay a real ban, a crossing
+          raising a sighted. C<all> judges every firing rule for real,
+          the Suricata way, each depositing toward the one judgment. May
+          be overridden per kur and per watcher.
+        Default :: first
+
     - default_severity :: The severity stamped on EVE events for rules
           that do not carry their own... one of info, low, medium, high,
           or critical. May be overridden per kur and per watcher.
@@ -394,8 +407,9 @@ Watcher hashes take the keys below.
           against, relative to rules_dir, in the form C<type/name>. An entry
           wrapped in percent signs, C<%json/suricata-all%>, is a rule group
           that expands in place to its member rules. With a array, rules
-          (post-expansion) are checked in order and the first to match a line
-          wins, which suits logs carrying several daemons, like a maillog.
+          (post-expansion) are checked in order and, under the default
+          overlap of first, the first to match a line wins, which suits logs
+          carrying several daemons, like a maillog.
           See L<App::Baphomet::Rules> and L<App::Baphomet::Rules/expand_rules>.
 
     - journal :: Follow the journal instead of a log... a journalctl
@@ -417,6 +431,9 @@ Watcher hashes take the keys below.
 
     - eve_only / observe_ignored :: Optional per watcher observe mode
           overrides.
+
+    - overlap :: Optional per watcher override of how a record matching
+          more than one rule is judged... first, shadow, or all.
 
     - usedns :: Optional per watcher override of the hostname offender
           handling.
@@ -505,6 +522,7 @@ sub load_config {
 		'allow_per_rule_thresholds' => 0,
 		'eve_only'                  => 0,
 		'observe_ignored'           => 0,
+		'overlap'                   => 'first',
 		'enable_dns'                => 0,
 		'usedns'                    => 'no',
 		'usedns_timeout'            => 2,
@@ -624,6 +642,10 @@ sub load_config {
 	my $severity_error = _severity_error( $config->{default_severity} );
 	if ( defined($severity_error) ) {
 		die( 'The top level ' . $severity_error );
+	}
+	my $overlap_error = _overlap_error( $config->{overlap} );
+	if ( defined($overlap_error) ) {
+		die( 'The top level ' . $overlap_error );
 	}
 	if ( !defined( $config->{eve_log} ) || ref( $config->{eve_log} ) ne '' || $config->{eve_log} eq '' ) {
 		die('eve_log is not a path');
@@ -808,8 +830,8 @@ my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' =
 my @shared_setting_keys = qw(
 	max_score find_time ban_time ban_subnet_v4 ban_subnet_v6
 	subnet_max_score subnet_find_time allow_per_rule_thresholds eve_only
-	observe_ignored default_severity usedns country_codes namtar_lists
-	active_time rule_config
+	observe_ignored overlap default_severity usedns country_codes
+	namtar_lists active_time rule_config
 );
 my %kur_setting_keys     = map { $_ => 1 } ( @shared_setting_keys, qw( ignore_ips internal ) );
 my %watcher_setting_keys = map { $_ => 1 } ( @shared_setting_keys, qw( log journal parser rule join ) );
@@ -825,6 +847,20 @@ sub _severity_error {
 
 	if ( defined($value) && ( ref($value) ne '' || !$valid_severity{$value} ) ) {
 		return 'default_severity is not one of info/low/medium/high/critical';
+	}
+
+	return undef;
+}
+
+# returns a bare error string if the passed overlap is set and not a valid
+# mode, undef otherwise... first is first-match-wins, shadow keeps the real
+# judgment on the first firing rule and demotes every later one to a
+# detection-style sighting, all judges every firing rule for real
+sub _overlap_error {
+	my ($value) = @_;
+
+	if ( defined($value) && ( ref($value) ne '' || $value !~ /^(?:first|shadow|all)$/ ) ) {
+		return 'overlap is not one of first/shadow/all';
 	}
 
 	return undef;
@@ -1033,8 +1069,9 @@ sub resolve_settings {
 	my $resolved = {};
 	foreach my $item (
 		'max_score',     'find_time',        'ban_time',         'allow_per_rule_thresholds',
-		'eve_only',      'observe_ignored',  'default_severity', 'ban_subnet_v4',
-		'ban_subnet_v6', 'subnet_max_score', 'subnet_find_time', 'usedns'
+		'eve_only',      'observe_ignored',  'overlap',          'default_severity',
+		'ban_subnet_v4', 'ban_subnet_v6',    'subnet_max_score', 'subnet_find_time',
+		'usedns'
 		)
 	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
@@ -1501,6 +1538,10 @@ sub _settings_error {
 	my $severity_error = _severity_error( $settings->{default_severity} );
 	if ( defined($severity_error) ) {
 		return $severity_error;
+	}
+	my $overlap_error = _overlap_error( $settings->{overlap} );
+	if ( defined($overlap_error) ) {
+		return $overlap_error;
 	}
 	my $usedns_error = _usedns_error( $settings->{usedns} );
 	if ( defined($usedns_error) ) {

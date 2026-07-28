@@ -388,9 +388,10 @@ Expands a watcher's rule list, replacing every group reference with its
 members and passing bare rule names through untouched. A entry wrapped in
 percent signs, C<%json/suricata-all%>, is a group reference resolved via
 L</group_members>; anything else is a rule name kept as is. The result keeps
-order and is deduplicated to the first occurrence, since first-match-wins
-already makes a repeat inert. Dies through group_members on a unresolvable
-group or a bad member.
+order and is deduplicated to the first occurrence... under the default
+first-match overlap a repeat is inert anyway, and under a overlap of all the
+dedup keeps a twice-named rule from counting twice. Dies through
+group_members on a unresolvable group or a bad member.
 
     my @names = $rules->expand_rules(@entries);
 

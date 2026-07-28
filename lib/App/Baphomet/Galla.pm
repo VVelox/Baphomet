@@ -139,6 +139,7 @@ sub new {
 			ban_errors       => 0,
 			recidivists      => 0,
 			sightings        => 0,
+			demoted          => 0,
 			alerts           => 0,
 			subnet_bans      => 0,
 			subnet_alerts    => 0,
@@ -2120,12 +2121,18 @@ sub _process_record {
 		'now'    => $now,
 	};
 
-	# rules are checked in order and the first to match wins, so a line
-	# matching more than one rule only counts once... except a rule whose
-	# mark gates veto and a mark_only rule that only brands do not consume
-	# the line, so matching falls through to the later rules. the watcher
-	# name scopes any correlation state, as keys like conn ids are only
-	# unique with in one log
+	# rules are checked in order and, under the default overlap of first,
+	# the first to match wins, so a line matching more than one rule only
+	# counts once... except a rule whose mark gates veto and a mark_only
+	# rule that only brands do not consume the line, so matching falls
+	# through to the later rules. under overlap shadow the first rule to
+	# consume keeps the real judgment and every later firing rule is
+	# demoted to a detection-style sighting, counting into the shadow
+	# buckets; under overlap all every firing rule judges for real. the
+	# watcher name scopes any correlation state, as keys like conn ids
+	# are only unique with in one log
+	my $overlap = $watcher->{settings}{overlap};
+	my $demoted = 0;
 	for ( my $rule_int = 0; $rule_int < scalar( @{ $watcher->{rule_objs} } ); $rule_int++ ) {
 		my $rule_obj  = $watcher->{rule_objs}[$rule_int];
 		my $rule_name = $watcher->{rules}[$rule_int];
@@ -2307,15 +2314,40 @@ sub _process_record {
 				# had no offender to pass for banning
 				my $ban_ip = $survivors[0];
 				if ( !$mark_only ) {
-					# a firing non-mark_only rule consumes the line
-					$consumed = 1;
-					foreach my $ip (@survivors) {
-						my $registered
-							= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
-						if ( !defined($score) && defined($registered) ) {
-							$score = $registered;
-						}
-					} ## end foreach my $ip (@survivors)
+					if ($demoted) {
+						# a later firing rule under overlap shadow... the line
+						# already counted for real through the winner, so this
+						# one counts into the shadow buckets, where it can
+						# neither cause nor delay a real ban, a crossing
+						# raising a sighted. ignore_ips is honored here as a
+						# real judgment would... _register_hit skips that
+						# check for detection subjects, which need not be IPs,
+						# but a demoted subject is a offender IP
+						foreach my $ip (@survivors) {
+							if ( ip_ignored( $self->{ignore_ips}, $ip )
+								&& !( $eve_only && $observe_ignored ) )
+							{
+								$self->_tick( 'ignored', $watcher_name );
+								next;
+							}
+							my $registered = $self->_register_hit( $watcher_name, $ip, $context, $eve_only,
+								$observe_ignored, 1 );
+							if ( !defined($score) && defined($registered) ) {
+								$score = $registered;
+							}
+						} ## end foreach my $ip (@survivors)
+						$self->_tick( 'demoted', $watcher_name, $rule_name );
+					} else {
+						# a firing non-mark_only rule consumes the line
+						$consumed = 1;
+						foreach my $ip (@survivors) {
+							my $registered
+								= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
+							if ( !defined($score) && defined($registered) ) {
+								$score = $registered;
+							}
+						} ## end foreach my $ip (@survivors)
+					} ## end else [ if ($demoted) ]
 				} ## end if ( !$mark_only )
 
 				# a offender that crossed raised a banish (or, observe mode, an
@@ -2327,13 +2359,28 @@ sub _process_record {
 					if ( defined($ban_ip) ) {
 						$fields->{ip} = $ban_ip;
 					}
-					$self->_eve_emit( $eve_only ? 'noted' : 'found', $fields );
+					# a demoted match is a sighting... a mark_only rule brands
+					# the same before and after the winner, so it keeps its
+					# found either way
+					my $event
+						= ( $demoted && !$mark_only ) ? 'sighting'
+						: $eve_only                   ? 'noted'
+						:                               'found';
+					$self->_eve_emit( $event, $fields );
 				} ## end if ( !$self->{result_terminal...})
 			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
 		if ($consumed) {
-			last;
+			if ( !defined($overlap) || $overlap eq 'first' ) {
+				last;
+			}
+			if ( $overlap eq 'shadow' ) {
+				# the real judgment has been made... every later firing rule
+				# is demoted to a sighting
+				$demoted = 1;
+			}
+			# overlap all just keeps going, every firing rule judging for real
 		}
 	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
 

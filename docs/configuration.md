@@ -28,6 +28,7 @@ The config file is TOML, by default
 | `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_score`/`find_time`/`ban_time`/`weight` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
 | `eve_only` | `false` | Observe mode... the rules under this scope match and write to EVE but never banish, a would-be ban surfacing as an `alert` and each match as `noted`. A rule's own `eve_only` layers over this. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `observe_ignored` | `false` | When observing, also process IPs `ignore_ips` would otherwise drop, so they too are scored and can `alert`. Only meaningful with `eve_only`. Global, per kur, and per watcher. |
+| `overlap` | `"first"` | How a record matching more than one rule of a watcher's list is judged. `first` is first-match-wins... the first rule to fire consumes the record and the later rules never see it. `shadow` keeps the real judgment on the first rule to fire and demotes every later one that also fires to a detection-style `sighting`... the demoted rule still runs its gates and still brands its marks, but its counting rides the shadow buckets, where it can neither cause nor delay a real ban, a crossing raising a `sighted`. `all` judges every firing rule for real, the Suricata way, each depositing toward the one judgment. Global, per kur, and per watcher. See [eve](eve). |
 | `default_severity` | unset | The severity (`info`/`low`/`medium`/`high`/`critical`) written to EVE for a rule that carries no `severity` of its own. Unset means such rules simply omit the field. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `ignore_ips` | `[]` | IPv4/IPv6 addresses and CIDRs never banished, no matter what the rules say. A kur's own `ignore_ips` extends this list for that kur. Hostnames are not accepted. |
 | `socket_group` | root's default group | Group ownership of the manager socket. |
@@ -187,13 +188,14 @@ Watcher keys...
 | `log` | The log file, or an array of them, to follow. Entries containing glob metacharacters are expanded, and re-expanded every ten seconds while running... new matches get followed, vanished matches get dropped, and literal entries are kept even if the file does not exist yet. Required unless `journal` is given. |
 | `journal` | The systemd journal instead of a file. A array of journalctl matches, `FIELD=VALUE` like fail2ban's journalmatch, ANDed across fields and ORed with in one, or `true` for the whole journal. A galla runs `journalctl -f -o json` for it, resuming from the last cursor across restarts. Mutually exclusive with `log`. |
 | `parser` | The parser for lines of that log. Defaults to `syslog`. |
-| `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. An entry wrapped in percent signs, `%json/suricata-all%`, is a [rule group](rules.md#rule-groups) that expands to its member rules in place. With an array, rules (post-expansion) are checked in order and the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
+| `rule` | The rule, or an array of rules, to match parsed lines against, relative to `rules_dir`, in the form `type/name`, so `syslog/sshd` is `syslog/sshd.yaml` under the rules dir. An entry wrapped in percent signs, `%json/suricata-all%`, is a [rule group](rules.md#rule-groups) that expands to its member rules in place. With an array, rules (post-expansion) are checked in order and, under the default `overlap` of `first`, the first to match a line wins... suits logs carrying several daemons, like a maillog. Required. |
 | `parser` (journal) | A journal watcher's parser defaults to `journal`. |
 | `max_score` / `find_time` / `ban_time` | Optional overrides for this watcher. |
 | `ban_subnet_v4` / `ban_subnet_v6` / `subnet_max_score` / `subnet_find_time` | Optional subnet-ban overrides for this watcher. |
 | `allow_per_rule_thresholds` | Whether this watcher honors thresholds and weights a rule carries. |
 | `eve_only` | Put this watcher in observe mode... match and write to EVE but never banish. |
 | `observe_ignored` | When observing, also process what `ignore_ips` would drop. |
+| `overlap` | How a record matching more than one rule of this watcher's list is judged... `first`, `shadow`, or `all`. |
 | `default_severity` | The EVE severity for this watcher's rules that carry none of their own. |
 | `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
 | `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
@@ -203,8 +205,8 @@ Watcher keys...
 
 `max_score`, `find_time`, `ban_time`, `ban_subnet_v4`, `ban_subnet_v6`,
 `subnet_max_score`, `subnet_find_time`, `allow_per_rule_thresholds`,
-`eve_only`, `observe_ignored`, and `default_severity` layer watcher over kur
-over global over default.
+`eve_only`, `observe_ignored`, `overlap`, and `default_severity` layer
+watcher over kur over global over default.
 
 With `allow_per_rule_thresholds` on, a rule carrying its own `max_score`,
 `find_time`, or `ban_time` speaks over the watcher... the layering becomes
