@@ -10,11 +10,14 @@ docs/index.md
 docs/install.md
 docs/linux-auditd.md
 docs/log-analysis.md
+docs/neti-gate.md
 docs/rules-catalog.md
 docs/rules.md
 docs/sagan.md
 docs/sigma.md
+docs/tablets.md
 docs/usage.md
+docs/usedns.md
 docs/wazuh.md
 lib/App/Baphomet.pm
 lib/App/Baphomet/App.pm

@@ -6,52 +6,84 @@ The config file is TOML, by default
 
 ## Top level settings
 
+Grouped by concern. Many of these layer... a "Global, per kur, and per
+watcher" note means the same key may appear at any of those levels, the
+most specific winning (see [the layering rules](#kurs-and-watchers)).
+
+### Paths and process
+
 | setting | default | what |
 | --- | --- | --- |
-| `run_base_dir` | `/var/run/baphomet` | Base dir for the sockets and PID files. |
+| `run_base_dir` | `/var/run/baphomet` | Base dir for the sockets and PID files... the manager socket is `socket` under it, the galla sockets under its `galla/` subdir. |
 | `tablet_base_dir` | `/var/db/baphomet` | Base dir for the state tablets, the CSVs and JSONL a galla writes so its counters, pending bans, correlation context, and log positions survive a restart. Also the file backend's base dir and the home of the shared banishment ledger. |
-| `[ClayTablet]` | file backend | Table choosing where the per-galla state lives. `backend` names it (`file` default; `redis` shares marks across a fleet as a sync bus while keeping local state on disk); `options` is the free-form table that backend interprets. Absent, the file backend is used, the current on-disk system. See below. |
+| `[ClayTablet]` | file backend | Table choosing where the per-galla state lives. `backend` names it (`file` default; `redis` shares marks across a fleet as a sync bus while keeping local state on disk); `options` is the free-form table that backend interprets. Absent, the file backend is used, the current on-disk system. See [tablets](tablets). |
 | `checkpoint` | `60` | Seconds between periodic rewrites of the tablets (rounded up to the ten second sweeper cadence). 0 disables the periodic rewrite; a checkpoint on stop still happens. |
 | `ledger_keep` | `2592000` | How long rows are kept in the shared banishment ledger, 30 days by default. 0 means forever. Rows still inside the recidive `find_time` are always kept. |
 | `rules_dir` | `/usr/local/etc/baphomet/rules` | Site override dir for rules, searched ahead of the rules shipped with the dist. A rule here shadows the shipped one of the same name. It need not exist... names absent here fall through to the shipped rules, so this is only for a site's own rules or overrides. See [rules.md](rules.md#where-rules-live). |
 | `groups_dir` | `/usr/local/etc/baphomet/groups` | Site override dir for rule groups, searched ahead of the groups shipped with the dist, exactly as `rules_dir` is for rules. It need not exist. See [rules.md](rules.md#rule-groups). |
 | `ereshkigal_socket` | `/var/run/ereshkigal/socket` | The Ereshkigal manager socket bans are sent to. |
-| `galla_bin` | `galla` | The galla bin to spawn workers with. |
+| `galla_bin` | `galla` | The galla bin the manager spawns workers with. The bare default finds it on the manager's PATH; set a full path when the manager runs under a stripped environment, as under some service supervisors. |
+| `journalctl_bin` | `journalctl` | The journalctl bin a galla reads journal watchers with. Same PATH note as `galla_bin`. |
 | `timeout` | `30` | Timeout in seconds for socket calls, both to gallas and to Ereshkigal. |
+
+### Counting and banning
+
+| setting | default | what |
+| --- | --- | --- |
 | `max_score` | `5` | The accumulated score with in `find_time` at which a IP is banished. Each match adds its rule's `weight` (default 1), so with unweighted rules this is just an offense count. |
 | `find_time` | `600` | The window in seconds offenses are counted across. |
 | `ban_time` | unset | Ban time in seconds forwarded with ban requests, 0 meaning eternal. Unset means it is left out and the Ereshkigal side default applies. |
-| `ban_subnet_v4` | unset | IPv4 prefix length (1..32). Set, an offender also feeds a second bucket keyed by its `/prefix` network, alongside the per-IP count, and crossing `subnet_max_score` banishes the whole CIDR via Ereshkigal's `cidr_ban`. Unset, IPv4 offenders are not subnet-bucketed. Global, per kur, and per watcher. See [eve](eve). |
+| `ban_subnet_v4` | unset | IPv4 prefix length (1..32). Set, an offender also feeds a second bucket keyed by its `/prefix` network, alongside the per-IP count, and crossing `subnet_max_score` banishes the whole CIDR via Ereshkigal's `cidr_ban`. Unset, IPv4 offenders are not subnet-bucketed. Global, per kur, and per watcher. See [subnet banning](#subnet-banning). |
 | `ban_subnet_v6` | unset | IPv6 prefix length (1..128). The IPv6 twin of `ban_subnet_v4`, kept in a wholly separate bucket family. Naming one family and not the other buckets only that family. Global, per kur, and per watcher. |
 | `subnet_max_score` | unset | The accumulated score with in `subnet_find_time` at which a subnet bucket banishes its CIDR. Unset, the per-IP `max_score` applies. Only meaningful with a `ban_subnet_v4`/`ban_subnet_v6` set. Global, per kur, and per watcher. |
 | `subnet_find_time` | unset | The window in seconds a subnet bucket counts across. Unset, the per-IP `find_time` applies. Global, per kur, and per watcher. |
 | `allow_per_rule_thresholds` | `false` | Whether rules carrying their own `max_score`/`find_time`/`ban_time`/`weight` are honored. Off, a rule's numbers are inert and the watcher's apply. Global, per kur, and per watcher. See [rules](rules). |
-| `eve_only` | `false` | Observe mode... the rules under this scope match and write to EVE but never banish, a would-be ban surfacing as an `alert` and each match as `noted`. A rule's own `eve_only` layers over this. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
-| `observe_ignored` | `false` | When observing, also process IPs `ignore_ips` would otherwise drop, so they too are scored and can `alert`. Only meaningful with `eve_only`. Global, per kur, and per watcher. |
 | `overlap` | `"first"` | How a record matching more than one rule of a watcher's list is judged. `first` is first-match-wins... the first rule to fire consumes the record and the later rules never see it. `shadow` keeps the real judgment on the first rule to fire and demotes every later one that also fires to observe mode for that hit... the demoted rule still runs its gates and still brands its marks, but its counting rides the same shadow buckets observe mode fills, where it can neither cause nor delay a real ban, its match surfacing as `noted` and a crossing as an `alert`. `observe_ignored` widens demoted counting just as it widens observe mode. `all` judges every firing rule for real, the Suricata way, each depositing toward the one judgment. Global, per kur, and per watcher. See [eve](eve). |
-| `default_severity` | unset | The severity (`info`/`low`/`medium`/`high`/`critical`) written to EVE for a rule that carries no `severity` of its own. Unset means such rules simply omit the field. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `ignore_ips` | `[]` | IPv4/IPv6 addresses and CIDRs never banished, no matter what the rules say. A kur's own `ignore_ips` extends this list for that kur. Hostnames are not accepted. |
-| `socket_group` | root's default group | Group ownership of the manager socket. |
-| `socket_mode` | `"0660"` | Perms for the manager socket, an octal string, processed via oct. Galla sockets are always 0600. |
-| `enable_auth` | `false` | Opens the Neti gate... the unix ownership auth challenge on the manager socket. See below. |
-| `authed_users` | `[]` | Users allowed past the Neti gate. |
-| `authed_groups` | `[]` | Groups whose members are allowed past the Neti gate. |
-| `auth_temp_dir` | unset | Dir for the auth challenge cookie files. |
-| `[command_perms]` | off | Per command authorization layered over `authed_users`/`authed_groups`. See below. |
-| `[recidive]` | off | A table turning on repeat offender escalation. See below. |
 | `internal` | same as `ignore_ips` | Addresses and CIDRs that are your own hosts. Rules with `ban_not_internal` banish the end of a flow that is not internal. Global and per kur. |
+| `[recidive]` | off | A table turning on repeat offender escalation. See [recidivists](#recidivists). |
+
+### Observe mode and EVE
+
+| setting | default | what |
+| --- | --- | --- |
+| `eve_only` | `false` | Observe mode... the rules under this scope match and write to EVE but never banish, a would-be ban surfacing as an `alert` and each match as `noted`. A rule's own `eve_only` layers over this. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
+| `observe_ignored` | `false` | When observing, also process IPs `ignore_ips` would otherwise drop, so they too are scored and can `alert`. Only meaningful with `eve_only` (or a `shadow` `overlap`, whose demoted counting it widens the same way). Global, per kur, and per watcher. |
+| `default_severity` | unset | The severity (`info`/`low`/`medium`/`high`/`critical`) written to EVE for a rule that carries no `severity` of its own. Unset means such rules simply omit the field. Global, per kur, and per watcher. See [rules](rules) and [eve](eve). |
 | `eve_log` | `/var/log/baphomet/eve.json` | Path of the EVE event log. |
 | `eve_enable` | `false` | Whether to write the EVE log. The path is set by default but stays silent until this is on. See [eve](eve). |
-| `geoip_db` | unset | Path to a MaxMind GeoIP2/GeoLite2 country database, for rules with a `country` gate. Read via the optional `IP::Geolocation::MMDB` module. Unset, or unloadable, and every country gate fails closed (banishes nobody), with a loud warning at galla start. |
-| `enable_dns` | `false` | The consent for DNS resolution. With out it, any `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS` module... set but unloadable, and `usedns` behaves as `no`, also loudly. See [hostname offenders](#hostname-offenders-usedns). |
-| `usedns` | `no` | How a hostname offender... a `ban_var` value that is not an IP... is handled: `no`, `resolve_seen`, or `resolve_ban`. Global, per kur, and per watcher. See [hostname offenders](#hostname-offenders-usedns). |
+
+### Lookups... DNS and GeoIP
+
+| setting | default | what |
+| --- | --- | --- |
+| `enable_dns` | `false` | The consent for DNS resolution. With out it, any `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS` module... set but unloadable, and `usedns` behaves as `no`, also loudly. See [usedns](usedns). |
+| `usedns` | `no` | How a hostname offender... a `ban_var` value that is not an IP... is handled: `no`, `resolve_seen`, or `resolve_ban`. Global, per kur, and per watcher. See [usedns](usedns). |
 | `usedns_timeout` | `2` | Seconds a DNS query may take before being given up on. Resolution is blocking, so this bounds how long a hostile name can stall the galla. |
 | `usedns_max_addrs` | `4` | The most addresses a hostname may resolve to and still be acted on... more and the whole resolution is refused rather than trimmed, failing closed. |
 | `enable_rdns` | `true` | Whether the `reverse_dns` rule gate may look things up. A separate consent from `enable_dns` on purpose... the gate only refines matches and never redirects a ban, so it is safe by default. Off, reverse_dns gates fail closed and count nothing, loudly. Rides the optional `Net::DNS` module, loaded only when some rule carries the gate. |
 | `rdns_timeout` | `2` | Seconds a `reverse_dns` gate query may take before being given up on. A failed lookup vetoes the count regardless of the gate's `negate`, so a slow resolver slows detection, never misaims it. |
-| `country_codes` | `{}` | Named lists of ISO 3166 country codes a `country` gate can import. A hash of arrays. Global, per kur, and per watcher, merged per name. See below. |
-| `namtar_lists` | `{}` | Named lists of CIDR files a `namtar_list` gate checks against, each a path or array of paths. A hash. Global, per kur, and per watcher, merged per name. Reloaded on mtime change. See below. |
-| `active_time` | `{}` | Named time windows a `active_time` gate references, each a `{days, hours}` spec or array of them. A hash. Global, per kur, and per watcher, merged per name. See below. |
+| `geoip_db` | unset | Path to a MaxMind GeoIP2/GeoLite2 country database, for rules with a `country` gate. Read via the optional `IP::Geolocation::MMDB` module. Unset, or unloadable, and every country gate fails closed (banishes nobody), with a loud warning at galla start. |
+
+### The manager socket and its gate
+
+| setting | default | what |
+| --- | --- | --- |
+| `socket_group` | root's default group | Group ownership of the manager socket. |
+| `socket_mode` | `"0660"` | Perms for the manager socket, an octal string, processed via oct. Galla sockets are always 0600. |
+| `enable_auth` | `false` | Opens the Neti gate... the unix ownership auth challenge on the manager socket. See [neti-gate](neti-gate). |
+| `authed_users` | `[]` | Users allowed past the Neti gate. |
+| `authed_groups` | `[]` | Groups whose members are allowed past the Neti gate. |
+| `auth_temp_dir` | unset | Dir for the auth challenge cookie files, handed to the server module. Unset, that module chooses its own temp dir. |
+| `[command_perms]` | off | Per command authorization layered over `authed_users`/`authed_groups`. See [neti-gate](neti-gate). |
+
+### Named lists for the rule gates
+
+| setting | default | what |
+| --- | --- | --- |
+| `country_codes` | `{}` | Named lists of ISO 3166 country codes a `country` gate can import. A hash of arrays. Global, per kur, and per watcher, merged per name. See [below](#country-code-lists). |
+| `namtar_lists` | `{}` | Named lists of CIDR files a `namtar_list` gate checks against, each a path or array of paths. A hash. Global, per kur, and per watcher, merged per name. Reloaded on mtime change. See [below](#namtar-lists). |
+| `active_time` | `{}` | Named time windows a `active_time` gate references, each a `{days, hours}` spec or array of them. A hash. Global, per kur, and per watcher, merged per name. See [below](#active-time-windows). |
 
 ## Country code lists
 
@@ -162,11 +194,17 @@ each banishment to its members, so one Baphomet kur can feed a whole set
 of Ereshkigal kurs through a single name. With Ereshkigal's `enable_auth`
 on, the baphomet user need only be granted the gate, not any member.
 
-Scalar keys inside a kur hash are settings for that kur
-(`max_score`/`find_time`/`ban_time`, plus a `ignore_ips` array extending
-the global one). Hash keys inside it are watchers, each binding one log
-file to a parser and a rule. The key name of a watcher is just a freeform
-name used in logs and status output.
+Scalar keys inside a kur hash are settings for that kur... any of the
+layered counting and presentation settings (`max_score`, `find_time`,
+`ban_time`, the four subnet knobs, `allow_per_rule_thresholds`,
+`eve_only`, `observe_ignored`, `overlap`, `default_severity`, `usedns`),
+the named-list hashes (`country_codes`, `namtar_lists`, `active_time`,
+`rule_config`), plus `ignore_ips` and `internal` arrays extending the
+global ones. Those last two are global and kur level only... a watcher may
+not carry its own, since who is beyond banishment is a policy of the kur,
+not of one log. Hash keys inside a kur are watchers, each binding one log
+file (or the journal) to a parser and a rule list. The key name of a
+watcher is just a freeform name used in logs and status output.
 
 ```toml
 # the base kur config for sshd
@@ -196,6 +234,7 @@ Watcher keys...
 | `eve_only` | Put this watcher in observe mode... match and write to EVE but never banish. |
 | `observe_ignored` | When observing, also process what `ignore_ips` would drop. |
 | `overlap` | How a record matching more than one rule of this watcher's list is judged... `first`, `shadow`, or `all`. |
+| `usedns` | How this watcher handles a hostname offender... `no`, `resolve_seen`, or `resolve_ban`. See [usedns](usedns). |
 | `default_severity` | The EVE severity for this watcher's rules that carry none of their own. |
 | `country_codes` | Named country-code lists overriding the kur's and global's for this watcher's rules. A hash of arrays. |
 | `namtar_lists` | Named blocklists (CIDR or string) overriding the kur's and global's for this watcher's rules. A hash. |
@@ -205,8 +244,9 @@ Watcher keys...
 
 `max_score`, `find_time`, `ban_time`, `ban_subnet_v4`, `ban_subnet_v6`,
 `subnet_max_score`, `subnet_find_time`, `allow_per_rule_thresholds`,
-`eve_only`, `observe_ignored`, `overlap`, and `default_severity` layer
-watcher over kur over global over default.
+`eve_only`, `observe_ignored`, `overlap`, `usedns`, and
+`default_severity` layer watcher over kur over global over default... the
+most specific level that says anything wins.
 
 With `allow_per_rule_thresholds` on, a rule carrying its own `max_score`,
 `find_time`, or `ban_time` speaks over the watcher... the layering becomes
@@ -334,55 +374,13 @@ independently parseable at all.
 ## Hostname offenders... usedns
 
 Some daemons log a hostname where an offense wants an address... PAM's
-rhost above all, whatever the client claimed, and mysqld when it resolves
-clients itself. Ereshkigal banishes addresses, not names, so what becomes
-of a hostname offender is the `usedns` setting, layered global over kur
-over watcher:
-
-- **`no`** (the default) ... the hostname is dropped. The match still
-  writes to EVE, so the sighting is not lost, but it counts and banishes
-  nothing.
-- **`resolve_seen`** ... the hostname is resolved when seen and the
-  offense buckets under its addresses, beside any direct hits from the
-  same client... one attacker, one count, however the daemon spelled
-  them. Resolution happens at match volume, so the cache and the timeout
-  below are what stand between a hostile log and your resolver.
-- **`resolve_ban`** ... the offense counts under the name itself, and
-  resolution happens once, at the moment the threshold trips. The
-  cheapest and quietest mode... one lookup per would-be ban, and the
-  attacker's nameserver hears nothing until you have already decided to
-  act.
-
-Nothing resolves at all unless the top-level **`enable_dns`** consents...
-with out it any `usedns` is treated as `no` and the galla says so loudly
-at start. Resolution rides the optional `Net::DNS` module, bounded by
-`usedns_timeout`.
-
-**Read this part before turning a resolve mode on.** A logged hostname is
-hostile input... PAM's rhost is whatever the attacker typed, and whoever
-controls a name controls what it resolves to. Under a resolve mode an
-attacker who can put a name into your log gets a say in what your
-firewall bans... point a name at a victim's address, fail auth until the
-threshold, and Baphomet would aim Kur at whomever they chose. The fences:
-resolved addresses that are in `ignore_ips` or `internal` are dropped
-absolutely, whatever the rule says... a name can never aim Kur at your
-own hosts, so keep `internal` honest. A name resolving to more than
-`usedns_max_addrs` addresses is refused whole rather than trimmed... a
-wide answer is a CDN or a deliberate spray, and the failure mode is
-always no ban, never a wrong one. Unresolvable names, timeouts, and
-refusals likewise banish nobody, logged and ticked (`dns_failures`,
-`hostname_dropped` under `no`). A hostname is never queued for a ban
-retry... what a name means changes with whoever controls it.
-
-A banish that came through a name carries `hostname` beside `ip` in its
-EVE event, so the chain of custody from name to address is on the record.
-fail2ban's `raw` mode... hand the name over verbatim... does not exist
-here, because the other side does not take names.
-
-The [`reverse_dns` rule gate](rules) is the other direction... PTR lookups
-refining a match rather than resolving an offender... and rides its own
-consent, `enable_rdns`, on by default since a gate can only veto a count,
-never aim one. The two are deliberately separate switches.
+rhost above all, and mysqld when it resolves clients itself. What becomes
+of one is the `usedns` setting (`no`, the default, drops it; the resolve
+modes ban what it resolves to) with `enable_dns` as the consent and
+`usedns_timeout`/`usedns_max_addrs` as the bounds. A resolve mode hands a
+say over what your firewall bans to whoever controls a name, so the modes,
+the fences around them, and why the default is `no` have
+[their own page](usedns)... read it before turning a resolve mode on.
 
 ## Subnet banning
 
@@ -422,70 +420,12 @@ the recidive kur just as a repeat-offender IP would, re-banished there as a
 
 Neti is the gatekeeper of Kur, and the manager socket has one too. By
 default the socket's group ownership and perms (`socket_group`,
-`socket_mode`) are all that gate who may ask the manager its status or
-stop it. Setting `enable_auth` opens the Neti gate proper... the
-[POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix)
-unix ownership challenge, where a caller proves who they are by owning a
-cookie file, and only UID 0 or a user in `authed_users` or a
-`authed_groups` is let through.
-
-```toml
-enable_auth   = true
-authed_users  = [ "kitsune" ]
-authed_groups = [ "wheel" ]
-```
-
-The `baphomet` CLI completes the challenge transparently, so nothing
-changes in how you drive it beyond being one of the permitted. Group and
-user membership is resolved per request, so changes apply without a
-restart. This gates the manager socket only... the galla sockets are 0600
-and spoken to only by the manager. Every CLI command rides this one
-socket, the manager reaching Ereshkigal on their behalf, so the gate here
-covers the whole control plane.
-
-### Per command authorization
-
-`authed_users` and `authed_groups` gate every command the same. To gate
-them apart, `command_perms` lays per command rules over that baseline. It
-is a table with an optional `default` verdict (`allow` or `deny`, the
-default `deny`) and a `commands` table keyed by command name, or the
-catch-all `%DEFAULT%` that stands in for the baseline. Each rule is
-`"allow"`, `"deny"`, or a table of `users`, `groups`, `deny_users`, and
-`deny_groups` arrays. An all-digit entry matches by UID or GID, everything
-else by name. Explicit denials win over allowals. A command named here is
-judged by its own rule alone; every command not named falls to the
-baseline. UID 0 (root) is threaded into any rule that names allowed users
-or groups, so root passes it as it passes the baseline.
-
-The commands that may be named are `status`, `status_all`, `status_galla`,
-`accused`, `marked`, `watching`, `banished`, and `stop`.
-
-A worked example... the `lnms-f2b-extend` command an snmpd extend runs
-reaches the manager's `banished` command for its tallies, so letting the
-`snmpd` user feed LibreNMS is a matter of granting it just that one
-command, and nothing else... not `stop`, not the accused lists:
-
-```toml
-enable_auth   = true
-authed_users  = [ "nanni" ]      # the operator, past the baseline
-authed_groups = [ "ops" ]
-
-[command_perms]
-default = "deny"
-
-# the snmpd user may run banished, which lnms-f2b-extend rides, and only that
-[command_perms.commands.banished]
-users = [ "snmpd" ]
-
-# stop is held to the operator, and ea-nasir is turned away outright
-[command_perms.commands.stop]
-users      = [ "nanni" ]
-deny_users = [ "ea-nasir" ]
-```
-
-Here `snmpd` may run `banished` (and so `lnms-f2b-extend`) but falls to the
-`deny` default for everything else; `nanni` and the `ops` group keep the
-run of the baseline commands, while `stop` is narrowed to `nanni` alone.
+`socket_mode`) are all that gate who may drive the manager. `enable_auth`
+opens the Neti gate proper... a unix ownership challenge admitting only
+UID 0, `authed_users`, and `authed_groups`... and `command_perms` lays per
+command rules over that baseline, so the snmpd user can be granted one
+read-only command and nothing else. The gate, the challenge, and a worked
+`command_perms` example have [their own page](neti-gate).
 
 ## Recidivists
 
@@ -520,52 +460,10 @@ Each galla keeps its memory in state tablets... the counters, pending
 bans, log positions, journal cursors, running stats, correlation context,
 and the marks that survive a restart. Where those tablets live is
 pluggable, chosen by the global `[ClayTablet]` table. Left out, a galla
-writes them to files under `tablet_base_dir`, the way it always has.
-
-```toml
-# the default, and what you get with no [ClayTablet] table at all
-[ClayTablet]
-backend = "file"
-[ClayTablet.options]
-base_dir = "/var/db/baphomet"   # optional, else tablet_base_dir
-
-# or share marks across a fleet over redis, keeping local state on disk
-[ClayTablet]
-backend = "redis"
-[ClayTablet.options]
-server = "127.0.0.1:6379"
-scope  = "sshd"                 # mark sharing unit, default the kur name
-# sock = "/var/run/redis/redis.sock"   # a unix socket instead of server
-[ClayTablet.options.local]
-base_dir = "/var/db/baphomet"   # host-local tablets on disk; redis is bus-only
-```
-
-| backend | what |
-| --- | --- |
-| `file` | The default, the current on-disk system. Each tablet is a file `galla.<name>.<kind>.<csv\|jsonl>` under the base dir, swapped in whole via a temp file and rename. Options: `base_dir` (else `tablet_base_dir`). |
-| `redis` | Shares marks across a fleet, a sync bus rather than a store. A galla keeps and gates its marks in memory as always, but publishes each brand and lift to a per-scope Redis Stream and drains the fleet's on its sweep, so machines running the same kur converge. The reads never touch Redis, so an outage is invisible to the gates... the galla degrades to standalone marks and buffers un-published brands until the bus returns. Built on the optional `Redis::Fast`. |
-
-### The redis backend options
-
-| option | default | what |
-| --- | --- | --- |
-| `server` / `sock` | `127.0.0.1:6379` | The Redis, by host:port or a unix socket. |
-| `password` | unset | The AUTH password, when the Redis wants one. |
-| `prefix` | `baphomet` | The key namespace. |
-| `db` | unset | The numbered database to `SELECT` into. |
-| `scope` | the kur name | The mark sharing unit. Machines sharing a scope share marks, so same-named kurs across the fleet share while different kurs stay apart. |
-| `mark_max_ttl` | `604800` | The stream trim horizon and the cold-replay bound, in seconds. Must exceed the longest mark `ttl`. A cold or long-down galla reconstructs its marks by replaying the retained stream. |
-| `host` | the hostname | This machine's identity, stamped on published deltas so a galla skips its own on drain. Pin it to keep identity stable across a hostname change. |
-| `local` | unset | Enables local disk persistence of the host-local tablets (a table with an optional `base_dir`, or a plain `true`). With it, Redis carries only the mark stream and a galla that loses the bus and is restarted while it is still gone resumes its whole state from disk. Without it, the host-local tablets live in Redis too. |
-| `cnx_timeout` | `1` | Seconds a connect attempt waits, so a dead or firewalled server fails fast rather than hanging the galla. |
-| `reconnect` | `5` | Seconds between reconnect attempts while the bus is down. The link is opened fast-fail, so this throttles retries, it does not block. |
-| `outbox_max` | `10000` | Un-published deltas buffered while the bus is down before the oldest are dropped. |
-
-A third party backend is a module `App::Baphomet::ClayTablet::<Ucfirst>`
-selected by its lower-cased name.
-
-The shared banishment ledger is not a per-galla tablet and is unaffected...
-it stays a flock'd file under `tablet_base_dir` whatever the backend.
+writes them to files under `tablet_base_dir`, the way it always has; the
+`redis` backend instead shares marks across a fleet as a sync bus while
+keeping local state on disk. The backends and every redis option have
+[their own page](tablets).
 
 ## Parsers
 
@@ -598,6 +496,15 @@ socket_group = "wheel"
 max_score = 5
 find_time = 600
 ban_time = 3600
+ignore_ips = [ "127.0.0.0/8", "192.0.2.0/24" ]
+
+# keep the audit trail of what the gallas do
+eve_enable = true
+
+# an IP banished 5 times in a week goes to the deeper kur, eternally
+[recidive]
+kur      = "recidive"
+ban_time = 0
 
 [kur.sshd]
 ban_time = 300
@@ -613,7 +520,15 @@ parser = "bsd_syslog"
 rule = "syslog/sshd"
 # the jail is more sensitive
 max_score = 3
+
+# a maillog carrying several daemons... a rule list, first match wins
+[kur.mail.maillog]
+log = "/var/log/maillog"
+parser = "syslog"
+rule = [ "syslog/postfix-sasl", "syslog/postfix", "syslog/dovecot" ]
 ```
 
 Two watchers of the same kur share one offense counter, so an IP failing in
-the host authlog and the jail authlog accumulates towards one ban.
+the host authlog and the jail authlog accumulates towards one ban. The
+`recidive` and `mail` kurs want same-named kurs on the Ereshkigal side, as
+`sshd` does.

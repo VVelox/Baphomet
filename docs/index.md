@@ -34,6 +34,12 @@ one place.
 - [install](install) ... dependencies and installing.
 - [configuration](configuration) ... the config file,
   `/usr/local/etc/baphomet/config.toml`.
+- [usedns](usedns) ... hostname offenders... the resolve modes, the
+  fences around them, and why the default is to drop names.
+- [neti-gate](neti-gate) ... who may drive the manager socket... the
+  ownership challenge and per command authorization.
+- [tablets](tablets) ... where a galla's state lives... the file backend
+  and the redis mark bus for fleets.
 - [rules](rules) ... the rule files, their tokens, and their embedded
   tests. Read this to write your own.
 - [rules-catalog](rules-catalog) ... the shipped rules, what each

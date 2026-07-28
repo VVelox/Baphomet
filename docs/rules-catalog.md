@@ -337,6 +337,5 @@ either turns EVE on.
 - `pam-generic`'s offender is whatever PAM logged as rhost, which may be
   a hostname rather than a IP. Under the default `usedns = "no"` a
   hostname offender counts and banishes nothing (the match still writes
-  to EVE); a resolve mode banishes its addresses instead... see the
-  hostname offenders section of [configuration](configuration) before
-  turning one on.
+  to EVE); a resolve mode banishes its addresses instead... see
+  [usedns](usedns) before turning one on.

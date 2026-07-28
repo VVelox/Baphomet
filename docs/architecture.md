@@ -121,3 +121,8 @@ The ledger is the one tablet shared by every galla rather than per kur...
 each banishment is chiseled in as `epoch,kur,ip,rule,watcher` under a
 exclusive lock, pruned to `ledger_keep`, read by the recidive gate for
 its counting and by `baphomet ledger` for history.
+
+Where the per-galla tablets live is pluggable... the file layout above is
+the default backend, and a `[ClayTablet]` config table can put them
+elsewhere, the redis backend sharing marks across a fleet. See
+[tablets](tablets).

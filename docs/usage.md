@@ -136,7 +136,7 @@ It wants the manager up for the tallies, which is what reaches Ereshkigal;
 with the manager unreachable it still emits valid JSON with `error` set and
 `errorString` naming the fault, as the extend does. Since the snmpd user
 drives it over the manager socket, the Neti gate governs it... see the
-`command_perms` example in the [configuration](configuration) doc for
+`command_perms` example in the [neti-gate](neti-gate) doc for
 letting `snmpd` run just this one command.
 
 ## Working on rules
@@ -181,6 +181,5 @@ my $status = $response->{result};
 ```
 
 Note that with `enable_auth` on, a raw `nc` integration must complete
-the auth challenge itself (see the Neti gate section of
-[configuration](configuration))... the blocking client's `authenticate`
-is much less bother.
+the auth challenge itself (see [neti-gate](neti-gate))... the blocking
+client's `authenticate` is much less bother.

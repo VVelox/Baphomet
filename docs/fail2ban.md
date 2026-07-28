@@ -107,7 +107,7 @@ Honesty section, roughly in order of how much it matters...
   `syslog/sshd-extra`, and `syslog/sshd-aggressive` rules.
 - **`usedns` differs on purpose.** Hostname offenders (pam-generic,
   mysqld) are covered by `usedns` = `no` / `resolve_seen` / `resolve_ban`
-  behind an `enable_dns` consent (see [configuration](configuration)),
+  behind an `enable_dns` consent (see [usedns](usedns)),
   but fail2ban's `raw` mode does not exist... Ereshkigal takes addresses,
   not names... and the default is `no`, so a hostname banishes nothing
   until an operator opts into resolution knowingly.
