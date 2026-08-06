@@ -14,7 +14,7 @@
 #
 # List AHEAD of syslog/dovecot: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 2
+rev: 3
 msg: "[DOVECOT] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -89,6 +89,36 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.14"
+    # The three patterns the tests did not reach, lines taken from the base
+    # syslog/dovecot's own, each with the geo fixture the country gate needs...
+    # the pam failure, the auth-worker pam reject, and the passwd-file miss.
+    - message: "Jul 12 08:15:50 mail01 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=web rhost=203.0.113.51"
+      geo:
+        countries:
+          "203.0.113.51": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.51"
+    - message: "Jul 12 08:15:51 mail01 dovecot: auth-worker(304): pam(username,203.0.113.52): pam_authenticate() failed: Authentication failure (password mismatch?)"
+      geo:
+        countries:
+          "203.0.113.52": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.52"
+    - message: "Jul 12 08:15:52 mail01 dovecot: auth: passwd-file(username,203.0.113.53): unknown user"
+      geo:
+        countries:
+          "203.0.113.53": RU
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.53"
   negative:
     # domestic success... vetoed, falls through to syslog/dovecot
     - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=198.51.100.5, lip=192.0.2.1, TLS"

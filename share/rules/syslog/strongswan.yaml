@@ -1,0 +1,70 @@
+---
+# An IKE peer strongSwan has no configuration for. charon says "no matching peer
+# config found" when something completes enough of an IKE exchange to be
+# identified and then matches nothing in ipsec.conf/swanctl.conf... which is what
+# a scanner sweeping udp/500 looks like, and what a misconfigured branch office
+# looks like too. Both are worth counting; only one will keep coming back.
+#
+# Nothing is scanned for. The `strongswan` munger decomposes charon's
+# subsystem-tagged lines and the rule reads the remote address off the field it
+# names.
+#
+# WHAT THIS DOES NOT COVER, and why. charon's actual authentication failures...
+# "EAP-MSCHAPV2 verification failed", the retry counters... name NO address on
+# their own line. The address arrives earlier, on the IKE_SA or the received-
+# packet line, and charon ties the two together only by its thread id. Catching
+# those means correlating on that thread, which is capture_regexp work and a
+# rule of its own; this one deliberately stops at the shape that carries its own
+# offender. Until then a brute forcer against your EAP identities is not seen
+# here, only the ones that never match a config at all.
+rev: 1
+msg: "[STRONGSWAN] IKE peer with no matching configuration"
+severity: medium
+classtype: attempted-recon
+attack:
+  - T1595.002
+mark:
+  - name: recon
+    ttl: 86400
+references:
+  - https://docs.strongswan.org/docs/latest/daemons/charon-systemd.html
+daemons:
+  - //^(?:charon|ipsec|strongswan|charon-systemd)$//
+mungers:
+  - strongswan
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: ipsec_subsystem
+    op: eq
+    value: CFG
+  - field: ipsec_missing
+    op: eq
+    nocase: true
+    value: peer config
+ban_var:
+  - ipsec_remote_ip
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 vpngw charon[1234]: 12[CFG] no matching peer config found for 192.0.2.1[%any]...203.0.113.7[client]"
+      found: 1
+      data:
+        ipsec_remote_ip: "203.0.113.7"
+        ipsec_local_ip: "192.0.2.1"
+    # the same under the systemd unit's own tag
+    - message: "Jul 12 08:15:51 vpngw charon-systemd[1234]: 09[CFG] no matching peer config found for 192.0.2.1[%any]...198.51.100.9[roadwarrior]"
+      found: 1
+      data:
+        ipsec_remote_ip: "198.51.100.9"
+  negative:
+    # a session that DID match a config and came up
+    - message: "Jul 12 08:16:00 vpngw charon[1234]: 12[IKE] IKE_SA remote[1] established between 192.0.2.1[server]...203.0.113.7[client]"
+      found: 0
+    # the packet trace, which names an address but accuses nobody
+    - message: "Jul 12 08:16:01 vpngw charon[1234]: 08[NET] received packet: from 203.0.113.7[500] to 192.0.2.1[500] (464 bytes)"
+      found: 0
+    # the daemon's own lifecycle
+    - message: "Jul 12 08:16:02 vpngw charon[1234]: 00[DMN] Starting IKE charon daemon (strongSwan 5.9.8)"
+      found: 0
+    # the auth failure this rule cannot reach, named so the gap is visible
+    - message: "Jul 12 08:16:03 vpngw charon[1234]: 12[IKE] EAP-MSCHAPV2 verification failed, retry (0) left"
+      found: 0

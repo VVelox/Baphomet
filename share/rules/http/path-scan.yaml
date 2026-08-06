@@ -1,0 +1,89 @@
+---
+# A client fetching MANY DIFFERENT paths that do not exist... mapping the
+# install, whatever it makes of any one of them. The score here is how many
+# distinct 404 paths a client has asked for inside the window, so one missing
+# asset requested a thousand times counts as one and thirty different guesses
+# count as thirty.
+#
+# This is the counterpart to http/botsearch rather than a replacement. That rule
+# knows a list of paths worth alarming at, and knows them precisely; this one
+# knows nothing about any path and catches the scanner whose list you have never
+# seen, which is the one a signature can not help with. Run both.
+#
+# Counting distinct paths rather than hits is also what makes it quiet without an
+# ignore list. A browser that 404s on favicon.ico, robots.txt and an apple-touch
+# icon has asked for three paths and will never approach the threshold, however
+# many times it retries them. A hit counter would need every such path excluded
+# by hand and would still be wrong for the next one.
+#
+# The offender is the http type's own... the parsed client, so nothing is named
+# here and nothing is scanned for.
+#
+# WHY `path` AND NOT `request`. The parser splits the request line, so `path`
+# drops the method and the protocol: a scanner alternating GET and HEAD over one
+# path counts it once, as it should. The query string does survive in `path`,
+# so an application that 404s with varying parameters counts each as its own...
+# gating on 404 keeps most of that out, and if yours is such an application
+# raise the score rather than widening the gate.
+#
+# ORDER AND OVERLAP MATTER. Bot searches are usually 404s too, so http/botsearch
+# and the other scanners match many of the same records; under the default
+# overlap of `first` whichever is listed earlier consumes them. List this one
+# with them under `overlap = "all"`... they cannot interfere, this rule's bucket
+# being a set of paths keyed by client rather than a sum of hits.
+#
+# In no group on purpose. %http/scanners% is meant to drop whole into an access
+# log watcher, where this rule's overlap need would not hold, so it is opt-in by
+# listing.
+#
+# The threshold is the rule's own and wants allow_per_rule_thresholds; with out
+# it the watcher's max_score applies, still counting DISTINCT PATHS. Thirty in
+# ten minutes is a scanner and not a broken link. Stand it up eve_only first if
+# your site is heavy with dead links.
+rev: 1
+msg: "[HTTP] path scanning... many distinct 404s from one client"
+severity: medium
+classtype: attempted-recon
+attack:
+  - T1595.003
+mark:
+  - name: recon
+    ttl: 86400
+status:
+  - 404
+# the score is the number of distinct missing paths, keyed by the client
+distinct:
+  of: path
+max_score: 30
+find_time: 600
+tests:
+  positive:
+    - message: '203.0.113.7 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "curl/8.5.0"'
+      data:
+        host: "203.0.113.7"
+        path: "/wp-login.php"
+    # a different path from the same client, the thing being counted
+    - message: '203.0.113.7 - - [12/Jul/2026:08:15:51 -0500] "GET /.env HTTP/1.1" 404 196 "-" "curl/8.5.0"'
+      data:
+        host: "203.0.113.7"
+        path: "/.env"
+    # the method is not part of the path, so HEAD probing counts the same path once
+    - message: '203.0.113.7 - - [12/Jul/2026:08:15:52 -0500] "HEAD /wp-login.php HTTP/1.1" 404 0 "-" "curl/8.5.0"'
+      data:
+        host: "203.0.113.7"
+        path: "/wp-login.php"
+    # combined or common, and an IPv6 client, all the same
+    - message: '2001:db8::15 - - [12/Jul/2026:08:15:53 -0500] "GET /phpinfo.php HTTP/1.1" 404 196'
+      data:
+        host: "2001:db8::15"
+        path: "/phpinfo.php"
+  negative:
+    # a page that exists is no part of this
+    - message: '203.0.113.7 - - [12/Jul/2026:08:15:54 -0500] "GET /index.html HTTP/1.1" 200 5120 "-" "Mozilla/5.0"'
+      found: 0
+    # nor a redirect
+    - message: '203.0.113.7 - - [12/Jul/2026:08:15:55 -0500] "GET /old HTTP/1.1" 301 0 "-" "Mozilla/5.0"'
+      found: 0
+    # nor a server error, which says nothing about the path existing
+    - message: '203.0.113.7 - - [12/Jul/2026:08:15:56 -0500] "GET /app HTTP/1.1" 500 120 "-" "Mozilla/5.0"'
+      found: 0

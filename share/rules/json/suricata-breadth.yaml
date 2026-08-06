@@ -1,0 +1,135 @@
+---
+# Breadth instead of volume... a source that trips MANY DIFFERENT Suricata
+# signatures rather than one signature many times. The score here is how many
+# distinct signature_ids a src has set off inside the window, so a thousand hits
+# of one rule count as one and three different rules count as three.
+#
+# That inversion is the point. Volume is the least trustworthy thing an IDS
+# reports... one chatty or badly tuned signature will happily fire all day at a
+# perfectly ordinary host, which is why the per-class rules beside this one lean
+# on the class rather than the count. Breadth cannot be manufactured that way.
+# A source setting off a scan signature, then a shellcode signature, then a
+# credential-theft one is doing several different things to you, and no
+# hit-summing threshold can tell that from the chatty rule.
+#
+# Counts by src_ip and banishes what is not yours, as the per-class rules do,
+# so an outbound alert naming your own host as the src does not banish it.
+#
+# ORDER AND OVERLAP MATTER, as with any rule reading the same records as
+# another. Under the default overlap of `first` whichever rule is listed earlier
+# consumes the alert, so listed ahead of the per-class rules this one would eat
+# every alert and the classes would never count, and listed after it would never
+# see one. List it with them under `overlap = "all"` so each judges for real...
+# they cannot interfere, this rule's bucket being a set of signature ids keyed
+# by source rather than a sum of hits.
+#
+# In no group on purpose. %json/suricata-all% and its siblings are meant to drop
+# whole into a watcher, and this rule needs an overlap the others do not, so it
+# is opt-in by listing.
+#
+# The threshold is the rule's own and wants allow_per_rule_thresholds. With out
+# that consent it falls back to the watcher's max_score, which still counts
+# DISTINCT SIGNATURES and so still says something true, just at whatever number
+# the watcher uses for hits.
+#
+# On the tests below: `found` counts MATCHES, not distinct values, so the same
+# signature seen three times is three matches here and one entry in the set. The
+# set and the threshold are the galla's, proven in t/rule-suricata-breadth.t...
+# what a rule file can prove is which records it takes an interest in, which is
+# what the sequences do.
+rev: 1
+msg: "[SURICATA] many distinct signatures from one source"
+severity: high
+classtype: misc-attack
+references:
+  - https://docs.suricata.io/en/latest/output/eve/eve-json-format.html
+gate:
+  - field: event_type
+    values: [ alert ]
+  # an alert carrying no signature id has nothing for this rule to count, and
+  # firing on it would consume the record from the per-class rules while adding
+  # nothing to the set... so it is not this rule's business
+  - field: alert.signature_id
+    op: exists
+# the score is the number of distinct signatures, keyed by the offending source
+distinct:
+  of: alert.signature_id
+max_score: 3
+find_time: 3600
+ban_var:
+  - src_ip
+ban_not_internal: true
+tests:
+  positive:
+    # A run as it would arrive: several different signatures from one source with
+    # unrelated eve records interleaved. found_after tracks the running count, so
+    # every alert is shown to be taken and every non-alert shown to be ignored.
+    - messages:
+        - message: '{"timestamp":"2026-07-12T08:15:50.000000+0000","event_type":"alert","src_ip":"203.0.113.66","src_port":4444,"dest_ip":"192.0.2.10","dest_port":22,"proto":"TCP","alert":{"signature_id":2001219,"signature":"TEST scan","category":"Detection of a Network Scan","severity":3}}'
+          found_after: 1
+        - message: '{"timestamp":"2026-07-12T08:15:51.000000+0000","event_type":"flow","src_ip":"203.0.113.66","dest_ip":"192.0.2.10","proto":"TCP"}'
+          found_after: 1
+        - message: '{"timestamp":"2026-07-12T08:15:52.000000+0000","event_type":"alert","src_ip":"203.0.113.66","dest_ip":"192.0.2.10","proto":"TCP","alert":{"signature_id":2010935,"signature":"TEST shellcode","category":"Shellcode Detected","severity":1}}'
+          found_after: 2
+        - message: '{"timestamp":"2026-07-12T08:15:53.000000+0000","event_type":"http","src_ip":"203.0.113.66","dest_ip":"192.0.2.10","http":{"hostname":"example.com","url":"/"}}'
+          found_after: 2
+        - message: '{"timestamp":"2026-07-12T08:15:54.000000+0000","event_type":"alert","src_ip":"203.0.113.66","dest_ip":"192.0.2.10","proto":"TCP","alert":{"signature_id":2402000,"signature":"TEST blocklist","category":"Misc Attack","severity":2}}'
+          found_after: 3
+      found: 3
+      data:
+        src_ip: "203.0.113.66"
+        alert.signature_id: 2402000
+    # The same signature over and over is still matched every time... the rule
+    # takes an interest in each, and it is the SET that stays at one. This is the
+    # boundary between what the file proves and what the galla proves.
+    - messages:
+        - message: '{"timestamp":"2026-07-12T08:16:00.000000+0000","event_type":"alert","src_ip":"203.0.113.67","dest_ip":"192.0.2.10","alert":{"signature_id":2001219,"signature":"TEST scan","category":"Detection of a Network Scan","severity":3}}'
+          found_after: 1
+        - message: '{"timestamp":"2026-07-12T08:16:01.000000+0000","event_type":"alert","src_ip":"203.0.113.67","dest_ip":"192.0.2.10","alert":{"signature_id":2001219,"signature":"TEST scan","category":"Detection of a Network Scan","severity":3}}'
+          found_after: 2
+        - message: '{"timestamp":"2026-07-12T08:16:02.000000+0000","event_type":"alert","src_ip":"203.0.113.67","dest_ip":"192.0.2.10","alert":{"signature_id":2001219,"signature":"TEST scan","category":"Detection of a Network Scan","severity":3}}'
+          found_after: 3
+      found: 3
+      data:
+        src_ip: "203.0.113.67"
+        alert.signature_id: 2001219
+    # Category agnostic ON PURPOSE, unlike every per-class rule beside it: what
+    # matters here is that the signatures DIFFER, not what any of them says. One
+    # of each of five unrelated classes, all taken.
+    - messages:
+        - message: '{"timestamp":"2026-07-12T08:17:00.000000+0000","event_type":"alert","src_ip":"198.51.100.23","dest_ip":"192.0.2.10","alert":{"signature_id":2100498,"signature":"a","category":"Not Suspicious Traffic","severity":3}}'
+          found_after: 1
+        - message: '{"timestamp":"2026-07-12T08:17:01.000000+0000","event_type":"alert","src_ip":"198.51.100.23","dest_ip":"192.0.2.10","alert":{"signature_id":2013028,"signature":"b","category":"Attempted Administrator Privilege Gain","severity":1}}'
+          found_after: 2
+        - message: '{"timestamp":"2026-07-12T08:17:02.000000+0000","event_type":"alert","src_ip":"198.51.100.23","dest_ip":"192.0.2.10","alert":{"signature_id":2019401,"signature":"c","category":"A Network Trojan was detected","severity":1}}'
+          found_after: 3
+        - message: '{"timestamp":"2026-07-12T08:17:03.000000+0000","event_type":"alert","src_ip":"198.51.100.23","dest_ip":"192.0.2.10","alert":{"signature_id":2024897,"signature":"d","category":"Potentially Bad Traffic","severity":2}}'
+          found_after: 4
+        - message: '{"timestamp":"2026-07-12T08:17:04.000000+0000","event_type":"alert","src_ip":"198.51.100.23","dest_ip":"192.0.2.10","alert":{"signature_id":2260002,"signature":"e","category":"Generic Protocol Command Decode","severity":3}}'
+          found_after: 5
+      found: 5
+      data:
+        src_ip: "198.51.100.23"
+        alert.signature_id: 2260002
+    # an IPv6 source is no different
+    - message: '{"timestamp":"2026-07-12T08:18:00.000000+0000","event_type":"alert","src_ip":"2001:db8::15","dest_ip":"2001:db8::1","alert":{"signature_id":2001219,"signature":"TEST scan","category":"Detection of a Network Scan","severity":3}}'
+      data:
+        src_ip: "2001:db8::15"
+        alert.signature_id: 2001219
+  negative:
+    # An alert with no signature id... nothing to count, so not this rule's
+    # business however hostile it looks. Without the exists gate this fired and
+    # ate the record from the rules that could have judged it.
+    - message: '{"timestamp":"2026-07-12T08:19:00.000000+0000","event_type":"alert","src_ip":"203.0.113.9","dest_ip":"192.0.2.1","alert":{"signature":"no id here","category":"Misc Attack","severity":2}}'
+      found: 0
+      undefed: ["alert.signature_id"]
+    # the rest of what an eve stream carries, none of it an alert
+    - messages:
+        - '{"timestamp":"2026-07-12T08:19:01.000000+0000","event_type":"flow","src_ip":"203.0.113.67","dest_ip":"192.0.2.10","proto":"TCP"}'
+        - '{"timestamp":"2026-07-12T08:19:02.000000+0000","event_type":"dns","src_ip":"203.0.113.68","dest_ip":"192.0.2.53","proto":"UDP"}'
+        - '{"timestamp":"2026-07-12T08:19:03.000000+0000","event_type":"tls","src_ip":"203.0.113.69","dest_ip":"192.0.2.10","tls":{"sni":"example.com"}}'
+        - '{"timestamp":"2026-07-12T08:19:04.000000+0000","event_type":"fileinfo","src_ip":"203.0.113.70","dest_ip":"192.0.2.10","fileinfo":{"filename":"/x"}}'
+        - '{"timestamp":"2026-07-12T08:19:05.000000+0000","event_type":"anomaly","src_ip":"203.0.113.71","dest_ip":"192.0.2.10","anomaly":{"type":"decode"}}'
+        - '{"timestamp":"2026-07-12T08:19:06.000000+0000","event_type":"stats","stats":{"uptime":100}}'
+      found: 0
+      undefed: ["alert.signature_id"]

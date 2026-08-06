@@ -17,7 +17,7 @@
 #
 # List AHEAD of syslog/openvpn: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 1
+rev: 2
 msg: "[OPENVPN] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -70,6 +70,16 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.14"
+    # the decrypt-error pattern, which no test reached
+    - message: "Jul 12 08:15:50 vpngw openvpn[1234]: 203.0.113.56:44321 Decrypt packet error: packet HMAC authentication failed"
+      geo:
+        countries:
+          "203.0.113.56": RU
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.56"
   negative:
     # a domestic peer that got in... vetoed, falls through
     - message: "Jul 12 08:25:49 vixen42 openvpn[12345]: 198.51.100.5:41842 [kitsune] Peer Connection Initiated with [AF_INET]198.51.100.5:41842"

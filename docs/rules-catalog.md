@@ -3,8 +3,10 @@
 The rules shipped under `rules/syslog/`, each translated from the matching
 fail2ban filter (`config/filter.d/<name>.conf` in the fail2ban source) with
 tests mined from fail2ban's test log corpus. Every rule carries its own
-positive and negative tests, ran at load time and by
-`baphomet check_rules`.
+positive and negative tests, and where its shape allows a forged field to
+choose the offender, a
+[`tests.injection`](rules.md#injection-tests-who-picks-the-offender) set
+besides. All of them are ran at load time and by `baphomet check_rules`.
 
 Unless said otherwise, the default/normal mode of the fail2ban filter is
 what got ported... the aggressive/ddos mode machinery is dropped.
@@ -27,6 +29,7 @@ and changes no rule's own behavior. See the standard brands in
 | rule | watches for | daemon gate |
 | --- | --- | --- |
 | `syslog/asterisk` | Asterisk auth/registration failures | `asterisk` |
+| `syslog/asterisk-foreign-auth` | any Asterisk authentication event, failed or successful, from outside `country_codes{home}`... a registration that WORKED from abroad is toll fraud. Opt-in, needs geoip_db. The success pattern is a mechanical extension of the proven security-event format, not a mined line... confirm against your own PBX | `asterisk` |
 | `syslog/linux-auditd-auth-failed` | auditd remote authentication failures forwarded via audisp-syslog (USER_LOGIN/USER_AUTH/USER_ERR/CRED_ACQ, `res=failed` with a network `addr`)... bans the source | `audisp-syslog`, `audispd`, `audit` |
 | `syslog/linux-auditd-anom-login-failures` | auditd `ANOM_LOGIN_FAILURES`... the audit subsystem's own verdict that an account crossed its failure threshold; bans the source when the record names one | `audisp-syslog`, `audispd`, `audit` |
 | `syslog/linux-auditd-user-mgmt` | auditd account/group lifecycle (ADD_USER/DEL_USER/USER_MGMT/...)... detection-only audit trail, counts by the responsible login uid | `audisp-syslog`, `audispd`, `audit` |
@@ -47,14 +50,19 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/cyrus-imap` | Cyrus IMAP/POP3 login failures | `imapd`/`pop3d`, optionally `cyrus/` prefixed |
 | `syslog/dovecot` | Dovecot auth failures | `dovecot`, `dovecot-auth`, auth workers |
 | `syslog/dovecot-foreign-login` | a successful Dovecot login from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db | `dovecot` |
+| `syslog/dovecot-stuffing` | one source failing against many different mailboxes... credential stuffing on IMAP/POP3, counting [distinct](rules.md#distinct-counting-how-many-not-how-often) mailboxes rather than hits. In no group, wants `overlap = "all"` beside `syslog/dovecot` | `dovecot`, `dovecot-auth`, auth workers |
 | `syslog/dropbear` | Dropbear auth failures | `dropbear` |
 | `syslog/freeswitch` | FreeSWITCH auth failures | `freeswitch` |
+| `syslog/freeradius-auth` | RADIUS authentication failures... detection-only by ACCOUNT, since the line names the relaying NAS and a MAC but no supplicant address. Munger read, no regexp of its own | `radiusd`, `freeradius` |
+| `syslog/freeradius-unknown-client` | a host speaking RADIUS from no entry in clients.conf... the bannable half, this shape being the only one that names a source | `radiusd`, `freeradius` |
 | `syslog/monit` | Monit httpd access failures | `monit` (carries a live `ignore_regexp` for the empty first-connect user) |
 | `syslog/murmur` | Murmur/Mumble rejected connections | `murmurd`, `mumble-server` |
 | `syslog/named-refused` | BIND denied queries/transfers | `named` (know your named config first... refusals can be innocent) |
+| `syslog/unbound-refused` | unbound answering REFUSED to a client outside access-control... open-resolver probing. Munger read. Needs `log-queries`/`log-replies` on, or the refusals are never logged | `unbound` |
 | `syslog/pam-generic` | PAM auth failures from any daemon | any (uses the `HOST` token... rhost is not always a IP) |
 | `syslog/perdition` | Perdition auth failures | `perdition.*` |
 | `syslog/postfix` | Postfix smtpd rejects and abuse | `postfix/smtpd` and variants |
+| `syslog/postfix-harvest` | one client rejected against many different unknown recipients... directory harvest, counting [distinct](rules.md#distinct-counting-how-many-not-how-often) recipients off the postfix munger's fields with no regexp of its own. In no group, wants `overlap = "all"` beside `syslog/postfix` | `postfix/smtpd` and variants |
 | `syslog/postfix-sasl` | Postfix SASL auth failures | `postfix/smtpd` and variants |
 | `syslog/postfix-sasl-foreign` | authenticated Postfix relay use from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db | `postfix/smtpd` and variants |
 | `syslog/proftpd` | ProFTPD login failures | `proftpd` |
@@ -70,6 +78,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/sshd-aggressive` | the union of sshd-ddos and sshd-extra as one rule (fail2ban's aggressive mode)... enable instead of those two | `sshd`, `sshd-session` |
 | `syslog/sshd-mark-users` | brands each sshd failure's account with the source that hit it (mark_only, sets no ban) | `sshd`, `sshd-session` |
 | `syslog/sshd-spray` | one sshd account hit from a second source... distributed brute force (gates on sshd-mark-users, `max_score 1`) | `sshd`, `sshd-session` |
+| `syslog/sshd-stuffing` | one source failing against many different accounts... credential stuffing, the other diagonal from sshd-spray. Counts [distinct](rules.md#distinct-counting-how-many-not-how-often) accounts rather than hits, so five is five accounts and not five guesses. In no group, and wants `overlap = "all"` beside `syslog/sshd` | `sshd`, `sshd-session` |
 | `syslog/sshd-condemned` | a sshd auth failure from a source already branded the standard `brute_force`, wherever it earned the brand... list ahead of `syslog/sshd` (`weight 10`, `max_score 10`) | `sshd`, `sshd-session` |
 | `syslog/sshd-breach` | a successful ssh login from a source holding any standard brand... likely credential compromise (detection-only, from sagan-rules openssh-correlated) | `sshd`, `sshd-session` |
 | `syslog/vsftpd-breach` | a successful vsftpd login from a source holding any standard brand (detection-only, from sagan-rules vsftpd-correlated) | `vsftpd` |
@@ -94,6 +103,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/phpmyadmin-syslog` | phpMyAdmin login failures | `phpMyAdmin` |
 | `syslog/drupal-auth` | Drupal login failures (syslog format) | any (site-named) |
 | `syslog/slapd` | OpenLDAP bind failures, correlated by conn id | `slapd` |
+| `syslog/strongswan` | an IKE peer with no matching configuration... a udp/500 sweep, or a branch office whose entry is missing. Munger read. Does NOT cover charon's EAP failures, which name no address on their own line and want thread correlation | `charon`, `ipsec`, `strongswan`, `charon-systemd` |
 | `syslog/openvpn` | OpenVPN auth/TLS handshake failures | `openvpn` (needs `--syslog`) |
 | `syslog/postgresql` | PostgreSQL password auth failures | `postgres` (needs `log_line_prefix` with `%h`) |
 | `syslog/samba` | Samba connection denials | `smbd` (needs `logging = syslog`) |
@@ -148,6 +158,7 @@ field, and the daemon gate column does not apply.
 | --- | --- |
 | `http/badbots` | requests from known bad bots by user agent... from fail2ban apache-badbots, list trimmed to the still recognizable plus modern scanners, meant to be extended locally |
 | `http/fakegooglebot` | a user agent claiming Googlebot whose client does not reverse into Google's domains, forward-confirmed... needs `enable_rdns` and Net::DNS, the gate failing closed with out them (from fail2ban apache-fakegooglebot) |
+| `http/path-scan` | a client fetching many different paths that do not exist... scanning by breadth rather than by signature, counting [distinct](rules.md#distinct-counting-how-many-not-how-often) 404 paths. Needs no ignore list, since a browser's handful of missing assets is a handful of paths. In no group, wants `overlap = "all"` beside the other scanners |
 | `http/botsearch` | probes for admin panels and login pages that 40x... adapted from fail2ban's botsearch-common path vocabulary into access log form |
 | `http/apache-pass` | from fail2ban apache-pass... note fail2ban uses it to allowlist a knocker, so point its path at a honeypot to repurpose it as an offense |
 | `http/openhab` | 401s against the openHAB UI and REST API |
@@ -186,6 +197,7 @@ output shapes.
 | `json/suricata-blocked` | sources Suricata itself decided to block, per `alert.action == "blocked"`... reject rules in any mode, drop rules when inline. The strongest of the Suricata rules, deferring to Suricata's own disposition. In pure IDS mode it catches only rejects, as drop-intent then logs as allowed... run Suricata inline or use the class/severity rules for passive setups. |
 | `json/suricata-condemned` | any alert from a src already branded the standard `brute_force`, whatever the alert's own class... list ahead of the per-class rules (`weight 10`, `max_score 10`) |
 | `json/suricata-escalation` | any alert from a src holding the standard `recon` then `exploit_attempt` brands in that order... scanned, then exploited... list ahead of the per-class rules (`weight 10`, `max_score 10`) |
+| `json/suricata-breadth` | a src that has tripped many DIFFERENT signatures rather than one many times... counts [distinct](rules.md#distinct-counting-how-many-not-how-often) `alert.signature_id`, so a chatty rule cannot trigger it. In no group, wants `overlap = "all"` beside the per-class rules |
 
 ### The per-class Suricata rules
 
@@ -238,8 +250,10 @@ config field to your networks; it defaults to the ignore IPs. See the
 
 ## raw rules
 
-For logs in their own formats via the `raw` parser... regexp-extracted
-offenders, like syslog rules but with no daemon gate.
+For logs in their own formats via the `raw` parser... like syslog rules but
+with no daemon gate. Most extract their offender with a regexp; the appliance
+families under [network gear](#network-gear) mostly read it out of a decomposed
+field instead, the type being the same either way.
 
 | rule | watches for |
 | --- | --- |
@@ -250,6 +264,7 @@ offenders, like syslog rules but with no daemon gate.
 | `raw/gitlab`, `raw/grafana`, `raw/directadmin`, `raw/centreon`, `raw/tine20`, `raw/groupoffice`, `raw/oracleims` | web app / panel login failures in their own log formats |
 | `raw/roundcube-auth`, `raw/sogo-auth`, `raw/squirrelmail`, `raw/openwebmail`, `raw/horde` | webmail login failures (HOST token where the offender can be a hostname) |
 | `raw/mssql-auth`, `raw/lighttpd-auth`, `raw/stunnel`, `raw/kerio`, `raw/domino-smtp`, `raw/assp` | assorted server auth/reject logs |
+| `raw/nsd` | NSD refusing a zone transfer to an address in no acl, and its RRL blocking a flood of ANY queries... a raw rule because NSD's own log file writes its own bracketed prefix rather than a syslog header, and the one pattern steps over that, the older epoch form, and a syslog header alike |
 | `raw/softethervpn`, `raw/portsentry`, `raw/counter-strike`, `raw/znc-adminlog`, `raw/monitorix`, `raw/bitwarden`, `raw/selinux-ssh` | VPN, scan detectors, game/IRC/monitor servers, SELinux audit |
 | `raw/ejabberd-auth`, `raw/guacamole` | XMPP and Guacamole auth failures (single line despite fail2ban buffering a banner) |
 | `raw/traefik-auth`, `raw/nginx-bad-request` | web access logs whose own extra fields the http_access parser rejects |
@@ -258,31 +273,62 @@ offenders, like syslog rules but with no daemon gate.
 
 Seven firewall/router families ported from sagan-rules, all natively
 syslog-speaking... their lines land on a collector and match as raw rules
-anchored on each vendor's own message tokens, never the line start. The
+keyed on each vendor's own message tokens, never the line start. The
 Sagan signatures were consolidated by offense rather than ported one to
 one, so a family is a handful of themed rules... the attack-shaped ones
-ban `SRC` and brand the [standard marks](rules.md), the config-change and
-system-distress ones are detection-only, counting by user, device, or
-event since they accuse no address. The `-breach`/`-condemned` rules are
-the correlated readers, a success or repeat offense from a source holding
-any standard brand, folded per product into one any-of `marked` gate.
-Sagan's geoip/aetas/blacklist sibling rulesets were deliberately not
-ported... those are the `country`, `active_time`, and `namtar_list` gates,
-composed in config over these rules instead.
+banish the far end and brand the [standard marks](rules.md), the
+config-change and system-distress ones are detection-only, counting by
+user, device, or event since they accuse no far end. The
+`-breach`/`-condemned` rules are the correlated readers, a success or
+repeat offense from a source holding any standard brand, folded per
+product into one any-of `marked` gate. Sagan's geoip/aetas/blacklist
+sibling rulesets were deliberately not ported... those are the `country`,
+`active_time`, and `namtar_list` gates, composed in config over these
+rules instead.
+
+**How they find the offender differs, and the format decides it.** FortiOS,
+SonicOS, and VRP write a flat `key=value` ledger, so the nineteen rules in
+those families that accuse the far end of a connection carry no
+`message_regexp` at all: a [munger](rules.md#a-munger-as-the-matcher)
+decomposes the ledger and the rule gates on named fields, banishing
+`fg_offender_ip` / `sw_offender_ip` / `hw_offender_ip`.
+
+That is not tidiness. These events log the account someone just tried, the
+account name is whatever they typed, and a rule scanning the line for the
+first `srcip=` could be handed a different one... log in as
+`admin srcip=8.8.8.8` and the ban lands on 8.8.8.8. Reading fields cannot be
+steered that way. Those rules therefore need Log::Munger installed **with**
+its `fortinet`, `sonicwall`, and `huawei` rule files, not merely present.
+
+The remaining ten in those families still match on regexps, because they do not
+accuse the far end and so were never steerable... the config-change and
+system-distress rules, counting by a user, by the device, or by the appliance's
+own `fw=` address, and Huawei's blacklist notice, counting the address VRP
+itself just blocked.
+
+The other four families match on regexps too, the format leaving no choice:
+Cisco ASA, Citrix NetScaler, Juniper, and PAN-OS each run their separators
+together or let a value hold the delimiter, so any split would be a guess.
+Those anchor the capture instead, or match greedily so the field the device
+wrote is the last candidate and a forged one can only sit ahead of it. Each
+carries a [`tests.injection`](rules.md#injection-tests-who-picks-the-offender)
+entry where the shape calls for one... and PAN-OS is the reason a family-wide
+rule would be wrong, its auth failures naming the account before the address
+and its VPN events after, so the two halves want opposite treatment.
 
 Formats were rebuilt from vendor references rather than a live corpus, so
-each file's header names the shakiest regexps... worth confirming against
-your own collector before trusting the bans.
+each file's header names the shakiest part of its reading... worth confirming
+against your own collector before trusting the bans.
 
 | family | rules |
 | --- | --- |
 | Cisco ASA/PIX (`%ASA-` syslog) | `cisco-asa-auth-bruteforce`, `-auth-failed`, `-vpn-auth`, `-exploit`, `-scan`, `-spoof` (banning); `-auth-user`, `-rapid-grants`, `-system` (detection-only); `-breach` (reader) |
 | Citrix NetScaler/ADC | `citrix-appfw-web`, `-appfw-xml`, `-appfw-xml-dos`, `-auth-bruteforce`, `-cli-shell-bypass` (banning); `-appfw-config`, `-vpn-denied`, `-cert-expiry` (detection-only); `-vpn-mark-logins` + `-vpn-traveler` (an impossible-traveler mark pair), `-breach`, `-condemned` (readers) |
-| Fortinet FortiGate (key=value) | `fortinet-admin-auth`, `-vpn-auth`, `-attack` (banning); `-malware`, `-virus`, `-policy`, `-config-change`, `-system`, `-integrity`, `-cve-2022-40684`, `-admin-external` (detection-only); `-breach` (reader) |
+| Fortinet FortiGate (`key=value`, munger read) | `fortinet-admin-auth`, `-vpn-auth`, `-attack` (banning); `-malware`, `-virus`, `-policy`, `-admin-external`, `-breach` (detection-only, munger read); `-config-change`, `-system`, `-integrity`, `-cve-2022-40684` (detection-only, regexp over the message, counting by user or device) |
 | Juniper JunOS/SRX/ScreenOS | `juniper-auth-bruteforce`, `-screen`, `-vpn-auth`, `-vpn-probe`, `-idp`, `-screenos-backdoor` (CVE-2015-7755) (banning); `-auth-anomaly`, `-appddos`, `-idp-system`, `-system` (detection-only) |
-| Huawei VRP | `huawei-auth-bruteforce`, `-dos`, `-attack`, `-scan` (banning); `-config-change`, `-system`, `-net-health` (detection-only) |
+| Huawei VRP (`Key=Value` pairs, munger read) | `huawei-auth-bruteforce`, `-dos`, `-attack`, `-scan` (banning); `-net-health` (detection-only, munger read); `-config-change`, `-system` (detection-only, regexp over the message) |
 | Palo Alto PAN-OS (CSV) | `palo-alto-auth-bruteforce`, `-vpn-bruteforce`, `-threat-exploit`, `-threat-virus` (banning, the THREAT rules via `ban_not_internal` over both flow ends); `-threat-infected`, `-system` (detection-only) |
-| SonicWall SonicOS (key=value) | `sonicwall-scan`, `-auth-bruteforce`, `-attack`, `-flood` (banning); `-security-services`, `-policy`, `-vpn-cert`, `-wlan`, `-config`, `-system` (detection-only) |
+| SonicWall SonicOS (`key=value`, munger read) | `sonicwall-scan`, `-auth-bruteforce`, `-attack`, `-flood` (banning); `-security-services`, `-policy` (detection-only, munger read); `-vpn-cert`, `-wlan`, `-config`, `-system` (detection-only, regexp over the message) |
 
 ## Coverage
 

@@ -35,6 +35,7 @@
 #
 # See docs/rules.md (Rule groups, and the country gate).
 
+syslog/asterisk-foreign-auth
 syslog/courier-foreign-auth
 syslog/cyrus-imap-foreign-auth
 syslog/dovecot-foreign-auth

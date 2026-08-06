@@ -79,6 +79,7 @@ share/groups/syslog/linux-audit
 share/groups/syslog/foreign-auth
 share/groups/syslog/ftp
 share/groups/syslog/mail
+share/groups/syslog/messages
 share/groups/syslog/ssh
 share/groups/syslog/voip
 share/rules/http/apache-pass.yaml
@@ -405,6 +406,10 @@ t/rules-raw.t
 t/rules-shipped.t
 t/rule-tests-geo.t
 t/rule-tests-marks.t
+t/rule-http-path-scan.t
+t/rule-postfix-harvest.t
+t/rule-stuffing.t
+t/rule-suricata-breadth.t
 t/rule-tests-injection.t
 t/rule-tests-munge.t
 t/rule-tests-rdns.t

@@ -50,6 +50,11 @@ Handled variations...
 
     - A missing [pid].
 
+    - A thread id after the pid, C<unbound[1234:0]:>, as the daemons that run
+      a thread pool write it. The pid is kept and the thread dropped... nothing
+      reads it, and without this the whole line failed to parse and every rule
+      over such a log silently matched nothing.
+
 facility and severity will not always be available as most log files carry
 neither a <PRI> nor the verbose form.
 
@@ -93,7 +98,7 @@ sub parse {
 		(?:\s+($hostname_re))?               # optional hostname
 		\s+
 		([^\s:\[\]]+)                        # daemon
-		(?:\[(\d+)\])?                       # optional pid
+		(?:\[(\d+)(?::\d+)?\])?              # optional pid, and a thread id after it
 		:\s?
 		(.*)                                 # message
 		$/x

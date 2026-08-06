@@ -1,0 +1,105 @@
+---
+# NSD refusing to serve someone, and NSD's own rate limiter deciding someone is
+# abusive. Translated from the fail2ban nsd filter, with its test corpus for the
+# lines.
+#
+# A raw rule and not a syslog one, because NSD's own log file carries no syslog
+# header... it writes its own prefix, and has written three of them over the
+# years: a bracketed epoch, and a bracketed ISO timestamp with milliseconds since
+# 4.3.x. The head below steps over either, and over a BSD syslog header too, so
+# the one rule serves a deployment logging to `logfile:` and one logging to
+# syslog without the operator having to know which they have.
+#
+# Two offenses, both naming the client:
+#
+#   ratelimit block ... query <addr> TYPE255
+#     NSD's RRL deciding this client's ANY queries are abuse. TYPE255 is ANY, the
+#     amplification workhorse, and it is the only type matched here for the same
+#     reason fail2ban matches only it: a ratelimit block on an ordinary type can
+#     be a busy legitimate resolver, where a blocked flood of ANY is what a
+#     reflection attack looks like from the reflector's side. Widen the type if
+#     you would rather trust RRL's judgment outright.
+#     Note the address wanted is the one after `query`, NOT the one after
+#     `target`... target is the ratelimit bucket, which is a netblock, and
+#     banishing that would banish a /24 of other people's resolvers.
+#
+#   axfr for <zone> from [client] <addr> refused, no acl matches
+#     A zone transfer attempt from an address in no provide-xfr. Someone
+#     enumerating your zones, or a secondary of yours whose acl entry is missing,
+#     which is equally worth knowing.
+#
+# The tail is ANCHORED past the address on both, and deliberately. A zone name is
+# whatever the client asked for, and it is printed before the address on the axfr
+# line... so a name carrying its own `from client <addr> refused, no acl matches`
+# would otherwise be a way to choose who gets banished. NSD escapes a space in a
+# name as \032, which blocks it in practice, but the anchor costs nothing and
+# does not depend on that staying true. See the injection test.
+rev: 1
+msg: "[NSD] refused transfer or rate-limited ANY flood"
+severity: medium
+classtype: attempted-recon
+attack:
+  - T1590.002
+mark:
+  - name: recon
+    ttl: 86400
+references:
+  - https://nsd.docs.nlnetlabs.nl/en/latest/manpages/nsd.conf.html
+message_regexp:
+  # the RRL verdict... the querying client, not the ratelimit target
+  - '^(?:\[(?:\d+|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\] |%%%%SYSLOGTIMESTAMP%%%% \S+ )?nsd\[\d+\]: info: ratelimit block .* query %%%%SRC%%%% TYPE255\s*$'
+  # a transfer attempt from an address in no acl
+  - '^(?:\[(?:\d+|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\] |%%%%SYSLOGTIMESTAMP%%%% \S+ )?nsd\[\d+\]: info: .*? from(?: client)? %%%%SRC%%%% refused, no acl matches\.?\s*$'
+ban_var:
+  - SRC
+tests:
+  positive:
+    # all three straight out of fail2ban's nsd corpus, verbatim
+    - message: '[1387288694] nsd[7745]: info: ratelimit block example.com. type any target 192.0.2.0/24 query 192.0.2.105 TYPE255'
+      found: 1
+      data:
+        SRC: "192.0.2.105"
+    - message: '[1387348935] nsd[23600]: info: axfr for zone domain.nl. from client 192.0.2.115 refused, no acl matches.'
+      found: 1
+      data:
+        SRC: "192.0.2.115"
+    # the 4.3.x prefix, no "client", no trailing dot
+    - message: '[2021-03-05 05:25:14.562] nsd[160800]: info: axfr for example.com. from 192.0.2.32 refused, no acl matches'
+      found: 1
+      data:
+        SRC: "192.0.2.32"
+    # and the same event arriving through syslog instead of NSD's own log file
+    - message: 'Jul 12 08:15:50 ns01 nsd[160800]: info: axfr for example.com. from 192.0.2.33 refused, no acl matches'
+      found: 1
+      data:
+        SRC: "192.0.2.33"
+    - message: 'Jul 12 08:15:51 ns01 nsd[7745]: info: ratelimit block example.com. type any target 192.0.2.0/24 query 203.0.113.7 TYPE255'
+      found: 1
+      data:
+        SRC: "203.0.113.7"
+  negative:
+    # a ratelimit block on an ordinary type is a busy resolver, not a reflector
+    - message: '[1387288695] nsd[7745]: info: ratelimit block example.com. type A target 192.0.2.0/24 query 192.0.2.106 TYPE1'
+      found: 0
+      undefed: ["SRC"]
+    # RRL letting a client back in says nothing against it
+    - message: '[1387288696] nsd[7745]: info: ratelimit unblock example.com. type any target 192.0.2.0/24 query 192.0.2.105 TYPE255'
+      found: 0
+      undefed: ["SRC"]
+    # a transfer that was allowed
+    - message: '[1387348936] nsd[23600]: info: axfr for zone domain.nl. from client 192.0.2.115'
+      found: 0
+      undefed: ["SRC"]
+    # the daemon's own lifecycle
+    - message: '[1387348937] nsd[23600]: info: nsd starting (NSD 4.3.6)'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # A zone name is whatever the client asked for and NSD prints it BEFORE the
+    # address, so a name carrying the rest of the sentence would pick the ban
+    # target were the tail not anchored. NSD escapes a space as \032 so this
+    # exact line should never be emitted... the anchor means it would not matter
+    # if that changed.
+    - message: '[1387348938] nsd[23600]: info: axfr for zone from client 8.8.8.8 refused, no acl matches. from client 192.0.2.115 refused, no acl matches.'
+      data:
+        SRC: "192.0.2.115"

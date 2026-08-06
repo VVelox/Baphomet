@@ -81,6 +81,79 @@ isnt( $result->exit_code, 0, 'check_rules with a bad rule present exits non-zero
 like( $result->stdout, qr/syslog\/good \.\.\. ok/, 'the good rule still reported ok' );
 like( $result->stdout, qr/syslog\/bad \.\.\. /,    'the bad rule reported' );
 
+# the summary names what was checked and where it came from... without it a green
+# run in a checkout is indistinguishable from a green run against a stale install
+like(
+	$result->stdout,
+	qr/rules checked, read from \Q$dir\E\/rules \(/,
+	'check_rules names the dir the rules were read from'
+);
+
+# --file checks the path outright, resolving nothing
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'check_rules', '--file', $dir . '/rules/syslog/good.yaml' ] );
+is( $result->exit_code, 0, 'check_rules --file on a good rule exits 0' );
+like( $result->stdout, qr/syslog\/good \.\.\. ok/, '--file derives the rule name from the path' );
+like( $result->stdout, qr/1 rules checked/,          'and checks only that one' );
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'check_rules', '--file', $dir . '/rules/syslog/nope.yaml' ] );
+isnt( $result->exit_code, 0, '--file on a path that is not there exits non-zero' );
+
+# repeatable, and the two need not share a type dir
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'check_rules', '-f', $dir . '/rules/syslog/good.yaml', '-f', $dir . '/rules/syslog/bad.yaml' ] );
+isnt( $result->exit_code, 0, '--file twice reports the bad one' );
+like( $result->stdout, qr/2 rules checked/, 'and counts both' );
+
+# the injection-shape check is a warning, not a verdict... it prints and the rule
+# still passes, since the shape alone says nothing about what feeds the log
+mkdir $dir . '/rules/raw' if ( !-d $dir . '/rules/raw' );
+open( my $fh, '>', $dir . '/rules/syslog/lazy.yaml' ) or die($!);
+print $fh <<'EOR';
+---
+rev: 1
+msg: "[LAZY] offender reached over a lazy wildcard"
+severity: high
+classtype: brute-force
+daemons:
+  - lazyd
+message_regexp:
+  - '^auth failed for user .*? from %%%%SRC%%%%'
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 host01 lazyd[1]: auth failed for user bob from 192.0.2.7"
+      data:
+        SRC: "192.0.2.7"
+EOR
+close($fh);
+
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'check_rules', '--file', $dir . '/rules/syslog/lazy.yaml' ] );
+is( $result->exit_code, 0, 'the injection-shape check does not fail a rule' );
+like( $result->stdout, qr/warning: .*lazy wildcard/, 'it warns instead' );
+like( $result->stdout, qr/syslog\/lazy \.\.\. ok/, 'and the rule still passes its tests' );
+like( $result->stdout, qr/1 warned/,                 'the summary counts the warning' );
+unlink( $dir . '/rules/syslog/lazy.yaml' );
+
+# --verbose names the file, the ranking, and the tests by section
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'check_rules', '--verbose', '--rules-dir', $dir . '/rules', 'syslog/good' ] );
+is( $result->exit_code, 0, 'check_rules --verbose exits 0 on a good rule' );
+like( $result->stdout, qr/\n    file      \Q$dir\E\/rules\/syslog\/good\.yaml/, 'verbose names the file' );
+like( $result->stdout, qr/\n    tests     positive \d/,                              'verbose counts the tests by section' );
+like( $result->stdout, qr/\n    result    ok/,                                        'verbose reports the result' );
+
+# a dir checked in isolation has nothing to rank against, so verbose must not
+# call its rules site overrides
+like(
+	$result->stdout,
+	qr/\n    gid       1 \(one dir checked in isolation/,
+	'verbose does not read the isolation gid as a site override'
+);
+
 #
 # test_line
 #
@@ -95,6 +168,32 @@ $result = App::Cmd::Tester->test_app(
 is( $result->exit_code, 0, 'test_line on a matching line exits 0' );
 like( $result->stdout, qr/"found"\s*:\s*1/,         'test_line reports found' );
 like( $result->stdout, qr/"SRC"\s*:\s*"1\.2\.3\.4"/, 'test_line reports the capture' );
+
+# the answer says which copy of the rule produced it... resolved, that is the
+# override or the installed share dir, neither of which is a checkout's tree
+my $tl = JSON::MaybeXS::decode_json( $result->stdout );
+is( $tl->{rule}, 'syslog/good', 'test_line names the rule it used' );
+is( $tl->{rule_file}, $dir . '/rules/syslog/good.yaml', 'and the file it read that rule from' );
+
+# --file points at a path outright, no --rule needed
+$result = App::Cmd::Tester->test_app(
+	'App::Baphomet::App',
+	[   'test_line', '--file', $dir . '/rules/syslog/good.yaml',
+		'Jul 12 08:15:50 host01 sshd[1]: bad thing from 1.2.3.4'
+	]
+);
+is( $result->exit_code, 0, 'test_line --file exits 0' );
+is( JSON::MaybeXS::decode_json( $result->stdout )->{rule},
+	'syslog/good', '--file derives the rule name from the path' );
+
+# and the two ways of naming a rule are not to be combined
+$result = App::Cmd::Tester->test_app(
+	'App::Baphomet::App',
+	[   'test_line', '--rule', 'syslog/good', '--file', $dir . '/rules/syslog/good.yaml',
+		'Jul 12 08:15:50 host01 sshd[1]: bad thing from 1.2.3.4'
+	]
+);
+isnt( $result->exit_code, 0, '--rule and --file together is a usage error' );
 
 $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',

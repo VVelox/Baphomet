@@ -1,0 +1,63 @@
+---
+# RADIUS authentication failures. FreeRADIUS answers a bad credential with
+# "Login incorrect" and an unknown one with "Invalid user", both naming the
+# account tried and the NAS that asked on its behalf.
+#
+# DETECTION ONLY, and not by choice. The failure line names no address for the
+# supplicant... `from client wifi` is the shortname out of clients.conf, the NAS
+# that relayed the request, and `cli aa-bb-...` is a MAC. Neither is bannable:
+# blocking the NAS would cut off every user behind it, and a MAC is not
+# something Kur can act on. So this counts the ACCOUNT being worked instead,
+# which is the question a RADIUS log can actually answer... which of your
+# identities is under attack. The offender, if you need one, is in the
+# authenticator's own log or in the switch's.
+#
+# raw/freeradius-unknown-client beside this one is the bannable half: a host
+# speaking RADIUS at you that is in no clients.conf at all does name its address.
+#
+# Nothing is scanned for. The `freeradius` munger decomposes the line and the
+# gate reads two of its fields... a reason, which only the failures carry, and an
+# account, which the daemon's own lifecycle lines do not.
+rev: 1
+msg: "[FREERADIUS] authentication failure"
+severity: medium
+classtype: brute-force
+attack:
+  - T1110.001
+references:
+  - https://www.freeradius.org/documentation/
+daemons:
+  - //^(?:radiusd|freeradius)$//
+mungers:
+  - freeradius
+# no message_regexp... the munger's fields are the matcher. a reason is present
+# on the failures and absent from "Login OK", and an account weeds out the
+# daemon's lifecycle chatter
+gate:
+  - field: radius_reason
+    op: exists
+  - field: radius_user
+    op: exists
+detection_var:
+  - radius_user
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 radius01 radiusd[1234]: Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/password] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)"
+      found: 1
+      data:
+        radius_user: "admin"
+        radius_client: "wifi"
+        radius_calling_station: "aa-bb-cc-dd-ee-ff"
+    - message: "Jul 12 08:15:51 radius01 radiusd[1234]: Invalid user (mschap: External script says Logon failure): [oracle/password] (from client wifi port 0)"
+      found: 1
+      data:
+        radius_user: "oracle"
+  negative:
+    # a success carries no reason
+    - message: "Jul 12 08:16:00 radius01 radiusd[1234]: Login OK: [alice/<via Auth-Type = mschap>] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)"
+      found: 0
+    - message: "Jul 12 08:16:01 radius01 radiusd[1234]: (12) Login OK: [bob] (from client localhost port 0)"
+      found: 0
+    # the daemon's own lifecycle names no account
+    - message: "Jul 12 08:16:02 radius01 radiusd[1234]: Ready to process requests"
+      found: 0

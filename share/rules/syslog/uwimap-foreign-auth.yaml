@@ -15,7 +15,7 @@
 #
 # List AHEAD of syslog/uwimap-auth: a domestic event is vetoed here without
 # being consumed, and falls through to be counted there exactly as before.
-rev: 1
+rev: 2
 msg: "[UWIMAP] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -68,6 +68,16 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.14"
+    # the override-failure pattern, which no test reached
+    - message: "Jul 12 08:15:50 mail01 imapd[3473]: Failed uwmaster override of user=pro1  host=client.example.org [203.0.113.58]"
+      geo:
+        countries:
+          "203.0.113.58": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.58"
   negative:
     # domestic success... vetoed, falls through
     - message: "Jul 12 08:25:49 vixen42 imapd[12345]: Login user=kitsune auth=kitsune host=mail.example.com [198.51.100.5]"

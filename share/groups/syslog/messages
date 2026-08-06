@@ -1,0 +1,51 @@
+# The broad catch-all syslog. Not one named file: a daemon that logs through
+# syslog rarely gets a file of its own, it gets whichever of the broad ones its
+# facility is routed to... messages, daemon, or syslog, and postgres arrives on
+# LOCAL0 while openvpn arrives on DAEMON, so on one box these may be split across
+# two or three files and on another all be in one. Point a watcher at each broad
+# log you have and give it this group; a rule whose daemon is not in that file
+# costs a string compare and nothing more.
+#
+# Keyed to the log rather than to a kind of software, the way %syslog/mail% is
+# keyed to a maillog... which is why there is no group of "the panel rules" or
+# "the database rules". Nobody has a log shaped like that.
+#
+# Large on purpose, and cheap for it. A rule's daemon gate is checked before any
+# of its regexps, so each line of a busy shared log pays a handful of string
+# compares and only the one rule whose daemon matches ever runs a pattern.
+#
+# LEFT OUT ON PURPOSE, and not oversights:
+#
+#   syslog/pam-generic, syslog/drupal-auth
+#     Both gate on //.//, any daemon at all, so they get nothing from the daemon
+#     gate and run their patterns over every line here. pam-generic would also
+#     double-count against sshd and the mail rules on a shared log, where the
+#     same PAM failure is already somebody's business. Add them by name if you
+#     want them, knowing that.
+#
+#   syslog/named-refused
+#     Not for where it lands but for what it says: its own header warns that a
+#     refusal can be perfectly innocent depending on how named is configured, so
+#     it wants a decision rather than a group that drops in whole. Add it by name
+#     once you know your own config.
+#
+#   the readers, the sshd mode variants, and the distinct-cardinality rules
+#     Opt-in by listing, each for its own reason. See rules.md.
+syslog/freeradius-unknown-client
+syslog/froxlor-auth
+syslog/haproxy-http-auth
+syslog/monit
+syslog/nagios
+syslog/openvpn
+syslog/phpmyadmin-syslog
+syslog/postgresql
+syslog/rsyncd
+syslog/samba
+syslog/scanlogd
+syslog/screensharingd
+syslog/slapd
+syslog/strongswan
+syslog/suhosin
+syslog/unbound-refused
+syslog/webmin-auth
+syslog/xinetd-fail

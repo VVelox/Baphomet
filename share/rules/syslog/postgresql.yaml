@@ -7,7 +7,7 @@
 # without `%h` there is no offender on the line and nothing to banish. Two
 # patterns because `%h` renders differently by position: the `%q...host=`
 # idiom (`host=1.2.3.4`) versus a bare address field just before FATAL.
-rev: 2
+rev: 3
 msg: "[POSTGRESQL] password authentication failure"
 severity: high
 classtype: brute-force
@@ -15,7 +15,10 @@ mark:
   - name: brute_force
     ttl: 21600
 daemons:
-  - postgres
+  # syslog_ident is a postgresql.conf setting, defaulting to `postgres` but
+  # routinely set per cluster... so a regexp rather than the bare default, which
+  # would have missed `postgresql` and `postgres-16` in silence
+  - //^postgres(?:ql)?(?:[-_]\w+)?$//
 message_regexp:
   - '\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
   - '\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
@@ -35,6 +38,15 @@ tests:
       found: 1
       data:
         SRC: "2001:db8::1"
+    # the ident is configurable, so prove the gate is not the default alone
+    - message: 'Jul 14 08:15:51 dbhost postgresql[12345]: 2026-07-14 08:15:51.123 UTC [12345] user=bob,db=maindb,host=198.51.100.6 FATAL:  password authentication failed for user "bob"'
+      found: 1
+      data:
+        SRC: "198.51.100.6"
+    - message: 'Jul 14 08:15:52 dbhost postgres-16[12345]: 2026-07-14 08:15:52.123 UTC [12345] bob@maindb 198.51.100.7 FATAL:  password authentication failed for user "bob"'
+      found: 1
+      data:
+        SRC: "198.51.100.7"
   negative:
     - message: 'Jul 14 08:16:00 dbhost postgres[12345]: 2026-07-14 08:16:00.001 UTC [12345] bob@maindb 203.0.113.10 LOG:  connection authorized: user=bob database=maindb'
       found: 0

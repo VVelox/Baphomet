@@ -7,7 +7,7 @@
 # username/password verify failure carries the offender only in that prefix,
 # so those patterns anchor on it. The pre-auth TLS error names the address
 # after `from [AF_INET]` instead.
-rev: 2
+rev: 3
 msg: "[OPENVPN] auth / TLS handshake failure"
 severity: high
 classtype: brute-force
@@ -15,7 +15,9 @@ mark:
   - name: brute_force
     ttl: 21600
 daemons:
-  - openvpn
+  # openvpn's --syslog takes a tag, and the per-instance units name one... ovpn-server
+  # on Debian. The bare default would have missed every one of those in silence.
+  - //^(?:openvpn|ovpn)(?:[-_@]\w+)?$//
 message_regexp:
   - '^%%%%SRC%%%%:\d+ TLS Auth Error: Auth Username/Password verification failed for peer'
   - '^%%%%SRC%%%%:\d+ Decrypt packet error'
@@ -40,6 +42,11 @@ tests:
       found: 1
       data:
         SRC: "2001:db8::badc:0ffe"
+    # the tag is configurable, so prove the gate is not the default alone
+    - message: 'Jul 14 08:15:51 vpngw ovpn-server[1234]: 198.51.100.8:56011 TLS Auth Error: Auth Username/Password verification failed for peer'
+      found: 1
+      data:
+        SRC: "198.51.100.8"
   negative:
     - message: "Jul 14 08:16:00 vpngw openvpn[1234]: 203.0.113.10:56010 [client1] Peer Connection Initiated with [AF_INET]203.0.113.10:56010"
       found: 0

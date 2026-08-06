@@ -11,7 +11,7 @@
 #
 # List AHEAD of syslog/dropbear: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 1
+rev: 2
 msg: "[DROPBEAR] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -65,6 +65,26 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.14"
+    # the two patterns the tests did not reach, from the base syslog/dropbear...
+    # the nonexistent-user attempt and the max-tries exit
+    - message: "Jul 12 08:15:50 mail01 dropbear[1252]: login attempt for nonexistent user from ::ffff:203.0.113.54:60495"
+      geo:
+        countries:
+          "203.0.113.54": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.54"
+    - message: "Jul 12 08:15:51 mail01 dropbear[1335]: Exit before auth (user 'root', 10 fails): Max auth tries reached - user 'root' from 203.0.113.55:60588"
+      geo:
+        countries:
+          "203.0.113.55": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.55"
   negative:
     # domestic success... vetoed, falls through
     - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'kitsune' from 198.51.100.5:5543"

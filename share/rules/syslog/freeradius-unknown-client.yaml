@@ -1,0 +1,49 @@
+---
+# Something is speaking RADIUS at you that is in no clients.conf. FreeRADIUS
+# answers with "Ignoring request ... from unknown client <addr>", and unlike the
+# authentication failures beside it this line DOES name an address... because the
+# sender never got as far as being a NAS whose shortname could be printed.
+#
+# That makes it the bannable half of the pair. A host probing udp/1812 is
+# looking for a RADIUS server to talk to, and a legitimate NAS of yours arriving
+# here means its entry is missing rather than that it is hostile... which is
+# equally worth knowing, and is why the brand is recon rather than brute_force.
+#
+# Nothing is scanned for; the `freeradius` munger names the source directly.
+rev: 1
+msg: "[FREERADIUS] request from a client in no clients.conf"
+severity: medium
+classtype: attempted-recon
+attack:
+  - T1595.002
+mark:
+  - name: recon
+    ttl: 86400
+references:
+  - https://www.freeradius.org/documentation/
+daemons:
+  - //^(?:radiusd|freeradius)$//
+mungers:
+  - freeradius
+# no message_regexp... the munger's fields are the matcher, and only this shape
+# of line carries a source address at all
+gate:
+  - field: radius_src_ip
+    op: exists
+ban_var:
+  - radius_src_ip
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 radius01 radiusd[1234]: Ignoring request to auth address 192.0.2.1 port 1812 bound to server default from unknown client 203.0.113.7 port 45678 proto udp"
+      found: 1
+      data:
+        radius_src_ip: "203.0.113.7"
+        radius_src_port: "45678"
+  negative:
+    # an authentication failure names an account and a NAS, never a source
+    - message: "Jul 12 08:16:00 radius01 radiusd[1234]: Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/password] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)"
+      found: 0
+    - message: "Jul 12 08:16:01 radius01 radiusd[1234]: Login OK: [alice] (from client wifi port 0)"
+      found: 0
+    - message: "Jul 12 08:16:02 radius01 radiusd[1234]: Ready to process requests"
+      found: 0

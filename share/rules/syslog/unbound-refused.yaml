@@ -1,0 +1,72 @@
+---
+# A client the resolver keeps refusing. unbound answers REFUSED when the query
+# comes from outside access-control, so a source collecting them is either
+# pointed at you by mistake or looking for an open resolver to amplify off...
+# and the second is what the internet spends its day doing to port 53.
+#
+# The sibling of what fail2ban's nsd filter catches on the authoritative side.
+# Nothing is scanned for: the `unbound` munger decomposes the query log and the
+# rule reads the rcode and the client.
+#
+# PREREQUISITE, and it is a real one. unbound logs a per-query line only with
+# `log-queries: yes` or `log-replies: yes` in unbound.conf; with neither, the
+# refusals never reach the log and this rule has nothing to read. That is
+# verbose on a busy resolver... the refusals themselves are not, a correctly
+# ACL'd resolver refusing little, but the legitimate queries logged beside them
+# are. Weigh the disk before turning it on.
+#
+# Counts by the client address and banishes it. A resolver of yours pointed at
+# itself, or an internal range that ought to be allowed, belongs in `internal`
+# or `ignore_ips` rather than in a widened access-control.
+#
+# On the syslog tag: a threaded resolver writes unbound[pid:thread], which the
+# bsd_syslog parser had to be taught before any of this could be read at all...
+# the whole line failed to parse, so the rule would have matched nothing and said
+# nothing about why. Both that and the plain unbound: form are tested below.
+rev: 1
+msg: "[UNBOUND] query refused... client outside access-control"
+severity: low
+classtype: attempted-recon
+attack:
+  - T1590.002
+mark:
+  - name: recon
+    ttl: 86400
+references:
+  - https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html
+daemons:
+  - //^unbound$//
+mungers:
+  - unbound
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: unbound_rcode
+    op: eq
+    nocase: true
+    value: refused
+ban_var:
+  - unbound_client_ip
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 ns01 unbound[1234:0]: info: 203.0.113.7 refused example.com. A IN"
+      found: 1
+      data:
+        unbound_client_ip: "203.0.113.7"
+        unbound_query_name: "example.com."
+    - message: "Jul 12 08:15:51 ns01 unbound: info: 198.51.100.9 refused isc.org. ANY IN"
+      found: 1
+      data:
+        unbound_client_ip: "198.51.100.9"
+        unbound_query_type: "ANY"
+  negative:
+    # an ordinary query, answered... the whole reason the prerequisite is loud
+    - message: "Jul 12 08:15:52 ns01 unbound[1234:0]: info: 192.0.2.5 example.com. A IN"
+      found: 0
+    # a query that was answered and simply did not exist
+    - message: "Jul 12 08:15:53 ns01 unbound[1234:0]: info: 198.51.100.9 test.org. AAAA IN NXDOMAIN 0.001000 0 0"
+      found: 0
+    # a resolution failure of the resolver's own, naming no client
+    - message: "Jul 12 08:15:54 ns01 unbound[1234:0]: info: SERVFAIL <example.com. A IN>: all the configured stub or forward servers failed, at zone example.com."
+      found: 0
+    - message: "Jul 12 08:15:55 ns01 unbound[1234:0]: notice: init module 1: iterator"
+      found: 0

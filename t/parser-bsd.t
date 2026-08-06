@@ -80,6 +80,26 @@ is( $parsed->{daemon}, q(sshd),                             q(daemon on a rfc333
 is( App::Baphomet::Parser::parse( q(bsd_syslog), q(<999> Jul 12 08:15:50 vixen42 sshd[1]: foo) ),
 	undef, q(out of range PRI returns undef) );
 
+# a thread id after the pid, as a daemon running a thread pool writes it. the
+# pid is kept and the thread dropped... nothing reads it, and before this the
+# whole line failed to parse, so every rule over such a log matched nothing
+my $threaded = App::Baphomet::Parser::parse( q(bsd_syslog),
+	q(Jul 12 08:15:50 ns01 unbound[1234:0]: info: 203.0.113.7 refused example.com. A IN) );
+ok( defined($threaded), q(a [pid:thread] bracket parses) );
+is( $threaded->{daemon},  q(unbound), q(and the daemon is the daemon) );
+is( $threaded->{pid},     q(1234),    q(the pid is kept) );
+is( $threaded->{message}, q(info: 203.0.113.7 refused example.com. A IN), q(and the message is whole) );
+
+# the plain forms are untouched by that
+is( App::Baphomet::Parser::parse( q(bsd_syslog), q(Jul 12 08:15:50 ns01 unbound[1234]: info: x) )->{pid},
+	q(1234), q(a plain numeric pid still parses) );
+ok( !defined( App::Baphomet::Parser::parse( q(bsd_syslog), q(Jul 12 08:15:50 ns01 unbound: info: x) )->{pid} ),
+	q(and a missing pid is still missing rather than invented) );
+
+# a non-numeric bracket is still not a pid
+is( App::Baphomet::Parser::parse( q(bsd_syslog), q(Jul 12 08:15:50 ns01 foo[bar]: baz) ),
+	undef, q(a non-numeric bracket does not parse) );
+
 # garbage
 is( App::Baphomet::Parser::parse( q(bsd_syslog), q(this is not a syslog line) ), undef, q(garbage returns undef) );
 is( App::Baphomet::Parser::parse( 'bsd_syslog', undef ),                       undef, 'undef returns undef' );

@@ -5,7 +5,7 @@
 # should accrue to one count. See those two rules for the annotated
 # regexps... this file only unions them. Noisy by nature, so opt in
 # knowingly.
-rev: 3
+rev: 4
 msg: "[SSHD] pre-auth abuse / negotiation probe (aggressive)"
 severity: medium
 classtype: network-scan
@@ -69,6 +69,27 @@ tests:
       found: 1
       data:
         SRC: "127.0.0.1"
+    # the other two deferred, hostless shapes... each needs the session's
+    # address established first by a capture line, which is the whole point of
+    # the deferred half
+    - messages:
+        - 'Jul 12 08:15:50 host01 sshd[19730]: Connection from 192.0.2.21 port 62010 on 192.0.2.1 port 22'
+        - 'Jul 12 08:15:50 host01 sshd[19730]: fatal: Read from socket failed: Connection reset by peer [preauth]'
+      found: 1
+      data:
+        SRC: "192.0.2.21"
+    - messages:
+        - 'Jul 12 08:15:51 host01 sshd[19731]: Connection from 192.0.2.22 port 62011 on 192.0.2.1 port 22'
+        - 'Jul 12 08:15:51 host01 sshd[19731]: Unable to negotiate a key exchange method'
+      found: 1
+      data:
+        SRC: "192.0.2.22"
+    - messages:
+        - 'Jul 12 08:15:52 host01 sshd[19732]: Connection from 192.0.2.23 port 62012 on 192.0.2.1 port 22'
+        - 'Jul 12 08:15:52 host01 sshd[19732]: no matching key exchange method found: client curve25519-sha256 server diffie-hellman-group14-sha1'
+      found: 1
+      data:
+        SRC: "192.0.2.23"
   negative:
     - message: "Jun  7 04:29:10 host sshd[649921]: Connection reset by 192.0.2.16 port 51280"
       found: 0

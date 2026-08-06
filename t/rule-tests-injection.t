@@ -25,15 +25,19 @@ my $forged
 	= 'Jul 12 08:15:50 host01 newd[1]: auth failed for user bob from 203.0.113.222 from 192.0.2.7';
 
 #
-# the shape is detected, and the demand is made
+# the shape is detected, and asked about... as a warning, since the shape alone
+# does not make a rule exploitable. whether a client can reach that wildcard is
+# a property of the log, so the rule loads and the question is raised
 #
 my $bare = rule(
 	'tests' => { 'positive' => [ { 'message' => $good, 'data' => { 'SRC' => '192.0.2.7' } } ] } );
 ok( $bare->{needs_injection_test}, 'a lazy unanchored offender is spotted at compile' );
-like( $bare->{needs_injection_test}, qr/unanchored/, 'and named by its pattern' );
+like( $bare->{needs_injection_test}, qr/\Qauth failed for user\E/, 'and named by its pattern' );
 my $r = $bare->run_tests;
-ok( $r->{fail}, 'a rule of that shape with no injection tests refuses to load' );
-like( join( ' ', @{ $r->{failures} } ), qr/no injection tests/, 'the failure says so' );
+is( $r->{fail}, 0, 'a rule of that shape with no injection tests still loads' );
+is( scalar( @{ $r->{warnings} } ), 1, 'and is warned about instead' );
+like( join( ' ', @{ $r->{warnings} } ), qr/lazy wildcard/, 'the warning says what the shape is' );
+like( join( ' ', @{ $r->{warnings} } ), qr/tests\.injection/, 'and how to settle it' );
 
 #
 # anchoring the token settles it with no test needed
@@ -43,7 +47,9 @@ my $anchored = rule(
 	'tests'          => { 'positive' => [ { 'message' => $good, 'data' => { 'SRC' => '192.0.2.7' } } ] },
 );
 ok( !$anchored->{needs_injection_test}, 'an anchored offender is not asked about' );
-is( $anchored->run_tests->{fail}, 0, 'and the rule loads clean' );
+my $ar = $anchored->run_tests;
+is( $ar->{fail}, 0, 'and the rule loads clean' );
+is( scalar( @{ $ar->{warnings} } ), 0, 'with nothing warned' );
 
 #
 # greedy is not asked about either... it takes the last candidate, so a forgery
@@ -54,7 +60,20 @@ my $greedy = rule(
 	'tests'          => { 'positive' => [ { 'message' => $good, 'data' => { 'SRC' => '192.0.2.7' } } ] },
 );
 ok( !$greedy->{needs_injection_test}, 'a greedy run is not the shape at issue' );
-is( $greedy->run_tests->{fail}, 0, 'and needs no injection test' );
+my $gr = $greedy->run_tests;
+is( $gr->{fail}, 0, 'and needs no injection test' );
+is( scalar( @{ $gr->{warnings} } ), 0, 'so is not warned about either' );
+
+# and once a injection test answers the question, the warning goes
+my $answered = rule(
+	'tests' => {
+		'positive'  => [ { 'message' => $good,   'data' => { 'SRC' => '192.0.2.7' } } ],
+		'injection' => [ { 'message' => $forged, 'data' => { 'SRC' => '203.0.113.222' } } ],
+	}
+);
+my $anr = $answered->run_tests;
+is( scalar( @{ $anr->{warnings} } ), 0, 'a injection test silences the warning' );
+is( $anr->{fail}, 0, 'even when it records that the shape IS steerable here' );
 
 #
 # the test can not be satisfied by a rule that is actually steerable

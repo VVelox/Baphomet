@@ -1,0 +1,85 @@
+---
+# Recipient enumeration... one source rejected against MANY DIFFERENT unknown
+# recipients. The directory harvest attack: work a name list against the MX and
+# keep whichever addresses do not bounce, then sell the list. Per-hit counting
+# cannot see it, since one determined sender retrying a single bad address and
+# someone walking your whole address book both arrive as N rejects. What tells
+# them apart is how many DIFFERENT recipients were tried, which is what this
+# counts.
+#
+# Nothing is scanned for. The `postfix` munger decomposes the reject into fields
+# and the rule reads three of them: postfix_status_message to know the rejection
+# was "user unknown" and not something else, postfix_to for the recipient being
+# counted, and postfix_client_ip for who to banish.
+#
+# The reject reason matters. A relay-access-denied or a sender-address-rejected
+# is not enumeration... those say something about the sender, not about whether
+# a mailbox exists, and counting them would make a busy spam source look like a
+# harvester. Only the unknown-recipient rejections tell an attacker anything, so
+# only those are counted.
+#
+# ORDER AND OVERLAP MATTER. syslog/postfix matches these same reject lines, so
+# under the default overlap of `first` whichever is listed earlier consumes the
+# record and the other never counts. List both under `overlap = "all"`; they
+# cannot interfere, this rule's bucket being a set of recipient addresses keyed
+# by client rather than a sum of hits.
+#
+# In no group on purpose, %syslog/mail% being meant to drop whole into a maillog
+# watcher where this rule's overlap need would not hold. Opt in by listing.
+#
+# The threshold is the rule's own and wants allow_per_rule_thresholds; with out
+# it the watcher's max_score applies, still counting DISTINCT RECIPIENTS. Ten in
+# an hour is a list being worked... a legitimate sender does not guess. Raise it
+# if you run a mailing list that bounces heavily, and stand it up eve_only first.
+rev: 1
+msg: "[POSTFIX] recipient enumeration... many unknown recipients from one client"
+severity: high
+classtype: attempted-recon
+attack:
+  - T1589.002
+mark:
+  - name: recon
+    ttl: 86400
+daemons:
+  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+mungers:
+  - postfix
+# no message_regexp at all... the munger's fields are the matcher
+gate:
+  - field: postfix_action
+    op: eq
+    value: reject
+  # the unknown-recipient rejections alone, not every reject
+  - field: postfix_status_message
+    op: re
+    nocase: true
+    value: '(?:[Uu]ser unknown|[Rr]ecipient address rejected)'
+# the score is the number of distinct recipients tried, keyed by the client
+distinct:
+  of: postfix_to
+max_score: 10
+find_time: 3600
+ban_var:
+  - postfix_client_ip
+tests:
+  positive:
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[8738]: NOQUEUE: reject: RCPT from unknown[203.0.113.7]: 550 5.1.1 <nosuch@example.com>: Recipient address rejected: User unknown in local recipient table; from=<spam@bad.example> to=<nosuch@example.com> proto=ESMTP helo=<bad.example>"
+      found: 1
+      data:
+        postfix_client_ip: "203.0.113.7"
+        postfix_to: "nosuch@example.com"
+    - message: "Jul 12 08:15:51 mail01 postfix/submission/smtpd[8739]: NOQUEUE: reject: RCPT from unknown[203.0.113.7]: 550 5.1.1 <alice@example.com>: Recipient address rejected: User unknown in local recipient table; from=<spam@bad.example> to=<alice@example.com> proto=ESMTP helo=<bad.example>"
+      found: 1
+      data:
+        postfix_client_ip: "203.0.113.7"
+        postfix_to: "alice@example.com"
+  negative:
+    # a relay refusal says nothing about whether a mailbox exists
+    - message: "Jul 12 08:16:00 mail01 postfix/smtpd[8740]: NOQUEUE: reject: RCPT from unknown[203.0.113.8]: 554 5.7.1 <smtp@example.org>: Relay access denied; from=<john@example.com> to=<smtp@example.org> proto=ESMTP helo=<bad.example>"
+      found: 0
+    # nor does a sender rejection
+    - message: "Jul 12 08:16:01 mail01 postfix/smtpd[8741]: NOQUEUE: reject: RCPT from unknown[203.0.113.9]: 554 5.7.1 <foo@bad.domain>: Sender address rejected: match bad.domain; from=<foo@bad.domain> to=<foo@example.org> proto=ESMTP helo=<bad.domain>"
+      found: 0
+    # and a delivery that was not rejected at all is no part of this
+    - message: "Jul 12 08:16:02 mail01 postfix/smtpd[8742]: DA9F81C0B: client=mail.example.net[198.51.100.9]"
+      found: 0

@@ -7,7 +7,7 @@
 # sudo twin is syslog/sudo-policy. Only failures match... the success forms
 # (a bare "(to root) user on tty", or a "+" prefixed line) are left to sail
 # past, so a normal su never trips it. See docs/rules and docs/eve.
-rev: 1
+rev: 2
 msg: "[SU] authentication failure"
 severity: medium
 classtype: attempted-admin
@@ -47,6 +47,11 @@ tests:
       found: 1
       data:
         USER: "mallory"
+    # the shadow-suite phrasing, which no test reached
+    - message: "Jul 12 08:15:53 host01 su[4095]: FAILED su for root by bob"
+      found: 1
+      data:
+        USER: "bob"
   negative:
     # a successful su, verbose form... not this rule's business
     - message: "Jul 12 08:15:53 vixen42 su[4095]: (to root) kitsune on pts/0"

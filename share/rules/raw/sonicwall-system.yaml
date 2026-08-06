@@ -20,7 +20,7 @@
 # Detection-only, counted by the reporting firewall's fw= address...
 # all of it is state of the box, an offender nowhere in sight. Sights
 # to EVE for the operator.
-rev: 1
+rev: 2
 msg: "[SONICWALL] system event"
 severity: low
 classtype: system-event
@@ -89,6 +89,17 @@ tests:
       data:
         ADDR: "203.0.113.1"
     - message: 'Jul 12 14:14:45 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:14:45 UTC" fw=203.0.113.1 pri=6 c=16 m=29 msg="Administrator login allowed" n=44 usr="admin" src=192.168.1.10:52100:X0 dst=192.0.2.1:443:X0'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    # the two message ids the tests did not reach, shapes from the SonicOS log
+    # reference... a VPN policy with no firewall rule behind it, and a modem
+    # giving up after repeated failed dials
+    - message: 'Jul 12 14:16:00 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:16:00 UTC" fw=203.0.113.1 pri=4 c=16 m=406 msg="No firewall rule associated with VPN policy" n=1'
+      found: 1
+      data:
+        ADDR: "203.0.113.1"
+    - message: 'Jul 12 14:17:20 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:17:20 UTC" fw=203.0.113.1 pri=4 c=16 m=302 msg="Maximum sequential failed dial attempts reached" n=1'
       found: 1
       data:
         ADDR: "203.0.113.1"

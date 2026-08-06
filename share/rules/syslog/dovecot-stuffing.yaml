@@ -1,0 +1,105 @@
+---
+# One source failing against MANY DIFFERENT MAILBOXES... credential stuffing on
+# IMAP/POP3, and where stuffing actually pays: a working mailbox is worth more to
+# a spammer than a shell is, so the reused-password lists get worked against mail
+# before anything else. syslog/dovecot counts failures per address with no regard
+# for which mailbox, so five guesses at one account and five different accounts
+# reach its threshold together. This counts the mailboxes instead.
+#
+# The sibling of syslog/sshd-stuffing, same shape on the service where it matters
+# more.
+#
+# WHY REGEXPS AND NOT THE MUNGER. The dovecot munger is carried for enrichment,
+# but the account is captured by the patterns rather than read from
+# dovecot_user, because the munger decodes a username on only 2 of the 13 failure
+# shapes syslog/dovecot matches... not, notably, the `Disconnected (auth failed,
+# N attempts)` line that most IMAP brute force arrives as. Reading the field
+# would have quietly ignored the bulk of it. The patterns here reach 12 of 13,
+# the miss being a "tried to use disabled plaintext auth" abort that names no
+# account at all and so has nothing to count.
+#
+# The account comes from wherever dovecot put it: user=<> on a login abort,
+# ruser= on the pam path, and the first argument of pam()/passwd-file()/sql() on
+# the auth-worker lines. The address stays anchored exactly as syslog/dovecot
+# anchors it, on the `, lip=` that trails the real rip=, so a `>` planted in a
+# mailbox name cannot move the ban... see that rule for the reasoning.
+#
+# ORDER AND OVERLAP MATTER. This matches the same lines syslog/dovecot does, so
+# under the default overlap of `first` whichever is listed earlier consumes the
+# record and the other never counts. List both under `overlap = "all"`; they
+# cannot interfere, this rule's bucket being a set of mailbox names keyed by
+# source rather than a sum of hits.
+#
+# In no group on purpose, %syslog/mail% being meant to drop whole into a maillog
+# watcher where this rule's overlap need would not hold. Opt in by listing.
+#
+# The threshold is the rule's own and wants allow_per_rule_thresholds; with out
+# it the watcher's max_score applies, still counting DISTINCT MAILBOXES. Behind a
+# busy NAT five mailboxes failing in an hour is reachable without an attacker, so
+# raise it or put the range in `internal`, and stand it up eve_only first.
+rev: 1
+msg: "[DOVECOT] credential stuffing... many accounts from one source"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - dovecot
+  - dovecot-auth
+  - //^dovecot//
+  - //^auth(?:-worker)?\b//
+mungers:
+  - dovecot
+message_regexp:
+  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\): user=<(?<USER>[^>]+)>,.*? rip=%%%%SRC%%%%(?:, lip=|\s*$)'
+  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?<USER>\S+) rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\((?<USER>[^,\s]+),%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed:'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\((?<USER>[^,\s]+),%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+distinct:
+  of: USER
+max_score: 5
+find_time: 3600
+ban_var:
+  - SRC
+tests:
+  positive:
+    # the login-abort shapes, mailbox in user=<>
+    - message: "Jun 13 16:30:54 mail01 dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<username.bob>, method=PLAIN, rip=49.176.98.87, lip=10.0.0.1, TLS"
+      data:
+        USER: "username.bob"
+        SRC: "49.176.98.87"
+    - message: "Jul 02 13:49:31 mail01 dovecot[442]: pop3-login: Aborted login (auth failed, 1 attempts in 17 secs): user=<test>, method=PLAIN, rip=192.51.100.13, lip=203.0.113.17, session=<YADIN>"
+      data:
+        USER: "test"
+        SRC: "192.51.100.13"
+    # the pam path, mailbox in ruser=
+    - message: "Jul 12 08:15:50 mail01 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=web rhost=176.61.140.224"
+      data:
+        USER: "web"
+        SRC: "176.61.140.224"
+    # the auth-worker lines, mailbox as the first argument
+    - message: "Jan 29 05:32:50 mail01 dovecot: auth-worker(304): pam(username,1.2.3.4): pam_authenticate() failed: Authentication failure (password mismatch?)"
+      data:
+        USER: "username"
+        SRC: "1.2.3.4"
+    - message: "Jun 11 13:57:17 mail01 dovecot: auth: sql(admin@example.ru,192.168.144.226,<6rXunFtu>): Password mismatch"
+      data:
+        USER: "admin@example.ru"
+        SRC: "192.168.144.226"
+  negative:
+    # a success is no part of this
+    - message: "Jun 13 21:48:07 mail01 dovecot: imap-login: Login: user=<bob>, method=PLAIN, rip=192.0.2.99, lip=10.0.0.1, TLS"
+      found: 0
+      undefed: ["USER", "SRC"]
+    # no auth attempt, so no mailbox was tried
+    - message: "Jun 13 20:48:11 mail01 dovecot: pop3-login: Disconnected (no auth attempts): rip=121.44.24.254, lip=10.0.0.1, TLS: Disconnected"
+      found: 0
+      undefed: ["USER", "SRC"]
+  injection:
+    # a ">" planted in the mailbox name closes user=<> early and plants a rip=,
+    # exactly as for syslog/dovecot... the lip= anchor steps over the forgery, so
+    # the mailbox counted is junk but the source banned is dovecot's own
+    - message: "Jun 13 16:30:55 mail01 dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<a>, rip=8.8.8.8, method=X>, method=PLAIN, rip=49.176.98.87, lip=10.0.0.1, TLS"
+      data:
+        SRC: "49.176.98.87"

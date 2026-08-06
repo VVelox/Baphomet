@@ -9,7 +9,7 @@
 # firewall. Counts by the path via detection_var, banishes nobody... each one a
 # sighting in EVE. The auditd munger decodes the name and exe. See docs/rules
 # and docs/eve.
-rev: 1
+rev: 2
 msg: "[AUDITD] path with a name chosen to hide... possible rootkit"
 severity: high
 classtype: trojan-activity
@@ -54,6 +54,23 @@ tests:
       data:
         PATH: "2E2E2E20"
         audit_type: "PATH"
+    # an exe living under a '...' directory, which reads as a normal ellipsis
+    # in a listing and is a real directory name
+    - message: "Nov 14 11:30:10 host01 audisp-syslog[2310]: type=SYSCALL msg=audit(1700000060.1:960): arch=c000003e syscall=59 success=yes exit=0 ppid=1 pid=4910 auid=0 uid=0 comm=\"sh\" exe=\"/tmp/.../sh\" key=\"exec\""
+      found: 1
+      data:
+        PATH: "/tmp/.../sh"
+        audit_comm: "sh"
+    # a dotfile written into a system library dir
+    - message: "Nov 14 11:30:11 host01 audisp-syslog[2311]: type=PATH msg=audit(1700000061.1:961): item=0 name=\"/usr/lib64/.libcrypt.so\" inode=4 dev=fd:00 mode=0100755 nametype=CREATE"
+      found: 1
+      data:
+        PATH: "/usr/lib64/.libcrypt.so"
+    # and one in /dev/shm, where a payload survives without touching disk
+    - message: "Nov 14 11:30:12 host01 audisp-syslog[2312]: type=PATH msg=audit(1700000062.1:962): item=0 name=\"/dev/shm/.x\" inode=5 dev=00:19 mode=0100755 nametype=CREATE"
+      found: 1
+      data:
+        PATH: "/dev/shm/.x"
   negative:
     # an ordinary system binary at an ordinary path is fine
     - message: "Nov 14 11:30:03 vixen42 audisp-syslog[2303]: type=PATH msg=audit(1700000053.1:953): item=0 name=\"/usr/bin/ls\" inode=5 dev=fd:00 mode=0100755 ouid=0 ogid=0 nametype=NORMAL"

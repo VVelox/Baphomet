@@ -1,0 +1,90 @@
+---
+# One source trying MANY DIFFERENT ACCOUNTS... credential stuffing, and the
+# thing per-address counting can not see. syslog/sshd counts failures against an
+# address with no regard for which account they were aimed at, so ten tries at
+# root and ten tries across ten accounts reach its threshold together, though
+# only the second is someone working a list. This rule counts the ACCOUNTS
+# instead: the score is how many distinct ones a source has failed against
+# inside the window, so five is five different accounts and not five guesses.
+#
+# The mirror case is already covered. syslog/sshd-mark-users brands each account
+# with the source that hit it and syslog/sshd-spray fires when a second source
+# arrives on a branded account... many sources against ONE account, the
+# distributed spray. This is the other diagonal, one source against many
+# accounts, and between them the pair is complete.
+#
+# ORDER AND OVERLAP MATTER. This matches the same lines syslog/sshd does, and
+# under the default overlap of `first` whichever is listed earlier eats the
+# record and the other never counts... which would trade one kind of brute force
+# for the other. List both under `overlap = "all"` so each judges for real; they
+# count into separate buckets regardless, this rule's being a set of account
+# names keyed by source rather than a sum of hits.
+#
+# The threshold is the rule's own and so wants allow_per_rule_thresholds. With
+# out that consent it falls back to the watcher's max_score, which still counts
+# DISTINCT ACCOUNTS and so still says something true, just at whatever number
+# the watcher uses for hits. Behind a busy NAT, five accounts failing in an hour
+# is reachable without an attacker, so raise it or put the range in `internal`.
+# Stand it up eve_only first and watch what it would have caught.
+#
+# Deliberately in no group. %syslog/ssh% would drag it into any watcher reading
+# an auth log, where under that watcher's default overlap it would consume the
+# very lines syslog/sshd needs... so this one is opt-in by listing, like the
+# readers and the sshd mode variants beside it.
+rev: 1
+msg: "[SSHD] credential stuffing... many accounts from one source"
+severity: high
+classtype: brute-force
+attack:
+  - T1110.004
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - sshd
+  - sshd-session
+mungers:
+  - sshd
+# the same failures syslog/sshd reads, with the account captured rather than
+# stepped over... the shapes syslog/sshd-mark-users and -spray already use
+message_regexp:
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?<USER>\S+) from %%%%SRC%%%%'
+# the score is the number of distinct accounts, keyed by the offending source
+distinct:
+  of: USER
+max_score: 5
+find_time: 3600
+ban_var:
+  - SRC
+tests:
+  positive:
+    # one per pattern, each proving the account and the source come out right...
+    # the counting itself is the galla's, proven in t/rule-distinct.t
+    - message: "Jul 12 08:15:50 host01 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+      data:
+        USER: "moth3r"
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:51 host01 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+      data:
+        USER: "admin"
+        SRC: "192.0.2.7"
+    - message: "Jul 12 08:15:52 host01 sshd[1094]: error: PAM: Authentication failure for bob from 203.0.113.41"
+      data:
+        USER: "bob"
+        SRC: "203.0.113.41"
+    - message: "Jul 12 08:15:53 host01 sshd[3161]: error: maximum authentication attempts exceeded for root from 203.0.113.42 port 49940 ssh2 [preauth]"
+      data:
+        USER: "root"
+        SRC: "203.0.113.42"
+  negative:
+    # the success beside the failures
+    - message: "Jul 12 08:25:49 host01 sshd-session[36748]: Accepted publickey for bob from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
+      found: 0
+      undefed: ["USER", "SRC"]
+    # right message, wrong daemon
+    - message: "Jul 12 08:25:50 host01 cron[1234]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 0
+      undefed: ["USER", "SRC"]

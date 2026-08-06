@@ -1,0 +1,149 @@
+---
+# ANY Asterisk authentication event from outside your home countries, failed or
+# successful. The family's shape (see %syslog/foreign-auth%) on the service where
+# the successful half matters most: a SIP registration that WORKED from a country
+# you do no business with is toll fraud in progress, and the bill arrives in
+# hours. The drive-by that tries three passwords and moves on never reaches
+# syslog/asterisk's threshold either, so max_score 1... one is enough.
+#
+# ORDER MATTERS, and in your favor. A rule whose gate vetoes does not consume the
+# line, so a domestic event falls straight through to syslog/asterisk and counts
+# there exactly as before. List this one AHEAD of syslog/asterisk and the foreign
+# traffic is peeled off the top while the domestic path is untouched.
+#
+# The country gate is your policy, not the rule's... it imports country_codes{home},
+# which you define in the config. Ship nothing and the rule refuses to load,
+# loudly. Needs geoip_db and IP::Geolocation::MMDB. The gate fails closed: an
+# address the database cannot place does not count, so a database gap misses
+# rather than banishes wrongly.
+#
+# ON THE SUCCESS PATTERN, and read this before trusting it. The failure shapes
+# below are mined from fail2ban's asterisk corpus. The success one is NOT: no
+# corpus anywhere carries a SecurityEvent="SuccessfulAuth" line, so its pattern
+# is the same res_security_log.c format the four proven failure events use with
+# one more name in the alternation, and its test line is a real corpus line with
+# the event name and severity changed. That is a mechanical extension of a proven
+# format rather than an invented one, but it is not the same as having seen it...
+# confirm it against your own PBX before leaning on the successful half, and note
+# that Asterisk only emits these events at all with a security log channel
+# configured in logger.conf.
+#
+# Read the traveler risk before turning this on: an extension registering from
+# abroad is banished by its own successful registration, mid-call.
+rev: 1
+msg: "[ASTERISK] authentication from outside the home countries"
+severity: high
+classtype: suspicious-login
+attack:
+  - T1078
+references:
+  - https://docs.asterisk.org/Configuration/Core-Configuration/Asterisk-Security-Events/
+daemons:
+  - asterisk
+message_regexp:
+  # the success... the same security-event format, one more name in the set
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="SuccessfulAuth"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
+  # and everything syslog/asterisk counts, verbatim
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call from ''[^'']*'' \((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
+country:
+  isnot:
+    - "%%%country_codes{home}%%%"
+  vars:
+    - SRC
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    # the SUCCESS from abroad, the reason this rule exists... toll fraud, and the
+    # line is the corpus InvalidPassword shape with the event name changed
+    - message: 'Jul 12 08:15:50 pbx01 asterisk[3308]: SECURITY[3308] res_security_log.c: SecurityEvent="SuccessfulAuth",EventTV="1373098165-824497",Severity="Informational",Service="SIP",EventVersion="1",AccountID="1001",SessionID="0x88aab6c",LocalAddress="IPV4/UDP/192.0.2.1/5060",RemoteAddress="IPV4/UDP/203.0.113.31/5084",UsingPassword="1"'
+      geo:
+        countries:
+          "203.0.113.31": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.31"
+    # a failure from abroad, banished on the first
+    - message: "Jul 12 08:15:51 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Registration from '\"1001\" <sip:1001@192.0.2.1>' failed for '203.0.113.32:5060' - Wrong password"
+      geo:
+        countries:
+          "203.0.113.32": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.32"
+    - message: 'Jul 12 08:15:52 pbx01 asterisk[3308]: SECURITY[3308] res_security_log.c: SecurityEvent="InvalidAccountID",EventTV="1368439853-500975",Severity="Error",Service="SIP",EventVersion="1",AccountID="00972599580679",SessionID="0x7f8ecc0421f8",LocalAddress="IPV4/UDP/192.0.2.1/5060",RemoteAddress="IPV4/UDP/203.0.113.33/5061"'
+      geo:
+        countries:
+          "203.0.113.33": RU
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.33"
+    - message: "Jul 12 08:15:53 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Call from '' (UDP:203.0.113.34:5060) to extension '900112345678' rejected because extension not found in context 'default'"
+      geo:
+        countries:
+          "203.0.113.34": DE
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.34"
+    # the bare "<addr> failed to authenticate" shape
+    - message: "Jul 12 08:15:54 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Host 203.0.113.35 failed to authenticate as '1001'"
+      geo:
+        countries:
+          "203.0.113.35": BR
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.35"
+    # and the unregistered-peer shape
+    - message: "Jul 12 08:15:55 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: No registration for peer '1001' (from 203.0.113.36)"
+      geo:
+        countries:
+          "203.0.113.36": IN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.36"
+  negative:
+    # a domestic success... vetoed here, and the line falls through untouched
+    - message: 'Jul 12 08:16:00 pbx01 asterisk[3308]: SECURITY[3308] res_security_log.c: SecurityEvent="SuccessfulAuth",EventTV="1373098165-824497",Severity="Informational",Service="SIP",EventVersion="1",AccountID="1001",SessionID="0x88aab6c",LocalAddress="IPV4/UDP/192.0.2.1/5060",RemoteAddress="IPV4/UDP/198.51.100.5/5084",UsingPassword="1"'
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # a domestic failure... syslog/asterisk's business, at its own pace
+    - message: "Jul 12 08:16:01 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Registration from '\"1001\" <sip:1001@192.0.2.1>' failed for '198.51.100.5:5060' - Wrong password"
+      geo:
+        countries:
+          "198.51.100.5": US
+        lists:
+          home: [ US ]
+      found: 0
+    # unplaceable... fails closed rather than banishing on a database gap
+    - message: "Jul 12 08:16:02 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Registration from '\"1001\" <sip:1001@192.0.2.1>' failed for '192.0.2.66:5060' - Wrong password"
+      geo:
+        countries:
+          "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # nothing to do with authentication
+    - message: "Jul 12 08:16:03 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Peer '1001' is now Reachable. (12ms / 2000ms)"
+      found: 0
+      undefed: ["SRC"]

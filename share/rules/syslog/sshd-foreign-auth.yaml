@@ -31,7 +31,7 @@
 # Read the traveler risk before turning this on: an admin logging in from
 # abroad is banished by their own successful login, mid-session. Stand it up
 # with eve_only first and watch what it would have caught.
-rev: 2
+rev: 3
 msg: "[SSHD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -106,6 +106,92 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.77"
+    # One per pattern the tests did not reach, shapes taken from fail2ban's sshd
+    # corpus with addresses in the documentation ranges. Each carries the geo
+    # fixture the country gate needs, so every pattern is proven to count from
+    # abroad rather than only the four that were.
+    - message: "Jul 12 08:15:50 mail01 sshd[13709]: error: PAM: Authentication failure for myhlj1374 from 203.0.113.31"
+      geo:
+        countries:
+          "203.0.113.31": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.31"
+    - message: "Jul 12 08:15:51 mail01 sshd[21810]: error: maximum authentication attempts exceeded for root from 203.0.113.32 port 49940 ssh2 [preauth]"
+      geo:
+        countries:
+          "203.0.113.32": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.32"
+    - message: "Jul 12 08:15:52 mail01 sshd[5154]: User root from 203.0.113.33 not allowed because listed in DenyUsers"
+      geo:
+        countries:
+          "203.0.113.33": RU
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.33"
+    - message: "Jul 12 08:15:53 mail01 sshd[1643]: ROOT LOGIN REFUSED FROM 203.0.113.34"
+      geo:
+        countries:
+          "203.0.113.34": DE
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.34"
+    # the offender arriving IPv4 mapped, captured whole
+    - message: "Jul 12 08:15:54 mail01 sshd[5174]: refused connect from bad.example.net@::ffff:203.0.113.35 (::ffff:203.0.113.35)"
+      geo:
+        countries:
+          "::ffff:203.0.113.35": BR
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "::ffff:203.0.113.35"
+    - message: "Jul 12 08:15:55 mail01 sshd[2716]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=203.0.113.36  user=root"
+      geo:
+        countries:
+          "203.0.113.36": FR
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.36"
+    - message: "Jul 12 08:15:56 mail01 sshd[4931]: Received disconnect from 203.0.113.37: 3: com.jcraft.jsch.JSchException: Auth fail"
+      geo:
+        countries:
+          "203.0.113.37": IN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.37"
+    - message: "Jul 12 08:15:57 mail01 sshd[8783]: Bad protocol version identification 'dummy string' from 203.0.113.38 port 31778"
+      geo:
+        countries:
+          "203.0.113.38": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.38"
+    - message: "Jul 12 08:15:58 mail01 sshd[1189575]: banner exchange: Connection from 203.0.113.39 port 44105: invalid format"
+      geo:
+        countries:
+          "203.0.113.39": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.39"
   negative:
     # a domestic success... vetoed here, and the line falls through untouched
     - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"

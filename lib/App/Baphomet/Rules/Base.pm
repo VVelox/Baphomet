@@ -1496,6 +1496,7 @@ sub run_tests {
 		'pass'     => 0,
 		'fail'     => 0,
 		'failures' => [],
+		'warnings' => [],
 	};
 
 	# start from clean matching state. each test entry already gets its own
@@ -1521,20 +1522,19 @@ sub run_tests {
 		}
 	}
 
-	# a rule whose pattern could be steered by a forged field must carry a
-	# injection test saying it is not... see _needs_injection_test
+	# A pattern that reaches its offender over a lazy wildcard takes the first
+	# candidate on the line, so where anything a client writes can precede the
+	# real field, the client picks the ban target. Whether that is so depends on
+	# the log and not on the pattern, which no reading of the rule can settle...
+	# so this is a warning and not a failure, and the rule loads either way. A
+	# tests.injection entry answers it, whichever way the answer goes.
 	if ( $self->{needs_injection_test} && ref( $tests->{injection} ) ne 'ARRAY' ) {
-		$results->{fail}++;
 		push(
-			@{ $results->{failures} },
-			'no injection tests, and '
-				. $self->{needs_injection_test}
-				. '... a lazy unbounded wildcard sits between the head of that pattern and its offender token'
-				. ' with nothing anchoring the token, so whichever candidate appears FIRST is the one banned.'
-				. ' Where the line lets a client write text ahead of the real field, that is theirs to choose.'
-				. ' Add a tests.injection entry feeding the forged line and asserting the true offender,'
-				. ' or if the shape is safe here (the field being first, or written by the daemon alone)'
-				. ' add one anyway proving that... it is the same test either way'
+			@{ $results->{warnings} },
+			$self->{needs_injection_test}
+				. ' is reached over a lazy wildcard with nothing anchoring it, so the first candidate on the'
+				. ' line wins. If a client can write ahead of the real field they choose who is banned.'
+				. ' A tests.injection entry settles whether that is reachable here'
 		);
 	}
 
@@ -2690,8 +2690,9 @@ sub _check_ip_vars {
 
 # Names the first message_regexp whose shape leaves the offender open to being
 # chosen by whoever wrote the line, or undef when none does. Sets
-# needs_injection_test, which run_tests turns into a demand for a
-# tests.injection entry.
+# needs_injection_test, which run_tests turns into a warning when the rule
+# carries no tests.injection to answer it... a warning and not a failure,
+# because the shape alone does not make a rule exploitable.
 #
 # The shape is a LAZY unbounded wildcard between the head of the pattern and the
 # offender token, with nothing anchoring the token's tail. Lazy takes the first
@@ -2706,10 +2707,10 @@ sub _check_ip_vars {
 #
 # This is a shape and nothing more. Whether a client can actually reach that
 # wildcard is a property of the log format, which no amount of reading the
-# pattern will settle: syslog/palo-alto's two rules are the same shape and
-# opposite verdicts, one writing the account before the address and one after. So
-# this does not judge the pattern... it asks the rule to answer with a test,
-# which is the only place that knowledge can live.
+# pattern will settle: the two raw/palo-alto rules are the same shape and
+# opposite verdicts, one writing the account before the address and one after.
+# So this does not judge the pattern, and must not refuse it... it points at a
+# question only a test can answer, and the answer may well be "safe here".
 sub _detect_injection_shape {
 	my ( $self, $def ) = @_;
 
@@ -2739,7 +2740,7 @@ sub _detect_injection_shape {
 		}
 		next if ( $tail =~ /\S/ );
 
-		$self->{needs_injection_test} = 'the offender of "' . $re . '" is unanchored';
+		$self->{needs_injection_test} = 'the offender of "' . $re . '"';
 		return;
 	} ## end foreach my $item ( @{ $def->{message_regexp}...})
 

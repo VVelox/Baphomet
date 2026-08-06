@@ -14,7 +14,7 @@
 # allow_per_rule_thresholds... without that consent it counts like any
 # other hit, just under this rule's name. It re-brands as it counts, so
 # the branding never lapses by being read.
-rev: 3
+rev: 4
 msg: "[SSHD] the condemned returns... auth failure from a branded brute forcer"
 severity: critical
 classtype: brute-force
@@ -65,6 +65,17 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.33"
+    # the PAM authentication-failure shape, which no test reached
+    - message: "Jul 12 08:15:51 mail01 sshd[13709]: error: PAM: Authentication failure for bob from 203.0.113.41"
+      marks_before:
+        - name: brute_force
+          key: "203.0.113.41"
+      found: 1
+      data:
+        SRC: "203.0.113.41"
+      marks_expected:
+        - name: brute_force
+          key: "203.0.113.41"
   negative:
     - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
       found: 0

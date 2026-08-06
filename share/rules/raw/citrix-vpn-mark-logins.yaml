@@ -12,7 +12,7 @@
 # carried as this brand. NetScaler emits syslog natively but stuffs
 # the date where the program name goes, so this is a raw rule
 # anchored on the SSLVPN module tokens, never on line start.
-rev: 3
+rev: 4
 msg: "[CITRIX] brand VPN account with source"
 severity: info
 classtype: not-suspicious
@@ -49,6 +49,25 @@ tests:
         - name: citrix-vpn-login-src
           key: jdoe
           value: "203.0.113.5"
+    # A SEQUENCE, since what matters is what a LATER login does to the brand: it
+    # carries the source of the most recent login, so the next one re-brands.
+    # raw/citrix-vpn-traveler reads this to spot a login from somewhere the
+    # account was not a moment ago, and it is that overwriting that makes the
+    # comparison a comparison against the PREVIOUS login rather than a fixed one.
+    - messages:
+        - message: "Jul 12 08:16:03 ns01 07/12/2026:08:16:03 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4351 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443"
+          found_after: 1
+          marks_after:
+            - name: citrix-vpn-login-src
+              key: jdoe
+              value: "203.0.113.5"
+        - message: "Jul 12 08:16:04 ns01 07/12/2026:08:16:04 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4352 0 : Context jdoe@198.51.100.60 - SessionId: 6- User jdoe - Client_ip 198.51.100.60 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443"
+          found_after: 2
+          marks_after:
+            - name: citrix-vpn-login-src
+              key: jdoe
+              value: "198.51.100.60"
+      found: 2
   negative:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"
       found: 0

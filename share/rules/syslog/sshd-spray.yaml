@@ -13,7 +13,7 @@
 # line's. The embedded tests seed that rule's brand (marks_before) and so
 # prove the gate both ways... a second source fires, the established one
 # and the unbranded do not.
-rev: 4
+rev: 5
 msg: "[SSHD] distributed brute force across sources"
 severity: high
 classtype: brute-force
@@ -57,6 +57,26 @@ tests:
       data:
         USER: "admin"
         SRC: "192.0.2.7"
+    # the PAM authentication-failure shape, which no test reached
+    - message: "Jul 12 08:15:51 mail01 sshd[13709]: error: PAM: Authentication failure for bob from 203.0.113.43"
+      marks_before:
+        - name: sshd-account-src
+          key: bob
+          value: "198.51.100.9"
+      found: 1
+      data:
+        USER: "bob"
+        SRC: "203.0.113.43"
+    # and the max-attempts shape
+    - message: "Jul 12 08:15:52 mail01 sshd[21810]: error: maximum authentication attempts exceeded for root from 203.0.113.44 port 49940 ssh2 [preauth]"
+      marks_before:
+        - name: sshd-account-src
+          key: root
+          value: "198.51.100.10"
+      found: 1
+      data:
+        USER: "root"
+        SRC: "203.0.113.44"
   negative:
     - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
       found: 0

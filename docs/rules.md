@@ -107,6 +107,7 @@ watcher whole. What ships:
 | `json/suricata-malware` | " | the critical "host is compromised" classtypes (C2, trojan, exploit kit, credential theft, coin mining) |
 | `json/suricata-recon` | " | scanning and probing... noisier, suits `eve_only` observe mode |
 | `syslog/mail` | a maillog | postfix, sendmail, dovecot, courier, cyrus, perdition, sieve, qmail, and the rest of the MTA/IMAP/POP auth rules |
+| `syslog/messages` | the broad catch-all syslog | the eighteen daemons that log through syslog and so land in whichever broad file their facility is routed to, rather than a file of their own... postgres arrives on LOCAL0 and openvpn on DAEMON, so these may be split across `messages`/`daemon`/`syslog` or all be in one. The panels and monitors (webmin, phpMyAdmin, Froxlor, monit, nrpe, haproxy), the file and directory services (samba, rsyncd, slapd), openvpn, postgresql, screensharingd, suhosin, and the daemons that refuse or rate-limit (strongswan, unbound, freeradius's unknown clients, scanlogd, xinetd). Give it to each broad log you have... a rule whose daemon is absent costs one string compare. Deliberately excludes `pam-generic` and `drupal-auth`, whose `//.//` gate matches every line and which double-count against the service rules, and `named-refused`, whose own header warns a refusal can be innocent |
 | `syslog/ftp` | an FTP log | proftpd, pure-ftpd, vsftpd, wuftpd, gssftpd |
 | `syslog/voip` | a VoIP log | asterisk, freeswitch, murmur |
 | `syslog/ssh` | an auth log | the base `sshd` and `dropbear`... not the `sshd-*` tuning variants, which are alternative modes, not additive |
@@ -126,8 +127,9 @@ Every rule, whatever its type, is a YAML hash that does four things:
 2. **Names the offender** ... who or what the offense counts against, with
    [`ban_var`](#ban_var) or [`detection_var`](#detection_var).
 3. **Counts** ... how hits accumulate and when a ban fires, with
-   [`max_score`/`find_time`/`ban_time`/`weight`](#max_score--find_time--ban_time--weight)
-   and [`eve_only`](#eve_only).
+   [`max_score`/`find_time`/`ban_time`/`weight`](#max_score--find_time--ban_time--weight),
+   [`distinct`](#distinct-counting-how-many-not-how-often) when the offense is a
+   count of different things rather than of hits, and [`eve_only`](#eve_only).
 4. **Describes and proves itself** ... [triage metadata](#triage-metadata)
    for EVE, and its own [tests](#tests).
 
@@ -263,6 +265,115 @@ To tune a named rule from the config instead, differently per kur or watcher
 and with no file touched, use a watcher or kur `rule_config` table... it beats
 these and, unlike them, needs no `allow_per_rule_thresholds`. See
 [configuration](configuration.md#per-rule-config-overrides).
+
+### distinct... counting how many, not how often
+
+Optional, on every rule type. Some offenses are not a matter of *how often* a
+thing happened but of *how many different* things it happened to. Ten failures
+against one account is someone who forgot their password; ten failures against
+ten different accounts from the one source is credential stuffing, and a plain
+counter cannot tell the two apart... both are ten hits.
+
+`distinct` swaps the sum for a set. Instead of each match depositing its
+`weight` into a running score, the bucket becomes the **set of distinct values**
+of a named field, and the score is that set's size. The threshold is unchanged:
+the rule fires when the set holds `max_score` values, and a value is forgotten
+once `find_time` has passed since it was last seen.
+
+| key | what |
+| --- | --- |
+| `of` | Required. The field whose distinct values are counted... a capture on syslog/raw, a flattened path on json, a parsed field on http/http_error. |
+| `by` | Optional. The field the sets are keyed by. Absent, they are keyed by the offender. |
+
+Because the score is a cardinality, `weight` has no part in it... a match either
+brings a new value to the set or it does not.
+
+**Keyed by the offender** ... "how many different X from one source". The set
+belongs to the address, and crossing banishes it and clears the set, just as a
+counter would:
+
+```yaml
+# ten accounts tried from one source... credential stuffing, not a typo
+distinct:
+  of: USER
+max_score: 10
+find_time: 600
+ban_var:
+  - SRC
+```
+
+**Keyed by something else** ... "how many different X against one Y", where Y is
+not the thing to punish. Naming `by` decouples the counting from the banishing:
+
+```yaml
+# one account hit from five different sources... a distributed spray, which
+# per-source counting can never see, each source alone staying under threshold
+distinct:
+  of: SRC
+  by: USER
+max_score: 5
+find_time: 3600
+ban_var:
+  - SRC
+```
+
+The set here is keyed by the account, so nothing is ever keyed by an address and
+the account is never what gets banished. The offender that *tips the account
+over* is banished instead, and the set is deliberately **not** cleared... so
+every further source arriving against that same account is caught too, for as
+long as the account stays over the threshold. Contrast the offender-keyed form,
+which clears on crossing like an ordinary counter.
+
+This is the shape [marks](#marks-cross-rule-state-keyed-by-anything) reach with
+a `mark_only` brander and a `value_not` reader (the `syslog/sshd-mark-users` and
+`syslog/sshd-spray` pair). `distinct` says it in one rule when the question is
+purely "how many", where the marks pair earns its keep when the answer needs a
+brand other rules can also read.
+
+It is not only an auth-log key. On the http types the offender is the fixed
+`client`/`host` and the path is already parsed, so the shipped `http/path-scan`
+is little more than the two lines that matter... a client fetching thirty
+different paths that do not exist is mapping your install, whatever it makes of
+any one of them:
+
+```yaml
+# a scanner by breadth rather than by signature... no path list to keep current
+status:
+  - 404
+distinct:
+  of: path
+max_score: 30
+find_time: 600
+```
+
+That complements `http/botsearch`, which knows a list of paths worth alarming
+at... this catches the scanner whose list you have never seen. Counting paths is
+also what keeps it quiet with no ignore list: a browser 404ing on favicon.ico,
+robots.txt and an apple-touch icon has asked for three paths and will never
+approach the threshold however often it retries them, where a hit counter would
+need every such path excluded by hand. `path` drops the method, so a scanner
+alternating GET and HEAD counts one path... the query string does survive it, so
+an application that 404s with varying parameters counts each as its own, and
+wants a higher score rather than a wider gate.
+
+The shipped `syslog/sshd-stuffing` is the offender-keyed form worked through: the
+same failures `syslog/sshd` reads, the account captured instead of stepped over,
+and `distinct: {of: USER}` so the score is how many accounts a source has failed
+against. Note what it says about ordering... it matches the same lines as
+`syslog/sshd`, so under the default [`overlap`](configuration.md) of `first`
+whichever is listed earlier eats the record and the other never counts. Two rules
+counting different things off one line want `overlap = "all"`.
+
+Two practical notes. A result whose grouping key is missing or empty is skipped
+rather than counted, since there is nothing to file it under. And each set is
+bounded per key... expired values are pruned first and the oldest evicted after
+that, so a source deliberately flooding distinct values cannot grow the galla
+without limit.
+
+`distinct` composes with the rest as you would expect: it rides the shadow
+buckets for a [detection rule](#detection_var) and surfaces as `sighted`, holds
+back as an `alert` under [`eve_only`](#eve_only), and the sets survive a restart
+on the state tablets, keyed exactly as they were counted.
 
 ### eve_only
 
@@ -423,24 +534,28 @@ tests:
         SRC: "216.137.179.214"
 ```
 
-**A rule may be required to carry one.** When a pattern puts a lazy unbounded
-wildcard between its head and its offender token and nothing anchors the token,
-whichever candidate appears *first* is the one banned... so if the line lets a
-client write ahead of the real field, the client chooses. The loader spots that
-shape and refuses a rule that answers it with no injection test, naming the
-pattern. Greedy is not asked about: it takes the *last* candidate, and a forgery
-can only be planted ahead of what the daemon writes, so the ordering is itself
-the defence.
+**A rule of the risky shape is warned about.** When a pattern puts a lazy
+unbounded wildcard between its head and its offender token and nothing anchors
+the token, whichever candidate appears *first* is the one banned... so if the
+line lets a client write ahead of the real field, the client chooses. The loader
+spots that shape, and where the rule carries no `tests.injection` to answer it
+says so, naming the pattern. Greedy is not asked about: it takes the *last*
+candidate, and a forgery can only be planted ahead of what the daemon writes, so
+the ordering is itself the defence.
 
-The demand is for a test and not for a particular fix, because the shape alone
-cannot settle the question. Whether a client can reach that wildcard is a
-property of the log format, and the two `raw/palo-alto-*` rules are the same
+It is a **warning and not a failure**, and the rule loads regardless. The shape
+does not make a rule exploitable... that turns on what feeds the log, which no
+reading of the pattern settles. The two `raw/palo-alto-*` rules are the same
 shape with opposite answers: the auth failures write the account *before* the
 address, so they are anchored, while the SSL-VPN and GlobalProtect events write
 it *after*, where lazy is already correct and greedy would be the bug. Only a
-test can carry that. If the shape is safe in your log, prove it with the same
-test... it costs one entry either way, and it is what stops a later tidy-up from
-quietly reversing the reasoning.
+test can carry that, so the warning points at a question rather than declaring a
+defect.
+
+If the shape is safe in your log, answering with the same test is still worth the
+one entry... it records *why* it is safe, and stops a later tidy-up from quietly
+reversing the reasoning. `check_rules` counts the warnings in its summary and
+exits zero on them.
 
 Three ways to answer the demand, all of them real fixes seen in the shipped set:
 
@@ -1656,17 +1771,40 @@ envelope), so keying on it here is a load error.
 Start from a real log line and work backwards...
 
 ```shell
-# see how the line parses and whether the rule matches... --rules-dir looks
-# in just that dir, handy for a rule tree being worked on in a checkout
-baphomet test_line --rules-dir ./share/rules --rule syslog/myrule \
-    'Jul 12 08:15:50 vixen42 mydaemon[123]: auth failure from 1.2.3.4'
+# see how the line parses and whether the rule matches... --file names the
+# file outright, which is what you want on a rule being edited in a checkout
+baphomet test_line --file ./share/rules/syslog/myrule.yaml \
+    'Jul 12 08:15:50 mail01 mydaemon[123]: auth failure from 1.2.3.4'
 
-# run a rule's own tests
-baphomet check_rules --rules-dir ./share/rules syslog/myrule
+# run one rule's own tests, again by path
+baphomet check_rules --file ./share/rules/syslog/myrule.yaml
 
-# run every rule's tests... the override dir and the shipped rules both
+# with the file, the ranking, and the tests by section
+baphomet check_rules -v --file ./share/rules/syslog/myrule.yaml
+
+# the whole tree in isolation
+baphomet check_rules --rules-dir ./share/rules
+
+# run every rule's tests as the galla would resolve them... the override dir
+# and the shipped rules both
 baphomet check_rules
 ```
+
+**Mind which copy you are checking.** With neither `--file` nor `--rules-dir`,
+rules resolve exactly as at run time... the config's override dir, then the
+shipped dir under `File::ShareDir`. In a source checkout that shipped dir is the
+*installed* copy, so a bare `check_rules` in a tree you are editing may report a
+clean pass having never read your edits, and an override dir shadowing them
+hides them from both. Every run therefore ends by naming what it read:
+
+```
+254 rules checked, read from /usr/local/etc/baphomet/rules (135), \
+    /usr/local/lib/perl5/site_perl/auto/share/dist/App-Baphomet/rules (119)
+```
+
+`test_line` answers the same question with a `rule_file` in its JSON. When it
+matters which file gave an answer, name it with `--file` and nothing is
+searched for.
 
 `test_line` loads the rule with its tests skipped, so a rule you are midway
 through writing can still be poked at.
