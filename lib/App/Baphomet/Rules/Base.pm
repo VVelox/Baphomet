@@ -2081,15 +2081,27 @@ sub _test_marks_assert {
 # the TLD atom, like the label atoms ahead of it, may not end on a hyphen
 my $dns_re = qr/(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?/;
 
+# the IPv4 mapped IPv6 form, ::ffff:1.2.3.4, spelled out and tried ahead of
+# the plain IPv6 atom. $IPv6_re is an alternation of the address forms and,
+# unanchored, the first arm to succeed wins rather than the longest... on
+# "::ffff:1.2.3.4" the compressed arm matches "::ffff:1" and the engine stops
+# there, so a token built as (v4|v6) would hand the ban path a truncated
+# address, "::ffff:218" for "::ffff:218.249.210.161". Naming the mapped form
+# first makes the longest form win. Downstream already reads the ::ffff: form
+# as its IPv4 self... see ignore_ips and the family/CIDR bucketing in
+# App::Baphomet::Config... so the whole address is what wants capturing.
+my $v4mapped_re = qr/::[fF]{4}:$IPv4_re/;
+my $addr_re     = qr/(?:$v4mapped_re|$IPv4_re|$IPv6_re)/;
+
 my %tokens = (
 	'IP4'    => qr/$IPv4_re/,
-	'IP6'    => qr/$IPv6_re/,
-	'ADDR'   => qr/(?:$IPv4_re|$IPv6_re)/,
+	'IP6'    => qr/(?:$v4mapped_re|$IPv6_re)/,
+	'ADDR'   => $addr_re,
 	'DNS'    => $dns_re,
-	'HOST'   => qr/(?:$IPv4_re|$IPv6_re|$dns_re)/,
-	'SUBNET' => qr/(?:$IPv4_re|$IPv6_re)(?:\/(?:12[0-8]|1[01][0-9]|[1-9]?[0-9])(?![0-9]))?/,
-	'SRC'    => qr/(?:$IPv4_re|$IPv6_re)/,
-	'DEST'   => qr/(?:$IPv4_re|$IPv6_re)/,
+	'HOST'   => qr/(?:$addr_re|$dns_re)/,
+	'SUBNET' => qr/$addr_re(?:\/(?:12[0-8]|1[01][0-9]|[1-9]?[0-9])(?![0-9]))?/,
+	'SRC'    => $addr_re,
+	'DEST'   => $addr_re,
 );
 
 # the severity scale, worst last... the ordinal is unused for now but keeps

@@ -31,7 +31,7 @@
 # Read the traveler risk before turning this on: an admin logging in from
 # abroad is banished by their own successful login, mid-session. Stand it up
 # with eve_only first and watch what it would have caught.
-rev: 1
+rev: 2
 msg: "[SSHD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -44,17 +44,17 @@ message_regexp:
   # the success... the same line sshd-foreign-login reads
   - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
   # and everything syslog/sshd counts, verbatim
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?::\s.*?)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?: \[preauth\])?\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?User \S+ from %%%%SRC%%%% not allowed because'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%(?: (?:port \d+|\[preauth\])){0,2}\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?refused connect from \S+ \(%%%%SRC%%%%\)'
-  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%'
+  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
   - '^Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
   - '^Did not receive identification string from %%%%SRC%%%%'
-  - '^Bad protocol version identification .* from %%%%SRC%%%%'
+  - '^Bad protocol version identification .* from %%%%SRC%%%%(?: port \d+)?\s*$'
   - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
 country:
   isnot:

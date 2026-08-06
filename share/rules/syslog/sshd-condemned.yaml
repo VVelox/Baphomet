@@ -14,7 +14,7 @@
 # allow_per_rule_thresholds... without that consent it counts like any
 # other hit, just under this rule's name. It re-brands as it counts, so
 # the branding never lapses by being read.
-rev: 2
+rev: 3
 msg: "[SSHD] the condemned returns... auth failure from a branded brute forcer"
 severity: critical
 classtype: brute-force
@@ -27,10 +27,10 @@ daemons:
 mungers:
   - sshd
 message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%'
-  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?::\s.*?)?(?: \[preauth\])?\s*$'
+  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
 marked:
   - name: brute_force
     var: SRC

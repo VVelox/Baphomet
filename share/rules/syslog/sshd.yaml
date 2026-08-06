@@ -3,7 +3,7 @@
 # normal mode, translated to Baphomet and simplified... the multi-line
 # machinery, the mode switching, and the nofail/forget tagging are all
 # dropped, so only lines that are themselves failures match.
-rev: 3
+rev: 4
 msg: "[SSHD] authentication failure / brute force"
 severity: high
 classtype: brute-force
@@ -16,17 +16,17 @@ daemons:
 mungers:
   - sshd
 message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?::\s.*?)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?: \[preauth\])?\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?User \S+ from %%%%SRC%%%% not allowed because'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%(?: (?:port \d+|\[preauth\])){0,2}\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?refused connect from \S+ \(%%%%SRC%%%%\)'
-  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%'
+  - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
   - '^Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
   - '^Did not receive identification string from %%%%SRC%%%%'
-  - '^Bad protocol version identification .* from %%%%SRC%%%%'
+  - '^Bad protocol version identification .* from %%%%SRC%%%%(?: port \d+)?\s*$'
   - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
 ban_var:
   - SRC
@@ -84,6 +84,45 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.67"
+    # An account name is attacker chosen and may hold spaces, so a login as
+    # "moth3r from 203.0.113.222" forges a second "from <addr>" ahead of the
+    # real one. Each pattern is anchored past the address for this reason...
+    # the tail sshd itself appends is what the match has to land on, so the
+    # forged copy can not satisfy it and the offender is still the offender.
+    # The four sshd shapes that carry a wildcard ahead of the address, each
+    # proven to aim past the forgery.
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Invalid user moth3r from 203.0.113.222 from 216.137.179.214 port 34640"
+      found: 1
+      data:
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user bob from 203.0.113.222 port 55555 ssh2 from 216.137.179.214 port 58946 ssh2"
+      found: 1
+      data:
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 mail01 sshd[1094]: error: PAM: Authentication failure for bob from 203.0.113.222 from 192.0.2.11"
+      found: 1
+      data:
+        SRC: "192.0.2.11"
+    - message: "Jul 12 08:15:50 mail01 sshd[3161]: error: maximum authentication attempts exceeded for bob from 203.0.113.222 port 1 ssh2 from 203.0.113.4 port 4321 ssh2 [preauth]"
+      found: 1
+      data:
+        SRC: "203.0.113.4"
+    # the same forgery through pam's ruser, which is attacker chosen too
+    - message: "Jul 12 08:15:50 mail01 sshd[7113]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser=rhost=203.0.113.222 rhost=192.0.2.33  user=root"
+      found: 1
+      data:
+        SRC: "192.0.2.33"
+    # the auth-info tail a publickey failure carries, which must not be read
+    # as a forgery and must not cost the match either
+    - message: "Jul 12 08:15:50 mail01 sshd[4669]: Failed publickey for invalid user bob from 192.0.2.7 port 37954 ssh2: RSA SHA256:v3dpapGleDaUKf4V1vKyR9ZyUgjaJAmoCTcb2PLljI"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+    # a IPv4 mapped IPv6 offender is captured whole, not clipped at "::ffff:1"
+    - message: "Jul 12 08:15:50 mail01 sshd[1643]: ROOT LOGIN REFUSED FROM ::ffff:1.2.3.4"
+      found: 1
+      data:
+        SRC: "::ffff:1.2.3.4"
   negative:
     - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
       found: 0
