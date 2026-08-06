@@ -1319,6 +1319,17 @@ sub _munge_processor {
 # field names... daemon is the PROGRAM gate, level the PRIORITY, facility the
 # FACILITY. process_item never dies, so a non-match is simply undef, never a
 # error... a munger that could not load already died at load or prewarm
+#
+# The decode is memoised on the parsed line, under the munger-set that produced
+# it, exactly as _message_json_extra memoises its flatten. It is the same work
+# for every rule naming that set and only ever read, so one decode serves them
+# all... which matters because a watcher listing a whole appliance family runs
+# one munger-driven rule per event class over each line, and without this each
+# would re-decode. Measured on the eight fortinet rules, the pass is around
+# 97us where the rule's own matching is nearer 40, so the saving is most of the
+# cost of the family. The parsed hash lives exactly as long as the line, so the
+# cache needs no invalidating; a undef decode is memoised too, so a line the
+# mungers do not match is not retried per rule.
 sub _munge_enrich {
 	my ( $self, $parsed ) = @_;
 
@@ -1327,6 +1338,13 @@ sub _munge_enrich {
 	}
 	if ( !defined( $parsed->{message} ) ) {
 		return undef;
+	}
+
+	# keyed by the set, since two rules on one watcher may name different
+	# mungers and must not be handed each other's fields
+	my $set_key = join( "\x1f", @{ $self->{mungers} } );
+	if ( ref( $parsed->{_munge_fields} ) eq 'HASH' && exists( $parsed->{_munge_fields}{$set_key} ) ) {
+		return $parsed->{_munge_fields}{$set_key};
 	}
 
 	my $processor = $self->_munge_processor;
@@ -1342,8 +1360,11 @@ sub _munge_enrich {
 	my $fields;
 	eval { $fields = $processor->process_item(%feed); };
 	if ( $@ || ref($fields) ne 'HASH' ) {
+		$parsed->{_munge_fields}{$set_key} = undef;
 		return undef;
 	}
+
+	$parsed->{_munge_fields}{$set_key} = $fields;
 
 	return $fields;
 } ## end sub _munge_enrich
@@ -1494,13 +1515,30 @@ sub run_tests {
 	# a typo'd section name would otherwise mean zero tests and a clean
 	# load, quietly defeating the prove-itself-at-load design
 	foreach my $section ( keys( %{$tests} ) ) {
-		if ( $section !~ /^(?:positive|negative)$/ ) {
+		if ( $section !~ /^(?:positive|negative|injection)$/ ) {
 			$results->{fail}++;
 			push( @{ $results->{failures} }, 'unknown tests section "' . $section . '"' );
 		}
 	}
 
-	foreach my $sort ( 'positive', 'negative' ) {
+	# a rule whose pattern could be steered by a forged field must carry a
+	# injection test saying it is not... see _needs_injection_test
+	if ( $self->{needs_injection_test} && ref( $tests->{injection} ) ne 'ARRAY' ) {
+		$results->{fail}++;
+		push(
+			@{ $results->{failures} },
+			'no injection tests, and '
+				. $self->{needs_injection_test}
+				. '... a lazy unbounded wildcard sits between the head of that pattern and its offender token'
+				. ' with nothing anchoring the token, so whichever candidate appears FIRST is the one banned.'
+				. ' Where the line lets a client write text ahead of the real field, that is theirs to choose.'
+				. ' Add a tests.injection entry feeding the forged line and asserting the true offender,'
+				. ' or if the shape is safe here (the field being first, or written by the daemon alone)'
+				. ' add one anyway proving that... it is the same test either way'
+		);
+	}
+
+	foreach my $sort ( 'positive', 'negative', 'injection' ) {
 		if ( !defined( $tests->{$sort} ) ) {
 			next;
 		}
@@ -1518,6 +1556,16 @@ sub run_tests {
 			if ( ref($test) ne 'HASH' || ( !defined( $test->{message} ) && ref( $test->{messages} ) ne 'ARRAY' ) ) {
 				$results->{fail}++;
 				push( @{ $results->{failures} }, $where . ' is not a hash with a message or a messages array' );
+				next;
+			}
+
+			# a injection test with no data block asserts only that the forged
+			# line matched, which is the half that was never in doubt... naming
+			# the offender is the whole assertion
+			if ( $sort eq 'injection' && ref( $test->{data} ) ne 'HASH' ) {
+				$results->{fail}++;
+				push( @{ $results->{failures} },
+					$where . ' has no data block naming the offender the forged line must still aim at' );
 				next;
 			}
 
@@ -1764,7 +1812,16 @@ sub run_tests {
 				next;
 			}
 
-			my $expected_found = defined( $test->{found} ) ? $test->{found} : ( $sort eq 'positive' ? 1 : 0 );
+			# a injection test is a positive by default, and deliberately so: the
+			# thing being proven is that a forged line STILL MATCHES and merely
+			# aims right. Hardening one of these by tightening the field run
+			# until the forged line stops matching at all looks like a fix and is
+			# not... it trades a wrong ban for no ban, so a brute forcer who
+			# plants the right bytes simply goes uncounted, and silently. That
+			# happened once already, to syslog/dovecot, and this default is what
+			# would have caught it
+			my $expected_found
+				= defined( $test->{found} ) ? $test->{found} : ( $sort eq 'negative' ? 0 : 1 );
 			my $got_found      = scalar(@found_all);
 
 			if ( $got_found != $expected_found ) {
@@ -2631,6 +2688,64 @@ sub _check_ip_vars {
 	return;
 } ## end sub _check_ip_vars
 
+# Names the first message_regexp whose shape leaves the offender open to being
+# chosen by whoever wrote the line, or undef when none does. Sets
+# needs_injection_test, which run_tests turns into a demand for a
+# tests.injection entry.
+#
+# The shape is a LAZY unbounded wildcard between the head of the pattern and the
+# offender token, with nothing anchoring the token's tail. Lazy takes the first
+# candidate it reaches, so wherever the log lets a client write text ahead of the
+# real field... an account name, a mail subject, a user agent... the client picks
+# the ban target by planting a copy of the delimiter. Every real instance of this
+# found in the shipped set had exactly this shape.
+#
+# Greedy is deliberately NOT flagged. It takes the LAST candidate, and a forgery
+# can only ever be planted ahead of the field the daemon writes, so the ordering
+# is itself the defence.
+#
+# This is a shape and nothing more. Whether a client can actually reach that
+# wildcard is a property of the log format, which no amount of reading the
+# pattern will settle: syslog/palo-alto's two rules are the same shape and
+# opposite verdicts, one writing the account before the address and one after. So
+# this does not judge the pattern... it asks the rule to answer with a test,
+# which is the only place that knowledge can live.
+sub _detect_injection_shape {
+	my ( $self, $def ) = @_;
+
+	$self->{needs_injection_test} = undef;
+
+	foreach my $item ( @{ $def->{message_regexp} || [] } ) {
+		my $re = ref($item) eq 'HASH' ? $item->{regexp} : $item;
+		next if ( !defined($re) || ref($re) ne '' );
+
+		my ( $pre, $token, $post ) = $re =~ /^(.*?)%%%%(SRC|DEST|ADDR|HOST|IP4|IP6|SUBNET)%%%%(.*)$/s;
+		next if ( !defined($token) );
+
+		# an unbounded run that yields the shortest match... ".*?", "\S+?" and
+		# the like. a bounded one ("[^"]*", "{0,3}") cannot cross a delimiter
+		next if ( $pre !~ /(?:\.|\\S|\\w|\\d|\\D|\\W)[*+]\?/ );
+
+		# peel the tail down to whatever really has to be there... an all
+		# optional group, a trailing space run, and a word boundary each anchor
+		# nothing at all
+		my $tail    = $post;
+		my $peeling = 1;
+		while ($peeling) {
+			$peeling = 0;
+			$peeling = 1 if ( $tail =~ s/\((?:\?:)?[^()]*\)[?*]// );
+			$peeling = 1 if ( $tail =~ s/\\s\*// );
+			$peeling = 1 if ( $tail =~ s/\\b// );
+		}
+		next if ( $tail =~ /\S/ );
+
+		$self->{needs_injection_test} = 'the offender of "' . $re . '" is unanchored';
+		return;
+	} ## end foreach my $item ( @{ $def->{message_regexp}...})
+
+	return;
+} ## end sub _detect_injection_shape
+
 # compiles the message_regexp and ignore_regexp of the passed def,
 # expanding %%%%TOKEN%%%% tokens into named captures, and populates
 # regexps and ignore_regexps on the object... shared by the handlers
@@ -2641,6 +2756,10 @@ sub _compile_message_regexps {
 	my $name = $self->{name};
 
 	$self->{regexps} = [];
+
+	# does any pattern leave the offender open to being chosen by whoever wrote
+	# the line? run_tests turns a yes into a demand for a tests.injection entry
+	$self->_detect_injection_shape($def);
 
 	# a message_json rule may have no message_regexp, the json fields being
 	# what it matches on, so the caller can allow an empty list. a missing key

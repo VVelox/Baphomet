@@ -1398,12 +1398,28 @@ sub _eve_emit {
 } ## end sub _eve_emit
 
 # the parsed representation for a EVE event... the parsed JSON it's self
-# for the JSON parsers, the field hash otherwise
+# for the JSON parsers, the field hash otherwise.
+#
+# The envelope hash doubles as the per-line scratch space a rule memoises its
+# decodes on (message_json its flatten, mungers their decomposed fields), and
+# those are keyed with a leading underscore precisely so they can be told from
+# the parser's own output and dropped here. Without the drop a message_json or
+# munger rule's events carried its internal cache, nested hash and all. The
+# parser field names hold no underscore, so nothing real is lost, and the copy
+# is paid per emitted event rather than per line.
+#
+# The json branch is left alone: those keys are the log's own, and a document
+# with a leading-underscore field (an _id, say) has every right to it.
 sub _eve_parsed {
 	my ( $self, $parsed ) = @_;
 
 	if ( ref($parsed) eq 'HASH' && ref( $parsed->{fields} ) eq 'HASH' ) {
 		return $parsed->{fields};
+	}
+
+	if ( ref($parsed) eq 'HASH' ) {
+		my %clean = map { $_ => $parsed->{$_} } grep { !/^_/ } keys( %{$parsed} );
+		return \%clean;
 	}
 
 	return $parsed;

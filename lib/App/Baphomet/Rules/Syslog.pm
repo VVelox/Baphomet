@@ -342,8 +342,11 @@ sub new {
 		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
 	}
 
-	# the token and regexp machinery lives in the base class
-	$self->_compile_message_regexps( $def, $self->{message_json} );
+	# the token and regexp machinery lives in the base class. message_regexp may
+	# be left off when something else does the matching... message_json, whose
+	# decoded fields the gate tests, or mungers, whose decomposed fields it
+	# tests the same way. Either makes the gate the matcher
+	$self->_compile_message_regexps( $def, $self->{message_json} || scalar @{ $self->{mungers} } );
 	$self->_compile_capture_regexps($def);
 
 	# an optional gate or selections+condition refines the match on its
@@ -351,9 +354,9 @@ sub new {
 	# decode over the extracted vars, the json fields, and the reserved MESSAGE
 	$self->_compile_boolean( $def, $name );
 
-	# a message_json rule with no message_regexp must match on something, else
-	# it would regard every JSON line from the daemon as a offense
-	if (   $self->{message_json}
+	# a message_json or munger rule with no message_regexp must match on
+	# something, else it would regard every line it decodes as a offense
+	if (   ( $self->{message_json} || @{ $self->{mungers} } )
 		&& !@{ $self->{regexps} }
 		&& !@{ $self->{gates} }
 		&& !defined( $self->{condition_ast} )
@@ -361,7 +364,9 @@ sub new {
 	{
 		die(      'The rule "'
 				. $name
-				. '" is message_json with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
+				. '" is '
+				. ( $self->{message_json} ? 'message_json' : 'munger driven' )
+				. ' with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
 	}
 
 	return $self;

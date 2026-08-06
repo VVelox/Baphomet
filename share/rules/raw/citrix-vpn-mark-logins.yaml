@@ -12,14 +12,23 @@
 # carried as this brand. NetScaler emits syslog natively but stuffs
 # the date where the program name goes, so this is a raw rule
 # anchored on the SSLVPN module tokens, never on line start.
-rev: 2
+rev: 3
 msg: "[CITRIX] brand VPN account with source"
 severity: info
 classtype: not-suspicious
 references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
-  - ' SSLVPN LOGIN \d+ \d+ :.*?User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  # GREEDY, not lazy, and that is the whole defence. A NetScaler LOGIN line
+  # opens with Context <user>@<addr>, so the account name... whatever the
+  # client typed... appears AHEAD of the real User/Client_ip pair. Lazy, the
+  # first "User " found is one an attacker can plant in their own name, and
+  # both the account and the address come back theirs. Greedy takes the LAST,
+  # which is the pair NetScaler wrote, and a forged one can only ever sit
+  # earlier. The format is too irregular to decompose (SessionId: 7- runs the
+  # separator together, and a Browser_type holds dashes of its own), so the
+  # anchor is the ordering rather than a parse.
+  - ' SSLVPN LOGIN \d+ \d+ :.*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 ban_var:
   - SRC
 mark_only: true
@@ -47,3 +56,12 @@ tests:
     - message: "Jul 12 08:16:05 ns01 07/12/2026:08:16:05 GMT ns01 0-PPE-0 : default SSLVPN LOGOUT 4351 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Start_time \"07/12/2026:08:16:02 GMT\" - End_time \"07/12/2026:08:16:05 GMT\""
       found: 0
       undefed: ["SRC", "USER"]
+  injection:
+    # An account name holding a forged "User x - Client_ip y" pair, which sits
+    # in Context ahead of the real one. Greedy matching takes the last pair, so
+    # both the brand's key and its value stay NetScaler's own... lazy matching
+    # branded "evil" with 8.8.8.8 here.
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context User evil - Client_ip 8.8.8.8@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443"
+      data:
+        USER: "jdoe"
+        SRC: "203.0.113.5"

@@ -11,38 +11,48 @@
 # Flood", an aggregate half-open-connection alarm naming no offender.
 # Worth remembering when weighing the ban... a flood source is the
 # easiest thing in a packet to forge.
-rev: 1
+rev: 2
 msg: "[HUAWEI] flood attack detected by attack-defense"
 severity: high
 classtype: attempted-dos
 references:
   - http://www.huaweisymantec.com/en/download.do?id=658891
-message_regexp:
-  - 'SEC/\d/ATCKDF\S*:.*?\b(?i:fraggle|Smurf|land|ICMP flood|TCP flood|Winnuke|Ping of death|Tear drop|Syn flood|Large ICMP) attack\b.*?\b(?:SourceIp|SrcIp)=%%%%SRC%%%%'
+mungers:
+  - huawei
+# As raw/huawei-attack, on the flood and malformed-packet classes.
+gate:
+  - field: hw_module
+    op: eq
+    value: SEC
+  - field: hw_mnemonic
+    op: startswith
+    value: ATCKDF
+  - field: hw_AttackType
+    op: re
+    nocase: true
+    value: '^(?:fraggle|Smurf|land|ICMP flood|TCP flood|Winnuke|Ping of death|Tear drop|Syn flood|Large ICMP) attack$'
 ban_var:
-  - SRC
+  - hw_offender_ip
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Syn flood attack, SourceIp=203.0.113.21, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=2038)'
       found: 1
       data:
-        SRC: "203.0.113.21"
+        hw_offender_ip: "203.0.113.21"
     - message: 'Jul 12 08:15:51 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Smurf attack, SourceIp=198.51.100.9, DestinationIp=192.0.2.255, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=511)'
       found: 1
       data:
-        SRC: "198.51.100.9"
+        hw_offender_ip: "198.51.100.9"
     - message: 'Jul 12 08:15:52 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=ICMP flood attack, SourceIp=2001:db8::66, DestinationIp=2001:db8::1, ReceiveInterface=GigabitEthernet0/0/2, TotalPackets=9000)'
       found: 1
       data:
-        SRC: "2001:db8::66"
+        hw_offender_ip: "2001:db8::66"
     - message: 'Jul 12 08:15:53 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Tear drop attack, SourceIp=203.0.113.99, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=12)'
       found: 1
       data:
-        SRC: "203.0.113.99"
+        hw_offender_ip: "203.0.113.99"
   negative:
     - message: 'Jul 12 08:25:49 fw01 %%01SEC/4/ATCKDF(l): The anti-attack module detected an attack. (AttackType=Port scan attack, SourceIp=203.0.113.50, DestinationIp=192.0.2.10, ReceiveInterface=GigabitEthernet0/0/1, TotalPackets=200)'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 08:25:50 fw01 %%01SEC/4/ATCKDF(l): Too much Half Con of SYN Flood. (Zone=untrust, DestinationIp=192.0.2.10, HalfConCount=2048)'
       found: 0
-      undefed: ["SRC"]

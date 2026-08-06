@@ -10,31 +10,46 @@
 # user fetching the file or the far sender depending on direction, so
 # no address is safe to banish blind. It sights the source and flips to
 # ban_var if your topology makes srcip= always the far end.
-rev: 1
+rev: 2
 msg: "[FORTINET] infected file detected"
 severity: high
 classtype: suspicious-traffic
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-message_regexp:
-  - 'logid="(?:0211008192|0211008194|0206008452)" type="utm".*?srcip=%%%%SRC%%%%'
-  - 'log_?id="?(?:\d*60000|\d*63000|\d*63002)"? type=.*?src(?:ip)?=%%%%SRC%%%%'
+mungers:
+  - fortinet
+selections:
+  modern:
+    - field: fg_logid
+      op: eq
+      values: [ "0211008192", "0211008194", "0206008452" ]
+    - field: fg_type
+      op: eq
+      value: utm
+  # the legacy antivirus ids, which arrive under either spelling of the key
+  legacy_logid:
+    - field: fg_logid
+      op: re
+      value: '^\d*(?:60000|63000|63002)$'
+  legacy_log_id:
+    - field: fg_log_id
+      op: re
+      value: '^\d*(?:60000|63000|63002)$'
+condition: "modern or legacy_logid or legacy_log_id"
 detection_var:
-  - SRC
+  - fg_offender_ip
 tests:
   positive:
     - message: 'Jul 12 14:20:31 fw01 date=2026-07-12 time=14:20:31 devname="FGT100F" devid="FG100FTK20012345" logid="0211008192" type="utm" subtype="virus" eventtype="infected" level="warning" vd="root" eventtime=1752348031000000000 tz="-0500" msg="File is infected." action="blocked" service="HTTP" sessionid=90233 srcip=192.168.1.30 dstip=203.0.113.99 srcport=51882 dstport=80 srcintf="lan" dstintf="wan1" policyid=4 proto=6 direction="incoming" filename="invoice.exe" checksum="0f4e2d31" quarskip="File-was-not-quarantined" virus="EICAR_TEST_FILE" dtype="Virus" url="http://malware.example/invoice.exe" profile="default"'
       found: 1
       data:
-        SRC: "192.168.1.30"
+        fg_offender_ip: "192.168.1.30"
     - message: 'Jul 12 14:22:05 fw01 date=2026-07-12 time=14:22:05 log_id=60000 type=virus subtype=infected pri=warning vd=root serial=1234 user="" group="" src=192.168.1.31 sport=1892 src_int="internal" dst=203.0.113.10 dport=25 dst_int="wan1" service="smtp" status="blocked" from="alice@example.com" to="bob@example.org" file="invoice.exe" virus="W32/Netsky" msg="The file invoice.exe is infected with W32/Netsky."'
       found: 1
       data:
-        SRC: "192.168.1.31"
+        fg_offender_ip: "192.168.1.31"
   negative:
     - message: 'Jul 12 14:25:00 fw01 date=2026-07-12 time=14:25:00 devname="FGT100F" devid="FG100FTK20012345" logid="0211008199" type="utm" subtype="virus" eventtype="oversize" level="notice" vd="root" eventtime=1752348300000000000 tz="-0500" msg="File exceeds size limit." action="passthrough" service="HTTP" srcip=192.168.1.30 dstip=203.0.113.99 filename="big.iso"'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 14:26:10 fw01 date=2026-07-12 time=14:26:10 devname="FGT100F" devid="FG100FTK20012345" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" eventtime=1752348370000000000 tz="-0500" srcip=192.168.1.30 dstip=203.0.113.10 action="accept" service="SMTP" msg=""'
       found: 0
-      undefed: ["SRC"]

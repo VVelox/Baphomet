@@ -405,6 +405,7 @@ t/rules-raw.t
 t/rules-shipped.t
 t/rule-tests-geo.t
 t/rule-tests-marks.t
+t/rule-tests-injection.t
 t/rule-tests-munge.t
 t/rule-tests-rdns.t
 t/rules.t

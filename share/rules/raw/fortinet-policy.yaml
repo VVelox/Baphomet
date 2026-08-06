@@ -13,36 +13,47 @@
 # Dropped from the source: the cookie/Java/ActiveX/script scrubbing
 # notices (91000-91010, 0336013601, 0336013573, 0337013584,
 # 0335013568, 0341013600)... hygiene chatter, not offenses.
-rev: 1
+rev: 2
 msg: "[FORTINET] policy violation... DLP, app control, or web filter"
 severity: low
 classtype: policy-violation
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-message_regexp:
-  - 'log_?id="?(?:\d*11000|0954024576)"? type=.*?src(?:ip)?=%%%%SRC%%%%'
-  - 'log_?id="?(?:\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033)"? type=.*?src(?:ip)?=%%%%SRC%%%%'
-  - 'log_?id="?\d*(?:90000|93002|99501)"? type=.*?src(?:ip)?=%%%%SRC%%%%'
+mungers:
+  - fortinet
+# The three groups the regexps kept apart... DLP (11000, 0954024576), app
+# control (116xxx, 10590286xx, 0814044033), and web filter (90000, 93002,
+# 99501)... are one union here, since all three asked the same thing of the
+# rest of the line. The id lives under logid= on modern FortiOS and log_id= on
+# legacy 4.0, so one arm reads each.
+selections:
+  modern:
+    - field: fg_logid
+      op: re
+      value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
+  legacy:
+    - field: fg_log_id
+      op: re
+      value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
+condition: "modern or legacy"
 detection_var:
-  - SRC
+  - fg_offender_ip
 tests:
   positive:
     - message: 'Jul 12 13:02:11 fw01 date=2026-07-12 time=13:02:11 devname="FGT100F" devid="FG100FTK20012345" logid="0954024576" type="utm" subtype="dlp" eventtype="dlp" level="warning" vd="root" eventtime=1752343331000000000 tz="-0500" filteridx=1 filtername="ssn-filter" filtertype="regexp" filtercat="file" severity="high" policyid=5 sessionid=401882 srcip=192.168.1.55 srcport=51321 srcintf="lan" dstip=203.0.113.80 dstport=443 dstintf="wan1" proto=6 service="HTTPS" filetype="pdf" direction="outgoing" action="block" filename="payroll.pdf" filesize=48213 profile="default" msg="Data leak detected(Data Leak Prevention Rule matched)"'
       found: 1
       data:
-        SRC: "192.168.1.55"
+        fg_offender_ip: "192.168.1.55"
     - message: 'Jul 12 13:04:52 fw01 date=2026-07-12 time=13:04:52 devname="FGT100F" devid="FG100FTK20012345" logid="1059028676" type="utm" subtype="app-ctrl" eventtype="app-ctrl-all" level="information" vd="root" eventtime=1752343492000000000 tz="-0500" appid=42317 srcip=192.168.1.44 dstip=203.0.113.140 srcport=51000 dstport=443 srcintf="lan" dstintf="wan1" proto=6 service="HTTPS" direction="outgoing" policyid=3 sessionid=88123 applist="default" appcat="IM" app="Telegram_Chat" action="block" msg="IM: Telegram_Chat is blocked by app-ctrl chat message"'
       found: 1
       data:
-        SRC: "192.168.1.44"
+        fg_offender_ip: "192.168.1.44"
     - message: 'Jul 12 13:06:20 fw01 date=2026-07-12 time=13:06:20 log_id=93002 type=webfilter subtype=urlfilter pri=warning vd=root policyid=2 identidx=0 serial=113 user="" group="" src=192.168.1.23 sport=51442 src_int="internal" dst=203.0.113.99 dport=80 dst_int="wan1" service="http" hostname="badsite.example" url="/index.html" status="blocked" msg="URL was blocked because it is in the URL filter list"'
       found: 1
       data:
-        SRC: "192.168.1.23"
+        fg_offender_ip: "192.168.1.23"
   negative:
     - message: 'Jul 12 13:10:00 fw01 date=2026-07-12 time=13:10:00 devname="FGT100F" devid="FG100FTK20012345" logid="0315012546" type="utm" subtype="webfilter" eventtype="urlfilter" level="notice" vd="root" eventtime=1752343800000000000 tz="-0500" urlfilteridx=4 srcip=192.168.1.23 dstip=203.0.113.44 hostname="fine.example" url="/" action="passthrough" msg="URL was allowed because it is in the URL filter list"'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 13:11:15 fw01 date=2026-07-12 time=13:11:15 devname="FGT100F" devid="FG100FTK20012345" logid="0000000013" type="traffic" subtype="forward" level="notice" vd="root" eventtime=1752343875000000000 tz="-0500" srcip=192.168.1.30 dstip=203.0.113.10 action="accept" service="HTTPS" msg=""'
       found: 0
-      undefed: ["SRC"]

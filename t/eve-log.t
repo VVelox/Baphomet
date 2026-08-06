@@ -205,4 +205,31 @@ is( $json_found->{sid}, expected_sid('json/app'), 'json rule sid is the hash of 
 isnt( $json_found->{sid}, $f->{sid}, 'a different rule name hashes to a different sid' );
 is( $json_found->{rev}, 5, 'the rule rev reaches EVE' );
 
+#
+# the envelope hash doubles as the per-line scratch space a rule memoises its
+# decodes on (message_json its flatten, mungers their decomposed fields), keyed
+# with a leading underscore so _eve_parsed can drop them. without the drop an
+# event carried the rule's internal cache, nested hash and all
+#
+my $scratch = {
+	'format'               => 'bsd_syslog',
+	'message'              => 'a message',
+	'daemon'               => 'sshd',
+	'_message_json_fields' => { 'evt' => 'fail' },
+	'_munge_fields'        => { 'sshd' => { 'ssh_user' => 'bob' } },
+};
+my $cleaned = App::Baphomet::Galla::_eve_parsed( undef, $scratch );
+is_deeply( [ sort grep { /^_/ } keys %{$cleaned} ], [], 'a rule\'s per-line caches are kept out of the EVE parsed field' );
+is( $cleaned->{message}, 'a message', 'while the parser\'s own fields survive' );
+is( $cleaned->{daemon},  'sshd',      'all of them' );
+ok( exists( $scratch->{_munge_fields} ), 'and the live parsed line keeps its cache, the copy being the event\'s' );
+
+# a json log's own leading-underscore field is the log's business, not ours
+my $doc = { 'fields' => { '_id' => 'abc123', 'src' => '1.2.3.4' } };
+is_deeply(
+	App::Baphomet::Galla::_eve_parsed( undef, $doc ),
+	{ '_id' => 'abc123', 'src' => '1.2.3.4' },
+	'a json document keeps its own underscored fields'
+);
+
 done_testing;

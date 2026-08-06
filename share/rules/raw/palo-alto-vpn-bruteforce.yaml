@@ -13,7 +13,7 @@
 # accuse. The palo-alto-geoip siblings are a country gate in the
 # config, not rules here. The brute_force brand is kept, so these
 # failures feed every reader of the standard vocabulary.
-rev: 1
+rev: 2
 msg: "[PALO-ALTO] VPN auth failure / brute force"
 severity: high
 classtype: brute-force
@@ -56,3 +56,17 @@ tests:
     - message: 'Jul 12 08:25:51 pan01 1,2026/07/12 08:25:51,001801010101,GLOBALPROTECT,0,2561,2026/07/12 08:25:51,vsys1,portal-auth,before-login,profile-auth,,alice,US,,192.168.1.55,::,0.0.0.0,::,,,"6.0.4","Windows","Microsoft Windows 11",1,,,"authentication succeeded",success,2562,0x0'
       found: 0
       undefed: ["SRC"]
+  injection:
+    # These events write the account AFTER the address, so the lazy wildcards
+    # here are the defence and must stay lazy: a forged "Login from:" planted in
+    # the account name lands LATER in the line, which lazy ignores and greedy
+    # would take. The sibling raw/palo-alto-auth-bruteforce is anchored instead,
+    # for the mirror-image reason... same vendor, opposite treatment, which is
+    # why neither is applied family-wide.
+    - message: 'Jul 12 08:15:50 pan01 1,x,x,SYSTEM,auth,0,x,vsys1,auth-fail,,0,0,general,medium,"SSL VPN user authentication failed. Login from: 203.0.113.88, user name: bob Login from: 8.8.8.8",7061'
+      data:
+        SRC: "203.0.113.88"
+    # the GlobalProtect half, same ordering and so same verdict
+    - message: 'Jul 12 08:15:51 pan01 1,x,x,SYSTEM,auth,0,x,vsys1,auth-fail,,0,0,general,medium,"GlobalProtect portal user authentication failed. Login from: 198.51.100.44, Source region: US, User name: alice Login from: 8.8.8.8",7061'
+      data:
+        SRC: "198.51.100.44"

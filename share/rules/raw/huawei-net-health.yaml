@@ -12,38 +12,71 @@
 # with its siblings, network health being what it actually is. VRP
 # speaks syslog natively; the %%01 info-center framing is the one
 # realistic shape assumed, the severity digit left loose.
-rev: 1
+rev: 2
 msg: "[HUAWEI] network health event"
 severity: low
 classtype: suspicious-traffic
 references:
   - http://www.huaweisymantec.com/en/download.do?id=658891
-message_regexp:
-  - 'ARP/\d/ARP_DUPLICATE_IPADDR\S*:.*?\bIpAddress=%%%%ADDR%%%%'
-  - 'DHCPC/\d/DHCPC_LOG_NAK\S*:.*?\bInterfaceName=(?<IFACE>[^,)\s]+)'
-  - 'DHCPC/\d/DHCPC_LOG_REQIP_SUCCESS\S*:.*?[Ii]nterface (?<IFACE>\S+) has acquired ip address'
-  - 'VRRP/\d/LogAuthFailed\S*:.*?\bfrom %%%%ADDR%%%%'
+mungers:
+  - huawei
+# Four events, two subjects. The ARP duplicate and the VRRP authentication
+# failure are about an address, the DHCP client notices about an interface, so
+# both are named below and each event counts by whichever it carries. The
+# munger collapses the interface the same way it collapses the address... an
+# InterfaceName= pair where there is one, the one named in the sentence where
+# there is not.
+selections:
+  arp_dup:
+    - field: hw_module
+      op: eq
+      value: ARP
+    - field: hw_mnemonic
+      op: startswith
+      value: ARP_DUPLICATE_IPADDR
+  dhcp_nak:
+    - field: hw_module
+      op: eq
+      value: DHCPC
+    - field: hw_mnemonic
+      op: startswith
+      value: DHCPC_LOG_NAK
+  dhcp_acquired:
+    - field: hw_module
+      op: eq
+      value: DHCPC
+    - field: hw_mnemonic
+      op: startswith
+      value: DHCPC_LOG_REQIP_SUCCESS
+  vrrp_auth:
+    - field: hw_module
+      op: eq
+      value: VRRP
+    - field: hw_mnemonic
+      op: startswith
+      value: LogAuthFailed
+condition: "arp_dup or dhcp_nak or dhcp_acquired or vrrp_auth"
 detection_var:
-  - ADDR
-  - IFACE
+  - hw_offender_ip
+  - hw_iface
 tests:
   positive:
     - message: 'Jul 12 08:15:50 sw01 %%01ARP/4/ARP_DUPLICATE_IPADDR(l): Received an ARP packet with a duplicate IP address. (IpAddress=192.168.1.10, InterfaceName=GigabitEthernet0/0/1, MacAddress=00e0-fc12-3456)'
       found: 1
       data:
-        ADDR: "192.168.1.10"
+        hw_offender_ip: "192.168.1.10"
     - message: 'Jul 12 08:15:51 sw01 %%01DHCPC/4/DHCPC_LOG_NAK(l): The DHCP client received a NAK packet. (InterfaceName=Vlanif100, ServerIp=192.168.1.1)'
       found: 1
       data:
-        IFACE: "Vlanif100"
+        hw_iface: "Vlanif100"
     - message: 'Jul 12 08:15:52 sw01 %%01DHCPC/4/DHCPC_LOG_REQIP_SUCCESS(l): The interface Vlanif100 has acquired ip address 192.168.1.50 successfully.'
       found: 1
       data:
-        IFACE: "Vlanif100"
+        hw_iface: "Vlanif100"
     - message: 'Jul 12 08:15:53 sw01 %%01VRRP/3/LogAuthFailed(l): Received a VRRP packet that failed authentication from 192.168.1.3 on interface Vlanif100. (VRID=10)'
       found: 1
       data:
-        ADDR: "192.168.1.3"
+        hw_offender_ip: "192.168.1.3"
   negative:
     - message: 'Jul 12 08:25:49 sw01 %%01DHCPC/4/DHCPC_LOG_RELEASE(l): The interface Vlanif100 released its ip address 192.168.1.50.'
       found: 0

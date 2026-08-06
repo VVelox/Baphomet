@@ -84,34 +84,6 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.67"
-    # An account name is attacker chosen and may hold spaces, so a login as
-    # "moth3r from 203.0.113.222" forges a second "from <addr>" ahead of the
-    # real one. Each pattern is anchored past the address for this reason...
-    # the tail sshd itself appends is what the match has to land on, so the
-    # forged copy can not satisfy it and the offender is still the offender.
-    # The four sshd shapes that carry a wildcard ahead of the address, each
-    # proven to aim past the forgery.
-    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Invalid user moth3r from 203.0.113.222 from 216.137.179.214 port 34640"
-      found: 1
-      data:
-        SRC: "216.137.179.214"
-    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user bob from 203.0.113.222 port 55555 ssh2 from 216.137.179.214 port 58946 ssh2"
-      found: 1
-      data:
-        SRC: "216.137.179.214"
-    - message: "Jul 12 08:15:50 mail01 sshd[1094]: error: PAM: Authentication failure for bob from 203.0.113.222 from 192.0.2.11"
-      found: 1
-      data:
-        SRC: "192.0.2.11"
-    - message: "Jul 12 08:15:50 mail01 sshd[3161]: error: maximum authentication attempts exceeded for bob from 203.0.113.222 port 1 ssh2 from 203.0.113.4 port 4321 ssh2 [preauth]"
-      found: 1
-      data:
-        SRC: "203.0.113.4"
-    # the same forgery through pam's ruser, which is attacker chosen too
-    - message: "Jul 12 08:15:50 mail01 sshd[7113]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser=rhost=203.0.113.222 rhost=192.0.2.33  user=root"
-      found: 1
-      data:
-        SRC: "192.0.2.33"
     # the auth-info tail a publickey failure carries, which must not be read
     # as a forgery and must not cost the match either
     - message: "Jul 12 08:15:50 mail01 sshd[4669]: Failed publickey for invalid user bob from 192.0.2.7 port 37954 ssh2: RSA SHA256:v3dpapGleDaUKf4V1vKyR9ZyUgjaJAmoCTcb2PLljI"
@@ -139,3 +111,26 @@ tests:
     - message: "Jul 12 08:25:49 vixen42 cron[1234]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 0
       undefed: ["SRC"]
+  injection:
+    # An account name is attacker chosen and may hold spaces, so a login as
+    # "moth3r from 203.0.113.222" forges a second "from <addr>" ahead of the
+    # real one. Every pattern here is anchored past the address for that
+    # reason... the tail sshd itself appends is what the match has to land on,
+    # so a forged copy can not satisfy it and the offender stays the offender.
+    # One entry per sshd shape that carries a wildcard ahead of the address.
+    # the same forgery through pam's ruser, which is attacker chosen too
+    - message: "Jul 12 08:15:50 mail01 sshd[7113]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser=rhost=203.0.113.222 rhost=192.0.2.33  user=root"
+      data:
+        SRC: "192.0.2.33"
+    - message: "Jul 12 08:15:50 mail01 sshd[3161]: error: maximum authentication attempts exceeded for bob from 203.0.113.222 port 1 ssh2 from 203.0.113.4 port 4321 ssh2 [preauth]"
+      data:
+        SRC: "203.0.113.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1094]: error: PAM: Authentication failure for bob from 203.0.113.222 from 192.0.2.11"
+      data:
+        SRC: "192.0.2.11"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user bob from 203.0.113.222 port 55555 ssh2 from 216.137.179.214 port 58946 ssh2"
+      data:
+        SRC: "216.137.179.214"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Invalid user moth3r from 203.0.113.222 from 216.137.179.214 port 34640"
+      data:
+        SRC: "216.137.179.214"

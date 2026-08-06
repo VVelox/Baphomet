@@ -15,14 +15,23 @@
 # on the SSLVPN module tokens, never on line start. The embedded tests
 # seed the brand (marks_before) and so prove the gate both ways... a
 # branded source fires, the unbranded does not.
-rev: 2
+rev: 3
 msg: "[CITRIX] the condemned walked in... VPN login success from a branded source"
 severity: critical
 classtype: correlated-attack
 references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
-  - ' SSLVPN LOGIN \d+ \d+ :.*?User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  # GREEDY, not lazy, and that is the whole defence. A NetScaler LOGIN line
+  # opens with Context <user>@<addr>, so the account name... whatever the
+  # client typed... appears AHEAD of the real User/Client_ip pair. Lazy, the
+  # first "User " found is one an attacker can plant in their own name, and
+  # both the account and the address come back theirs. Greedy takes the LAST,
+  # which is the pair NetScaler wrote, and a forged one can only ever sit
+  # earlier. The format is too irregular to decompose (SessionId: 7- runs the
+  # separator together, and a Browser_type holds dashes of its own), so the
+  # anchor is the ordering rather than a parse.
+  - ' SSLVPN LOGIN \d+ \d+ :.*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 marked:
   - names: [ brute_force, recon, exploit_attempt, honeypot ]
     var: SRC

@@ -19,14 +19,23 @@
 # tests seed the setter's brand (marks_before) and so prove the gate
 # both ways... a second source fires, the established one and the
 # unbranded do not.
-rev: 2
+rev: 3
 msg: "[CITRIX] impossible traveler... VPN account seen from a second source"
 severity: high
 classtype: suspicious-login
 references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
-  - ' SSLVPN LOGIN \d+ \d+ :.*?User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  # GREEDY, not lazy, and that is the whole defence. A NetScaler LOGIN line
+  # opens with Context <user>@<addr>, so the account name... whatever the
+  # client typed... appears AHEAD of the real User/Client_ip pair. Lazy, the
+  # first "User " found is one an attacker can plant in their own name, and
+  # both the account and the address come back theirs. Greedy takes the LAST,
+  # which is the pair NetScaler wrote, and a forged one can only ever sit
+  # earlier. The format is too irregular to decompose (SessionId: 7- runs the
+  # separator together, and a Browser_type holds dashes of its own), so the
+  # anchor is the ordering rather than a parse.
+  - ' SSLVPN LOGIN \d+ \d+ :.*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
   - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 marked:
   - name: citrix-vpn-login-src

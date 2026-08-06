@@ -355,14 +355,15 @@ guide: [the shape](#the-shape) of a test entry, then how to write them for
 ### The shape
 
 Positive tests are lines the rule must match, negative tests are lines it
-must not. Each is a hash...
+must not, and [injection](#injection-tests-who-picks-the-offender) tests are
+forged lines it must still aim right on. Each is a hash...
 
 | key | what |
 | --- | --- |
 | `message` | The full log line, as it would appear in the log. Required (or `messages`, below). |
 | `parser` | The parser to parse it with. Defaults per type (`bsd_syslog` for syslog, `http_access` for http, and so on)... a stricter parser is better inside a rule's own tests, and one may be named per test. |
-| `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and 0 for negative. |
-| `data` | For positive tests, capture names to the values they should have captured. |
+| `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and injection tests, 0 for negative. |
+| `data` | For positive tests, capture names to the values they should have captured. **Required** on a injection test, where it is the assertion. |
 | `undefed` | For negative tests, capture names that should not be defined. |
 | `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base. |
 | `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`... what proves a rule's own `mark`/`unmark` did what it claims. |
@@ -397,6 +398,68 @@ here (key a gate by `var`/`vars` to make it provable... the shipped readers
 all do), and the geography/blocklist/time gates need config-side data a
 rule file does not carry, so those stay proven galla-side only (see each
 gate below).
+
+### Injection tests... who picks the offender
+
+A third section, `tests.injection`, holds lines carrying a **forged copy of the
+field the rule aims by**, and asserts the rule still aims at the real one. It is
+the same shape as a positive test with two differences: `found` defaults to 1 and
+`data` is **required**, since naming the offender is the whole assertion.
+
+The thing being defended against is that most of what a daemon logs beside the
+address is chosen by whoever connected. An account name may hold spaces, commas,
+quotes, or a `>`; a mail subject or a user agent holds anything at all. So a
+pattern that reaches over such a field to find the address can be steered by it.
+Log in to a FortiGate as `admin srcip=8.8.8.8` and a rule scanning for the first
+`srcip=` bans 8.8.8.8 instead of you... an attacker choosing who gets banned,
+which is a denial of service against whoever they name.
+
+```yaml
+tests:
+  injection:
+    # the account name carries a second "from <addr>" ahead of the real one
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Invalid user moth3r from 203.0.113.222 from 216.137.179.214 port 34640"
+      data:
+        SRC: "216.137.179.214"
+```
+
+**A rule may be required to carry one.** When a pattern puts a lazy unbounded
+wildcard between its head and its offender token and nothing anchors the token,
+whichever candidate appears *first* is the one banned... so if the line lets a
+client write ahead of the real field, the client chooses. The loader spots that
+shape and refuses a rule that answers it with no injection test, naming the
+pattern. Greedy is not asked about: it takes the *last* candidate, and a forgery
+can only be planted ahead of what the daemon writes, so the ordering is itself
+the defence.
+
+The demand is for a test and not for a particular fix, because the shape alone
+cannot settle the question. Whether a client can reach that wildcard is a
+property of the log format, and the two `raw/palo-alto-*` rules are the same
+shape with opposite answers: the auth failures write the account *before* the
+address, so they are anchored, while the SSL-VPN and GlobalProtect events write
+it *after*, where lazy is already correct and greedy would be the bug. Only a
+test can carry that. If the shape is safe in your log, prove it with the same
+test... it costs one entry either way, and it is what stops a later tidy-up from
+quietly reversing the reasoning.
+
+Three ways to answer the demand, all of them real fixes seen in the shipped set:
+
+- **Anchor past the token** :: require the tail the daemon itself appends, so a
+  forged copy can not satisfy it. `syslog/sshd` requires the `port`/`preauth`
+  run, `syslog/dovecot` the `, lip=` that always trails the address,
+  `raw/palo-alto-auth-bruteforce` the closing quote of the description field.
+- **Go greedy** :: where the real field is written last, take the last
+  candidate. The `raw/citrix-*` rules do this, their format being too irregular
+  to decompose.
+- **Stop scanning** :: read the line into fields with a
+  [munger](#a-munger-as-the-matcher) and name one, so there is no wildcard to
+  steer. The `raw/fortinet-*` and `raw/sonicwall-*` families do this.
+
+One trap worth naming, because it looks like a fix and is not: tightening the
+field run until the forged line stops matching *at all*. That trades a wrong ban
+for no ban, so an attacker who plants the right bytes goes uncounted instead of
+misaimed... quieter, and worse. `found` defaulting to 1 is what catches it; an
+injection test insists the line still matches and merely aims right.
 
 ### Writing them... the matcher and its near-misses
 
@@ -1083,6 +1146,52 @@ misconfiguration, so a missing Log::Munger or a munger file that will not
 resolve is fatal... caught and named at galla load (an `err` to the log),
 never silently skipped and never a surprise mid-line. A malformed `mungers`
 key is refused when the rule loads.
+
+### A munger as the matcher
+
+A munger need not only enrich. Because its decoded fields land in the same
+field space the [predicate gate](#gate--selections--condition--keywords) reads,
+a rule may carry `mungers` and **no `message_regexp` at all**, letting the
+gate be the matcher and `ban_var` name a decoded field... the same concession
+[`message_json`](#message_json) has, and for the same reason. Such a rule must
+still gate on something, or it would call every line it decodes an offense;
+one with no gate, `selections`, or `keywords` is refused at load.
+
+This is how the appliance families are written. A FortiGate or SonicWall line
+is a flat `key=value` ledger, and the offender is a *named field* in it, so
+there is nothing to scan for:
+
+```yaml
+# raw/fortinet-admin-auth... no regexp, the ledger read rather than scanned
+mungers:
+  - fortinet
+gate:
+  - field: fg_logid
+    op: re
+    value: '^\d*32002$'
+  - field: fg_type
+    values: [ event ]
+ban_var:
+  - fg_offender_ip
+```
+
+The gain is not tidiness. These events log the attempted account name, and
+that name is whatever the client typed at the login prompt. A rule that
+scanned the line for the first `srcip=` took the one an attacker pasted into
+their own username... logging in as `admin srcip=8.8.8.8` aimed the ban at
+8.8.8.8. Quote-aware decomposition cannot be steered that way: `user=` is one
+value and `srcip=` is another, so the offender stays the field the appliance
+wrote. Each of those rules carries a positive test proving exactly that.
+
+Because such a rule's matcher *is* its munger, the stakes on resolution rise:
+where an enrichment-only rule losing its munger merely loses fields, this one
+would see no fields at all, veto every line, and never fire. The existing
+fatal-on-unresolvable behavior is what covers that, and the rule's own
+[tests](#tests) are the second net... they exercise the real munger, so a rule
+whose decoder is missing or wrong fails at load rather than matching nothing in
+the field. The `raw/fortinet-*` and `raw/sonicwall-*` rules accordingly need
+Log::Munger installed *with* the `fortinet` and `sonicwall` rule files, not
+merely present.
 
 ## How the types differ
 

@@ -12,7 +12,7 @@
 # reader carries their alerting value) and the
 # successful-VPN-login-from-outside-home-country rule, which is a
 # country gate composed in config, not a shipped rule (see rules.md).
-rev: 1
+rev: 2
 msg: "[FORTINET] VPN login failed"
 severity: high
 classtype: brute-force
@@ -21,25 +21,42 @@ references:
 mark:
   - name: brute_force
     ttl: 21600
-message_regexp:
-  - 'logid="\d*39426" type="event".*?remip=%%%%SRC%%%%'
-  - 'logid="\d*29003" type="event".*?action="?auth_failed"?.*?(?:srcip|remip)=%%%%SRC%%%%'
+mungers:
+  - fortinet
+selections:
+  ssl_vpn:
+    - field: fg_logid
+      op: re
+      value: '^\d*39426$'
+    - field: fg_type
+      op: eq
+      value: event
+  ppp_auth:
+    - field: fg_logid
+      op: re
+      value: '^\d*29003$'
+    - field: fg_type
+      op: eq
+      value: event
+    # quoted or bare in the ledger, the value is the same once decomposed
+    - field: fg_action
+      op: eq
+      value: auth_failed
+condition: "ssl_vpn or ppp_auth"
 ban_var:
-  - SRC
+  - fg_offender_ip
 tests:
   positive:
     - message: 'Jul 12 03:12:44 fw01 date=2026-07-12 time=03:12:44 devname="FGT100F" devid="FG100FTK20012345" logid="0101039426" type="event" subtype="vpn" level="alert" vd="root" eventtime=1752307964000000000 tz="-0500" logdesc="SSL VPN login fail" action="ssl-login-fail" tunneltype="ssl-web" tunnelid=0 remip=198.51.100.23 user="jsmith" group="N/A" dst_host="N/A" reason="sslvpn_login_unknown_user" msg="SSL user failed to logged in"'
       found: 1
       data:
-        SRC: "198.51.100.23"
+        fg_offender_ip: "198.51.100.23"
     - message: 'Jul 12 03:13:02 fw01 date=2026-07-12 time=03:13:02 devname="FGT100F" devid="FG100FTK20012345" logid="0100029003" type="event" subtype="ppp" level="warning" vd="root" eventtime=1752307982000000000 tz="-0500" logdesc="PPP authentication failed" action="auth_failed" user="lily" srcip=203.0.113.77 msg="User lily failed L2TP authentication"'
       found: 1
       data:
-        SRC: "203.0.113.77"
+        fg_offender_ip: "203.0.113.77"
   negative:
     - message: 'Jul 12 03:20:19 fw01 date=2026-07-12 time=03:20:19 devname="FGT100F" devid="FG100FTK20012345" logid="0101039424" type="event" subtype="vpn" level="information" vd="root" eventtime=1752308419000000000 tz="-0500" logdesc="SSL VPN login succeeded" action="ssl-login" tunneltype="ssl-web" tunnelid=451929954 remip=198.51.100.23 user="jsmith" group="vpn-users" dst_host="N/A" reason="login successfully" msg="SSL user logged in successfully"'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 03:21:40 fw01 date=2026-07-12 time=03:21:40 devname="FGT100F" devid="FG100FTK20012345" logid="0100029002" type="event" subtype="ppp" level="information" vd="root" eventtime=1752308500000000000 tz="-0500" logdesc="PPP authentication succeeded" action="auth_success" user="lily" srcip=203.0.113.77 msg="User lily authenticated successfully"'
       found: 0
-      undefed: ["SRC"]

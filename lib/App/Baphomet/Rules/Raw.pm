@@ -128,13 +128,32 @@ sub new {
 		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
 	}
 
-	# the token and regexp machinery lives in the base class
-	$self->_compile_message_regexps($def);
+	# the token and regexp machinery lives in the base class. message_regexp may
+	# be left off when the rule carries mungers, the decomposed fields being
+	# what the gate matches on... the same concession message_json has on
+	# syslog rules, and what lets an appliance rule name a parsed field as its
+	# offender instead of scanning the line for an address
+	$self->_compile_message_regexps( $def, scalar @{ $self->{mungers} } );
 	$self->_compile_capture_regexps($def);
 
 	# an optional gate or selections+condition refines the match on its
-	# captures... operators and decode over the extracted vars, and MESSAGE
+	# captures, and with mungers on the decomposed fields too... operators and
+	# decode over the extracted vars, and MESSAGE
 	$self->_compile_boolean( $def, $name );
+
+	# a munger rule with no message_regexp must match on something, else it
+	# would regard every line the munger decomposes as a offense
+	if (   @{ $self->{mungers} }
+		&& !@{ $self->{regexps} }
+		&& !@{ $self->{gates} }
+		&& !defined( $self->{condition_ast} )
+		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } ) )
+	{
+		die(      'The rule "'
+				. $name
+				. '" is munger driven with no message_regexp and no gate, selections, or keywords, so it would banish every line'
+		);
+	}
 
 	return $self;
 } ## end sub new

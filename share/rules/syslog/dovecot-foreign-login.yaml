@@ -12,7 +12,7 @@
 # load. Needs geoip_db and IP::Geolocation::MMDB. The vars-form gate keys
 # on the captured client rip= and fails closed on an unplaceable address,
 # so a database gap misses rather than false-alarms.
-rev: 2
+rev: 3
 msg: "[DOVECOT] login success from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -23,7 +23,14 @@ daemons:
 mungers:
   - dovecot
 message_regexp:
-  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%'
+  # Anchored on the ", lip=" dovecot writes after the remote address, because
+  # the account name reaches this far. user=<...> is bounded by ">", so an
+  # account holding one closes the field early and whatever follows in the
+  # name is read as further fields... an account of "a>, rip=8.8.8.8, method=X"
+  # plants a rip= ahead of the real one, and lazy matching took it. A bare ","
+  # would not help here, the forged one being comma-followed too; what the
+  # forgery cannot produce is the lip= that always trails the true address.
+  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%(?:, lip=|\s*$)'
 country:
   isnot:
     - "%%%country_codes{home}%%%"
@@ -76,3 +83,15 @@ tests:
         lists:
           home: [ US ]
       found: 0
+  injection:
+    # the same forgery on the success line... the address stays dovecot's own
+    # (the USER capture is clipped at the planted ">", which costs attribution
+    # detail but never the aim)
+    - message: "Jun 13 21:48:07 mail01 dovecot: imap-login: Login: user=<a>, rip=8.8.8.8, method=X>, method=PLAIN, rip=192.0.2.99, lip=10.0.0.1, TLS"
+      geo:
+        countries:
+          "192.0.2.99": NL
+        lists:
+          home: [ US ]
+      data:
+        SRC: "192.0.2.99"

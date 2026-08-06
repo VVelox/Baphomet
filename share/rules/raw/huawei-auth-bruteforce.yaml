@@ -14,7 +14,7 @@
 # every reader of the standard vocabulary. Skipped from the source:
 # HTTPD/4/PASS and HTTPD/4/OUT, a web login success and a logout,
 # telemetry with nothing to accuse.
-rev: 1
+rev: 2
 msg: "[HUAWEI] management login failure"
 severity: high
 classtype: brute-force
@@ -23,50 +23,94 @@ references:
 mark:
   - name: brute_force
     ttl: 21600
-message_regexp:
-  - 'SSH/\d/(?:LOGIN_FAIL\w*|SSH_FAIL)\S*:.*?\b(?:IPAddress|PeerIp|Ip)=%%%%SRC%%%%'
-  - 'SHELL/\d/LOGIN_?FAIL\S*:.*?\b(?:IPAddress|PeerIp|Ip)=%%%%SRC%%%%'
-  - 'FTPS/\d/USERIN\S*:.*?login failed.*?\b(?:IPAddress|HostIp|Ip)=%%%%SRC%%%%'
-  - 'HTTPD/\d/FAIL\S*:.*?\b(?:IPAddress|Ip)=%%%%SRC%%%%'
+mungers:
+  - huawei
+# The event is named by the info-center tag, decomposed rather than scanned
+# for. This matters more here than on the other VRP rules: the login failures
+# log the attempted account in UserName=, VRP quotes nothing, and the pair
+# separator is ", "... so an account of "admin, IPAddress=8.8.8.8" plants a
+# second IPAddress= pair ahead of the real one, and the rule this replaced took
+# the first it reached. The munger reads the auth lists with an anchored
+# pattern for exactly that reason, so the last, real address is the one that
+# lands. See the injection test below, and HUAWEI_AUTH in the munger.
+selections:
+  ssh:
+    - field: hw_module
+      op: eq
+      value: SSH
+    - field: hw_mnemonic
+      op: re
+      value: '^(?:LOGIN_FAIL\w*|SSH_FAIL)'
+  shell:
+    - field: hw_module
+      op: eq
+      value: SHELL
+    - field: hw_mnemonic
+      op: re
+      value: '^LOGIN_?FAIL'
+  # FTPS reports success and failure under the one mnemonic, so the sentence
+  # is what tells them apart
+  ftp:
+    - field: hw_module
+      op: eq
+      value: FTPS
+    - field: hw_mnemonic
+      op: startswith
+      value: USERIN
+    - field: hw_text
+      op: contains
+      value: 'login failed'
+  web:
+    - field: hw_module
+      op: eq
+      value: HTTPD
+    - field: hw_mnemonic
+      op: startswith
+      value: FAIL
+condition: "ssh or shell or ftp or web"
 ban_var:
-  - SRC
+  - hw_offender_ip
 tests:
   positive:
     - message: 'Jul 12 08:15:50 sw01 %%01SSH/4/LOGIN_FAIL_PWD_ERR(l): The user failed to log in because of a wrong password. (UserName=admin, IPAddress=203.0.113.7, Times=3)'
       found: 1
       data:
-        SRC: "203.0.113.7"
+        hw_offender_ip: "203.0.113.7"
     - message: 'Jul 12 08:15:51 sw01 %%01SSH/4/LOGIN_FAIL_USER_NOT_EXIST(l): The user failed to log in because the user does not exist. (UserName=oracle, IPAddress=198.51.100.23)'
       found: 1
       data:
-        SRC: "198.51.100.23"
+        hw_offender_ip: "198.51.100.23"
     - message: 'Jul 12 08:15:52 sw01 %%01SSH/5/SSH_FAIL(l)[42]: The SSH user failed to log in. (ServiceType=STELNET, FailedReason=Authentication failed, UserName=root, IPAddress=2001:db8::15, VPNInstanceName=)'
       found: 1
       data:
-        SRC: "2001:db8::15"
+        hw_offender_ip: "2001:db8::15"
     - message: 'Jul 12 08:15:53 sw01 %%01SHELL/4/LOGIN_FAIL(l): Failed to login. (Ip=203.0.113.9, UserName=admin, Times=1, AccessType=TELNET)'
       found: 1
       data:
-        SRC: "203.0.113.9"
+        hw_offender_ip: "203.0.113.9"
     - message: 'Jul 12 08:15:54 sw01 %%01SHELL/5/LOGINFAIL(s)[77]: Failed to login. (Ip=192.0.2.66, UserName=huawei, Times=4, AccessType=TELNET)'
       found: 1
       data:
-        SRC: "192.0.2.66"
+        hw_offender_ip: "192.0.2.66"
     - message: 'Jul 12 08:15:55 sw01 %%01FTPS/4/USERIN(l): The FTP user login failed. (UserName=ftpadmin, IPAddress=203.0.113.40)'
       found: 1
       data:
-        SRC: "203.0.113.40"
+        hw_offender_ip: "203.0.113.40"
     - message: 'Jul 12 08:15:56 sw01 %%01HTTPD/4/FAIL(l): Web user login failed. (UserName=admin, IPAddress=198.51.100.77)'
       found: 1
       data:
-        SRC: "198.51.100.77"
+        hw_offender_ip: "198.51.100.77"
   negative:
     - message: 'Jul 12 08:25:49 sw01 %%01SSH/5/SSH_SUCCESS(l): The SSH user succeeded in logging in. (ServiceType=STELNET, UserName=admin, IPAddress=192.168.1.10, VPNInstanceName=)'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 08:25:50 sw01 %%01FTPS/4/USERIN(l): The FTP user login succeeded. (UserName=ftpadmin, IPAddress=192.168.1.11)'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 08:25:51 sw01 %%01HTTPD/4/PASS(l): Web user logged in successfully. (UserName=admin, IPAddress=192.168.1.12)'
       found: 0
-      undefed: ["SRC"]
+  injection:
+    # the forged IPAddress in the attacker's own account name changes nothing...
+    # VRP quotes nothing, so this is the shape a plain split cannot survive
+    - message: 'Jul 12 08:15:50 sw01 %%01SSH/4/LOGIN_FAIL_PWD_ERR(l): The user failed to log in because of a wrong password. (UserName=admin, IPAddress=8.8.8.8, IPAddress=203.0.113.7, Times=3)'
+      data:
+        hw_offender_ip: "203.0.113.7"
+        hw_UserName: "admin, IPAddress=8.8.8.8"

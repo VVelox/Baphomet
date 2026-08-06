@@ -11,7 +11,7 @@
 # against a firewall's management plane are the brute-force shape
 # whatever the label, so the brute_force brand is set, feeding the
 # standard-vocabulary readers the same way raw/fortinet-admin-auth does.
-rev: 1
+rev: 2
 msg: "[SONICWALL] admin/user login failed"
 severity: high
 classtype: unsuccessful-admin
@@ -20,47 +20,55 @@ references:
 mark:
   - name: brute_force
     ttl: 21600
-message_regexp:
-  - 'msg="(?:CLI administrator|Administrator) login denied due to bad credentials[^"]*".*?src=%%%%SRC%%%%'
-  - 'msg="Administrator login denied from [^"]*logins disabled from this interface[^"]*".*?src=%%%%SRC%%%%'
-  - 'msg="Wrong Admin Password[^"]*".*?src=%%%%SRC%%%%'
-  - 'msg="Admin Login Disabled[^"]*".*?src=%%%%SRC%%%%'
-  - 'msg="FTP client user [^"]*logged in failed[^"]*".*?src=%%%%SRC%%%%'
+mungers:
+  - sonicwall
+# The event is named by msg=, read here off the decomposed value. An admin
+# login failure logs the attempted account in usr=, and that name is whatever
+# the client typed... which is why this no longer scans the line for src=. See
+# the last positive test.
+gate:
+  - field: sw_msg
+    op: re
+    value: '^(?:(?:CLI administrator|Administrator) login denied due to bad credentials|Administrator login denied from .*logins disabled from this interface|Wrong Admin Password|Admin Login Disabled|FTP client user .*logged in failed)'
 ban_var:
-  - SRC
+  - sw_offender_ip
 tests:
   positive:
     - message: 'Jul 12 03:12:44 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:12:44 UTC" fw=203.0.113.1 pri=1 c=32 m=30 msg="Administrator login denied due to bad credentials" n=8 usr="admin" src=203.0.113.99:49152:X1 dst=192.0.2.1:443:X0'
       found: 1
       data:
-        SRC: "203.0.113.99"
+        sw_offender_ip: "203.0.113.99"
     - message: 'Jul 12 03:13:02 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:13:02 UTC" fw=203.0.113.1 pri=1 c=32 m=1197 msg="CLI administrator login denied due to bad credentials" n=3 usr="admin" src=198.51.100.23:52001:X1 dst=192.0.2.1:22:X0'
       found: 1
       data:
-        SRC: "198.51.100.23"
+        sw_offender_ip: "198.51.100.23"
     - message: 'Jul 12 03:14:19 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:14:19 UTC" fw=203.0.113.1 pri=1 c=32 m=32 msg="Administrator login denied from WAN: logins disabled from this interface" n=2 usr="admin" src=203.0.113.77:50233:X1 dst=192.0.2.1:443:X0'
       found: 1
       data:
-        SRC: "203.0.113.77"
+        sw_offender_ip: "203.0.113.77"
     - message: 'Jul 12 03:15:31 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:15:31 UTC" fw=203.0.113.1 pri=1 c=32 m=30 msg="Wrong Admin Password" n=14 src=198.51.100.60:44172:X1 dst=192.0.2.1:443:X0'
       found: 1
       data:
-        SRC: "198.51.100.60"
+        sw_offender_ip: "198.51.100.60"
     - message: 'Jul 12 03:16:05 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:16:05 UTC" fw=203.0.113.1 pri=1 c=32 m=33 msg="Admin Login Disabled" n=1 src=198.51.100.60:44201:X1 dst=192.0.2.1:443:X0'
       found: 1
       data:
-        SRC: "198.51.100.60"
+        sw_offender_ip: "198.51.100.60"
     - message: 'Jul 12 03:17:48 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:17:48 UTC" fw=203.0.113.1 pri=1 c=64 m=564 msg="FTP client user anonymous logged in failed" n=5 src=192.0.2.88:34012:X1 dst=192.0.2.20:21:X0'
       found: 1
       data:
-        SRC: "192.0.2.88"
+        sw_offender_ip: "192.0.2.88"
   negative:
     - message: 'Jul 12 03:20:19 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:20:19 UTC" fw=203.0.113.1 pri=6 c=16 m=29 msg="Administrator login allowed" n=44 usr="admin" src=192.168.1.10:52100:X0 dst=192.0.2.1:443:X0'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 03:21:40 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:21:40 UTC" fw=203.0.113.1 pri=6 c=16 m=1196 msg="CLI administrator login allowed" n=6 usr="admin" src=192.168.1.10:52111:X0 dst=192.0.2.1:22:X0'
       found: 0
-      undefed: ["SRC"]
     - message: 'Jul 12 03:22:55 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:22:55 UTC" fw=203.0.113.1 pri=6 c=64 m=563 msg="FTP client user jsmith logged in" n=9 src=192.0.2.88:34020:X1 dst=192.0.2.20:21:X0'
       found: 0
-      undefed: ["SRC"]
+  injection:
+    # the forged src in the attacker's own account name changes nothing... the
+    # offender is the field SonicOS wrote, not the first one in the line
+    - message: 'Jul 12 06:02:11 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 06:02:11 UTC" fw=203.0.113.1 pri=1 c=16 m=29 msg="Wrong Admin Password" usr="admin src=8.8.8.8" n=8 src=203.0.113.99:50412:X1 dst=203.0.113.1:443:X0'
+      data:
+        sw_offender_ip: "203.0.113.99"
+        sw_usr: "admin src=8.8.8.8"

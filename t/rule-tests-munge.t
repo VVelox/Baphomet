@@ -215,4 +215,41 @@ my $multi = App::Baphomet::Rules::Syslog->new(
 );
 is_deeply( [ $multi->mungers ], ['sshd'], 'mungers() dedups a set' );
 
+#
+# the decode is memoised on the parsed line, keyed by the munger set... a
+# watcher listing a whole appliance family runs one rule per event class over
+# every line, so without this each would re-decode the same line
+#
+my %shared_def = (
+	daemons        => ['sshd'],
+	message_regexp => ['[iI]nvalid user \S+ from (?<SRC>\S+)'],
+	ban_var        => ['SRC'],
+);
+my $one = App::Baphomet::Rules::Syslog->new( name => 'syslog/one', def => { %shared_def, mungers => ['sshd'] } );
+my $two = App::Baphomet::Rules::Syslog->new( name => 'syslog/two', def => { %shared_def, mungers => ['sshd'] } );
+my $oth = App::Baphomet::Rules::Syslog->new( name => 'syslog/oth', def => { %shared_def, mungers => ['postfix'] } );
+
+my $line = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 host01 sshd[1]: Invalid user bob from 192.0.2.7' );
+$one->check($line);
+ok( ref( $line->{_munge_fields} ) eq 'HASH', 'the munger decode is cached on the parsed line' );
+my $first = $line->{_munge_fields}{'sshd'};
+$two->check($line);
+is( $line->{_munge_fields}{'sshd'}, $first, 'a second rule naming the same set reuses the one decode' );
+
+# a different set must never be handed another's fields
+$oth->check($line);
+is( scalar( keys %{ $line->{_munge_fields} } ), 2, 'a different munger set caches separately' );
+ok( exists( $line->{_munge_fields}{'postfix'} ), 'the other set has its own entry' );
+
+# a fresh line is decoded afresh... the cache lives exactly as long as the line
+my $next = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:51 host01 sshd[1]: Invalid user eve from 192.0.2.8' );
+ok( !exists( $next->{_munge_fields} ), 'a newly parsed line carries no cache' );
+$one->check($next);
+isnt( $next->{_munge_fields}{'sshd'}, $first, 'and gets its own decode rather than the previous line\'s' );
+
+# the enrichment still reaches the offense with the cache in play
+my $found = $one->check($next);
+ok( ( ref($found) eq 'HASH' && defined( $found->{data}{SRC} ) ), 'a cached decode still yields a match' );
+is( $found->{data}{SRC}, '192.0.2.8', 'and the offender is the line\'s own' );
+
 done_testing();

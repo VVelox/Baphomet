@@ -14,7 +14,7 @@
 #
 # List AHEAD of syslog/dovecot: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 1
+rev: 2
 msg: "[DOVECOT] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -26,10 +26,24 @@ daemons:
 mungers:
   - dovecot
 message_regexp:
+  # Anchored on the ", lip=" dovecot writes after the remote address, because
+  # the account name reaches this far. user=<...> is bounded by ">", so an
+  # account holding one closes the field early and whatever follows in the
+  # name is read as further fields... an account of "a>, rip=8.8.8.8, method=X"
+  # plants a rip= ahead of the real one, and lazy matching took it. A bare ","
+  # would not help here, the forged one being comma-followed too; what the
+  # forgery cannot produce is the lip= that always trails the true address.
+  #
+  # The field run after "):" is a wildcard rather than a spelled-out
+  # user=/method= sequence so that a corrupted name costs the match nothing:
+  # spelled out, a planted field broke the sequence and the line stopped
+  # matching at all, which let the attacker go uncounted instead of merely
+  # misaimed. Lazy plus the lip= anchor steps over the forgery and still
+  # finds the real pair.
   # the success... the same line dovecot-foreign-login reads
-  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%'
+  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*?\brip=%%%%SRC%%%%(?:, lip=|\s*$)'
   # and everything syslog/dovecot counts, verbatim
-  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\):(?: user=<[^>]*>,)?(?: method=\S+,)? rip=%%%%SRC%%%%'
+  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\):.*? rip=%%%%SRC%%%%(?:, lip=|\s*$)'
   - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*?,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*?,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
