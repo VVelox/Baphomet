@@ -1,7 +1,7 @@
 ---
 # Matches suhosin PHP-hardening ALERT lines, logged either directly or
 # through lighttpd's mod_fastcgi. Based on the fail2ban suhosin filter,
-# translated to Baphomet and simplified.
+# translated to Baphomet.
 rev: 2
 msg: "[SUHOSIN] script attack alert"
 severity: critical

@@ -9,12 +9,12 @@ fail2ban or Sagan, and the accuser half of a pair whose punisher half is
 [Ereshkigal](https://github.com/LilithSec/Ereshkigal). A `baphomet` manager
 daemon looses one `galla` worker per kur configured. Each galla follows the
 log files of its kur, parses the lines, reads them against its rules like
-omen tablets, and counts the offenses of each IP. An IP that racks up
-`max_score` offenses with in `find_time` seconds is seized and banished
-to Kur... a ban request sent to the Ereshkigal manager socket, targeted at
-the kur of the same name over there, a real kur or a fan_out gate relaying
-to several. Ereshkigal does the actual firewalling. Baphomet never touches
-the firewall itself.
+omen tablets, and counts the offenses of each IP.
+
+An IP that racks up `max_score` offenses with in `find_time` seconds is
+seized and banished to Kur... a ban request sent to the Ereshkigal manager
+socket, aimed at the kur of the same name over there. Ereshkigal does the
+firewalling. Baphomet never touches a firewall itself.
 
 That is the accuser. The same galla is also a log analysis engine, in the
 family of Sagan and Wazuh... a rule may **detect** in place of banishing,
@@ -121,7 +121,7 @@ the same license.
 
 ## Documentation
 
-To continue your journey go to [docs/index.md](docs/index.md).
+The descent continues in [docs/index.md](docs/index.md).
 
 Also...
 

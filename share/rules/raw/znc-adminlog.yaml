@@ -1,6 +1,6 @@
 ---
 # Matches ZNC failed logins from the adminlog module. Based on the
-# fail2ban znc-adminlog filter, translated to Baphomet and simplified.
+# fail2ban znc-adminlog filter, translated to Baphomet.
 # The adminlog writes its own bracketed timestamp rather than a syslog
 # prefix, so this is a raw rule anchored on that timestamp.
 rev: 3

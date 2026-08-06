@@ -172,9 +172,9 @@ needs journalctl on the host... its path is the `journalctl_bin` setting.
 
 ## Escalating repeat offenders
 
-An IP that keeps coming back, kur after kur, week after week, has earned a
-deeper gate. Turn on recidive and give the Ereshkigal side a kur to hold
-them...
+An IP that keeps coming back, kur after kur, week after week, has earned
+the seventh gate. Turn on recidive and give the Ereshkigal side a kur to
+hold them...
 
 Ereshkigal side...
 

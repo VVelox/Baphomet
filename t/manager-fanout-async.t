@@ -135,8 +135,8 @@ POE::Session->create(
 			# a not-running galla never gets asked and keeps its shape... the
 			# ctx-less sync path answers in place. the living galla can not
 			# actually reply here, as the blocking call_many holds the very
-			# loop the in-process fake server answers from — in reality they
-			# are separate processes — so only the shape is asserted for it
+			# loop the in-process fake server answers from... in reality they
+			# are separate processes... so only the shape is asserted for it
 			$baphomet->{gallas}{web}{pid} = undef;
 			my $sync = $baphomet->_cmd_accused( {} );
 			is( ref($sync), 'HASH', 'without a ctx the fan-out answers synchronously' );

@@ -1,7 +1,7 @@
 ---
 # Matches MySQL/MariaDB auth failures in the server's own error log,
 # both the old 130324-style and the newer ISO timestamps. Based on the
-# fail2ban mysqld-auth filter, translated to Baphomet and simplified.
+# fail2ban mysqld-auth filter, translated to Baphomet.
 #
 # Uses the HOST token and ban_var as mysqld logs hostnames when name
 # resolution is on.

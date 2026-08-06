@@ -1,6 +1,6 @@
 ---
 # Matches Drupal login failures logged to syslog. Based on the fail2ban
-# drupal-auth filter, translated to Baphomet and simplified.
+# drupal-auth filter, translated to Baphomet.
 #
 # Drupal's syslog format is
 # !base_url|!timestamp|!type|!ip|!request_uri|!referer|!uid|!link|!message

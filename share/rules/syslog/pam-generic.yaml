@@ -1,6 +1,6 @@
 ---
 # Matches PAM authentication failures logged by any daemon. Based on the
-# fail2ban pam-generic filter, translated to Baphomet and simplified.
+# fail2ban pam-generic filter, translated to Baphomet.
 #
 # The rhost of a PAM failure is not always a IP... some services hand PAM a
 # hostname, so this uses the HOST token and ban_var and whatever matched is

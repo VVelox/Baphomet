@@ -84,10 +84,9 @@ answers `status`, `status_all`, `status_galla`, `accused`, `marked`,
 watching fan-out proxied to the galla sockets and `banished` proxied on to
 Ereshkigal for who Kur holds. Every CLI query rides this one socket rather
 than reaching around the manager, so the manager is the single door to the
-control plane. The
-manager socket's group and mode are configurable via `socket_group` and
-`socket_mode`... it only exposes read-only views and stop, but stop is
-still stop.
+control plane. The manager socket's group and mode are configurable via
+`socket_group` and `socket_mode`... it only exposes read-only views and
+stop, but stop is still stop.
 
 Everything logs to syslog under the daemon facility, the manager as
 `baphomet` and each worker as `galla-<kur>`.
@@ -105,7 +104,7 @@ restart or a crash does not forget what it was in the middle of...
 ├── galla.<kur>.cursors.csv     journal cursors, one per journal watcher
 ├── galla.<kur>.stats.jsonl     running stats, so totals survive a respawn
 ├── galla.<kur>.context.jsonl   correlation context and deferred offenses
-└── banishments.csv            the shared ledger... every banishment, by all
+└── banishments.csv             the shared ledger... every banishment, by all
 ```
 
 Checkpointed on the `checkpoint` cadence from the sweeper and again on
@@ -125,4 +124,4 @@ its counting and by `baphomet ledger` for history.
 Where the per-galla tablets live is pluggable... the file layout above is
 the default backend, and a `[ClayTablet]` config table can put them
 elsewhere, the redis backend sharing marks across a fleet. See
-[tablets](tablets).
+[tablets](tablets.md).

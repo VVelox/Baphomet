@@ -2,7 +2,7 @@
 
 Run in eve mode, Baphomet is basically Sagan... the same real-time engine
 that parses a stream, matches each line against signatures, correlates, and
-emits a Suricata-shaped alert (see [log-analysis](log-analysis)). Neither
+emits a Suricata-shaped alert (see [log-analysis](log-analysis.md)). Neither
 keeps the events; both stream and forget, feeding their alerts onward. What
 Sagan has more of is reach... thousands of rules across dozens of products,
 and more ways to ship an alert out... not a deeper engine.
@@ -10,12 +10,13 @@ and more ways to ship an alert out... not a deeper engine.
 The two part company at the other end. Sagan only alerts, while Baphomet can
 also count an offender's hits and banish the repeat ones to Kur, the
 firewalling left to [Ereshkigal](https://github.com/LilithSec/Ereshkigal). It
-is, in one program, Sagan's detection welded to fail2ban's banishing... and
-fail2ban, the tool it otherwise most resembles ([fail2ban](fail2ban)), counts
-one regexp per jail and stops there, where Sagan's rule language reaches much
-further. The gates Sagan has that fail2ban lacks were read end to end and
-folded into the galla... they run between a rule matching and the offense
-being counted, so rules stay pure matchers.
+is, in one program, Sagan's detection welded to fail2ban's banishing.
+
+The weld went one way. [fail2ban](fail2ban.md) counts one regexp per jail and
+stops there, where Sagan's rule language reaches much further, so the gates
+Sagan has and fail2ban lacks were read end to end and folded into the galla.
+They run between a rule matching and the offense being counted, so rules
+stay pure matchers.
 
 ## The concept map
 
@@ -58,7 +59,7 @@ the galla. None of these has a fail2ban equivalent.
   And the shipped rules brand Sagan's own standard bit vocabulary name for
   name... `brute_force`, `recon`, `exploit_attempt`, `honeypot` at its
   TTLs, set by classtype and read by the shipped `-condemned` and
-  `-escalation` rules (the standard brands in [rules](rules)).
+  `-escalation` rules (the standard brands in [rules](rules.md)).
   `baphomet marked` reads the store.
 - **A country gate (`country_code`).** A rule key
   `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
@@ -104,25 +105,25 @@ broader build.
   dozens of products and protocols. Baphomet's shipped set is smaller...
   the fail2ban corpus, the Suricata classes, and seven of Sagan's own
   network gear families (Cisco ASA, Citrix, Fortinet, Juniper, Huawei,
-  Palo Alto, SonicWall... see [rules-catalog](rules-catalog)) folded in,
+  Palo Alto, SonicWall... see [rules-catalog](rules-catalog.md)) folded in,
   but the long tail of Sagan's product coverage, the cloud and Windows and
   appliance families above all, stays unported. A detection rule
   (`detection_var`) carries any alerting shape you care to port.
 - **Output beyond EVE.** Sagan feeds unified2, syslog, and assorted output
   plugins onward. Here there is one stream, the Suricata-shaped EVE log
-  ([eve](eve)), and acting on the alert is Ereshkigal's half.
+  ([eve](eve.md)), and acting on the alert is Ereshkigal's half.
 
 Detection with no offender, once the sharpest gap, is closed... a
 detection-only rule (a `detection_var` in place of `ban_var`) alerts on a
 thing with no address to banish, a config change or a service crash, counting
 by any subject and writing `sighting`/`sighted` to EVE. It does not act, since
-acting is Ereshkigal's half, but it detects. See [rules](rules) and
-[eve](eve).
+acting is Ereshkigal's half, but it detects. See [rules](rules.md) and
+[eve](eve.md).
 
 ## Porting a rule
 
 A Sagan rule ports to a Baphomet rule about as mechanically as a fail2ban
-filter does ([fail2ban](fail2ban)). A Sagan `.rules` line is one
+filter does ([fail2ban](fail2ban.md)). A Sagan `.rules` line is one
 `alert ... ( ... )` with semicolon-separated options, and the ones that matter
 map straight across. They live at
 [github.com/quadrantsec/sagan-rules](https://github.com/quadrantsec/sagan-rules),
@@ -140,7 +141,7 @@ The options translate like so:
 | `classtype:` | `classtype` |
 | `reference: url,...` | `references` |
 | `threshold:` / `after: count N, seconds M` | `max_score` / `find_time` |
-| `xbits` / `flexbits` (set/isset) | `mark` / `marked` (see [rules](rules)) |
+| `xbits` / `flexbits` (set/isset) | `mark` / `marked` (see [rules](rules.md)) |
 | the bit's `track` (`ip_src`/`by_src`, `by_username`, `ip_username`/`ip_both`) | the mark's keying... var-less for the offender IP, `var` for one capture, `vars` for a compound key |
 | a `\|`-joined isset (`isset, a\|b`) | a `marked` entry with `names` |
 | a `&`-joined set (`set, a&b`) | two entries under `mark` |
@@ -156,7 +157,7 @@ name for name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at
 the corpus's own TTLs... so port a rule's xbits without renaming them and it
 interlocks with the shipped setters and the `-condemned`/`-escalation`
 readers instead of a private namespace. The corpus's correlation graph
-survives the port whole. See the standard brands in [rules](rules).
+survives the port whole. See the standard brands in [rules](rules.md).
 
 **Ban or detect.** A Sagan rule alerts, it does not firewall. To keep that...
 surface the signature without banning... port it as a detection rule with
@@ -170,5 +171,5 @@ of you, since Baphomet acts where Sagan only alerts.
 `baphomet check_rules` runs the embedded tests, refusing to load a rule that
 fails its own... the same guard `baphomet start` uses.
 
-See [rules](rules) to write one, and [rules-catalog](rules-catalog) for what
+See [rules](rules.md) to write one, and [rules-catalog](rules-catalog.md) for what
 already ships.

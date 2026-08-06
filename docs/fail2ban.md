@@ -55,14 +55,15 @@ is how a jail with several actions maps over (see below).
   text. fail2ban has no equivalent.
 - **Live globs.** `log = "/jails/*/var/log/auth.log"` picks up a jail
   created while running with in ten seconds.
-- **Correlation without the buffer.** Offense-and-address-on-different-
-  lines cases (mongodb pre-4.4, sendmail's No such user) correlate by
-  key with TTLs, instead of fail2ban's maxlines buffer rematching.
+- **Correlation without the buffer.** Cases where the offense and the
+  address land on different lines (mongodb pre-4.4, sendmail's No such
+  user) correlate by key with TTLs, instead of fail2ban's maxlines buffer
+  rematching.
 - **The split itself.** The thing reading hostile input holds no firewall
   privileges, and several Baphomet hosts can accuse to one Ereshkigal.
 - **Gates fail2ban never had.** Per-rule thresholds, cross-rule marks, and
   country / blocklist / time-of-day gates, folded in from Sagan whose rule
-  language reaches past a regexp per jail... see [sagan](sagan).
+  language reaches past a regexp per jail... see [sagan](sagan.md).
 
 ## Beyond fail2ban, from sshguard and CrowdSec
 
@@ -75,39 +76,39 @@ Two more turns fail2ban has no equivalent for, from the wider field...
   together toward the one judgment instead of racing separate counters.
   sshguard scores attacks by dangerousness; this is that, per rule. Honored
   under the same `allow_per_rule_thresholds` consent, and with every weight 1
-  it is exactly the old count. See [rules](rules).
+  it is exactly fail2ban's count. See [rules](rules.md).
 - **Observe mode (CrowdSec simulation).** A rule, watcher, kur, or the whole
   deployment can be set `eve_only`... it matches and writes to EVE but never
   banishes, a would-be ban surfacing as an `alert` and each match as `noted`.
   Stand a new rule up, watch what it would have done, then trust it to act by
   setting `eve_only: false`. `observe_ignored` widens it to also score what
-  `ignore_ips` would drop. fail2ban has no dry run. See [rules](rules) and
-  [eve](eve).
+  `ignore_ips` would drop. fail2ban has no dry run. See [rules](rules.md) and
+  [eve](eve.md).
 
 ## What fail2ban still does that this does not
 
 Honesty section, roughly in order of how much it matters...
 
-- **Rich action context.** A fan_out gate covers the several-actions-
-  per-jail shape (see the concept map), but a member kur only hears the
+- **Rich action context.** A fan_out gate covers the shape of several
+  actions per jail (see the concept map), but a member kur only hears the
   IP... fail2ban interpolates the matched log lines into a action via
   `<matches>`, where here a shell member gets `%%%BAN%%%` and nothing
   else, and Ereshkigal's abuseipdb kur reports with a fixed comment.
-  The EVE event log ([eve](eve)) is the stream carrying the raw line,
+  The EVE event log ([eve](eve.md)) is the stream carrying the raw line,
   the rule, and the count for driving a SIEM or notifications with
   full context.
 - **Cross-line backreferences.** fail2ban's buffer-join rematching
   (maxlines with SKIPLINES between arbitrary failregex fragments) has no
   general equivalent. Its two real uses are covered by sharper tools...
   F-MLFID session tracking by envelope-keyed correlation
-  (`key: [ syslog.host, syslog.daemon, syslog.pid ]`, see [rules](rules)),
+  (`key: [ syslog.host, syslog.daemon, syslog.pid ]`, see [rules](rules.md)),
   and physically multi-line records by a watcher's `join` table (see
-  [configuration](configuration)). The sshd ddos/extra/aggressive modes
+  [configuration](configuration.md)). The sshd ddos/extra/aggressive modes
   that ride F-MLFID ship as the opt-in `syslog/sshd-ddos`,
   `syslog/sshd-extra`, and `syslog/sshd-aggressive` rules.
 - **`usedns` differs on purpose.** Hostname offenders (pam-generic,
   mysqld) are covered by `usedns` = `no` / `resolve_seen` / `resolve_ban`
-  behind an `enable_dns` consent (see [usedns](usedns)),
+  behind an `enable_dns` consent (see [usedns](usedns.md)),
   but fail2ban's `raw` mode does not exist... Ereshkigal takes addresses,
   not names... and the default is `no`, so a hostname banishes nothing
   until an operator opts into resolution knowingly.
@@ -118,7 +119,7 @@ Honesty section, roughly in order of how much it matters...
 The filter library is otherwise essentially complete... every fail2ban
 filter that is a regexp over a log line is ported, across the syslog, raw,
 http, http_error, and multiline families, plus the JSON and Suricata
-rules. See [rules-catalog](rules-catalog) for the full list.
+rules. See [rules-catalog](rules-catalog.md) for the full list.
 
 ## Migrating a jail
 
@@ -202,7 +203,7 @@ mechanical...
 2. **Pick the rule type by the log's shape**, not the daemon. A `daemon[pid]:`
    syslog line is a `syslog` rule; a free-form app log with its own timestamp
    is `raw`; an access log is `http`; an apache/nginx error log is
-   `http_error`; JSON is `json`. See [rules](rules).
+   `http_error`; JSON is `json`. See [rules](rules.md).
 3. **Translate the regexps.** Each `failregex` line becomes a `message_regexp`
    entry, each `ignoreregex` an `ignore_regexp`. Drop fail2ban's tags for
    Baphomet's address tokens... `<HOST>` (host or address) becomes
@@ -225,6 +226,6 @@ not a rule key; `datepattern` is the parser's job, chosen by the rule type;
 and fail2ban's `maxlines` buffer splits into two sharper tools... keyed
 correlation, envelope keys included, for lines sharing a session or id, and
 a watcher's `join` for records that are physically one event (see
-[rules](rules) and [configuration](configuration)). The
-[rules-catalog](rules-catalog) lists what already ships, and the handful
+[rules](rules.md) and [configuration](configuration.md)). The
+[rules-catalog](rules-catalog.md) lists what already ships, and the handful
 deliberately not ported and why.

@@ -6,8 +6,6 @@ The other is the one this page is about: the same galla that bans is also a
 log analysis engine, in the family of Sagan, Wazuh/OSSEC, and the Sigma
 detection model... it parses a stream, reads each line against signatures,
 enriches and correlates, and raises an alert. A rule need not end in a ban.
-When it detects with out banishing, carries triage metadata, and writes to
-the EVE stream, the galla is doing exactly what a log analysis engine does.
 
 Nothing here is a separate mode or a second daemon. The detection half and
 the banning half are the same rules, the same parsers, the same gates... only
@@ -113,8 +111,8 @@ charter is drawn on purpose.
 
 ## The family
 
-Baphomet did not invent this half, it folded it in. Three docs map the
-lineage rule for rule...
+Baphomet did not invent this half, it folded it in. Where each piece came
+from, mapped rule for rule...
 
 - [sagan](sagan.md) — the log analysis engine Baphomet most resembles here;
   its gates (xbits, country_code, blacklist, alert_time) rebuilt in the galla.

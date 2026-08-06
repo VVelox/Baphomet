@@ -1,6 +1,6 @@
 ---
 # Matches Nagios NRPE unauthorized access attempts. Based on the fail2ban
-# nagios filter, translated to Baphomet and simplified.
+# nagios filter, translated to Baphomet.
 rev: 2
 msg: "[NAGIOS] NRPE bad command / access denied"
 severity: medium

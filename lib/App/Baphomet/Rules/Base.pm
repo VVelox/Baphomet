@@ -120,7 +120,7 @@ C<max_score> is the accumulated score at which an offender is banished, not a
 plain retry count... each match deposits the rule's C<weight> (a positive
 number, default 1), so a heavy signature bans faster and several rules
 against one IP sum toward the one judgment. With every weight 1 the score is
-just the hit count, as before.
+just the hit count.
 
 =head3 eve_only
 
@@ -1558,8 +1558,7 @@ sub run_tests {
 
 			# the dns fixture, when the test carries one... a resolver the
 			# reverse_dns gate judges over, so the gate runs here exactly as
-			# it would in the galla. absent the fixture the gate is skipped,
-			# as it always was
+			# it would in the galla. absent the fixture the gate is skipped
 			my $dns_resolver;
 			if ( defined( $test->{dns} ) ) {
 				$dns_resolver = $self->_test_dns_resolver( $test->{dns}, $where, $results );

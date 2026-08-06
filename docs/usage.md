@@ -125,8 +125,8 @@ extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend
 
 With `-b` the reply is GZip compressed then Base64 encoded onto one line,
 the LibreNMS extend compression convention it decodes on its own by the
-GZip magic... worth it once a fleet has enough jails to strain the SNMP
-reply...
+GZip magic. Worth it once a fleet has enough jails to strain the SNMP
+reply.
 
 ```
 extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend -b
@@ -136,7 +136,7 @@ It wants the manager up for the tallies, which is what reaches Ereshkigal;
 with the manager unreachable it still emits valid JSON with `error` set and
 `errorString` naming the fault, as the extend does. Since the snmpd user
 drives it over the manager socket, the Neti gate governs it... see the
-`command_perms` example in the [neti-gate](neti-gate) doc for
+`command_perms` example in the [neti-gate](neti-gate.md) doc for
 letting `snmpd` run just this one command.
 
 ## Working on rules
@@ -153,7 +153,7 @@ baphomet test_line --rule syslog/sshd \
     'Jul 12 08:15:50 vixen42 sshd[1]: Invalid user foo from 1.2.3.4'
 ```
 
-See [rules](rules) for the rule format.
+See [rules](rules.md) for the rule format.
 
 ## Talking to the socket directly
 
@@ -181,5 +181,5 @@ my $status = $response->{result};
 ```
 
 Note that with `enable_auth` on, a raw `nc` integration must complete
-the auth challenge itself (see [neti-gate](neti-gate))... the blocking
+the auth challenge itself (see [neti-gate](neti-gate.md))... the blocking
 client's `authenticate` is much less bother.

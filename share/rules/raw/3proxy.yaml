@@ -1,8 +1,7 @@
 ---
-# Matches 3proxy denied connections... its log carries a five digit
-# status where a non-zero final digit is a error, most relevantly 1
-# for auth failure. Based on the fail2ban 3proxy filter, translated to
-# Baphomet and simplified.
+# Matches 3proxy denied connections... its log carries a five digit status
+# where a non-zero final digit is a error, most relevantly 1 for auth
+# failure. Based on the fail2ban 3proxy filter, translated to Baphomet.
 rev: 2
 msg: "[3PROXY] denied connection / auth failure"
 severity: high

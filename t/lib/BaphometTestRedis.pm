@@ -1,10 +1,10 @@
 package BaphometTestRedis;
 
-# Spins up a throwaway redis-server on a free local port for the optional live
-# ClayTablet redis tests, and kills it on DESTROY. Returns undef when there is
-# no redis-server to run, so a caller just skips. Set BAPHOMET_TEST_REDIS to a
+# spins up a throwaway redis-server on a free local port for the optional live
+# ClayTablet redis tests, and kills it on DESTROY. returns undef when there is
+# no redis-server to run, so a caller just skips. set BAPHOMET_TEST_REDIS to a
 # host:port to use an already-running server instead, or REDIS_SERVER_BIN to
-# point at a particular redis-server binary.
+# point at a particular redis-server binary
 
 use 5.006;
 use strict;
@@ -50,10 +50,10 @@ sub _free_port {
 	return $port;
 }
 
-# Spawns a redis-server on a free port with persistence off, waits for it to
-# answer a ping, and returns the guard object (server via ->server). Returns
-# undef if there is no redis-server or it would not come up in time. The caller
-# must have loaded Redis::Fast already, this uses it to poll for readiness.
+# spawns a redis-server on a free port with persistence off, waits for it to
+# answer a ping, and returns the guard object (server via ->server). returns
+# undef if there is no redis-server or it would not come up in time. the caller
+# must have loaded Redis::Fast already, this uses it to poll for readiness
 sub start {
 	my ($class) = @_;
 

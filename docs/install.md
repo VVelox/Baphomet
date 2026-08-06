@@ -21,8 +21,8 @@ configure there, as Baphomet's config targets them.
 | YAML::XS | p5-YAML-LibYAML | libyaml-libyaml-perl |
 | Ereshkigal (for Ereshkigal::Client) | (cpanm) | (cpanm) |
 
-Package names are current as of writing. Anything marked `(cpanm)` —
-or missing from your release — installs cleanly from CPAN via
+Package names are current as of writing. Anything marked `(cpanm)`, or
+missing from your release, installs cleanly from CPAN via
 [cpanminus](https://metacpan.org/pod/App::cpanminus).
 
 ## From source
@@ -81,8 +81,7 @@ systemctl enable --now baphomet
 ```
 
 On systems where `/var/run` is a tmpfs, `/var/run/baphomet` is created
-automatically at startup — but if you point `run_base_dir` somewhere
+automatically at startup... but if you point `run_base_dir` somewhere
 deeper, make sure the parents exist at boot (a `RuntimeDirectory=` line
-or a tmpfiles.d entry does it on systemd). Note that unix socket paths
-are limited to roughly 104 characters on the BSDs, so keep
-`run_base_dir` short.
+or a tmpfiles.d entry does it on systemd). Unix socket paths are limited
+to roughly 104 characters on the BSDs, so keep `run_base_dir` short.

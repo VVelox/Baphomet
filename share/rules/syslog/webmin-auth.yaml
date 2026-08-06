@@ -1,6 +1,6 @@
 ---
 # Matches webmin login failures. Based on the fail2ban webmin-auth filter,
-# translated to Baphomet and simplified.
+# translated to Baphomet.
 rev: 2
 msg: "[WEBMIN] login failure"
 severity: high

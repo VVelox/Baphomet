@@ -1,6 +1,6 @@
 ---
 # Matches sieve (cyrus timsieved) login failures. Based on the fail2ban
-# sieve filter, translated to Baphomet and simplified.
+# sieve filter, translated to Baphomet.
 rev: 2
 msg: "[SIEVE] login failure"
 severity: high

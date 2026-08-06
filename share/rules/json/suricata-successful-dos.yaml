@@ -1,7 +1,7 @@
 ---
-# Suricata alerts classified "successful-dos" (Denial of Service), per eve.json. One of the
-# per-class Suricata rules... gates on the alert category. Pick the
-# classes you want to hit on. See rules-catalog.md.
+# Suricata alerts classified "successful-dos" (Denial of Service), per
+# eve.json. One of the per-class Suricata rules... gates on the alert
+# category. Pick the classes you want to hit on. See rules-catalog.md.
 #
 # The offender may be the src or the dest of the flow depending on where
 # the alert fired, so both are candidates and ban_not_internal banishes

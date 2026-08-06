@@ -12,9 +12,9 @@ platforms carry their own audit machinery, with different records and different
 field names... only the Linux one is described here. Anything else would want
 its own rules and its own page.
 
-For what each rule watches for, see [rules-catalog](rules-catalog). For the
-mechanics of a rule, [rules](rules). For the alerts these detection rules raise,
-[eve](eve).
+For what each rule watches for, see [rules-catalog](rules-catalog.md). For the
+mechanics of a rule, [rules](rules.md). For the alerts these detection rules raise,
+[eve](eve.md).
 
 ## The shape of the stream
 
@@ -34,7 +34,7 @@ Nov 14 10:00:00 host audisp-syslog[1400]: type=ANOM_PROMISCUOUS msg=audit(170000
 The rules gate on the daemon idents `audisp-syslog`, `audispd` (the older name),
 and a bare `audit`, so whichever your setup uses, the gate matches. Everything
 after the ident... `type=... msg=audit(...): ...`... is what the rules and the
-`auditd` [Log::Munger](rules#enriching-a-match) munger read.
+`auditd` [Log::Munger](rules.md#enriching-a-match-mungers) munger read.
 
 ## AppArmor hosts... the shorter road
 
@@ -141,8 +141,8 @@ Two Debian-family teeth to watch for:
   the same group. Both ship, one fires per host. Same split in
   `linux-auditd-mac-tamper`, which reads SELinux's `enforcing=0` and AppArmor's
   profile removal as two separate regexps... see
-  [AppArmor hosts](#apparmor-hosts) below, and note you may not need any of this
-  page at all.
+  [AppArmor hosts](#apparmor-hosts-the-shorter-road) below, and note you may not
+  need any of this page at all.
 
 ### RHEL / CentOS Stream / Rocky / AlmaLinux / Fedora
 
@@ -268,7 +268,7 @@ A watcher tailing that file with the default `syslog` parser and the
 `%syslog/linux-audit%` group, which expands to all fourteen `linux-auditd-*`
 rules in place. Two of them ban (remote auth failures, the login-failure
 anomaly); the rest are detection-only and raise sightings to
-[EVE](eve) without banishing anyone.
+[EVE](eve.md) without banishing anyone.
 
 ```toml
 [kur.audit]
@@ -283,7 +283,7 @@ rule="%syslog/linux-audit%"
 
 Prefer to run the whole set in observe mode first, so even the two banning rules
 only alert while you watch the volume? Set `eve_only=true` on the kur or the
-watcher. See [configuration](configuration) and [log-analysis](log-analysis).
+watcher. See [configuration](configuration.md) and [log-analysis](log-analysis.md).
 
 ## Which rules need which records
 
@@ -392,7 +392,7 @@ baphomet test_line --rule syslog/linux-auditd-promiscuous \
   'Nov 14 10:00:00 host audisp-syslog[1400]: type=ANOM_PROMISCUOUS msg=audit(1700000003.1:903): dev=eth0 prom=256 old_prom=0 auid=1000 uid=0 ses=3'
 ```
 
-`baphomet check_rules` runs every rule's own embedded tests; see [usage](usage).
+`baphomet check_rules` runs every rule's own embedded tests; see [usage](usage.md).
 
 ## Caveats worth keeping
 
@@ -425,8 +425,8 @@ baphomet test_line --rule syslog/linux-auditd-promiscuous \
 
 ## See also
 
-- [rules-catalog](rules-catalog) ... every `linux-auditd-*` rule, and
+- [rules-catalog](rules-catalog.md) ... every `linux-auditd-*` rule, and
   `linux-apparmor-denied`, one line each.
-- [rules](rules) ... rule mechanics, tokens, groups, and the munger enrichment.
-- [log-analysis](log-analysis) ... the detection half these rules live in.
-- [eve](eve) ... the sightings and alerts they raise.
+- [rules](rules.md) ... rule mechanics, tokens, groups, and the munger enrichment.
+- [log-analysis](log-analysis.md) ... the detection half these rules live in.
+- [eve](eve.md) ... the sightings and alerts they raise.

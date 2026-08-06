@@ -1,6 +1,6 @@
 ---
-# Matches vsftpd failures. Based on the fail2ban vsftpd filter, translated
-# to Baphomet and simplified.
+# Matches vsftpd failures. Based on the fail2ban vsftpd filter,
+# translated to Baphomet.
 rev: 2
 msg: "[VSFTPD] login failure"
 severity: high

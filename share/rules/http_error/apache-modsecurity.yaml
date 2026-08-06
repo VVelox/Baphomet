@@ -1,7 +1,7 @@
 ---
 # Matches Apache mod_security denials, the Access denied with a 4xx or
 # 5xx code lines. Based on the fail2ban apache-modsecurity filter,
-# translated to Baphomet and simplified.
+# translated to Baphomet.
 rev: 2
 msg: "[APACHE] mod_security access denied"
 severity: high

@@ -15,14 +15,14 @@ portsentry at 1, apache-overflows and apache-botsearch at 2, asterisk and
 freeswitch at 10), as do the priority 1 Suricata classes and
 `json/suricata-blocked` (one alert is enough). These numbers are inert
 unless the `allow_per_rule_thresholds` config setting says otherwise...
-see [configuration](configuration) and [rules](rules).
+see [configuration](configuration.md) and [rules](rules.md).
 
 Rules of the brute-force, recon, and exploit classtypes also brand the
 matching standard mark as they count... `brute_force`, `recon`,
 `exploit_attempt`, and portsentry `honeypot` besides... read by the
 `-condemned` and `-escalation` reader rules below. Branding is additive
 and changes no rule's own behavior. See the standard brands in
-[rules](rules).
+[rules](rules.md).
 
 | rule | watches for | daemon gate |
 | --- | --- | --- |
@@ -76,7 +76,7 @@ and changes no rule's own behavior. See the standard brands in
 | `syslog/vsftpd-breach-upload` | a vsftpd upload by a source holding any standard brand (detection-only, from sagan-rules vsftpd-correlated) | `vsftpd` |
 | `syslog/courier-breach` | a successful Courier IMAP/POP3 login from a source holding any standard brand (detection-only, from sagan-rules imapd-correlated) | courier imapd/pop3d variants |
 | `syslog/sshd-worked` | a brute force that landed... counted password failures then an Accepted from the same source (staged, detection-only, excludes agent publickey walks) | `sshd`, `sshd-session` |
-| `syslog/sshd-foreign-login` | a successful ssh login from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db and your home list (see [rules](rules), the country gate) | `sshd`, `sshd-session` |
+| `syslog/sshd-foreign-login` | a successful ssh login from outside `country_codes{home}`... detection-only, opt-in, needs geoip_db and your home list (see [rules](rules.md), the country gate) | `sshd`, `sshd-session` |
 | `syslog/systemd-flap` | a service crash loop... three scheduled restarts of one unit inside two minutes (staged, detection-only, counts by unit per host) | `systemd` |
 | `syslog/sudo-policy` | sudo authorization failures... detection-only, counts by the offending username (`detection_var`), banishes nobody | `sudo` |
 | `syslog/su` | failed su attempts (verbose, terse, PAM, and shadow forms)... detection-only, counts by the invoking username, the local-escalation twin of `sudo-policy` | `su` |
@@ -234,7 +234,7 @@ Every Suricata rule lists both `src_ip` and `dest_ip` as ban_vars and sets
 is not one of your own hosts... an inbound attack bans the external src, a
 C2 callout from an inside host bans the external dest. Set the `internal`
 config field to your networks; it defaults to the ignore IPs. See the
-"Banning the external end of a flow" section of [rules](rules).
+"Banning the external end of a flow" section of [rules](rules.md).
 
 ## raw rules
 
@@ -261,7 +261,7 @@ syslog-speaking... their lines land on a collector and match as raw rules
 anchored on each vendor's own message tokens, never the line start. The
 Sagan signatures were consolidated by offense rather than ported one to
 one, so a family is a handful of themed rules... the attack-shaped ones
-ban `SRC` and brand the [standard marks](rules), the config-change and
+ban `SRC` and brand the [standard marks](rules.md), the config-change and
 system-distress ones are detection-only, counting by user, device, or
 event since they accuse no address. The `-breach`/`-condemned` rules are
 the correlated readers, a success or repeat offense from a source holding
@@ -303,7 +303,7 @@ syslog, and postgresql additionally needs `%h` in its `log_line_prefix` for
 the client address to reach the failure line (see its header comment).
 
 Two more go beyond any ported corpus, built on staged sequences (see
-[rules](rules)): `syslog/sshd-worked`, the brute force that landed, and
+[rules](rules.md)): `syslog/sshd-worked`, the brute force that landed, and
 `syslog/systemd-flap`, the service crash loop. Both are detection-only...
 they surface as `sighting`/`sighted` in EVE and banish nobody, so loading
 either turns EVE on.
@@ -338,4 +338,4 @@ either turns EVE on.
   a hostname rather than a IP. Under the default `usedns = "no"` a
   hostname offender counts and banishes nothing (the match still writes
   to EVE); a resolve mode banishes its addresses instead... see
-  [usedns](usedns) before turning one on.
+  [usedns](usedns.md) before turning one on.

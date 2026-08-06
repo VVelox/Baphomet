@@ -50,7 +50,7 @@ a `found` and a `banish` for that last line both.
   real ban. Under an `overlap` of `shadow` a later rule firing on a record
   already consumed is demoted to observe mode for that hit and reads as a
   `noted` too... the winner made the real judgment, this records who else
-  saw it. See [rules](rules) and [configuration](configuration).
+  saw it. See [rules](rules.md) and [configuration](configuration.md).
 - **alert** ... the observe-mode twin of `banish`, an offender whose score
   reached the threshold under observe mode... or under demotion, the two
   depositing into the same shadow buckets. It reads just like the banish it
@@ -58,7 +58,7 @@ a `found` and a `banish` for that last line both.
 - **sighting** ... the detection twin of `found`, a sub-threshold match
   under a detection-only rule (one carrying a `detection_var`). The rule
   banishes nobody, only counts its subject... the crossing match is the
-  `sighted`. See [rules](rules).
+  `sighted`. See [rules](rules.md).
 - **sighted** ... the detection twin of `banish`, a subject whose count
   crossed the threshold under a detection rule. It carries the match
   envelope but names a `.subject`, not an `.ip`... the subject need not be a
@@ -146,23 +146,24 @@ banished IP's `.country` rides along too.
 
 A **subnet banish** is a banish whose `.ip` is a CIDR (`65.49.1.0/24`)
 rather than a single address... raised when a network bucket crosses
-`subnet_max_score` (see [configuration](configuration)). Its `.raw` (and
+`subnet_max_score` (see [configuration](configuration.md)). Its `.raw` (and
 `.parsed`/`.found`) are the last line that tipped the bucket over, and it
 adds a `.bucket` table describing the network: `family` (`v4`/`v6`),
 `cidr`, `prefix`, `members` (the distinct offender IPs that fed it, in
 first-seen order), `hits`, `score`, and the `first`/`last` epochs the
-window spanned. It carries no `.country`, a CIDR has no single one. In
-observe mode the same crossing surfaces as an `alert` with the same
-`.ip` and `.bucket`. An **alert** carries the same
-`.ip`, `.ban_time`, `.score`, and envelope a banish would, being its
-observe-mode stand-in. A **found** or **noted** event carries `.marks_set`
-and `.unmarked` when the rule branded or lifted marks, and `.ip`, the
-offender the match would pass for banning (the first `ban_var` candidate to
-survive the per-IP gates)... absent when the rule branded only, banished
-nobody, or every candidate was internal. The terminal events carry the
-same `.marks_set` and `.unmarked`, so a line that both brands and banishes
-records the brand on its `banish`, the `found` it stands in for having been
-suppressed.
+window spanned. It carries no `.country`, a CIDR has no single one.
+
+An **alert** is the observe-mode stand-in for a banish, and carries the
+same `.ip`, `.ban_time`, `.score`, and envelope one would... `.bucket`
+included, when what crossed was a subnet.
+
+A **found** or **noted** event carries `.marks_set` and `.unmarked` when
+the rule branded or lifted marks, and `.ip`, the offender the match would
+pass for banning (the first `ban_var` candidate to survive the per-IP
+gates)... absent when the rule branded only, banished nobody, or every
+candidate was internal. The terminal events carry the same `.marks_set`
+and `.unmarked`, so a line that both brands and banishes records the brand
+on its `banish`, the `found` it stands in for having been suppressed.
 
 A **sighted** event adds `.subject`, the value of the `detection_var` that
 crossed the threshold... a username, a hostname, a URI, or a IP when that is

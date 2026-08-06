@@ -438,7 +438,7 @@ sub _gid_for_path {
 Returns the sorted, unique list of rule names available across the rules
 dirs, each a C<type/name> relative path with out the C<.yaml>. A name present
 in more than one dir is listed once, the override dir shadowing the shipped
-copy. Used to walk the whole shipped-plus-override set, as the check_rules
+copy. For walking the whole shipped-plus-override set, as the check_rules
 command does.
 
     my @names = $rules->rule_names;

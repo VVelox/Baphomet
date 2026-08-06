@@ -3,10 +3,10 @@
 Each galla keeps its memory in state tablets... the counters, pending
 bans, log positions, journal cursors, running stats, correlation context,
 and the marks that survive a restart. What the tablets are and when they
-are written is covered in [architecture](architecture); this page is about
+are written is covered in [architecture](architecture.md); this page is about
 choosing where they live, which is pluggable, chosen by the global
 `[ClayTablet]` table in the config. Left out, a galla writes them to files
-under `tablet_base_dir`, the way it always has.
+under `tablet_base_dir`.
 
 ```toml
 # the default, and what you get with no [ClayTablet] table at all
@@ -54,5 +54,5 @@ The shared banishment ledger is not a per-galla tablet and is unaffected...
 it stays a flock'd file under `tablet_base_dir` whatever the backend.
 
 The fleet-wide marks the redis backend exists for are covered from the
-rules side in [rules](rules)... a mark branded on one machine gating a
+rules side in [rules](rules.md)... a mark branded on one machine gating a
 count on another.

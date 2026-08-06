@@ -1,6 +1,6 @@
 ---
 # Matches cyrus imap/pop3 login failures. Based on the fail2ban cyrus-imap
-# filter, translated to Baphomet and simplified.
+# filter, translated to Baphomet.
 rev: 2
 msg: "[CYRUS] IMAP/POP3 login failure"
 severity: high

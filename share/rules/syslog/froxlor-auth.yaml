@@ -1,6 +1,6 @@
 ---
 # Matches Froxlor failed login attempts. Based on the fail2ban froxlor-auth
-# filter, translated to Baphomet and simplified.
+# filter, translated to Baphomet.
 rev: 2
 msg: "[FROXLOR] login failure"
 severity: high

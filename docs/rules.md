@@ -192,7 +192,7 @@ address to banish, a policy tripwire, a config change, a service crash.
 Because a detection rule writes only to EVE, loading one forces `eve_enable`
 on (logged at start) so it is never a silent no-op. On the http and
 http_error types, which count `host`/`client` by default, a `detection_var`
-overrides that to count by whatever it names. See [eve](eve) for the event
+overrides that to count by whatever it names. See [eve](eve.md) for the event
 shapes.
 
 ```yaml
@@ -267,7 +267,7 @@ these and, unlike them, needs no `allow_per_rule_thresholds`. See
 ### eve_only
 
 Optional, on every rule type, and also settable at the global, kur, and
-watcher level (see [configuration](configuration)). Puts the rule in
+watcher level (see [configuration](configuration.md)). Puts the rule in
 **observe mode**: its matches are written to EVE but never count toward a
 real ban. A would-be banish surfaces as an `alert` event and each match as
 `noted` rather than `found`, so a new rule can be stood up and watched
@@ -280,7 +280,7 @@ consequence, not the matching.
 Observe mode differs from a [detection rule](#detection_var): observe mode is
 a would-be ban held back and shown as an `alert`, still keyed to an offender
 IP; a detection rule never bans at all and counts any subject, surfacing as
-`sighting`/`sighted`. See [eve](eve) for the event shapes.
+`sighting`/`sighted`. See [eve](eve.md) for the event shapes.
 
 ## Triage metadata
 
@@ -290,7 +290,7 @@ Optional, on every rule type. A short human-readable signature naming what
 the rule detects, the Sagan/Suricata `msg` convention... a `[TAG]
 description` line like `[SSHD] authentication failure` or `[SURICATA]
 Attempted Administrator Privilege Gain`. It is written to every EVE event
-the rule produces as the top-level `.msg` field (see [eve](eve)), so a SOC
+the rule produces as the top-level `.msg` field (see [eve](eve.md)), so a SOC
 analyst or a jq one-liner reads what tripped without decoding the raw line.
 When a rule sets none, `.msg` falls back to the rule's name (`syslog/sshd`),
 so it is always present. Inert to matching.
@@ -298,11 +298,11 @@ so it is always present. Inert to matching.
 ### severity / classtype / references / attack / rev
 
 Optional triage metadata, on every rule type, all inert to matching and all
-written to EVE beside `msg` when set (see [eve](eve)):
+written to EVE beside `msg` when set (see [eve](eve.md)):
 
 - `severity` — one of `info`/`low`/`medium`/`high`/`critical`. Emitted as
   `.severity`. When a rule sets none, the config's `default_severity`
-  (global/kur/watcher, see [configuration](configuration)) fills in; absent
+  (global/kur/watcher, see [configuration](configuration.md)) fills in; absent
   that too, the field is omitted.
 - `classtype` — a category string, the Snort/Sagan/Suricata classtype (e.g.
   `brute-force`, `web-application-attack`, `trojan-activity`). Free-form.
@@ -320,14 +320,14 @@ detections. Every shipped rule carries a `severity` and `classtype`.
 Two more `alert` fields ride along in EVE but are **not** rule keys, derived
 instead by the loader, so there is nothing to set... `gid`, `0` for a shipped
 rule and `1` for one from the site override dir (`rules_dir`), and `sid`, a
-stable positive integer hashed from the rule name. See [eve](eve).
+stable positive integer hashed from the rule name. See [eve](eve.md).
 
 ### src_ip_var / dest_ip_var
 
 Optional, on every rule type, inert to matching. Each names the found var
 holding an endpoint of the flow, whose value is lifted to a top-level EVE
 field so a consumer reads the source and destination addresses without
-digging through `found` (see [eve](eve)):
+digging through `found` (see [eve](eve.md)):
 
 - `src_ip_var` — the var promoted to `.src_ip`. Defaults to the found var
   literally named `src_ip`.
@@ -836,7 +836,7 @@ banishes nobody until its `detection_var` is flipped to `ban_var`:
 | `raw/cisco-asa-breach`, `raw/fortinet-breach`, `raw/citrix-breach` | a successful firewall/VPN/admin login from a branded source, per gear family |
 | `raw/citrix-condemned` | a NetScaler AAA failure from a source branded recon/exploit/honeypot |
 
-The network gear families ([rules-catalog](rules-catalog)) both feed and
+The network gear families ([rules-catalog](rules-catalog.md)) both feed and
 read the mesh... their brute-force, scan, and exploit rules brand the same
 names the Unix daemons do, so a source that hammered the FortiGate VPN
 arrives at sshd already condemned, and the reverse.
@@ -1022,7 +1022,7 @@ all" in one entry. And beware `on_servfail: pass`-or-`compare` on a
 negated gate... it trades the outage-can-not-misaim guarantee for
 coverage, meaning a DNS outage counts everyone, which is fail2ban's flaw
 made opt-in and labeled. Everything else always fails closed: no
-resolver, `enable_rdns` off (see [configuration](configuration)), a
+resolver, `enable_rdns` off (see [configuration](configuration.md)), a
 non-address value, a missing `matches_var`.
 
 Lookups happen per match, not per line, bounded by `rdns_timeout` and
@@ -1178,9 +1178,9 @@ tested regexp for a timestamp or a username instead of hand-rolling it. The
 library is [Log-Munger](https://github.com/LilithSec/Log-Munger)'s `base`
 primitives, resolved through
 [`App::Baphomet::Primitives`](https://metacpan.org/pod/App::Baphomet::Primitives)
-the first time a rule reaches for a fragment and cached under the galla's
-tablet dir (re-resolved only when the Log-Munger version or its `base`
-file changes), so the parse-and-template cost is paid once for the fleet
+the first time a rule reaches for a fragment, then cached under the galla's
+tablet dir and re-resolved only when the Log-Munger version or its `base`
+file changes. So the parse-and-template cost is paid once for the fleet,
 and a deployment using only the offender tokens never loads Log-Munger at
 all. The fragments are validated by Log-Munger's own tests, so they arrive
 known-good.

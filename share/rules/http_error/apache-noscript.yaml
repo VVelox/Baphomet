@@ -1,8 +1,7 @@
 ---
-# Matches Apache requests for scripts that do not exist, php, asp, exe,
-# pl, and cgi-bin things, including the php-fpm "Primary script unknown"
-# shape. Based on the fail2ban apache-noscript filter, translated to
-# Baphomet and simplified.
+# Matches Apache requests for scripts that do not exist, php, asp, exe, pl,
+# and cgi-bin things, including the php-fpm "Primary script unknown" shape.
+# Based on the fail2ban apache-noscript filter, translated to Baphomet.
 rev: 2
 msg: "[APACHE] request for missing script"
 severity: medium

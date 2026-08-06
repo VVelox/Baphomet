@@ -85,6 +85,6 @@ Here `snmpd` may run `banished` (and so `lnms-f2b-extend`) but falls to the
 run of the baseline commands, while `stop` is narrowed to `nanni` alone.
 
 The CLI side of the challenge, including driving it from your own code, is
-covered in [usage](usage). Ereshkigal has the same gate on its own manager
+covered in [usage](usage.md). Ereshkigal has the same gate on its own manager
 socket... with its `enable_auth` on, the baphomet user needs granting over
 there too, on the kurs it bans to.

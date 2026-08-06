@@ -2798,8 +2798,8 @@ sub _rdns_entry_pass {
 # (possibly empty, authoritative absence) or undef (failure), both
 # remembered, so a hostile flood of matches asks each question once a
 # minute at most. under the background engine a cold key fires its query
-# and answers undef for THIS line — a lookup failure, judged by the
-# entry's on_servfail knob like any other — the real answer warm in the
+# and answers undef for THIS line... a lookup failure, judged by the
+# entry's on_servfail knob like any other... the real answer warm in the
 # cache for the next line, and a flood on one cold key fires one query
 sub _rdns_cached {
 	my ( $self, $cache_key, $ask ) = @_;
@@ -3815,7 +3815,7 @@ sub _resolve_hostname_async {
 # waits. an answered cache is used, a cold name fires the background
 # resolution and counts nobody THIS line (the fail-closed posture the
 # feature already promises), the answer warm for the next line. without
-# the engine the blocking path stands, as it always did
+# the engine the blocking path stands in its place
 sub _resolve_hostname_seen {
 	my ( $self, $hostname ) = @_;
 
@@ -4565,7 +4565,7 @@ sub _ledger_fold {
 
 # chisels a banishment row into the shared ledger under a exclusive lock
 # and returns how many times this IP appears with in the recidive window.
-# Rows are epoch,kur,ip,rule,watcher. only rows appended since the last
+# rows are epoch,kur,ip,rule,watcher. only rows appended since the last
 # look are read, folded into a live tally, so a ban costs O(new rows)
 # rather than O(ledger)... the whole-ledger pruning to ledger_keep lives in
 # _ledger_compact, off the ban path, on the checkpoint cadence

@@ -1,6 +1,6 @@
 ---
 # Matches proftpd failures. Based on the fail2ban proftpd filter,
-# translated to Baphomet and simplified.
+# translated to Baphomet.
 rev: 2
 msg: "[PROFTPD] login failure"
 severity: high

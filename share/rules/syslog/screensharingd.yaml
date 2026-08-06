@@ -1,6 +1,6 @@
 ---
 # Matches failed macOS Screen Sharing authentications. Based on the
-# fail2ban screensharingd filter, translated to Baphomet and simplified.
+# fail2ban screensharingd filter, translated to Baphomet.
 # The corpus lines carry a year in their timestamp, which the syslog
 # parser does not read, so the tests wear a standard syslog timestamp.
 rev: 2

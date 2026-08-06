@@ -425,10 +425,10 @@ sub start_server {
 		'alias'         => 'baphomet_server',
 		'auth_required' => $self->{enable_auth} ? 1 : 0,
 		defined( $self->{auth_temp_dir} ) ? ( 'auth_temp_dir' => $self->{auth_temp_dir} ) : (),
-		# the Neti gate rides JSONUnix's own permission policy now... only
-		# passed when auth is on, so with it off the manager spawns exactly as
-		# it did before the gate existed. JSONUnix enforces the policy before a
-		# handler runs, so the handlers no longer authorize by hand
+		# the Neti gate rides JSONUnix's own permission policy... only passed
+		# when auth is on, so with it off the manager spawns ungated. JSONUnix
+		# enforces the policy before a handler runs, so the handlers never
+		# authorize by hand
 		$self->{enable_auth} ? ( 'permissions' => $self->_neti_permissions ) : (),
 		'on_error' => sub {
 			my ( $operation, $errnum, $errstr ) = @_;

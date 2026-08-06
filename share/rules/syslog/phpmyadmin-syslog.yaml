@@ -1,6 +1,6 @@
 ---
 # Matches phpMyAdmin denied logins logged to syslog. Based on the fail2ban
-# phpmyadmin-syslog filter, translated to Baphomet and simplified.
+# phpmyadmin-syslog filter, translated to Baphomet.
 rev: 2
 msg: "[PHPMYADMIN] login failure"
 severity: high

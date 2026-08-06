@@ -39,7 +39,7 @@ not a dashboard alert.
 ## The modifier surface, matched
 
 The whole of Sigma's field-modifier vocabulary lands on the json rule's
-predicate layer (see [rules](rules)):
+predicate layer (see [rules](rules.md)):
 
 - The string ops `contains`/`startswith`/`endswith`, the regexp `re`, the
   numeric `lt`/`le`/`gt`/`ge`, and `cidr` membership are all `op:` values.
@@ -76,7 +76,7 @@ Honesty section... Sigma assumes a SIEM, and Baphomet is not one.
   names by hand or shape your ingest to match.
 - **Correlation rules.** Sigma's newer correlation kind... `event_count`,
   `value_count`, `temporal`, `temporal_ordered`... maps in spirit onto the
-  `distinct` counting, the [marks](rules), and `sequence`, but nothing stitches
+  `distinct` counting, the [marks](rules.md), and `sequence`, but nothing stitches
   a correlation and its referenced base rules together automatically. You build
   the pieces by hand.
 - **A data lake.** Sigma queries stored history; Baphomet matches a live
@@ -107,7 +107,7 @@ supported log source the translation is mechanical.
    is naturally a detection rule... `detection_var: [ SRC ]`, writing
    `sighting`/`sighted` to EVE and banishing nobody. Name a `ban_var` instead
    to turn the signature into a ban. This is the one real choice the port asks,
-   the same as coming from [sagan](sagan).
+   the same as coming from [sagan](sagan.md).
 6. **Add tests and verify.** Paste sample lines into a `tests:` block, then
    `baphomet test_line` pokes single lines at a draft and `baphomet
    check_rules` runs the embedded tests, refusing to load a rule that fails its
@@ -115,5 +115,5 @@ supported log source the translation is mechanical.
 
 An automated `sigma2rule` converter is a future direction, but its ceiling is
 log-source coverage, not the rule language, which already speaks Sigma. See
-[rules](rules) to write one, [eve](eve) for the sighting the detection form
-emits, and [rules-catalog](rules-catalog) for what already ships.
+[rules](rules.md) to write one, [eve](eve.md) for the sighting the detection form
+emits, and [rules-catalog](rules-catalog.md) for what already ships.

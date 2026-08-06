@@ -1,6 +1,6 @@
 ---
 # Matches wu-ftpd failed logins and PAM authentication failures. Based on
-# the fail2ban wuftpd filter, translated to Baphomet and simplified.
+# the fail2ban wuftpd filter, translated to Baphomet.
 rev: 2
 msg: "[WUFTPD] login failure"
 severity: high

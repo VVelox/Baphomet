@@ -1,6 +1,6 @@
 ---
 # Matches exim spam and content rejections in the exim mainlog. Based on
-# the fail2ban exim-spam filter, translated to Baphomet and simplified.
+# the fail2ban exim-spam filter, translated to Baphomet.
 # exim writes its own mainlog format, so this is a raw rule and every
 # regexp leads with the mainlog timestamp shape. The fail2ban honeypot
 # jail parameter is generalized to any recipient here, since Baphomet has

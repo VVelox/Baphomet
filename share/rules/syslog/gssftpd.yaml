@@ -1,6 +1,6 @@
 ---
 # Matches gssftp repeated login failures. Based on the fail2ban gssftpd
-# filter, translated to Baphomet and simplified.
+# filter, translated to Baphomet.
 rev: 2
 msg: "[GSSFTPD] login failure"
 severity: high

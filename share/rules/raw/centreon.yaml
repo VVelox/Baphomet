@@ -1,6 +1,6 @@
 ---
 # Matches Centreon Web authentication failures in login.log. Based on the
-# fail2ban centreon filter, translated to Baphomet and simplified.
+# fail2ban centreon filter, translated to Baphomet.
 # Centreon leads each line with its own YYYY-MM-DD HH:MM:SS timestamp
 # followed by pipe-delimited fields, so this is a raw rule anchored on
 # that shape.

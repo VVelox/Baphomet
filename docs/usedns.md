@@ -4,9 +4,8 @@ Some daemons log a hostname where an offense wants an address... PAM's
 rhost above all, whatever the client claimed, and mysqld when it resolves
 clients itself. Ereshkigal banishes addresses, not names, so what becomes
 of a hostname offender... a `ban_var` value that is not an IP... is the
-`usedns` setting. This page is its own because the resolve modes are a
-security decision with real teeth, and the reasoning belongs next to the
-knobs.
+`usedns` setting. The resolve modes are a security decision with real
+teeth, so the reasoning sits here next to the knobs.
 
 ## The knobs
 
@@ -60,14 +59,14 @@ The fences:
 
 A banish that came through a name carries `hostname` beside `ip` in its
 EVE event, so the chain of custody from name to address is on the record.
-See [eve](eve). fail2ban's `raw` mode... hand the name over verbatim...
+See [eve](eve.md). fail2ban's `raw` mode... hand the name over verbatim...
 does not exist here, because the other side does not take names.
 
 ## The other direction... reverse_dns
 
-The [`reverse_dns` rule gate](rules) is the other direction... PTR lookups
+The [`reverse_dns` rule gate](rules.md) is the other direction... PTR lookups
 refining a match rather than resolving an offender... and rides its own
 consent, `enable_rdns` (with its own `rdns_timeout`), on by default since
 a gate can only veto a count, never aim one. The two are deliberately
-separate switches. See [configuration](configuration) for those two
+separate switches. See [configuration](configuration.md) for those two
 settings.

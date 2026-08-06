@@ -159,8 +159,8 @@ is( $authed->{enable_auth}, 1, 'enable_auth read as 1' );
 is_deeply( $authed->{authed_users},  ['alice'], 'authed_users read' );
 is_deeply( $authed->{authed_groups}, ['wheel'], 'authed_groups read' );
 
-# the Neti gate is now a JSONUnix permission policy... no policy when auth is
-# off, so the manager spawns as it always did
+# the Neti gate is a JSONUnix permission policy... no policy when auth is
+# off, so the manager spawns ungated
 write_config('');
 my $plain = App::Baphomet->new( 'config' => $dir . '/config.toml' );
 is( $plain->{enable_auth}, 0, 'enable_auth defaults off' );

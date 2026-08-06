@@ -7,7 +7,7 @@ assessment, vulnerability detection, and active response bolted alongside.
 Baphomet is not that. But cut Wazuh down to the one thing it does with a log
 line... decode it, match it against rules, and raise an alert with a
 severity... and that stage, Wazuh's `analysisd`, is what Baphomet's log
-analysis engine is (see [log-analysis](log-analysis)). Run in eve mode it
+analysis engine is (see [log-analysis](log-analysis.md)). Run in eve mode it
 reads a stream against signatures and emits alerts exactly as analysisd does.
 
 Wazuh (the modern fork of OSSEC) differs from Sagan in one way that matters
@@ -40,7 +40,7 @@ alert. The rest of the platform has no counterpart here, by charter.
 | `<if_matched_sid>` + `<frequency>` + `<timeframe>` | per-rule `max_score` / `find_time`, under `allow_per_rule_thresholds` |
 | `<same_source_ip>`, `<different_url>`, ... | a staged rule's `per` key, or a mark's `var` / `value_var` |
 | a CDB `<list>` lookup | the `namtar_list` gate (boolean membership) |
-| `alerts.json` | the EVE stream ([eve](eve)) |
+| `alerts.json` | the EVE stream ([eve](eve.md)) |
 | active response (`firewall-drop`) | Ereshkigal's kur backends... the ban itself |
 | the agent / manager / indexer / dashboard | no counterpart... Baphomet follows log files, it is not a fleet |
 
@@ -85,10 +85,10 @@ platform and Baphomet is one program in a pair.
 ## Porting a rule
 
 A Wazuh rule is XML in a `<group>` block, and a log rule ports by hand about as
-mechanically as a [sagan](sagan) or [fail2ban](fail2ban) one. Rules keyed on
+mechanically as a [sagan](sagan.md) or [fail2ban](fail2ban.md) one. Rules keyed on
 FIM, SCA, rootcheck, or a Windows/Sysmon decoder have no parser here and do not
 port... the reachable slice is the syslog, web-log, and JSON rules, the same
-ceiling as [sigma](sigma).
+ceiling as [sigma](sigma.md).
 
 | Wazuh option | becomes |
 | --- | --- |
@@ -116,5 +116,5 @@ let the kur's thresholds decide, and Ereshkigal does the firewall-drop.
 `baphomet check_rules` runs the embedded tests, refusing to load a rule that
 fails its own... the same guard `baphomet start` uses.
 
-See [rules](rules) to write one, [log-analysis](log-analysis) for the engine
-in full, and [rules-catalog](rules-catalog) for what already ships.
+See [rules](rules.md) to write one, [log-analysis](log-analysis.md) for the engine
+in full, and [rules-catalog](rules-catalog.md) for what already ships.

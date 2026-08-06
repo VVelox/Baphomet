@@ -1,5 +1,6 @@
 ---
-# Suricata alerts classified "web-application-activity" (access to a potentially vulnerable web application), per eve.json. One of the
+# Suricata alerts classified "web-application-activity" (access to a
+# potentially vulnerable web application), per eve.json. One of the
 # per-class Suricata rules... gates on the alert category. Pick the
 # classes you want to hit on. See rules-catalog.md.
 #

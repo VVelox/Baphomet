@@ -1,10 +1,9 @@
 #!perl
 
-# Unit tests for the per-tablet restore helpers that _load_state was broken
-# into. Each helper is driven directly with a stubbed _read_tablet feeding it
-# canned lines, so a single tablet's parsing and pruning is exercised in
-# isolation... the full round trip through checkpoint/_load_state lives in
-# t/state-tablets.t.
+# the per-tablet restore helpers, taken one at a time... each is driven
+# directly with a stubbed _read_tablet feeding it canned lines, so a single
+# tablet's parsing and pruning is proven in isolation. the full round trip
+# through checkpoint/_load_state lives in t/state-tablets.t
 
 use 5.006;
 use strict;
