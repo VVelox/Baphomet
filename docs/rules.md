@@ -415,8 +415,12 @@ written to EVE beside `msg` when set (see [eve](eve.md)):
   `.severity`. When a rule sets none, the config's `default_severity`
   (global/kur/watcher, see [configuration](configuration.md)) fills in; absent
   that too, the field is omitted.
-- `classtype` — a category string, the Snort/Sagan/Suricata classtype (e.g.
-  `brute-force`, `web-application-attack`, `trojan-activity`). Free-form.
+- `classtype` — the rule's class, the short Snort/Sagan/Suricata classtype slug
+  (e.g. `brute-force`, `web-application-attack`, `trojan-activity`). Emitted as
+  `.category`, in words rather than as the slug, the way Snort and Suricata keep
+  the slug in the rule and the description in their `classification.config`...
+  `misc-attack` reads downstream as `Misc Attack`. Free-form; a classtype
+  Baphomet's table does not know becomes its slug title-cased.
 - `references` — an array of URLs, CVE ids, or doc links.
 - `attack` — an array of MITRE ATT&CK technique ids (e.g. `T1110`).
 - `rev` — the rule's revision, a non-negative integer, Suricata's

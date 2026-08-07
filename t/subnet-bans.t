@@ -134,6 +134,14 @@ is( $banish->{bucket}{family}, 'v4',           'bucket family is v4' );
 is( $banish->{bucket}{cidr},   '65.49.1.0/24', 'bucket cidr' );
 is( $banish->{bucket}{prefix}, 24,             'bucket prefix' );
 is( $banish->{bucket}{score},  3,              'bucket score' );
+
+# the subnet judgment raced subnet_max_score, so that is the threshold on its
+# event... not the per-IP max_score of 100, which the same match context also
+# carries. the two crossings are scored against different numbers and each
+# event has to name its own
+is( $banish->{threshold}, 3, 'the subnet banish carries the subnet threshold' );
+my @sub_found = grep { $_->{event_type} eq 'found' } read_events();
+is( $sub_found[0]{threshold}, 100, 'while the per-IP found still carries the per-IP one' );
 is_deeply(
 	$banish->{bucket}{members},
 	[ '65.49.1.10', '65.49.1.20', '65.49.1.30' ],

@@ -89,6 +89,7 @@ rule = "syslog/sshd"
 log = "$dir/app.json"
 parser = "json"
 rule = "json/app"
+max_score = 7
 EOC
 	close($cfg);
 	return;
@@ -152,12 +153,19 @@ like( $f->{timestamp}, qr/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'ISO8601 timest
 is( $f->{path},           $dir . '/log',                                             'path is the source file' );
 is( $f->{raw},            'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'raw line' );
 is( $f->{found}{SRC},     '9.9.9.9',                                                 'found carries the check data' );
-is( $f->{parsed}{daemon}, 'sshd',        'parsed carries the parser output' );
-is( $f->{score},          1,             'score on the first found is 1' );
-is( $found[1]{score},     2,             'score on the second found is 2' );
+is( $f->{parsed}{daemon}, 'sshd', 'parsed carries the parser output' );
+is( $f->{score},          1,      'score on the first found is 1' );
+is( $found[1]{score},     2,      'score on the second found is 2' );
+
+# the threshold the score is racing rides beside it, so a reader never has to
+# resolve the watcher-over-kur-over-global layers out of the config to know
+# whether a score of 2 is nearly a ban or nowhere near one
+is( $f->{threshold},      3,             'threshold is the effective max_score' );
+is( $found[1]{threshold}, 3,             'and on every found, not just the first' );
 is( $f->{msg},            'syslog/sshd', 'msg falls back to the rule name when the rule sets none' );
 ok( !exists( $f->{severity} ),   'severity absent when the rule sets none and no default_severity' );
-ok( !exists( $f->{classtype} ),  'classtype absent when the rule sets none' );
+ok( !exists( $f->{category} ),   'category absent when the rule sets no classtype' );
+ok( !exists( $f->{classtype} ),  'and the slug itself is never emitted, the category standing alone' );
 ok( !exists( $f->{references} ), 'references absent when the rule sets none' );
 ok( !exists( $f->{attack} ),     'attack absent when the rule sets none' );
 
@@ -176,13 +184,14 @@ ok( !exists( $f->{rule}{def}{tests} ),          'rule tests stripped for space' 
 # the banish event... it stands for the crossing line whole, carrying the
 # same raw/parsed/found the suppressed found would have
 my $c = $banish[0];
-is( $c->{event_type}, 'banish',  'banish event_type' );
-is( $c->{ip},         '9.9.9.9', 'banish ip' );
-is( $c->{ban_time},   300,       'banish ban_time' );
-is( $c->{score},      3,         'banish score' );
-is( $c->{found}{SRC}, '9.9.9.9', 'banish carries the triggering found' );
-is( $c->{raw},  'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'banish carries the raw line' );
-is( $c->{path}, $dir . '/log',                                             'banish carries the source path' );
+is( $c->{event_type},  'banish',  'banish event_type' );
+is( $c->{ip},          '9.9.9.9', 'banish ip' );
+is( $c->{ban_time},    300,       'banish ban_time' );
+is( $c->{score},       3,         'banish score' );
+is( $c->{threshold},   3,         'banish threshold, the score it had to reach' );
+is( $c->{found}{SRC},  '9.9.9.9', 'banish carries the triggering found' );
+is( $c->{raw},         'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'banish carries the raw line' );
+is( $c->{path},        $dir . '/log',                                             'banish carries the source path' );
 is( $found[-1]{score}, 2, 'the last found is the second hit, not the banishing third' );
 
 #
@@ -197,13 +206,40 @@ is( $json_found->{parsed}{event}, 'authfail',                     'parsed holds 
 is( $json_found->{parsed}{src},   '2.2.2.2',                      'including the source field' );
 is( $json_found->{msg},           '[APP] authentication failure', 'the rule\'s own msg reaches the EVE event' );
 is( $json_found->{severity},      'high',                         'the rule severity reaches EVE' );
-is( $json_found->{classtype},     'unsuccessful-user',            'the rule classtype reaches EVE' );
+
+# the rule carries the short classtype and the event carries the prose, the way
+# Suricata's classification.config supplies it... so the slug never reaches a
+# reader and the field lines up with a Suricata event of the same class
+is(
+	$json_found->{category},
+	'Unsuccessful User Privilege Gain',
+	'the classtype reaches EVE as its Suricata category, in words'
+);
+ok( !exists( $json_found->{classtype} ), 'with the slug itself left out, the category being the lone field' );
+
 is_deeply( $json_found->{references}, ['https://example.com/app-auth'], 'references reach EVE as an array' );
 is_deeply( $json_found->{attack},     ['T1110'],                        'attack reaches EVE as an array' );
 is( $json_found->{gid}, 1,                        'json rule gid is 1 from the override dir' );
 is( $json_found->{sid}, expected_sid('json/app'), 'json rule sid is the hash of its name' );
 isnt( $json_found->{sid}, $f->{sid}, 'a different rule name hashes to a different sid' );
 is( $json_found->{rev}, 5, 'the rule rev reaches EVE' );
+
+# this watcher sets its own max_score of 7 over the global 3, so the threshold
+# on its events proves the field is the resolved effective number and not
+# whatever the top of the config happened to say
+is( $json_found->{threshold}, 7, 'the threshold is the watcher\'s own, not the global max_score' );
+is( $json_found->{score},     1, 'with the score counted against it' );
+
+# a TOML integer stays a JSON integer... a threshold quoted as a string would
+# break arithmetic on the consumer's side, and the per-rule config table
+# validates its numbers as strings, so the coercion is load bearing
+my ($raw_line) = grep { /"threshold"/ } do {
+	open( my $rfh, '<', $dir . '/eve/eve.json' ) || die($!);
+	my @all = <$rfh>;
+	close($rfh);
+	@all;
+};
+like( $raw_line, qr/"threshold":\s*\d/, 'threshold is written as a JSON number, not a quoted string' );
 
 #
 # the envelope hash doubles as the per-line scratch space a rule memoises its
@@ -215,11 +251,12 @@ my $scratch = {
 	'format'               => 'bsd_syslog',
 	'message'              => 'a message',
 	'daemon'               => 'sshd',
-	'_message_json_fields' => { 'evt' => 'fail' },
+	'_message_json_fields' => { 'evt'  => 'fail' },
 	'_munge_fields'        => { 'sshd' => { 'ssh_user' => 'bob' } },
 };
 my $cleaned = App::Baphomet::Galla::_eve_parsed( undef, $scratch );
-is_deeply( [ sort grep { /^_/ } keys %{$cleaned} ], [], 'a rule\'s per-line caches are kept out of the EVE parsed field' );
+is_deeply( [ sort grep { /^_/ } keys %{$cleaned} ],
+	[], 'a rule\'s per-line caches are kept out of the EVE parsed field' );
 is( $cleaned->{message}, 'a message', 'while the parser\'s own fields survive' );
 is( $cleaned->{daemon},  'sshd',      'all of them' );
 ok( exists( $scratch->{_munge_fields} ), 'and the live parsed line keeps its cache, the copy being the event\'s' );

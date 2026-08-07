@@ -3,13 +3,13 @@ package App::Baphomet::Rules::Base;
 use 5.006;
 use strict;
 use warnings;
-use Regexp::IPv4          qw( $IPv4_re );
-use Regexp::IPv6          qw( $IPv6_re );
-use MIME::Base64          qw( decode_base64 );
-use Digest::MD5           qw( md5 );
-use Encode                ();
-use App::Baphomet::Parser ();
-use App::Baphomet::Config qw( compile_ignore_ips ip_ignored );
+use Regexp::IPv4              qw( $IPv4_re );
+use Regexp::IPv6              qw( $IPv6_re );
+use MIME::Base64              qw( decode_base64 );
+use Digest::MD5               qw( md5 );
+use Encode                    ();
+use App::Baphomet::Parser     ();
+use App::Baphomet::Config     qw( compile_ignore_ips ip_ignored );
 use App::Baphomet::Marks      ();
 use App::Baphomet::RDNS       ();
 use App::Baphomet::Geo        ();
@@ -170,9 +170,14 @@ when set:
           C<default_severity> (global/kur/watcher) fills in, and absent that
           too the field is omitted.
 
-    - classtype :: A category string, the Snort/Sagan/Suricata classtype...
-          emitted as EVE C<classtype>. Free-form; the shipped suricata rules
-          carry their Suricata class here.
+    - classtype :: The rule's class, the short Snort/Sagan/Suricata classtype
+          slug... C<brute-force>, C<misc-attack>. Emitted as the EVE
+          C<category>, in words rather than as the slug: the way Snort and
+          Suricata carry the slug in the rule and the description in their
+          C<classification.config>, so C<misc-attack> reads downstream as
+          C<Misc Attack>. Free-form; the shipped suricata rules carry their
+          Suricata class here, and one the table does not know becomes its
+          slug title-cased. See L</category>.
 
     - references :: An array of URLs, CVE ids, or doc links. Emitted as EVE
           C<references>.
@@ -745,8 +750,9 @@ sub severity {
 
 =head2 classtype
 
-Returns the rule's classtype, a category string in the Snort/Sagan/Suricata
-sense, or undef when unset. Emitted to EVE as-is.
+Returns the rule's classtype, the short class slug in the Snort/Sagan/Suricata
+sense, or undef when unset. What reaches EVE is L</category>, this put into
+words.
 
     my $classtype = $rule->classtype;
 
@@ -757,6 +763,113 @@ sub classtype {
 
 	return $self->{def}{classtype};
 }
+
+# the human-readable description of each classtype, which is what Suricata and
+# Snort put in a event's category field... their rules carry the short slug and
+# their classification.config holds the prose, so a consumer never sees the
+# slug. Baphomet has no classification.config to read, so the table is here.
+#
+# the Snort and Suricata entries are their canonical wording, so a Baphomet
+# event and a Suricata event of the same class read identically in one SIEM.
+# the rest are classtypes Baphomet adds for things a network IDS has no reason
+# to name... a log monitor sees configuration changes and program errors where
+# Suricata sees packets. anything absent falls to a title-cased slug, so a site
+# inventing its own classtype gets a sensible category with no edit here
+my %classtype_category = (
+	# Snort, priority 1
+	'attempted-admin'        => 'Attempted Administrator Privilege Gain',
+	'attempted-user'         => 'Attempted User Privilege Gain',
+	'inappropriate-content'  => 'Inappropriate Content was Detected',
+	'policy-violation'       => 'Potential Corporate Privacy Violation',
+	'shellcode-detect'       => 'Executable code was detected',
+	'successful-admin'       => 'Successful Administrator Privilege Gain',
+	'successful-user'        => 'Successful User Privilege Gain',
+	'trojan-activity'        => 'A Network Trojan was detected',
+	'unsuccessful-user'      => 'Unsuccessful User Privilege Gain',
+	'web-application-attack' => 'Web Application Attack',
+	# Snort, priority 2
+	'attempted-dos'                  => 'Attempted Denial of Service',
+	'attempted-recon'                => 'Attempted Information Leak',
+	'bad-unknown'                    => 'Potentially Bad Traffic',
+	'default-login-attempt'          => 'Attempt to login by a default username and password',
+	'denial-of-service'              => 'Detection of a Denial of Service Attack',
+	'misc-attack'                    => 'Misc Attack',
+	'non-standard-protocol'          => 'Detection of a non-standard protocol or event',
+	'rpc-portmap-decode'             => 'Decode of an RPC Query',
+	'successful-dos'                 => 'Denial of Service',
+	'successful-recon-largescale'    => 'Large Scale Information Leak',
+	'successful-recon-limited'       => 'Information Leak',
+	'suspicious-filename-detect'     => 'A suspicious filename was detected',
+	'suspicious-login'               => 'An attempted login using a suspicious username was detected',
+	'system-call-detect'             => 'A system call was detected',
+	'unusual-client-port-connection' => 'A client was using an unusual port',
+	'web-application-activity'       => 'Access to a potentially vulnerable web application',
+	# Snort, priority 3
+	'icmp-event'              => 'Generic ICMP event',
+	'misc-activity'           => 'Misc activity',
+	'network-scan'            => 'Detection of a Network Scan',
+	'not-suspicious'          => 'Not Suspicious Traffic',
+	'protocol-command-decode' => 'Generic Protocol Command Decode',
+	'string-detect'           => 'A suspicious string was detected',
+	'unknown'                 => 'Unknown Traffic',
+	# Snort, priority 4
+	'tcp-connection' => 'A TCP connection was detected',
+	# Suricata's own additions, as the ET ruleset uses them
+	'coin-mining'         => 'Crypto Currency Mining Activity Detected',
+	'command-and-control' => 'Malware Command and Control Activity Detected',
+	'credential-theft'    => 'Successful Credential Theft Detected',
+	'domain-c2'           => 'Domain Observed Used for C2 Detected',
+	'exploit-kit'         => 'Exploit Kit Activity Detected',
+	'external-ip-check'   => 'Device Retrieving External IP Address Detected',
+	'pup-activity'        => 'Possibly Unwanted Program Detected',
+	'social-engineering'  => 'Possible Social Engineering Attempted',
+	'targeted-activity'   => 'Targeted Malicious Activity was Detected',
+	# Baphomet's own, for what a log says and a packet does not
+	'blocked'              => 'Traffic the Sensor Blocked',
+	'brute-force'          => 'Brute Force Attack',
+	'configuration-change' => 'Configuration Change',
+	'correlated-attack'    => 'Correlated Attack',
+	'exploit-attempt'      => 'Exploit Attempt',
+	'malware'              => 'Malware Activity Detected',
+	'network-event'        => 'Network Event',
+	'program-error'        => 'Program Error',
+	'suspicious-traffic'   => 'Suspicious Traffic',
+	'system-error'         => 'System Error',
+	'system-event'         => 'System Event',
+	'unsuccessful-admin'   => 'Unsuccessful Administrator Privilege Gain',
+);
+
+=head2 category
+
+Returns the rule's classtype as the human-readable description Suricata and
+Snort write to an event's C<category>, or undef when the rule sets no
+classtype.
+
+The rule file carries the short slug, the way a Snort or Suricata rule does,
+and the event carries the prose their C<classification.config> would have
+supplied... so C<classtype: misc-attack> reads as C<"category" : "Misc Attack">
+downstream and sorts alongside a Suricata event of the same class. A classtype
+the table does not know, a site's own, becomes its slug title-cased with the
+hyphens taken out, so it is still readable and still needs no code change.
+
+    my $category = $rule->category;
+
+=cut
+
+sub category {
+	my ($self) = @_;
+
+	my $classtype = $self->{def}{classtype};
+	if ( !defined($classtype) ) {
+		return undef;
+	}
+
+	if ( defined( $classtype_category{$classtype} ) ) {
+		return $classtype_category{$classtype};
+	}
+
+	return join( ' ', map { ucfirst($_) } split( /-+/, $classtype ) );
+} ## end sub category
 
 =head2 references
 
@@ -926,7 +1039,7 @@ sub mark_gates {
 	}
 
 	return $self->{_mark_gates};
-}
+} ## end sub mark_gates
 
 =head2 mark_only
 
@@ -1564,8 +1677,10 @@ sub run_tests {
 			# the offender is the whole assertion
 			if ( $sort eq 'injection' && ref( $test->{data} ) ne 'HASH' ) {
 				$results->{fail}++;
-				push( @{ $results->{failures} },
-					$where . ' has no data block naming the offender the forged line must still aim at' );
+				push(
+					@{ $results->{failures} },
+					$where . ' has no data block naming the offender the forged line must still aim at'
+				);
 				next;
 			}
 
@@ -1573,7 +1688,8 @@ sub run_tests {
 			# never runs... the very silence this machinery exists to end
 			my $bad_key = 0;
 			foreach my $test_key ( keys( %{$test} ) ) {
-				if ( $test_key !~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|dns|geo)$/ )
+				if ( $test_key
+					!~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|dns|geo)$/ )
 				{
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
@@ -1639,7 +1755,7 @@ sub run_tests {
 			my $is_detection     = $self->is_detection;
 			my $rdns_gate        = defined($dns_resolver) ? $self->reverse_dns : undef;
 			my $rdns_has_varless = defined($rdns_gate) && grep { !defined( $_->{var} ) } @{$rdns_gate};
-			my $geo_varless      = defined($geo_gate) && !defined( $geo_gate->{vars} );
+			my $geo_varless      = defined($geo_gate)  && !defined( $geo_gate->{vars} );
 
 			my @found_all;
 			my $entry_failed = 0;
@@ -1651,11 +1767,13 @@ sub run_tests {
 					foreach my $entry_key ( keys( %{$message_entry} ) ) {
 						if ( $entry_key !~ /^(?:message|advance|at|found_after|marks_after)$/ ) {
 							$results->{fail}++;
-							push( @{ $results->{failures} },
-								$where . ' has a messages entry with the unknown key "' . $entry_key . '"' );
+							push(
+								@{ $results->{failures} },
+								$where . ' has a messages entry with the unknown key "' . $entry_key . '"'
+							);
 							$entry_failed = 1;
 						}
-					}
+					} ## end foreach my $entry_key ( keys( %{$message_entry}...))
 					if ( !$entry_failed && !defined( $message_entry->{message} ) ) {
 						$results->{fail}++;
 						push( @{ $results->{failures} }, $where . ' has a messages entry hash with no message' );
@@ -1696,8 +1814,8 @@ sub run_tests {
 				# the line context a staged rule's skip bound reads... the
 				# message index is the sequence with in the test entry, and
 				# now the virtual clock, so windows prove deterministically
-				my $found = $self->check( $parsed, $test_scope,
-					{ 'seq' => $message_int, 'source' => '', 'now' => $clock } );
+				my $found
+					= $self->check( $parsed, $test_scope, { 'seq' => $message_int, 'source' => '', 'now' => $clock } );
 				$message_int++;
 				if ( defined($found) ) {
 					foreach my $one ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () ) {
@@ -1728,7 +1846,7 @@ sub run_tests {
 							)
 						{
 							next;
-						}
+						} ## end if ( !App::Baphomet::Offense::data_gate_pass...)
 						# offenders as the galla resolves them, sans the
 						# usedns/internal filtering no test needs... a
 						# detection rule has none
@@ -1751,18 +1869,20 @@ sub run_tests {
 							$gate = sub {
 								my ($ip) = @_;
 								if ( $rdns_has_varless
-									&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
+									&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip )
+									)
 								{
 									return 0;
 								}
 								if ( $geo_varless
-									&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
+									&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip )
+									)
 								{
 									return 0;
 								}
 								return 1;
-							};
-						} ## end if ( $rdns_has_varless...)
+							}; ## end $gate = sub
+						} ## end if ( $rdns_has_varless || $geo_varless )
 
 						# the survivor filter and the branding of survivors run
 						# through the shared App::Baphomet::Offense core, the
@@ -1781,7 +1901,7 @@ sub run_tests {
 							next;
 						}
 						push( @found_all, $one );
-					} ## end foreach my $one ( $found, ref( $found->{more} ...))
+					} ## end foreach my $one ( $found, ref( $found->{more} )...)
 				} ## end if ( defined($found) )
 
 				# the mid-run assertions a hash entry carries
@@ -1800,13 +1920,17 @@ sub run_tests {
 					$entry_failed = 1;
 					last;
 				} ## end if ( defined($found_after) && scalar(@found_all...))
-				if ( defined($marks_after)
-					&& $self->_test_marks_assert( \%marks_store, $marks_after, $clock,
-						$where . ' after message ' . ( $message_int - 1 ), $results ) )
+				if (
+					defined($marks_after)
+					&& $self->_test_marks_assert(
+						\%marks_store, $marks_after, $clock,
+						$where . ' after message ' . ( $message_int - 1 ), $results
+					)
+					)
 				{
 					$entry_failed = 1;
 					last;
-				}
+				} ## end if ( defined($marks_after) && $self->_test_marks_assert...)
 			} ## end foreach my $message_entry (@messages)
 			if ($entry_failed) {
 				next;
@@ -1822,7 +1946,7 @@ sub run_tests {
 			# would have caught it
 			my $expected_found
 				= defined( $test->{found} ) ? $test->{found} : ( $sort eq 'negative' ? 0 : 1 );
-			my $got_found      = scalar(@found_all);
+			my $got_found = scalar(@found_all);
 
 			if ( $got_found != $expected_found ) {
 				my $last_message = ref( $messages[-1] ) eq 'HASH' ? $messages[-1]{message} : $messages[-1];
@@ -1878,7 +2002,7 @@ sub run_tests {
 				} ## end foreach my $key ( @{ $test->{undefed} } )
 			} ## end if ( defined( $test->{undefed} ) && ref( $test...))
 
-			if (  !$data_failed
+			if (   !$data_failed
 				&& defined( $test->{marks_expected} )
 				&& $self->_test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results ) )
 			{
@@ -1889,7 +2013,7 @@ sub run_tests {
 				$results->{pass}++;
 			}
 		} ## end foreach my $test ( @{ $tests->{$sort} } )
-	} ## end foreach my $sort ( 'positive', 'negative' )
+	} ## end foreach my $sort ( 'positive', 'negative', 'injection')
 
 	return $results;
 } ## end sub run_tests
@@ -1925,11 +2049,13 @@ sub _test_dns_resolver {
 				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
-					$where . ' dns ' . $fixture_key . ' "' . $subject
+					$where . ' dns '
+						. $fixture_key . ' "'
+						. $subject
 						. '" is not a list of names/addresses, nxdomain, or servfail'
 				);
 				return undef;
-			}
+			} ## end if ( ref($answer) ne 'ARRAY' && ( ref($answer...)))
 		} ## end foreach my $subject ( keys( %{ $fixture->{$fixture_key...}}))
 	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
 
@@ -1943,7 +2069,7 @@ sub _test_dns_resolver {
 			return [];
 		}
 		return $answer;
-	};
+	}; ## end $answer_for = sub
 
 	return {
 		'reverse' => sub { return $answer_for->( $fixture->{ptr},     $_[0] ); },
@@ -1977,7 +2103,7 @@ sub _test_geo_locator {
 			push( @{ $results->{failures} }, $where . ' geo ' . $fixture_key . ' is not a hash' );
 			return undef;
 		}
-	}
+	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
 	foreach my $address ( keys( %{ $fixture->{countries} || {} } ) ) {
 		my $code = $fixture->{countries}{$address};
 		if ( ref($code) ne '' || $code !~ /^(?:[a-zA-Z]{2}|unknown)$/ ) {
@@ -1988,7 +2114,7 @@ sub _test_geo_locator {
 			);
 			return undef;
 		}
-	}
+	} ## end foreach my $address ( keys( %{ $fixture->{countries...}}))
 	foreach my $list_name ( keys( %{ $fixture->{lists} || {} } ) ) {
 		if ( ref( $fixture->{lists}{$list_name} ) ne 'ARRAY' ) {
 			$results->{fail}++;
@@ -2043,16 +2169,18 @@ sub _test_marks_seed {
 		foreach my $seed_key ( keys( %{$seed} ) ) {
 			if ( $seed_key !~ /^(?:name|key|value|set|ttl)$/ ) {
 				$results->{fail}++;
-				push( @{ $results->{failures} },
-					$where . ' has a marks_before entry with the unknown key "' . $seed_key . '"' );
+				push(
+					@{ $results->{failures} },
+					$where . ' has a marks_before entry with the unknown key "' . $seed_key . '"'
+				);
 				return 1;
 			}
-		}
+		} ## end foreach my $seed_key ( keys( %{$seed} ) )
 		my $key = _test_mark_store_key( $seed->{key} );
 		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
 		$store->{ $seed->{name} }{$key} = {
 			'expires' => $clock + $ttl,
-			'set'     => defined( $seed->{set} ) ? $seed->{set} : $clock,
+			'set' => defined( $seed->{set} ) ? $seed->{set} : $clock,
 			defined( $seed->{value} ) ? ( 'value' => $seed->{value} ) : (),
 		};
 	} ## end foreach my $seed ( @{$seeds} )
@@ -2084,12 +2212,14 @@ sub _test_marks_assert {
 		foreach my $expect_key ( keys( %{$expect} ) ) {
 			if ( $expect_key !~ /^(?:name|key|value|absent)$/ ) {
 				$results->{fail}++;
-				push( @{ $results->{failures} },
-					$where . ' has a marks assertion with the unknown key "' . $expect_key . '"' );
+				push(
+					@{ $results->{failures} },
+					$where . ' has a marks assertion with the unknown key "' . $expect_key . '"'
+				);
 				$failed     = 1;
 				$assert_bad = 1;
 			}
-		}
+		} ## end foreach my $expect_key ( keys( %{$expect} ) )
 		if ($assert_bad) {
 			next;
 		}
@@ -2100,16 +2230,20 @@ sub _test_marks_assert {
 		if ( $expect->{absent} ) {
 			if ($live) {
 				$results->{fail}++;
-				push( @{ $results->{failures} },
-					$where . ' expected no live mark ' . $expect->{name} . ' on "' . $shown . '" but one is' );
+				push(
+					@{ $results->{failures} },
+					$where . ' expected no live mark ' . $expect->{name} . ' on "' . $shown . '" but one is'
+				);
 				$failed = 1;
 			}
 			next;
-		}
+		} ## end if ( $expect->{absent} )
 		if ( !$live ) {
 			$results->{fail}++;
-			push( @{ $results->{failures} },
-				$where . ' expected a live mark ' . $expect->{name} . ' on "' . $shown . '" but found none' );
+			push(
+				@{ $results->{failures} },
+				$where . ' expected a live mark ' . $expect->{name} . ' on "' . $shown . '" but found none'
+			);
 			$failed = 1;
 			next;
 		}
@@ -2129,7 +2263,7 @@ sub _test_marks_assert {
 					. ( defined( $mark->{value} ) ? '"' . $mark->{value} . '"' : 'none' )
 			);
 			$failed = 1;
-		}
+		} ## end if ( defined( $expect->{value} ) && ( !defined...))
 	} ## end foreach my $expect ( @{$expected} )
 
 	return $failed;
@@ -2742,7 +2876,7 @@ sub _detect_injection_shape {
 
 		$self->{needs_injection_test} = 'the offender of "' . $re . '"';
 		return;
-	} ## end foreach my $item ( @{ $def->{message_regexp}...})
+	} ## end foreach my $item ( @{ $def->{message_regexp} ||...})
 
 	return;
 } ## end sub _detect_injection_shape
@@ -2930,7 +3064,7 @@ sub _check_stages {
 		$scope = '';
 	}
 	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
-	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} ) ? $line_ctx->{seq} : undef;
+	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} )     ? $line_ctx->{seq} : undef;
 
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
 		if ( $message =~ $ignore ) {
@@ -3277,7 +3411,7 @@ sub _expand_token {
 		push( @{ $aliases->{$token} }, $alias );
 
 		return '(?<' . $alias . '>' . $tokens{$token} . ')';
-	} ## end if ( defined( $tokens{$token...}))
+	} ## end if ( defined( $tokens{$token} ) )
 
 	# a primitive fragment... non-capturing, so it may repeat freely and
 	# nest inside a caller's own capture without aliasing. resolved lazily
@@ -3596,18 +3730,19 @@ our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt l
 # op_code so the per-line path dispatches straight to a static code ref
 # instead of re-matching the op name per candidate
 my %PREDICATE_NUM_OPS = (
-	'gt' => sub { return ( $_[0] > $_[1] ) ? 1 : 0; },
-	'lt' => sub { return ( $_[0] < $_[1] ) ? 1 : 0; },
+	'gt' => sub { return ( $_[0] > $_[1] )  ? 1 : 0; },
+	'lt' => sub { return ( $_[0] < $_[1] )  ? 1 : 0; },
 	'ge' => sub { return ( $_[0] >= $_[1] ) ? 1 : 0; },
 	'le' => sub { return ( $_[0] <= $_[1] ) ? 1 : 0; },
 );
 my %PREDICATE_STR_OPS = (
-	'eq'         => sub { return ( $_[0] eq $_[1] )              ? 1 : 0; },
-	'contains'   => sub { return ( index( $_[0], $_[1] ) >= 0 )  ? 1 : 0; },
+	'eq'         => sub { return ( $_[0] eq $_[1] )                               ? 1 : 0; },
+	'contains'   => sub { return ( index( $_[0], $_[1] ) >= 0 )                   ? 1 : 0; },
 	'startswith' => sub { return ( substr( $_[0], 0, length( $_[1] ) ) eq $_[1] ) ? 1 : 0; },
 	'endswith'   => sub {
-		return ( length( $_[1] ) <= length( $_[0] )
-				&& substr( $_[0], length( $_[0] ) - length( $_[1] ) ) eq $_[1] ) ? 1 : 0;
+		return ( length( $_[1] ) <= length( $_[0] ) && substr( $_[0], length( $_[0] ) - length( $_[1] ) ) eq $_[1] )
+			? 1
+			: 0;
 	},
 );
 
@@ -4420,7 +4555,7 @@ sub _eval_condition {
 		} elsif ( ( $hits + $remaining ) < $threshold ) {
 			return 0;
 		}
-	}
+	} ## end foreach my $name ( @{$names} )
 	return 0;
 } ## end sub _eval_condition
 

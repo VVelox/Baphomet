@@ -3,8 +3,9 @@ use 5.006;
 use strict;
 use warnings;
 use Test::More;
-use File::Temp qw( tempdir );
-use File::Path qw( make_path );
+use File::Temp    qw( tempdir );
+use File::Path    qw( make_path );
+use JSON::MaybeXS ();
 
 BEGIN {
 	eval { require Ereshkigal::Client; };
@@ -42,6 +43,8 @@ run_base_dir = "$dir/run"
 tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
+eve_log = "$dir/eve/eve.json"
+eve_enable = true
 
 [recidive]
 kur = "recidive"
@@ -62,7 +65,7 @@ open( $fh, '>', $dir . '/log' ) || die($!);
 close($fh);
 
 my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'sshd' );
-ok( defined($galla),          'galla with recidive built' );
+ok( defined($galla),               'galla with recidive built' );
 ok( defined( $galla->{recidive} ), 'recidive settings present' );
 is( $galla->{recidive}{kur}, 'recidive', 'recidive kur' );
 
@@ -84,10 +87,25 @@ is( scalar( grep { $_->{kur} eq 'recidive' } @sent ), 0, 'no escalation below th
 
 $galla->_ban_ip( '9.9.9.9', 300 );
 my @escalations = grep { $_->{kur} eq 'recidive' } @sent;
-is( scalar(@escalations), 1,          'escalated at the third banishment' );
-is( $escalations[0]{ip},  '9.9.9.9',  'the recidivist was escalated' );
-is( $escalations[0]{ban_time}, 0,     'with the recidive ban_time' );
-is( $galla->{stats}{recidivists}, 1,  'recidivists stat' );
+is( scalar(@escalations),         1,         'escalated at the third banishment' );
+is( $escalations[0]{ip},          '9.9.9.9', 'the recidivist was escalated' );
+is( $escalations[0]{ban_time},    0,         'with the recidive ban_time' );
+is( $galla->{stats}{recidivists}, 1,         'recidivists stat' );
+
+# the escalation is triggered by the ledger count rather than a line, so it has
+# no match context to draw a score and threshold from... it names its own, the
+# recidive gate's max_score, so the event reads without the config beside it
+my @escalation_events = do {
+	open( my $efh, '<', $dir . '/eve/eve.json' ) || die($!);
+	my @lines = <$efh>;
+	close($efh);
+	grep { $_->{recidive} } map { JSON::MaybeXS::decode_json($_) } @lines;
+};
+is( scalar(@escalation_events),       1,          'one recidive banish event' );
+is( $escalation_events[0]{ip},        '9.9.9.9',  'for the recidivist' );
+is( $escalation_events[0]{kur},       'recidive', 'naming the recidive kur' );
+is( $escalation_events[0]{count},     3,          'carrying the ledger count as its score' );
+is( $escalation_events[0]{threshold}, 3,          'and the recidive threshold that count had to reach' );
 
 # a different IP is counted separately
 $galla->_ban_ip( '8.8.8.8', 300 );
@@ -115,8 +133,8 @@ my $galla2 = App::Baphomet::Galla->new( config => $dir . '/config.toml', name =>
 $galla->_ban_ip( '7.7.7.7', 300 );
 $galla2->_ban_ip( '7.7.7.7', 300 );
 $galla2->_ban_ip( '7.7.7.7', 300 );
-is( scalar( grep { $_->{kur} eq 'recidive' && $_->{ip} eq '7.7.7.7' } @sent ),
-	1, 'the ledger is shared across gallas' );
+is( scalar( grep { $_->{kur} eq 'recidive' && $_->{ip} eq '7.7.7.7' } @sent ), 1,
+	'the ledger is shared across gallas' );
 
 #
 # recidive off still chisels the ledger, but never escalates

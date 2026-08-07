@@ -7,13 +7,13 @@ use base 'Error::Helper';
 use POE                                      qw( Wheel::FollowTail Wheel::Run );
 use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
-use File::Glob                       qw( bsd_glob );
-use JSON::MaybeXS                    qw( encode_json decode_json );
-use Encode                           ();
-use POSIX                            qw( strftime );
-use Socket                           qw( AF_INET AF_INET6 inet_pton );
-use Sys::Hostname                    ();
-use Ereshkigal::Client               ();
+use File::Glob                               qw( bsd_glob );
+use JSON::MaybeXS                            qw( encode_json decode_json );
+use Encode                                   ();
+use POSIX                                    qw( strftime );
+use Socket                                   qw( AF_INET AF_INET6 inet_pton );
+use Sys::Hostname                            ();
+use Ereshkigal::Client                       ();
 use App::Baphomet::Config
 	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
@@ -422,7 +422,7 @@ sub new {
 
 		$self->{watchers}{$watcher_name} = {
 			'is_journal'      => $is_journal,
-			'log_spec'        => $is_journal ? [] : [ watcher_logs($watcher) ],
+			'log_spec'        => $is_journal ? []                            : [ watcher_logs($watcher) ],
 			'journal_matches' => $is_journal ? [ watcher_journal($watcher) ] : [],
 			'parser'          => $parser,
 			'join'            => $join_compiled,
@@ -431,9 +431,8 @@ sub new {
 			'country_gates'   => $country_gates,
 			'namtar_gates'    => $namtar_gates,
 			'active_gates'    => $active_gates,
-			'rule_config' => resolve_rule_config(
-				$kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); }
-			),
+			'rule_config'     =>
+				resolve_rule_config( $kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); } ),
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
 			'wheels'          => {},
 			'journal_wheel'   => undef,
@@ -563,7 +562,7 @@ sub new {
 				# memoized on the set, so warming it warms it for all
 				$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
 			}
-		}
+		} ## end foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name...}})
 	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 	foreach my $set ( sort keys(%munge_reps) ) {
 		eval { $munge_reps{$set}->_munge_processor; };
@@ -915,7 +914,7 @@ sub _snapshot_positions {
 			if ( defined($offset) && defined($inode) ) {
 				$self->{positions}{$file} = { 'inode' => $inode, 'offset' => $offset };
 			}
-		}
+		} ## end foreach my $file ( keys( %{ $watcher->{wheels} ...}))
 	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 
 	# a position for a file gone from disk and no longer followed is dead
@@ -1423,7 +1422,7 @@ sub _eve_parsed {
 	}
 
 	return $parsed;
-}
+} ## end sub _eve_parsed
 
 # the raw match line for a EVE event... normally the log line verbatim,
 # but when that line is itself a JSON object or array it rides along
@@ -1532,9 +1531,12 @@ sub start_server {
 		'alias'       => $ident,
 		'on_error'    => sub {
 			my ( $operation, $errnum, $errstr ) = @_;
-			log_drek( 'err',
+			log_drek(
+				'err',
 				'socket error during ' . $operation . ' on "' . $socket . '"... ' . $errstr . ' (' . $errnum . ')',
-				undef, $ident );
+				undef,
+				$ident
+			);
 		},
 		'commands' => {
 			'status' => sub {
@@ -2134,7 +2136,7 @@ sub _process_record {
 		'seq'    => ++$self->{line_seqs}{$watcher_name}{$seq_source},
 		'source' => $seq_source,
 		# carried so the rules do not each call time per line
-		'now'    => $now,
+		'now' => $now,
 	};
 
 	# rules are checked in order and, under the default overlap of first,
@@ -2176,7 +2178,7 @@ sub _process_record {
 		# or from the config. observe_ignored, a watcher setting, lets observe
 		# mode also watch what ignore_ips would drop
 		my $rule_eve_only   = defined( $rule_cfg->{eve_only} ) ? $rule_cfg->{eve_only} : $rule_obj->eve_only;
-		my $eve_only        = defined($rule_eve_only) ? $rule_eve_only : $watcher->{settings}{eve_only};
+		my $eve_only        = defined($rule_eve_only)          ? $rule_eve_only        : $watcher->{settings}{eve_only};
 		my $observe_ignored = $watcher->{settings}{observe_ignored};
 
 		# a capture line may have completed several deferred offenses
@@ -2195,14 +2197,15 @@ sub _process_record {
 						sub { return $self->_mark_gates_pass( $gates, $one->{data}, undef, $now ); },
 						sub { return $self->_country_gate_pass( $country_gate, $one->{data}, undef ); },
 						sub { return $self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef ); },
-						sub { return $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef ); },
+						sub { return $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef ); }
+						,
 						sub { return $self->_active_time_pass( $active_gate, $one->{data}, $now ); },
 					]
 				)
 				)
 			{
 				next;
-			}
+			} ## end if ( !App::Baphomet::Offense::data_gate_pass...)
 
 			$self->_tick( 'matched', $watcher_name, $rule_name );
 
@@ -2221,8 +2224,8 @@ sub _process_record {
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
 				'severity'  => defined( $rule_cfg->{severity} ) ? $rule_cfg->{severity}
-				: defined( $rule_obj->severity )                ? $rule_obj->severity
-				:                                                 $watcher->{settings}{default_severity},
+				: defined( $rule_obj->severity ) ? $rule_obj->severity
+				:                                  $watcher->{settings}{default_severity},
 			};
 
 			# a ban_not_internal rule banishes the end of the flow that is
@@ -2312,10 +2315,10 @@ sub _process_record {
 					sub {
 						my ($ip) = @_;
 						return
-							     $self->_mark_gates_pass( $gates, $one->{data}, $ip, $now )
-							  && $self->_country_gate_pass( $country_gate, $one->{data}, $ip )
-							  && $self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip )
-							  && $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip );
+							   $self->_mark_gates_pass( $gates, $one->{data}, $ip, $now )
+							&& $self->_country_gate_pass( $country_gate, $one->{data}, $ip )
+							&& $self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip )
+							&& $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip );
 					}
 				);
 				if ( !$outcome->{fired} ) {
@@ -2345,7 +2348,7 @@ sub _process_record {
 							if ( !defined($score) && defined($registered) ) {
 								$score = $registered;
 							}
-						} ## end foreach my $ip (@survivors)
+						}
 						$self->_tick( 'demoted', $watcher_name, $rule_name );
 					} else {
 						# a firing non-mark_only rule consumes the line
@@ -2356,7 +2359,7 @@ sub _process_record {
 							if ( !defined($score) && defined($registered) ) {
 								$score = $registered;
 							}
-						} ## end foreach my $ip (@survivors)
+						}
 					} ## end else [ if ($demoted) ]
 				} ## end if ( !$mark_only )
 
@@ -2374,7 +2377,7 @@ sub _process_record {
 					# after the winner, so it keeps its found either way
 					my $event = ( $eve_only || ( $demoted && !$mark_only ) ) ? 'noted' : 'found';
 					$self->_eve_emit( $event, $fields );
-				} ## end if ( !$self->{result_terminal...})
+				} ## end if ( !$self->{result_terminal} )
 			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
@@ -2388,7 +2391,7 @@ sub _process_record {
 				$demoted = 1;
 			}
 			# overlap all just keeps going, every firing rule judging for real
-		}
+		} ## end if ($consumed)
 	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
 
 	return;
@@ -2437,17 +2440,25 @@ sub _eve_fields {
 		# the Suricata alert.gid/signature_id/rev analogues, always integers...
 		# gid 0 shipped / 1 override, sid the rule name's hash, rev the def's or
 		# 0 when unversioned
-		'gid'     => $context->{rule}->gid,
-		'sid'     => $context->{rule}->sid,
-		'rev'     => defined( $context->{rule}->rev ) ? $context->{rule}->rev : 0,
-		'rule'    => $context->{rule}->info,
-		defined( $context->{severity} )         ? ( 'severity'   => $context->{severity} )         : (),
-		defined( $context->{rule}->classtype )  ? ( 'classtype'  => $context->{rule}->classtype )  : (),
+		'gid'  => $context->{rule}->gid,
+		'sid'  => $context->{rule}->sid,
+		'rev'  => defined( $context->{rule}->rev ) ? $context->{rule}->rev : 0,
+		'rule' => $context->{rule}->info,
+		defined( $context->{severity} ) ? ( 'severity' => $context->{severity} ) : (),
+		# Suricata's alert.category, promoted to the top level... the rule
+		# carries the short classtype and the event carries the prose, so a
+		# reader never meets the slug and the field lines up with a Suricata
+		# event of the same class
+		defined( $context->{rule}->category )   ? ( 'category'   => $context->{rule}->category )   : (),
 		defined( $context->{rule}->references ) ? ( 'references' => $context->{rule}->references ) : (),
 		defined( $context->{rule}->attack )     ? ( 'attack'     => $context->{rule}->attack )     : (),
 		defined($score)                         ? ( 'score'      => $score )                       : (),
-		( defined($set) && @{$set} )            ? ( 'marks_set'  => $set )                         : (),
-		( defined($lifted) && @{$lifted} )      ? ( 'unmarked'   => $lifted )                      : (),
+		# the score the offender had to reach, so the event reads on its own...
+		# absent along with the score when nothing was counted, a mark_only rule
+		# or a result whose every candidate was ignored or internal
+		defined( $context->{threshold} )   ? ( 'threshold' => $context->{threshold} ) : (),
+		( defined($set) && @{$set} )       ? ( 'marks_set' => $set )                  : (),
+		( defined($lifted) && @{$lifted} ) ? ( 'unmarked'  => $lifted )               : (),
 	};
 } ## end sub _eve_fields
 
@@ -2642,8 +2653,8 @@ sub _poe_dns_start {
 		return;
 	}
 
-	$query->{handle}                    = $handle;
-	$self->{dns_inflight}{"$handle"}    = $query;
+	$query->{handle} = $handle;
+	$self->{dns_inflight}{"$handle"} = $query;
 	$kernel->select_read( $handle, 'dns_answered' );
 	$query->{alarm_id} = $kernel->delay_set( 'dns_timed_out', $timeout, "$handle" );
 
@@ -2747,7 +2758,7 @@ sub _resolve_country_gate {
 	my ( $self, $rule_obj, $codes, $where ) = @_;
 
 	return App::Baphomet::Geo::resolve_country_gate( $rule_obj->country, $codes, $where );
-} ## end sub _resolve_country_gate
+}
 
 # the country gate\x27s judgment lives in App::Baphomet::Geo, over an
 # injectable locator, so run_tests can drive it from a rule file\x27s geo
@@ -2767,7 +2778,7 @@ sub _country_locator {
 		$self->{country_locator} = sub { return $self->_country_of( $_[0] ); };
 	}
 	return $self->{country_locator};
-} ## end sub _country_locator
+}
 
 # the reverse_dns gate... a var entry is data-driven and ran once per found
 # result (ip undef), a var-less one is offender-keyed and ran per candidate
@@ -2883,7 +2894,7 @@ sub _rdns_fire {
 			}
 		} ## end if ( $kind_prefix eq 'ptr' && defined($answer...))
 		return;
-	};
+	}; ## end $settle = sub
 
 	if ( $kind_prefix eq 'ptr' ) {
 		$self->_dns_query_bg( 'rdns', $subject, 'PTR', $settle );
@@ -2907,7 +2918,7 @@ sub _rdns_fire {
 			$settle->( $failed ? undef : \@found );
 		}
 		return;
-	};
+	}; ## end $one_family = sub
 	foreach my $qtype ( 'A', 'AAAA' ) {
 		$self->_dns_query_bg( 'rdns', $subject, $qtype, $one_family );
 	}
@@ -2933,7 +2944,7 @@ sub _rdns_addr_eq {
 	my ( $self, $left, $right ) = @_;
 
 	return App::Baphomet::RDNS::rdns_addr_eq( $left, $right );
-} ## end sub _rdns_addr_eq
+}
 
 # loads one namtar list slot into the galla's cache, keyed by (type, nocase,
 # path) so a file read as cidr and as strings stay independent... one entry
@@ -3373,7 +3384,7 @@ sub _ingest_mark_event {
 					$value_source = $held;
 				}
 			}
-		}
+		} ## end if ( defined($held) )
 		$self->{marks}{$name}{$key} = {
 			'expires' => $expires,
 			defined($set)                    ? ( 'set'   => $set )                   : (),
@@ -3436,7 +3447,15 @@ sub _register_hit {
 	my $max_score = defined( $overrides->{max_score} ) ? $overrides->{max_score} : $settings->{max_score};
 	my $find_time = defined( $overrides->{find_time} ) ? $overrides->{find_time} : $settings->{find_time};
 	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}  : $settings->{ban_time};
-	my $weight    = defined( $rule_cfg->{weight} ) ? $rule_cfg->{weight} + 0 : ( $allow ? $context->{rule}->weight : 1 );
+	my $weight = defined( $rule_cfg->{weight} ) ? $rule_cfg->{weight} + 0 : ( $allow ? $context->{rule}->weight : 1 );
+
+	# the threshold this hit is racing rides the context, so every event the
+	# match raises carries it beside the score... a score of 3 says nothing on
+	# its own, and the number it is measured against is the one thing a reader
+	# would otherwise have to go and dig out of the config, after resolving the
+	# watcher over the kur over the global and the per-rule table over all
+	# three. resolved here rather than passed, the way the marks already are
+	$context->{threshold} = $max_score + 0;
 
 	# distinct-cardinality counting... instead of summing hits, the bucket is
 	# the set of distinct values of the rule's `of` field, keyed by the grouping
@@ -3480,7 +3499,7 @@ sub _register_hit {
 						}
 					}
 					delete( $set->{$oldest} );
-				}
+				} ## end if ( scalar( keys( %{$set} ) ) >= 10000 )
 			} ## end if ( !defined( $set->{$of_value} ) && scalar...)
 			$set->{$of_value} = $now;
 		} ## end if ( defined($of_value) && $of_value ne '')
@@ -3659,10 +3678,18 @@ sub _register_subnet_hit {
 	# a subnet crossing raises its own banish, so the triggering line's
 	# routine found is redundant just as a per-IP crossing makes it
 	$self->{result_terminal} = 1;
+
+	# the subnet judgment races its own threshold, so the event carries that one
+	# and not the per-IP number the context arrived with. a shallow copy rather
+	# than a write, because the caller still holds this context and emits the
+	# line's own found through it after we return... clobbering the field there
+	# would have a per-IP found reporting the subnet's threshold
+	my $subnet_context = ref($context) eq 'HASH' ? { %{$context}, 'threshold' => $max_score + 0 } : $context;
+
 	if ($eve_only) {
-		$self->_alert_subnet( $network, $ban_time, $context, $score, $info );
+		$self->_alert_subnet( $network, $ban_time, $subnet_context, $score, $info );
 	} else {
-		$self->_ban_subnet( $network, $ban_time, $context, $score, $info );
+		$self->_ban_subnet( $network, $ban_time, $subnet_context, $score, $info );
 	}
 
 	return;
@@ -3819,7 +3846,7 @@ sub _resolve_hostname_async {
 			$waiter->($fenced);
 		}
 		return;
-	};
+	}; ## end $one_family = sub
 	foreach my $qtype ( 'A', 'AAAA' ) {
 		$self->_dns_query_bg( 'dns', $hostname, $qtype, $one_family );
 	}
@@ -3870,11 +3897,16 @@ sub _ban_hostname {
 			my ($addrs) = @_;
 			delete( $self->{inflight_bans}{ 'host:' . $hostname } );
 			if ( !defined($addrs) || !@{$addrs} ) {
-				log_drek( 'err',
-					'"' . $hostname . '" crossed the threshold but resolved to nothing banishable... banishing nobody',
-					undef, 'galla-' . $self->{name} );
+				log_drek(
+					'err',
+					'"'
+						. $hostname
+						. '" crossed the threshold but resolved to nothing banishable... banishing nobody',
+					undef,
+					'galla-' . $self->{name}
+				);
 				return;
-			}
+			} ## end if ( !defined($addrs) || !@{$addrs} )
 			foreach my $addr ( @{$addrs} ) {
 				my $addr_context = ref($context) eq 'HASH' ? { %{$context}, 'hostname' => $hostname } : undef;
 				$self->_ban_ip( $addr, $ban_time, $addr_context, $score );
@@ -3962,7 +3994,9 @@ sub _deliver_ban {
 	my ( $self, $ip, $ban_time ) = @_;
 
 	$self->_kur_ban(
-		$ip, $ban_time, undef,
+		$ip,
+		$ban_time,
+		undef,
 		sub {
 			my ($error) = @_;
 			$self->_ban_delivered( $ip, $ban_time, $error );
@@ -4111,7 +4145,9 @@ sub _deliver_subnet_ban {
 	my ( $self, $network, $ban_time ) = @_;
 
 	$self->_kur_cidr_ban(
-		$network, $ban_time, undef,
+		$network,
+		$ban_time,
+		undef,
 		sub {
 			my ($error) = @_;
 			$self->_subnet_ban_delivered( $network, $ban_time, $error );
@@ -4198,11 +4234,11 @@ sub _spawn_kur_client {
 				'err',
 				'kur client error during '
 					. $operation . ' to "'
-					. $self->{ereshkigal_socket}
-					. '"... '
+					. $self->{ereshkigal_socket} . '"... '
 					. $errstr . ' ('
 					. $errnum . ')',
-				undef, $ident
+				undef,
+				$ident
 			);
 		},
 		'on_disconnect' => sub {
@@ -4252,12 +4288,19 @@ sub _kur_call {
 			$client->authenticate(
 				'callback' => sub {
 					my ($verdict) = @_;
-					if ( !( ref($verdict) eq 'HASH' && defined( $verdict->{status} ) && $verdict->{status} eq 'ok' ) )
+					if ( !( ref($verdict) eq 'HASH' && defined( $verdict->{status} ) && $verdict->{status} eq 'ok' )
+						)
 					{
-						$done->( 'authentication failed... '
-								. ( ( ref($verdict) eq 'HASH' && defined( $verdict->{error} ) ) ? $verdict->{error} : 'unknown error' ) );
+						$done->(
+							'authentication failed... '
+								. (
+									( ref($verdict) eq 'HASH' && defined( $verdict->{error} ) )
+									? $verdict->{error}
+									: 'unknown error'
+								)
+						);
 						return;
-					}
+					} ## end if ( !( ref($verdict) eq 'HASH' && defined...))
 					$client->call(
 						'command'  => $command,
 						'args'     => $args,
@@ -4301,7 +4344,7 @@ sub _kur_ban {
 		'ban',
 		{
 			'ips' => ref($ips) eq 'ARRAY' ? $ips : [$ips],
-			'kur' => defined($kur)        ? $kur : $self->{name},
+			'kur' => defined($kur) ? $kur : $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		},
 		$done
@@ -4324,7 +4367,7 @@ sub _kur_cidr_ban {
 		'cidr_ban',
 		{
 			'cidrs' => ref($networks) eq 'ARRAY' ? $networks : [$networks],
-			'kur'   => defined($kur)             ? $kur      : $self->{name},
+			'kur' => defined($kur) ? $kur : $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		},
 		$done
@@ -4350,7 +4393,7 @@ sub _send_cidr_ban {
 		'cidr_ban',
 		{
 			'cidrs' => ref($network) eq 'ARRAY' ? $network : [$network],
-			'kur'   => defined($kur)            ? $kur     : $self->{name},
+			'kur' => defined($kur) ? $kur : $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		}
 	);
@@ -4372,8 +4415,8 @@ sub _send_ban {
 	$client->call_ok(
 		'ban',
 		{
-			'ips' => ref($ip) eq 'ARRAY' ? $ip  : [$ip],
-			'kur' => defined($kur)       ? $kur : $self->{name},
+			'ips' => ref($ip) eq 'ARRAY' ? $ip : [$ip],
+			'kur' => defined($kur) ? $kur : $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		}
 	);
@@ -4413,7 +4456,7 @@ sub _drain_pending_group {
 		}
 		my $group_key = defined( $pending->{$subject} ) ? $pending->{$subject} : '';
 		push( @{ $groups{$group_key} }, $subject );
-	}
+	} ## end foreach my $subject ( sort( keys( %{$pending} )...))
 
 	my $ident = 'galla-' . $self->{name};
 	foreach my $group_key ( sort( keys(%groups) ) ) {
@@ -4430,14 +4473,17 @@ sub _drain_pending_group {
 			# never re-emits EVE, it only re-attempts the send
 			if ( defined($error) ) {
 				$self->_tick('ban_errors');
-				log_drek( 'err',
+				log_drek(
+					'err',
 					'retrying ' . scalar( @{$subjects} ) . ' pending ban(s) failed, will retry again... ' . $error,
-					undef, $ident );
+					undef,
+					$ident
+				);
 				foreach my $subject ( @{$subjects} ) {
 					delete( $self->{inflight_bans}{ $inflight_prefix . $subject } );
 				}
 				return;
-			}
+			} ## end if ( defined($error) )
 			foreach my $subject ( @{$subjects} ) {
 				if ($subnet) {
 					$self->_subnet_ban_delivered( $subject, $ban_time, undef );
@@ -4446,7 +4492,7 @@ sub _drain_pending_group {
 				}
 			}
 			return;
-		};
+		}; ## end $answered = sub
 		if ($subnet) {
 			$self->_kur_cidr_ban( $subjects, $ban_time, undef, $answered );
 		} else {
@@ -4521,12 +4567,16 @@ sub _recidive_check {
 				'kur'      => $self->{recidive}{kur},
 				'ban_time' => $ban_time,
 				'count'    => $count,
+				# what the ledger count had to reach, the recidive gate's own
+				# threshold rather than any watcher's... the count is this
+				# event's score, so it reads the same way
+				'threshold' => $max_score + 0,
 				defined($country) ? ( 'country' => $country ) : (),
 				'recidive' => \1,
 			}
 		);
 		return;
-	};
+	}; ## end $escalated = sub
 
 	if ($subnet) {
 		$self->_kur_cidr_ban( $subject, $ban_time, $self->{recidive}{kur}, $escalated );
@@ -4611,7 +4661,7 @@ sub _ledger_append_and_count {
 		if ( ( stat($fh) )[7] == 0 ) {
 			print( $fh "epoch,kur,ip,rule,watcher\n" ) || die( 'write failed... ' . $! );
 		}
-		print( $fh $now . ','
+		print(    $fh $now . ','
 				. $self->{name} . ','
 				. $ip . ','
 				. _csv_escape($rule) . ','
@@ -4699,10 +4749,10 @@ sub _ledger_compact {
 			push( @kept, $line );
 		} ## end while ( my $line = <$fh> )
 
-		seek( $fh, 0, 0 )  || die( 'seek failed... ' . $! );
-		truncate( $fh, 0 ) || die( 'truncate failed... ' . $! );
-		print( $fh "epoch,kur,ip,rule,watcher\n" )                   || die( 'write failed... ' . $! );
-		print( $fh join( "\n", @kept ) . ( @kept ? "\n" : '' ) )     || die( 'write failed... ' . $! );
+		seek( $fh, 0, 0 )                                        || die( 'seek failed... ' . $! );
+		truncate( $fh, 0 )                                       || die( 'truncate failed... ' . $! );
+		print( $fh "epoch,kur,ip,rule,watcher\n" )               || die( 'write failed... ' . $! );
+		print( $fh join( "\n", @kept ) . ( @kept ? "\n" : '' ) ) || die( 'write failed... ' . $! );
 		if ($find_time) {
 			$self->{ledger_offset} = tell($fh);
 		}
@@ -4794,7 +4844,7 @@ sub _sweep {
 				delete( $self->{ledger_tally}{$subject} );
 			}
 		}
-	} ## end if ( defined( $self->{recidive} ) && ref( $self...))
+	} ## end if ( defined( $self->{recidive} ) && ref( ...))
 
 	# reload any namtar list slot whose file mtime changed, appeared, or
 	# vanished, so a updated feed takes effect with in a sweep... _load keys

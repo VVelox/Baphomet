@@ -62,9 +62,9 @@ vocabulary a log analysis engine is judged by. All of it is documented in
 A detection is only as useful as what it says. Every rule carries the
 Suricata/Sagan alert-metadata set, flattened onto each event it raises so a
 stream of matches is a stream of triageable detections... `msg` (the
-`[TAG] description` signature line), `severity`, `classtype`, `references`,
-`attack` (MITRE ATT&CK ids), and `rev`, plus a `sid` and `gid` the loader
-derives. This is the vocabulary a SOC reads a detection by, and it is the
+`[TAG] description` signature line), `severity`, `category` (the rule's
+classtype in words, as Suricata writes it), `references`, `attack` (MITRE
+ATT&CK ids), and `rev`, plus a `sid` and `gid` the loader derives. This is the vocabulary a SOC reads a detection by, and it is the
 same set Suricata and Sagan emit. See
 [triage metadata](rules.md#triage-metadata).
 

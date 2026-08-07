@@ -75,12 +75,13 @@ Every record carries these fields...
 | `kur` | the kur. |
 | `path` | the source... the log file, or `journal:<matches>` for a journal watcher. |
 | `score` | the offender's accumulated weighted score after this hit... equal to the raw hit count when no weights are in play. |
+| `threshold` | the score that offender had to reach, the effective `max_score` after the watcher, kur, global and per-rule layers are resolved... so `score` reads without going to the config for the number it is racing. Present whenever `score` is, and absent with it. |
 | `msg` | the rule's human-readable signature, Sagan/Suricata `[TAG] description` style... its `msg`, or the rule name when it sets none. Suricata's `alert.signature`, promoted to the top level. |
 | `gid` | the rule's group id, Suricata's `alert.gid`... `0` when the rule is one of the shipped ones, `1` when it came from the site override dir (`rules_dir`). Always present. |
 | `sid` | the rule's signature id, Suricata's `alert.signature_id`... a stable positive integer hashed from the rule name, so `syslog/sshd` always carries the same `sid`, shipped or overridden. Always present. |
 | `rev` | the rule's revision, Suricata's `alert.rev`... the rule's `rev`, or `0` when it sets none (an unversioned rule). Always present as an integer. |
 | `severity` | the rule's severity (`info`/`low`/`medium`/`high`/`critical`), or the config `default_severity`... omitted when neither is set. |
-| `classtype` | the rule's category, Snort/Sagan/Suricata classtype... present only when the rule sets one. |
+| `category` | the rule's class in words, Suricata's `alert.category` promoted to the top level... a `classtype: misc-attack` reads here as `Misc Attack`, the description Snort and Suricata's `classification.config` would have supplied, so an event sorts beside a Suricata one of the same class. A classtype the table does not know becomes its slug title-cased. Present only when the rule sets a classtype. |
 | `references` | the rule's references (URLs, CVE ids)... an array, present only when set. |
 | `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
 | `src_ip` | the flow's source IP, lifted from the found var the rule's `src_ip_var` names (default `src_ip`)... always present, `null` when that var is absent. |
@@ -141,8 +142,11 @@ triggered by a specific line crossing the threshold carries that line's
 `raw`/`parsed`/`found`/`rule`, always... the record is written at the
 crossing, so a Kur outage that pends the send for later retry never
 strips it. A recidive escalation, which is triggered by the ledger count
-rather than a line, is the bare banishment. With a `geoip_db` loaded, the
-banished IP's `.country` rides along too.
+rather than a line, is the bare banishment: it carries `.count`, how many
+times the IP has been banished across all kurs, and the `.threshold` that
+count had to reach, the recidive gate's own `max_score` and not any
+watcher's. With a `geoip_db` loaded, the banished IP's `.country` rides
+along too.
 
 A **subnet banish** is a banish whose `.ip` is a CIDR (`65.49.1.0/24`)
 rather than a single address... raised when a network bucket crosses
@@ -151,7 +155,9 @@ rather than a single address... raised when a network bucket crosses
 adds a `.bucket` table describing the network: `family` (`v4`/`v6`),
 `cidr`, `prefix`, `members` (the distinct offender IPs that fed it, in
 first-seen order), `hits`, `score`, and the `first`/`last` epochs the
-window spanned. It carries no `.country`, a CIDR has no single one.
+window spanned. Its `.threshold` is the subnet one, `subnet_max_score`
+rather than the per-IP `max_score`, matching the `.score` beside it. It
+carries no `.country`, a CIDR has no single one.
 
 An **alert** is the observe-mode stand-in for a banish, and carries the
 same `.ip`, `.ban_time`, `.score`, and envelope one would... `.bucket`
@@ -193,6 +199,11 @@ jq -r 'select(.event_type=="alert") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.js
 
 # every detection that crossed its threshold, as subject and kur
 jq -r 'select(.event_type=="sighted") | "\(.kur) \(.subject)"' /var/log/baphomet/eve.json
+
+# who is closest to being banished, without going to the config for the
+# number they are racing
+jq -r 'select(.event_type=="found" and .score) | "\(.score)/\(.threshold) \(.ip) \(.rule.name)"' \
+    /var/log/baphomet/eve.json | sort -u
 ```
 
 ## Notes
