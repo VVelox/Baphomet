@@ -428,10 +428,15 @@ sub new {
 			'join'            => $join_compiled,
 			'rules'           => \@rule_names,
 			'rule_objs'       => \@rule_objs,
-			'country_gates'   => $country_gates,
-			'namtar_gates'    => $namtar_gates,
-			'active_gates'    => $active_gates,
-			'rule_config'     =>
+			# the prefilter... which field of a record picks the rules worth
+			# offering it to, and the lazily filled index of that field's
+			# values to the rules. see _index_field and _rule_candidates
+			'index_field'   => _index_field( \@rule_objs ),
+			'rule_index'    => {},
+			'country_gates' => $country_gates,
+			'namtar_gates'  => $namtar_gates,
+			'active_gates'  => $active_gates,
+			'rule_config'   =>
 				resolve_rule_config( $kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); } ),
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
 			'wheels'          => {},
@@ -2110,6 +2115,174 @@ sub _flush_stale_join_buffers {
 	return;
 } ## end sub _flush_stale_join_buffers
 
+# the most distinct values one watcher's rule index will hold before it is
+# thrown away and refilled. the value comes off the log line, so a hostile
+# or broken producer can chisel a fresh one per line and the index must not
+# grow with it... a real watcher sees a handful, and the whole shipped rule
+# set names well under a hundred daemons
+my $rule_index_max = 1024;
+
+# picks the field a watcher's rules discriminate on best, the one its rule
+# index is keyed by, or undef when they offer nothing worth keying on.
+#
+# The daemon is the field for a syslog watcher and needs no election... every
+# syslog rule carries a daemons list and the parser always yields the daemon,
+# so it is taken whenever any rule gates on one. Otherwise each rule is asked
+# for the field equalities its gate makes mandatory... a hash of field name to
+# the set of values that field may hold, empty for a rule offering none... and
+# the most selective field wins.
+#
+# Selective, not popular. The field the most rules name is not the field that
+# thins the list most: on a suricata watcher every rule pins event_type and
+# nearly every rule pins alert.category, but event_type takes two or three
+# values across the whole set where alert.category takes one per rule. Keying
+# on the first hands a line most of the rules back, keying on the second hands
+# it one or two. So each candidate field is scored by the average candidate
+# count it would yield... the rules pinning nothing on it, which every line
+# reaches, plus the rules pinning it spread over the distinct values they pin
+# between them. Lowest wins, ties going to the lexically first so the choice
+# is deterministic across restarts. Any field at all beats none, the score
+# being an upper bound that counts only the values some rule pins... a record
+# whose value no rule pins reaches no rule and costs nothing, which the
+# average does not see. undef comes back only when no rule pins anything.
+#
+# Args...
+#
+#    - rule_objs :: The watcher's arrayref of compiled rule objects, undef
+#          entries and all.
+#
+# Returns the field name as a plain string, the reserved '%%%DAEMON%%%' for
+# the syslog daemon (which is a field of the parsed envelope rather than of
+# the record's field space), or undef for a watcher with nothing to index on,
+# whose lines are then offered to every rule as they were before.
+sub _index_field {
+	my ($rule_objs) = @_;
+
+	my %pinning;
+	my %values;
+	my $live = 0;
+	foreach my $rule_obj ( @{$rule_objs} ) {
+		if ( !defined($rule_obj) ) {
+			next;
+		}
+		# a rule that gates on a daemon settles it... a daemons list is
+		# required of the one type that has one and names few daemons each,
+		# so nothing a gate could offer beats it
+		if ( !$rule_obj->accepts_daemon(undef) ) {
+			return '%%%DAEMON%%%';
+		}
+		$live++;
+		my $discriminators = $rule_obj->gate_discriminators;
+		foreach my $field ( keys( %{$discriminators} ) ) {
+			$pinning{$field}++;
+			foreach my $value ( keys( %{ $discriminators->{$field} } ) ) {
+				$values{$field}{$value} = 1;
+			}
+		}
+	} ## end foreach my $rule_obj ( @{$rule_objs} )
+
+	my $best;
+	my $best_score;
+	foreach my $field ( sort( keys(%pinning) ) ) {
+		my $distinct = scalar( keys( %{ $values{$field} } ) );
+		my $score    = ( $live - $pinning{$field} ) + ( $pinning{$field} / $distinct );
+		if ( !defined($best_score) || $score < $best_score ) {
+			$best       = $field;
+			$best_score = $score;
+		}
+	}
+
+	return $best;
+} ## end sub _index_field
+
+# the ordered rule indices a record could possibly match, from the watcher's
+# rule index... what _process_record walks instead of every rule on the
+# watcher.
+#
+# Both halves rest on the same contract: a rule the index leaves out would
+# have refused the line before doing or remembering anything, so skipping the
+# call and making it are the same judgment. A syslog rule opens check with its
+# daemon gate and returns before touching any correlation state. A json rule
+# only offers a discriminator when it carries no capture, ignore, or key,
+# since each of those is a way for it to return a result on a line its own
+# gate refused... a capture entry judges on its own gates and can complete a
+# deferred offense. Nothing is indexed on a gate it can fire around.
+#
+# Args...
+#
+#    - watcher :: The watcher hash, the one out of $self->{watchers}.
+#
+#    - parsed :: The parsed record, as App::Baphomet::Parser handed it back.
+#          The index field is read from its envelope for the daemon, from its
+#          flattened fields otherwise.
+#
+# Returns an arrayref of indices into the watcher's rule_objs and rules
+# arrays, ascending, so walking it keeps the config's rule order and with it
+# the overlap semantics. A watcher with no index field returns every index,
+# built once and held, so it walks exactly what it always did.
+#
+#    foreach my $rule_int ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) { ... }
+sub _rule_candidates {
+	my ( $self, $watcher, $parsed ) = @_;
+
+	my $field = $watcher->{index_field};
+	my $daemon;
+	my $value;
+	if ( !defined($field) ) {
+		# nothing to key on... one list, every rule, built once
+		$value = '';
+	} elsif ( $field eq '%%%DAEMON%%%' ) {
+		$daemon = $parsed->{daemon};
+		$value  = $daemon;
+	} elsif ( ref( $parsed->{fields} ) eq 'HASH' ) {
+		$value = $parsed->{fields}{$field};
+	}
+
+	# undef is a key in its own right, and one no value can collide with... a
+	# record simply missing the indexed field hits it, and is answered the
+	# same way the rules themselves would answer it
+	my $key = defined($value) ? $value : "\0undef";
+
+	my $cached = $watcher->{rule_index}{$key};
+	if ( defined($cached) ) {
+		return $cached;
+	}
+
+	my @candidates;
+	my $rule_objs = $watcher->{rule_objs};
+	for ( my $rule_int = 0; $rule_int < scalar( @{$rule_objs} ); $rule_int++ ) {
+		my $rule_obj = $rule_objs->[$rule_int];
+		if ( !defined($rule_obj) ) {
+			next;
+		}
+		if ( !defined($field) ) {
+			push( @candidates, $rule_int );
+			next;
+		}
+		if ( $field eq '%%%DAEMON%%%' ) {
+			if ( $rule_obj->accepts_daemon($daemon) ) {
+				push( @candidates, $rule_int );
+			}
+			next;
+		}
+
+		# a rule naming no value for the indexed field constrains it not at
+		# all, so it is a candidate for every line... only one that pins the
+		# field is asked whether this value is among what it pins
+		my $pinned = $rule_obj->gate_discriminators->{$field};
+		if ( !defined($pinned) || ( defined($value) && $pinned->{$value} ) ) {
+			push( @candidates, $rule_int );
+		}
+	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
+
+	if ( scalar( keys( %{ $watcher->{rule_index} } ) ) >= $rule_index_max ) {
+		$watcher->{rule_index} = {};
+	}
+	$watcher->{rule_index}{$key} = \@candidates;
+
+	return \@candidates;
+} ## end sub _rule_candidates
+
 # handles a single logical record... the whole line for most watchers, the
 # joined lines for one with a joiner
 sub _process_record {
@@ -2149,10 +2322,16 @@ sub _process_record {
 	# shadow buckets; under overlap all every firing rule judges for
 	# real. the
 	# watcher name scopes any correlation state, as keys like conn ids
-	# are only unique with in one log
+	# are only unique with in one log.
+	#
+	# only the rules this record could match are walked, in their config
+	# order... the rest would have vetoed on their daemon gate or their
+	# indexed field before doing or remembering anything, so not calling
+	# them is the same judgment for a fraction of the work. see
+	# _rule_candidates
 	my $overlap = $watcher->{settings}{overlap};
 	my $demoted = 0;
-	for ( my $rule_int = 0; $rule_int < scalar( @{ $watcher->{rule_objs} } ); $rule_int++ ) {
+	foreach my $rule_int ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) {
 		my $rule_obj  = $watcher->{rule_objs}[$rule_int];
 		my $rule_name = $watcher->{rules}[$rule_int];
 		my $found     = $rule_obj->check( $parsed, $watcher_name, $line_ctx );
@@ -2392,7 +2571,7 @@ sub _process_record {
 			}
 			# overlap all just keeps going, every firing rule judging for real
 		} ## end if ($consumed)
-	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
+	} ## end foreach my $rule_int ( @{ $self->_rule_candidates...})
 
 	return;
 } ## end sub _process_record

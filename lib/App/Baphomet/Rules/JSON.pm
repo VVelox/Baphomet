@@ -318,6 +318,84 @@ sub new {
 	return $self;
 } ## end sub new
 
+=head2 gate_discriminators
+
+Returns the rule's mandatory field equalities, the ones the galla indexes
+its watcher on so a line is only offered to the rules that could want it.
+See L<App::Baphomet::Rules::Base/gate_discriminators> for the contract and
+what it is for.
+
+    { 'event_type' => { 'alert' => 1 } }
+
+Built once at first ask and cached, the def not changing. A rule offers
+nothing... an empty hash... when it carries a C<capture>, an C<ignore>, or
+a C<key>, since any of those gives it a path to a result that does not go
+through the gate. Only the flat C<gate> form contributes, and only those of
+its entries that are a plain equality over a named field: every entry of a
+C<gate> list is ANDed, so each is genuinely mandatory, where a
+C<selections> arm may sit under an C<or> in the condition and a C<keywords>
+entry fans over many fields rather than pinning one. An entry carrying a
+C<//regexp//> value, a typed predicate, or a C<%%%ANY%%%> keyword field
+pins no exact value and so contributes nothing, leaving the rule always-try
+on that field.
+
+    my $discriminators = $rule->gate_discriminators;
+
+=cut
+
+sub gate_discriminators {
+	my ($self) = @_;
+
+	if ( defined( $self->{gate_discriminators} ) ) {
+		return $self->{gate_discriminators};
+	}
+
+	my $discriminators = {};
+	$self->{gate_discriminators} = $discriminators;
+
+	# a rule that can fire around its own gate can not be indexed on it... a
+	# capture harvests context and completes deferred offenses on its own
+	# gates, and a key defers the offense itself, so either leaves a result
+	# reachable on a line the gate refused. an ignore is pure, but it is
+	# refused here too so the contract stays one sentence long
+	if ( @{ $self->{captures} } || @{ $self->{ignores} } || defined( $self->{correlation_key} ) ) {
+		return $discriminators;
+	}
+
+	foreach my $gate ( @{ $self->{gates} } ) {
+		# a keyword fan pins no one field, a predicate pins no exact value,
+		# and a //regexp// entry pins a set the index can not enumerate. none
+		# of the three loosens what the rule requires, so each simply
+		# contributes nothing... a field named only by those never enters the
+		# hash and the rule stays always-try on it
+		if ( $gate->{keyword} || defined( $gate->{predicate} ) || !defined( $gate->{field} ) ) {
+			next;
+		}
+		if ( @{ $gate->{matchers}{regexps} } ) {
+			next;
+		}
+
+		# every entry of a gate list is ANDed, so two plain entries on the one
+		# field are satisfied only by the values in both... in practice a rule
+		# names a field once, but the fold has to be right and not merely
+		# typical. narrowing is always safe here: the index may hand the rule
+		# a line its remaining gates then refuse, never withhold one they
+		# would have taken
+		my $held = $discriminators->{ $gate->{field} };
+		if ( !defined($held) ) {
+			$discriminators->{ $gate->{field} } = { %{ $gate->{matchers}{strings} } };
+		} else {
+			foreach my $value ( keys( %{$held} ) ) {
+				if ( !defined( $gate->{matchers}{strings}{$value} ) ) {
+					delete( $held->{$value} );
+				}
+			}
+		}
+	} ## end foreach my $gate ( @{ $self->{gates} } )
+
+	return $discriminators;
+} ## end sub gate_discriminators
+
 =head2 check
 
 Checks a parsed line, as returned by L<App::Baphomet::Parser::JSON>,

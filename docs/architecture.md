@@ -64,6 +64,50 @@ Inside a galla, each new line of a watcher's log runs the gauntlet...
 Counts are per galla, so an IP hitting two watchers of the same kur
 accumulates in one counter, while kurs count independently.
 
+### The rule index
+
+A watcher does not offer each line to every rule it carries. It keeps an
+index of which of its rules a line could possibly match, keyed on one field
+of the record, and walks only those... in config order, so the `overlap`
+semantics are untouched.
+
+Which field depends on what the rules have to offer. For a `syslog` watcher
+it is the daemon: every syslog rule carries a `daemons` list, and the gate is
+the first thing the rule does, before it looks at or remembers anything. For
+the types with no daemon it is whichever field the rules pin most
+*selectively* through a plain equality in their `gate`. On a
+`%json/suricata-all%` watcher that is `alert.category`, not `event_type`:
+both are pinned by every rule, but `event_type` takes two or three values
+across the whole set where `alert.category` takes one per rule, so keying on
+it hands a line one rule instead of forty-four.
+
+A rule is only indexed on a gate it can not fire around. One carrying a
+`capture`, an `ignore`, or a `key` offers nothing and is always tried, since
+a capture entry judges on its own gates and can complete a deferred offense
+on a line the rule's own gate refused. So can a `selections` arm, which may
+sit under an `or`, and a `keywords` entry, which fans over many fields rather
+than pinning one. A watcher whose rules pin nothing indexes on nothing and
+walks them all, exactly as before.
+
+The index fills lazily, one entry per distinct value seen, and is bounded...
+the value comes off the log line, so a broken or hostile producer chiselling
+a fresh one per line can not grow it without limit.
+
+### Compiled gates
+
+The rules the index does hand a line to then run their gates, and a gate's
+shape... whether it is a keyword fan, a typed predicate, or a plain field
+equality... was settled when the rule was read. Each gate whose shape is the
+plain one is compiled at load into a code ref that does only what that gate
+needs, so the shape is not re-asked per line, and a rule that is nothing but
+such gates is run by walking those code refs and nothing else.
+
+A keyword fan, a typed predicate, and a gate on the reserved `MESSAGE` field
+keep their branching and take the general path, as does any rule whose
+boolean is more than a gate list... one carrying `keywords` to AND in, or
+`selections` with a `condition` to fold. Nothing about what a gate means
+changes; only when the question of which kind it is gets asked.
+
 ## The sockets
 
 ```

@@ -72,6 +72,37 @@ C<-> or nothing.
 
 my $quoted_re = qr/[^"\\]*(?:\\.[^"\\]*)*/;
 
+# the whole line grammar, assembled once. a pattern holding a variable can
+# not be compiled when perl reads the file, so it is rebuilt from the
+# variable's current value and checked against the compile cache on every
+# match... a cache hit rather than a recompile, but the rebuild and the
+# check are paid per line all the same, and $quoted_re appears three times
+# here. assembled here it is a constant, compiled once at load. the capture
+# numbers are noted as the list naming them sits in parse, no longer beside
+# the pattern
+my $line_re = qr/^
+	\s*
+	(\S+)                                  # 1 host
+	\s+
+	(\S+)                                  # 2 ident
+	\s+
+	(\S+)                                  # 3 user
+	\s+
+	\[([^\]]+)\]                           # 4 time
+	\s+
+	"($quoted_re)"                         # 5 request
+	\s+
+	(\d{3})                                # 6 status
+	\s+
+	(\d+|-)                                # 7 bytes
+	(?:
+		\s+
+		"($quoted_re)"                     # 8 referer
+		\s+
+		"($quoted_re)"                     # 9 user agent
+	)?
+	\s*$/x;
+
 =head1 FUNCTIONS
 
 =head2 parse
@@ -91,31 +122,7 @@ sub parse {
 	}
 	chomp($line);
 
-	if (
-		$line =~ /^
-		\s*
-		(\S+)                                  # host
-		\s+
-		(\S+)                                  # ident
-		\s+
-		(\S+)                                  # user
-		\s+
-		\[([^\]]+)\]                           # time
-		\s+
-		"($quoted_re)"                         # request
-		\s+
-		(\d{3})                                # status
-		\s+
-		(\d+|-)                                # bytes
-		(?:
-			\s+
-			"($quoted_re)"                     # referer
-			\s+
-			"($quoted_re)"                     # user agent
-		)?
-		\s*$/x
-		)
-	{
+	if ( $line =~ $line_re ) {
 		my ( $host, $ident, $user, $time, $request, $status, $bytes, $referer, $user_agent )
 			= ( $1, $2, $3, $4, $5, $6, $7, $8, $9 );
 
@@ -146,7 +153,7 @@ sub parse {
 			'referer'    => ( defined($referer)    && $referer ne '-' )    ? $referer    : undef,
 			'user_agent' => ( defined($user_agent) && $user_agent ne '-' ) ? $user_agent : undef,
 		};
-	} ## end if ( $line =~ /^ )
+	} ## end if ( $line =~ $line_re )
 
 	return undef;
 } ## end sub parse

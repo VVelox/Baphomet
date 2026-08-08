@@ -372,6 +372,23 @@ sub new {
 	return $self;
 } ## end sub new
 
+=head2 accepts_daemon
+
+Returns true when the rule's daemons list accepts the named daemon. The
+same test L</check> opens with, exposed so the galla can index its
+watchers by daemon and skip the rules a line could never match... see
+L<App::Baphomet::Rules::Base/accepts_daemon>.
+
+    if ( $rule->accepts_daemon('sshd') ) { ... }
+
+=cut
+
+sub accepts_daemon {
+	my ( $self, $daemon ) = @_;
+
+	return $self->_matchers_hit( $self->{daemon_matchers}, $daemon );
+}
+
 =head2 check
 
 Checks a parsed line, as returned by L<App::Baphomet::Parser>, against the
@@ -392,7 +409,9 @@ sub check {
 		return undef;
 	}
 
-	# the daemon gate
+	# the daemon gate... nothing above it touches state, which is what lets
+	# the galla's daemon index skip the call entirely for a rule this line
+	# could never match. see accepts_daemon
 	if ( !$self->_matchers_hit( $self->{daemon_matchers}, $parsed->{daemon} ) ) {
 		return undef;
 	}

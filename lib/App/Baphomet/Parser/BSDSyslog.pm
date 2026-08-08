@@ -69,6 +69,27 @@ my $timestamp_re
 # the plain colon-free token would otherwise mangle into the daemon slot
 my $hostname_re = qr/(?:[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]+|[0-9A-Fa-f:.]+:|[^\s:\[\]]+)/;
 
+# the whole line grammar, assembled once. a pattern holding a variable can
+# not be compiled when perl reads the file, so it is rebuilt from the
+# variable's current value and checked against the compile cache on every
+# match... a cache hit rather than a recompile, but the rebuild and the
+# check are paid per line all the same. assembled here it is a constant,
+# compiled once at load. the capture numbers are noted as the list naming
+# them sits in parse, no longer beside the pattern
+my $line_re = qr/^
+	\s*
+	(?:<(\d{1,3})>)?                     # 1   optional PRI
+	\s*
+	($timestamp_re)                      # 2   timestamp
+	(?:\s+<([a-z0-9]+)\.([a-z]+)>)?      # 3,4 optional FreeBSD verbose facility.level
+	(?:\s+($hostname_re))?               # 5   optional hostname
+	\s+
+	([^\s:\[\]]+)                        # 6   daemon
+	(?:\[(\d+)(?::\d+)?\])?              # 7   optional pid, and a thread id after it
+	:\s?
+	(.*)                                 # 8   message
+	$/x;
+
 =head1 FUNCTIONS
 
 =head2 parse
@@ -88,22 +109,7 @@ sub parse {
 	}
 	chomp($line);
 
-	if (
-		$line =~ /^
-		\s*
-		(?:<(\d{1,3})>)?                     # optional PRI
-		\s*
-		($timestamp_re)                      # timestamp
-		(?:\s+<([a-z0-9]+)\.([a-z]+)>)?      # optional FreeBSD verbose facility.level
-		(?:\s+($hostname_re))?               # optional hostname
-		\s+
-		([^\s:\[\]]+)                        # daemon
-		(?:\[(\d+)(?::\d+)?\])?              # optional pid, and a thread id after it
-		:\s?
-		(.*)                                 # message
-		$/x
-		)
-	{
+	if ( $line =~ $line_re ) {
 		my ( $pri, $time, $verbose_facility, $verbose_level, $hostname, $daemon, $pid, $message )
 			= ( $1, $2, $3, $4, $5, $6, $7, $8 );
 
@@ -137,7 +143,7 @@ sub parse {
 			'level'    => $level,
 			'message'  => $message,
 		};
-	} ## end if ( $line =~ /^ )
+	} ## end if ( $line =~ $line_re )
 
 	return undef;
 } ## end sub parse

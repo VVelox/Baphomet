@@ -422,5 +422,7 @@ t/unit-rdns.t
 t/unit-geo.t
 t/unit-primitives.t
 t/unit-offense.t
+t/unit-rule-index.t
+t/unit-gate-code.t
 t/usedns.t
 t/weighted.t

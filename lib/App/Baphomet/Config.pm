@@ -1129,6 +1129,11 @@ sub watcher_logs {
 	return ( $watcher->{log} );
 }
 
+# the first twelve bytes of a IPv4 mapped IPv6 address, the ::ffff: form.
+# built once here rather than per call... every address test builds it to
+# decide whether a v6 address is really v4, and it never changes
+my $v4_mapped_prefix = ( "\0" x 10 ) . "\xff\xff";
+
 =head2 compile_ignore_ips
 
 Compiles a ignore_ips list, a array of IPv4/IPv6 addresses and CIDRs,
@@ -1136,6 +1141,14 @@ into the form L</ip_ignored> takes. Will die on anything unusable, with
 the passed $where leading the error message.
 
     my $compiled = compile_ignore_ips( $list, $where );
+
+Each entry comes back carrying the comparison L</ip_ignored> makes, already
+cut: C<head>, the network's whole masked bytes, and for a prefix that does
+not land on a byte boundary C<mask> and C<spare>, the partial byte's mask
+and the network's value under it. The byte and bit arithmetic is the same
+either way, but it is a property of the CIDR and not of the address being
+tested, so it is done once at load rather than per network per address...
+and the list is walked several times for every offender.
 
 =cut
 
@@ -1174,7 +1187,22 @@ sub compile_ignore_ips {
 			die( $where . ' entry "' . $entry . '" has a invalid prefix length' );
 		}
 
-		push( @compiled, { 'packed' => $packed, 'prefix' => $prefix, 'bits' => $bits } );
+		my $whole_bytes = int( $prefix / 8 );
+		my $spare_bits  = $prefix % 8;
+		my $net         = {
+			'packed' => $packed,
+			'prefix' => $prefix,
+			'bits'   => $bits,
+			'whole'  => $whole_bytes,
+			'head'   => substr( $packed, 0, $whole_bytes ),
+		};
+		if ($spare_bits) {
+			my $mask = chr( 0xFF << ( 8 - $spare_bits ) & 0xFF );
+			$net->{mask}  = $mask;
+			$net->{spare} = substr( $packed, $whole_bytes, 1 ) & $mask;
+		}
+
+		push( @compiled, $net );
 	} ## end foreach my $entry ( @{$list} )
 
 	return \@compiled;
@@ -1205,7 +1233,7 @@ sub ip_ignored {
 			return 0;
 		}
 		# IPv4 mapped IPv6 is really IPv4
-		if ( substr( $packed6, 0, 12 ) eq ( "\0" x 10 ) . "\xff\xff" ) {
+		if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
 			$packed = substr( $packed6, 12 );
 		} else {
 			$packed = $packed6;
@@ -1213,24 +1241,18 @@ sub ip_ignored {
 		}
 	} ## end if ( !defined($packed) )
 
+	# the byte and bit split each network is compared under was cut at
+	# compile, so this is a substr and a string compare per network with no
+	# arithmetic at all... see compile_ignore_ips
 	foreach my $net ( @{$compiled} ) {
 		if ( $net->{bits} != $bits ) {
 			next;
 		}
-
-		my $whole_bytes = int( $net->{prefix} / 8 );
-		my $spare_bits  = $net->{prefix} % 8;
-
-		if ( substr( $packed, 0, $whole_bytes ) ne substr( $net->{packed}, 0, $whole_bytes ) ) {
+		if ( substr( $packed, 0, $net->{whole} ) ne $net->{head} ) {
 			next;
 		}
-		if ($spare_bits) {
-			my $mask = chr( 0xFF << ( 8 - $spare_bits ) & 0xFF );
-			if ( ( substr( $packed, $whole_bytes, 1 ) & $mask ) ne
-				( substr( $net->{packed}, $whole_bytes, 1 ) & $mask ) )
-			{
-				next;
-			}
+		if ( defined( $net->{mask} ) && ( substr( $packed, $net->{whole}, 1 ) & $net->{mask} ) ne $net->{spare} ) {
+			next;
 		}
 
 		return 1;
@@ -1263,7 +1285,7 @@ sub ip_family {
 	if ( !defined($packed6) ) {
 		return undef;
 	}
-	if ( substr( $packed6, 0, 12 ) eq ( "\0" x 10 ) . "\xff\xff" ) {
+	if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
 		return 'v4';
 	}
 	return 'v6';
@@ -1300,7 +1322,7 @@ sub ip_network {
 			return undef;
 		}
 		# a IPv4 mapped IPv6 is really IPv4, so it nets under the v4 prefix
-		if ( substr( $packed6, 0, 12 ) eq ( "\0" x 10 ) . "\xff\xff" ) {
+		if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
 			$packed = substr( $packed6, 12 );
 		} else {
 			$packed = $packed6;

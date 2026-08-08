@@ -109,7 +109,7 @@ like( $result->stdout, qr/2 rules checked/, 'and counts both' );
 # the injection-shape check is a warning, not a verdict... it prints and the rule
 # still passes, since the shape alone says nothing about what feeds the log
 mkdir $dir . '/rules/raw' if ( !-d $dir . '/rules/raw' );
-open( my $fh, '>', $dir . '/rules/syslog/lazy.yaml' ) or die($!);
+open( $fh, '>', $dir . '/rules/syslog/lazy.yaml' ) or die($!);
 print $fh <<'EOR';
 ---
 rev: 1

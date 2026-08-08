@@ -164,6 +164,218 @@ tests:                         # common... proven every load
       undefed: ["SRC"]
 ```
 
+### The order it runs in
+
+A rule is not read in the order it is written. Its keys run in a fixed
+order, and where a key sits in that order decides what a veto there costs.
+A line the daemon gate turns away cost nothing at all. One turned away by a
+gate after the match cost a regexp and left nothing behind it. One that
+reaches the threshold has already been counted, and will be counted again
+by the next line like it. This is the whole passage of one line through one
+rule.
+
+```
+   a line arrives on a watched log
+   │
+   ├─ the watcher's parser splits it up
+   │  A syslog parser yields the time, host, daemon, level, and message.
+   │  The others yield the fields of an access log, an error log, or a
+   │  JSON record.
+   │  └─▶ the line does not parse. It is counted and dropped.
+   │
+   ├─ the rule index picks the candidates
+   │  It holds which of the watcher's rules a line could possibly match,
+   │  keyed on the daemon for a syslog watcher and on the most
+   │  selectively pinned gate field for the rest.
+   │  └─▶ a rule the index does not name is never called.
+   │
+   ▼
+   The candidates are tried in the watcher's config order. Everything
+   below happens inside one of them.
+
+   ├──[ 1  MATCHING ]  is this line an offense?
+   │
+   ├─ 1.1  the type gate
+   │       A syslog rule checks the line's daemon against `daemons`. An
+   │       http rule checks `status` and `method`. An http_error rule
+   │       checks `level` and `module`. The raw and json types have no
+   │       such gate.
+   │       └─▶ no match. The rule stops. It has read nothing and
+   │           remembered nothing, which is what makes the index above
+   │           safe.
+   │
+   ├─ 1.2  message_json                              syslog rules only
+   │       The message is decoded as JSON and its fields are flattened
+   │       into dotted paths that the rest of the rule can read.
+   │       └─▶ the message is not a JSON object. The rule stops.
+   │
+   ├─ 1.3  mungers                          syslog and raw rules only
+   │       Log-Munger decodes the line and its fields are laid into the
+   │       offense. They go down first, so a capture of the same name in
+   │       1.6 or 1.7 overwrites one of them.
+   │
+   ├─ 1.4  ignore_regexp / ignore
+   │       └─▶ a hit. The rule stops. No context is stored and no
+   │           deferred offense completes.
+   │
+   ├─ 1.5  stages                           syslog and raw rules only
+   │       The line is tested against the stage this sequence is waiting
+   │       on. A hit advances the sequence if that stage's `within` and
+   │       `skip` bounds allow it, and kills the sequence if they do not.
+   │       A line matching the first stage starts a fresh sequence unless
+   │       one is already in flight for its key. Only the line completing
+   │       the last stage is an offense, and it carries the captures of
+   │       every stage before it.
+   │       └─▶ the sequence is not complete. The rule stops. Steps 1.6
+   │           and 1.7 do not run on a staged rule.
+   │
+   ├─ 1.6  capture_regexp / capture
+   │       A hit stores this line's captures under its correlation key,
+   │       where a later offense can claim them. An offense already
+   │       deferred against that key completes here and now.
+   │
+   ├─ 1.7  message_regexp / match
+   │       The entries are tried in order and the first to hit wins. An
+   │       entry carrying a `key` needs its context. If the context holds
+   │       that key, the stored captures merge with this line's into one
+   │       offense. If it does not, the entry either defers the offense
+   │       to wait for a capture line or gives way to the next entry.
+   │       └─▶ nothing hit and nothing completed. The rule stops.
+   │
+   ├─ 1.8  gate / keywords / selections / condition
+   │       The rule's boolean, ANDed with everything above. It reads the
+   │       captures, the munger fields, and the JSON fields alike.
+   │       └─▶ false. The rule stops.
+   │
+   ▼
+   An offense, holding every field the steps above put in it.
+
+   ├──[ 2  THE GATES ]  is the offense a real one?
+   │
+   │  Each gate is asked exactly once. Whether it is asked here or in
+   │  3.4 depends on what it keys on. An entry naming a var reads a
+   │  captured field, so it can be settled now. An entry naming no var
+   │  reads the offender, which does not exist yet.
+   │
+   ├─ 2.1  marked / not_marked / sequence, on a named var
+   ├─ 2.2  country, on a named var
+   ├─ 2.3  namtar_list, on a named var
+   ├─ 2.4  reverse_dns, on a named var
+   ├─ 2.5  active_time, which keys on nothing and is only asked here
+   │       └─▶ any one of them vetoes. The rule did not fire. See "a
+   │           veto is not a quiet pass" below.
+   │
+   ├──[ 3  THE OFFENDER ]  who does this count against?
+   │
+   ├─ 3.1  the candidates are read out of the offense
+   │       A banning rule takes the value of each `ban_var`, or, on the
+   │       http and http_error types, the parsed host or client. A
+   │       detection rule takes the value of each `detection_var`
+   │       instead and will banish nobody.
+   │
+   ├─ 3.2  ban_not_internal
+   │       A candidate that is one of your own hosts is dropped. Your own
+   │       hosts are the `internal` list, which defaults to `ignore_ips`.
+   │
+   ├─ 3.3  usedns
+   │       A candidate that is a hostname rather than an address is
+   │       dropped under `no`, replaced by the addresses it resolves to
+   │       under `resolve_seen`, or kept as a name under `resolve_ban`.
+   │
+   ├─ 3.4  the gates, keyed by the offender
+   │       The var-less entries of 2.1 through 2.4 are asked once per
+   │       candidate. A candidate any of them vetoes is dropped.
+   │       └─▶ no candidate survives. The rule did not fire.
+   │
+   ▼
+   The survivors. These are the offenders.
+
+   ├──[ 4  BRANDING AND COUNTING ]  what does the hit change?
+   │
+   ├─ 4.1  mark and unmark
+   │       Each offender is branded with the rule's `mark` entries and
+   │       lifted from the ones `unmark` names. An offender in
+   │       `ignore_ips` is never branded.
+   │
+   ├─ 4.2  mark_only
+   │       └─▶ set. The rule stops here. It brands and does nothing
+   │           else, so the line is not consumed.
+   │
+   ├─ 4.3  ignore_ips
+   │       └─▶ the offender is on the list. It is not counted. Observe
+   │           mode with `observe_ignored` counts it into the shadow
+   │           buckets anyway, so an operator can see what the list
+   │           hides.
+   │
+   ├─ 4.4  the numbers are resolved
+   │       `max_score`, `find_time`, `ban_time`, and `weight` are taken
+   │       from the per-rule config table first, then the rule file
+   │       (which speaks only under `allow_per_rule_thresholds`), then
+   │       the watcher, then the kur, then the global config.
+   │
+   ├─ 4.5  the bucket is chosen
+   │       Observe mode, a detection rule, and a rule demoted by
+   │       `overlap: shadow` all count into the shadow buckets, which can
+   │       neither cause nor delay a ban. Everything else counts into the
+   │       real ones. A rule overriding `max_score` or `find_time` counts
+   │       into a bucket of its own either way.
+   │
+   ├─ 4.6  the hit is deposited
+   │       A plain rule adds its `weight` to the offender's score. A
+   │       `distinct` rule adds the value of `of` to a set keyed by `by`,
+   │       or by the offender when `by` is absent, and the score is the
+   │       size of that set. Either way, anything last seen more than
+   │       `find_time` ago is dropped before the score is read.
+   │
+   ├─ 4.7  the subnet tally
+   │       With `ban_subnet_v4` or `ban_subnet_v6` set, the offender's
+   │       network takes the same deposit in a bucket of its own.
+   │
+   ▼
+   A score, and the max_score it is racing.
+
+   ├──[ 5  THE VERDICT ]  does anyone get banished?
+   │
+   ├─ 5.1  the score is short of max_score
+   │       One event goes to EVE and nothing else happens. It is `found`
+   │       normally, `noted` in observe mode, and `sighting` from a
+   │       detection rule.
+   │
+   ├─ 5.2  the score has reached max_score
+   │       A detection rule writes `sighted` and stops. Observe mode
+   │       writes `alert` and stops. Every other rule writes `banish` and
+   │       the galla sends a ban command to the Ereshkigal manager for
+   │       `ban_time` seconds. An unreachable Ereshkigal does not lose
+   │       the ban: it is queued and retried every ten seconds. The
+   │       offender's bucket is then cleared. A subnet that crossed on
+   │       the same hit is banished as a whole CIDR.
+   │
+   ├──[ 6  CONSUMPTION ]  which rules see the line next?
+   │
+   │  A rule that fired and is not mark_only consumes the line. What
+   │  that costs the rules after it is the watcher's `overlap`.
+   │
+   ├─ 6.1  overlap: first, the default
+   │       No later rule is tried. The line is done.
+   │
+   ├─ 6.2  overlap: shadow
+   │       Later rules still run, and any that fires is demoted. It
+   │       counts into the shadow buckets and its events read `noted`.
+   │
+   ├─ 6.3  overlap: all
+   │       Every later rule that fires judges for real.
+   │
+   ▼
+   the next line
+```
+
+**A veto is not a quiet pass.** A rule turned away anywhere in phase 2, 3,
+or 4 did not fire. It counts nothing, brands nobody, writes no EVE event,
+and does not consume the line, so the line carries on to the rules listed
+after it. This is what lets a legitimate Googlebot cleared by `reverse_dns`
+go on to match a benign rule, rather than being branded by the rule that
+just spared it.
+
 ## Naming the offender
 
 ### ban_var

@@ -524,6 +524,77 @@ sub default_test_parser {
 	return 'bsd_syslog';
 }
 
+=head2 accepts_daemon
+
+Returns true when a line logged by the named daemon could possibly match
+this rule... the cheap veto the galla indexes its watchers on, so a line
+is only offered to the rules that could want it rather than to every rule
+on the watcher in turn.
+
+The base answer is always true, which is the honest one for every rule
+type that has no daemon to gate on (http, http_error, json, raw)... those
+watchers index to the whole rule list and behave exactly as they did
+before. L<App::Baphomet::Rules::Syslog> overrides it with its daemons
+list, which is what makes the index worth having.
+
+The contract this rests on: a rule that answers false here must run
+nothing and remember nothing for that line. A syslog rule's daemon gate
+is the first thing C<check> does and it returns before touching any
+correlation state, so skipping the call and making the call are the same
+thing. A rule type whose C<check> harvests context before it could veto
+must not override this.
+
+    if ( $rule->accepts_daemon($daemon) ) { ... }
+
+=cut
+
+sub accepts_daemon {
+	return 1;
+}
+
+=head2 gate_discriminators
+
+Returns the rule's mandatory field equalities as a hash of field name to
+the set of values that field may hold, C<{}> for a rule offering none.
+The other half of the same idea as L</accepts_daemon>, for the rule types
+that have no daemon: a rule whose gate demands C<event_type> be C<alert>
+can not match a line whose C<event_type> is C<flow>, and that is knowable
+from the line without running the rule.
+
+    { 'event_type' => { 'alert' => 1 } }
+
+The base answer is C<{}>, which offers nothing and indexes to always-try.
+Only L<App::Baphomet::Rules::JSON> overrides it, and only that type could:
+a json rule's gate is a pre-filter over the parsed fields of the line,
+where a syslog or raw rule's gate is a post-match refinement over the
+captures its regexps produced. A capture name is not a line field, so
+there is nothing there to prefilter a line on.
+
+The contract, which is L</accepts_daemon>'s with one more clause. A rule
+offering a discriminator must, for a line the discriminator rejects,
+
+=over 4
+
+=item * run nothing and remember nothing, exactly as for the daemon gate; and
+
+=item * have no path to a match that goes around the gate.
+
+=back
+
+The second is why a json rule offering one must carry no C<capture>,
+C<ignore>, or C<key>: a capture entry harvests context and completes
+deferred offenses on its own gates, not the rule's, so such a rule can
+still return a result on a line its own gate refuses. Nothing may be
+indexed that can fire around the thing being indexed on.
+
+    my $discriminators = $rule->gate_discriminators;
+
+=cut
+
+sub gate_discriminators {
+	return {};
+}
+
 =head2 sweep_state
 
 Drops expired correlation context and pending deferred offenses. A no-op
@@ -4167,12 +4238,75 @@ sub _compile_gates {
 		if ( $gate->{keyword} && defined( $gate->{predicate} ) && defined( $gate->{predicate}{fieldref} ) ) {
 			die( $where . ' pairs fieldref with a keyword field, which can never match' );
 		}
+		$gate->{code} = _compile_gate_code($gate);
 		push( @gates, $gate );
 		$entry_int++;
 	} ## end foreach my $entry ( @{$gate_def} )
 
 	return \@gates;
 } ## end sub _compile_gates
+
+# compiles one gate to the code ref that runs it, or undef for a gate shape
+# that is left to _gate_hit.
+#
+# _gate_hit asks the same three questions of every gate on every line...
+# keyword or not, predicate or matchers, MESSAGE or a plain field... and the
+# answers were settled when the rule was read. Resolving them once here, into
+# a closure that does only what this gate needs, is where the saving is: a
+# plain gate becomes one hash lookup with no branching around it, and the
+# _gate_hit and _matchers_hit frames both go.
+#
+# Only the plain-matchers shape compiles, which is the shape the per-line
+# path is made of. A keyword fan, a typed predicate, and the MESSAGE field
+# each keep their branching at runtime and stay with _gate_hit... they are
+# the rare shapes, MESSAGE only reaching a gate at all after a syslog rule's
+# regexp has already matched, so compiling them would restate three more
+# paths to buy nothing.
+#
+# The closure takes ( $self, $data ) rather than closing over the rule, so
+# nothing holds a reference back to the object it is stored on. A gate whose
+# values carry a //regexp// hands the test to _matchers_hit rather than
+# restating the walk... it is the strings-only case that is worth
+# specializing, and it is the only one specialized here.
+#
+# Args...
+#
+#    - gate :: One compiled gate, as built above.
+#
+# Returns a code ref taking ( $self, $data ) and returning 1 or 0, or undef
+# when the gate is a shape this does not compile.
+#
+#    my $code = _compile_gate_code($gate);
+#    my $hit = defined($code) ? $code->( $self, $data ) : $self->_gate_hit( $gate, $data, $message );
+sub _compile_gate_code {
+	my ($gate) = @_;
+
+	if ( $gate->{keyword} || defined( $gate->{predicate} ) || !defined( $gate->{field} ) ) {
+		return undef;
+	}
+	if ( $gate->{field} eq 'MESSAGE' ) {
+		return undef;
+	}
+
+	my $field    = $gate->{field};
+	my $matchers = $gate->{matchers};
+
+	if ( @{ $matchers->{regexps} } ) {
+		return sub {
+			my ( $self, $data ) = @_;
+
+			return $self->_matchers_hit( $matchers, $data->{$field} );
+		};
+	}
+
+	my $strings = $matchers->{strings};
+
+	return sub {
+		my $value = $_[1]->{$field};
+
+		return ( defined($value) && $strings->{$value} ) ? 1 : 0;
+	};
+} ## end sub _compile_gate_code
 
 # compiles a rule's boolean matcher, the flat gate or the selections+condition
 # form, onto the object... they are mutually exclusive, a condition needs
@@ -4219,6 +4353,31 @@ sub _compile_boolean {
 		= (    ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
 			|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
 			|| defined( $self->{condition_ast} ) ) ? 1 : 0;
+
+	# the whole-rule fast path... a rule whose boolean is nothing but a gate
+	# list, every entry of which compiled to a code ref, is run by walking
+	# those code refs and nothing else. set only when that holds, so
+	# _boolean_pass tests one defined and is otherwise untouched. a rule with
+	# keywords, a condition, or any gate shape that did not compile leaves it
+	# undef and takes the general path as before
+	$self->{gate_code} = undef;
+	if (   !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
+		&& !defined( $self->{condition_ast} )
+		&& ref( $self->{gates} ) eq 'ARRAY'
+		&& @{ $self->{gates} } )
+	{
+		my @code;
+		foreach my $gate ( @{ $self->{gates} } ) {
+			if ( !defined( $gate->{code} ) ) {
+				@code = ();
+				last;
+			}
+			push( @code, $gate->{code} );
+		}
+		if (@code) {
+			$self->{gate_code} = \@code;
+		}
+	} ## end if ( !( ref( $self->{keyword_gates} ) eq 'ARRAY'...))
 
 	return;
 } ## end sub _compile_boolean
@@ -4274,6 +4433,19 @@ sub _compile_keywords {
 sub _boolean_pass {
 	my ( $self, $data, $message ) = @_;
 
+	# the common rule... a gate list and nothing else, every entry of it
+	# compiled. walking the code refs is the whole judgment, so the keyword,
+	# condition, and gate-shape questions below are not asked per line and
+	# neither _gates_pass nor _gate_hit is entered. see _compile_gate_code
+	if ( defined( $self->{gate_code} ) ) {
+		foreach my $code ( @{ $self->{gate_code} } ) {
+			if ( !$code->( $self, $data ) ) {
+				return 0;
+			}
+		}
+		return 1;
+	}
+
 	# the keywords shorthand, ANDed ahead of the gate or selections so it
 	# composes with either or stands alone
 	if ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } ) {
@@ -4305,15 +4477,24 @@ sub _boolean_pass {
 } ## end sub _boolean_pass
 
 # the core... runs a given gate list (ANDed) over a data hash, true when all
-# pass. shared by the rule gate and by each selection of the boolean form
+# pass. shared by each selection of the boolean form, by the json type's
+# capture entries, and by the keyword fan, the rule's own gate list having
+# been taken by the compiled path in _boolean_pass before reaching here. an
+# entry that compiled is run through its code ref, the rest through
+# _gate_hit, so a list of mixed shapes still pays only for what it is
 sub _gates_pass {
 	my ( $self, $gates, $data, $message ) = @_;
 
 	foreach my $gate ( @{$gates} ) {
-		if ( !$self->_gate_hit( $gate, $data, $message ) ) {
+		my $code = $gate->{code};
+		if ( defined($code) ) {
+			if ( !$code->( $self, $data ) ) {
+				return 0;
+			}
+		} elsif ( !$self->_gate_hit( $gate, $data, $message ) ) {
 			return 0;
 		}
-	}
+	} ## end foreach my $gate ( @{$gates} )
 
 	return 1;
 } ## end sub _gates_pass
