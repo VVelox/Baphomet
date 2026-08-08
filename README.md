@@ -18,9 +18,9 @@ firewalling. Baphomet never touches a firewall itself.
 
 That is the accuser. The same galla is also a log analysis engine, in the
 family of Sagan and Wazuh... a rule may **detect** in place of banishing,
-counting any subject and raising a triageable alert to the EVE event stream
-with out touching a firewall at all. Ban or detect is one key's difference.
-See [docs/log-analysis.md](docs/log-analysis.md).
+counting any subject and raising a triageable alert to the EVE event
+stream. Ban or detect is one key's difference. See
+[docs/log-analysis.md](docs/log-analysis.md).
 
 Watching sshd looks like this in `/usr/local/etc/baphomet/config.toml`...
 
@@ -29,8 +29,7 @@ Watching sshd looks like this in `/usr/local/etc/baphomet/config.toml`...
 [kur.sshd]
 max_score=5
 ban_time=300
-# read authlog
-# the key for the hash under sshd is just a freeform name
+# a watcher... authlog is just a freeform name
 [kur.sshd.authlog]
 log="/var/log/auth.log"
 parser="bsd_syslog"
