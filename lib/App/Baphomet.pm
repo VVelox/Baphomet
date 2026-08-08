@@ -5,13 +5,13 @@ use strict;
 use warnings;
 use base 'Error::Helper';
 use POE                                              qw( Wheel::Run );
-use POE::Component::Server::JSONUnix                  ();
-use POE::Component::Server::JSONUnix::Client          ();
-use POE::Component::Server::JSONUnix::BlockingClient  ();
-use Ereshkigal::Client               ();
-use App::Baphomet::Config            qw( load_config check_kur_def kur_split watcher_rules );
-use App::Baphomet::Rules             ();
-use App::Baphomet::LogDrek           qw( log_drek );
+use POE::Component::Server::JSONUnix                 ();
+use POE::Component::Server::JSONUnix::Client         ();
+use POE::Component::Server::JSONUnix::BlockingClient ();
+use Ereshkigal::Client                               ();
+use App::Baphomet::Config                            qw( load_config check_kur_def kur_split watcher_rules );
+use App::Baphomet::Rules                             ();
+use App::Baphomet::LogDrek                           qw( log_drek );
 
 =head1 NAME
 
@@ -322,6 +322,10 @@ The JSON commands handled are as below.
           args.name if given. Per mark name a hash of the branded keys
           with their expiries and stored values.
 
+    - tracked :: The live tracked records each galla holds... every galla,
+          or just args.name if given. Per track name a hash of keys with
+          their expiries and the fields the transaction has accumulated.
+
     - watching :: What each galla watches... every galla, or just
           args.name if given. Per watcher the log specs and globs it is
           set to watch and the concrete files it is following now, or the
@@ -383,6 +387,10 @@ sub start_server {
 			my ( undef, $request, $ctx ) = @_;
 			return $self->_cmd_marked( $request, $ctx );
 		},
+		'tracked' => sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_tracked( $request, $ctx );
+		},
 		'watching' => sub {
 			my ( undef, $request, $ctx ) = @_;
 			return $self->_cmd_watching( $request, $ctx );
@@ -435,8 +443,7 @@ sub start_server {
 			log_drek( 'err',
 					  'socket error during '
 					. $operation . ' on "'
-					. $self->socket_path
-					. '"... '
+					. $self->socket_path . '"... '
 					. $errstr . ' ('
 					. $errnum
 					. ')' );
@@ -658,7 +665,7 @@ sub _poe_galla_reaped {
 			$kernel->alarm_remove_all;
 		}
 		return;
-	}
+	} ## end if ( $self->{shutting_down} )
 	if ( !defined($entry) || !$entry->{enabled} ) {
 		return;
 	}
@@ -736,8 +743,7 @@ sub _poe_stop_escalate {
 		if ( !defined( $entry->{pid} ) || !defined( $entry->{wheel} ) ) {
 			next;
 		}
-		log_drek( 'err',
-			'galla "' . $name . '" is still running past the stop grace period, sending ' . $signal );
+		log_drek( 'err', 'galla "' . $name . '" is still running past the stop grace period, sending ' . $signal );
 		$entry->{wheel}->kill($signal);
 		$still_running = 1;
 	}
@@ -802,10 +808,8 @@ sub _galla_async_client {
 						  'galla client "'
 						. $name
 						. '" error during '
-						. $operation
-						. ' to "'
-						. $socket
-						. '"... '
+						. $operation . ' to "'
+						. $socket . '"... '
 						. $errstr . ' ('
 						. $errnum
 						. ')' );
@@ -898,7 +902,8 @@ sub _cmd_status_all {
 	} ## end if ( !defined($ctx) || !@running )
 
 	$self->_galla_fanout_deferred(
-		\@running, 'status',
+		\@running,
+		'status',
 		sub {
 			my ( $name, $result, $error ) = @_;
 			if ( defined($error) ) {
@@ -956,10 +961,11 @@ sub _cmd_status_galla {
 			$status->{status} = $galla_status;
 		}
 		return $status;
-	}
+	} ## end if ( !defined($ctx) )
 
 	$self->_galla_fanout_deferred(
-		[$name], 'status',
+		[$name],
+		'status',
 		sub {
 			my ( undef, $result, $error ) = @_;
 			if ( defined($error) ) {
@@ -1017,9 +1023,11 @@ sub _cmd_fanout {
 				$gallas->{$name} = $answer->{result};
 			} else {
 				$gallas->{$name}
-					= { 'error' => ( ref($answer) eq 'HASH' && defined( $answer->{error} ) ) ? $answer->{error} : 'no answer' };
+					= { 'error' => ( ref($answer) eq 'HASH' && defined( $answer->{error} ) )
+						? $answer->{error}
+						: 'no answer' };
 			}
-		}
+		} ## end foreach my $name (@running)
 		return { 'gallas' => $gallas };
 	} ## end if ( !defined($ctx) || !@running )
 
@@ -1052,6 +1060,12 @@ sub _cmd_marked {
 	return $self->_cmd_fanout( $request, 'marked', $ctx );
 }
 
+sub _cmd_tracked {
+	my ( $self, $request, $ctx ) = @_;
+
+	return $self->_cmd_fanout( $request, 'tracked', $ctx );
+}
+
 sub _cmd_watching {
 	my ( $self, $request, $ctx ) = @_;
 
@@ -1076,7 +1090,7 @@ sub _ereshkigal_client {
 
 	my $auth = $client->authenticate;
 	if ( ( $auth->{status} // '' ) ne 'ok' ) {
-		die( 'authenticating to Ereshkigal failed... '
+		die(      'authenticating to Ereshkigal failed... '
 				. ( defined( $auth->{error} ) ? $auth->{error} : 'unknown error' )
 				. "\n" );
 	}
@@ -1092,7 +1106,7 @@ sub _ereshkigal_call {
 
 	my $response = $client->call( 'command' => $command, ( defined($args) ? ( 'args' => $args ) : () ) );
 	if ( ref($response) ne 'HASH' || ( $response->{status} // '' ) ne 'ok' ) {
-		die( 'Ereshkigal refused "'
+		die(      'Ereshkigal refused "'
 				. $command . '"... '
 				. ( ref($response) eq 'HASH' && defined( $response->{error} ) ? $response->{error} : 'no answer' )
 				. "\n" );
@@ -1227,7 +1241,8 @@ sub _cmd_banished {
 	}
 
 	$self->_galla_fanout_deferred(
-		\@running, 'status',
+		\@running,
+		'status',
 		sub {
 			my ( $name, $galla_result, $error ) = @_;
 			if ( !defined($error) ) {

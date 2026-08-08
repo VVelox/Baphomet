@@ -176,6 +176,16 @@ Top level keys are as below.
           globally while trusted rules opt back in.
         Default :: 0
 
+    - track_only_eve_store :: Whether a track_only rule's own EVE events are
+          written. Off by default, a harvest rule's found being largely
+          monitoring noise... a track_only rule never counts and so can never
+          cross a threshold, which leaves found, noted, and sighting as the
+          only events it can raise and makes gating those complete. The rule
+          that reads the record and fires still carries its full payload. May
+          be overridden per kur and per watcher, so it can be switched on for
+          the one watcher whose track is not filling.
+        Default :: 0
+
     - observe_ignored :: Whether observe mode also scores what ignore_ips
           would drop. May be overridden per kur and per watcher.
         Default :: 0
@@ -433,6 +443,9 @@ Watcher hashes take the keys below.
     - eve_only / observe_ignored :: Optional per watcher observe mode
           overrides.
 
+    - track_only_eve_store :: Optional per watcher override of whether a
+          track_only rule's own EVE events are written.
+
     - overlap :: Optional per watcher override of how a record matching
           more than one rule is judged... first, shadow, or all.
 
@@ -522,6 +535,7 @@ sub load_config {
 		'subnet_find_time'          => undef,
 		'allow_per_rule_thresholds' => 0,
 		'eve_only'                  => 0,
+		'track_only_eve_store'      => 0,
 		'observe_ignored'           => 0,
 		'overlap'                   => 'first',
 		'enable_dns'                => 0,
@@ -626,6 +640,7 @@ sub load_config {
 	$config->{eve_enable}                = $config->{eve_enable}                ? 1 : 0;
 	$config->{allow_per_rule_thresholds} = $config->{allow_per_rule_thresholds} ? 1 : 0;
 	$config->{eve_only}                  = $config->{eve_only}                  ? 1 : 0;
+	$config->{track_only_eve_store}      = $config->{track_only_eve_store}      ? 1 : 0;
 	$config->{observe_ignored}           = $config->{observe_ignored}           ? 1 : 0;
 	$config->{enable_dns}                = $config->{enable_dns}                ? 1 : 0;
 	$config->{enable_rdns}               = $config->{enable_rdns}               ? 1 : 0;
@@ -776,7 +791,7 @@ sub _check_command_perms {
 			}
 			_check_command_spec( $name, $perms->{commands}{$name} );
 		}
-	} ## end if ( defined( $perms->...))
+	} ## end if ( defined( $perms->{commands} ) )
 
 	return;
 } ## end sub _check_command_perms
@@ -830,7 +845,7 @@ my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' =
 # validation silently unapplied
 my @shared_setting_keys = qw(
 	max_score find_time ban_time ban_subnet_v4 ban_subnet_v6
-	subnet_max_score subnet_find_time allow_per_rule_thresholds eve_only
+	subnet_max_score subnet_find_time allow_per_rule_thresholds eve_only track_only_eve_store
 	observe_ignored overlap default_severity usedns country_codes
 	namtar_lists active_time rule_config
 );
@@ -943,7 +958,7 @@ sub check_kur_def {
 					&& ref( $watcher->{$key} ) eq 'HASH'
 				)
 				&& !(
-					$key =~ /^(?:journal|allow_per_rule_thresholds|eve_only|observe_ignored)$/
+					$key =~ /^(?:journal|allow_per_rule_thresholds|eve_only|track_only_eve_store|observe_ignored)$/
 					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean'
 				)
 				)
@@ -1052,13 +1067,15 @@ sub check_kur_def {
 =head2 resolve_settings
 
 Resolves the effective max_score, find_time, ban_time,
-allow_per_rule_thresholds, eve_only, observe_ignored, and default_severity for
-a watcher... watcher over kur over global. The three booleans are normalized
-to a plain 0 or 1. default_severity is the level a rule's EVE events carry
-when the rule sets no severity of its own (undef when unset). eve_only puts
-the watcher's rules in observe mode (matches to EVE, no
+allow_per_rule_thresholds, eve_only, track_only_eve_store, observe_ignored, and
+default_severity for a watcher... watcher over kur over global. The four
+booleans are normalized to a plain 0 or 1. default_severity is the level a
+rule's EVE events carry when the rule sets no severity of its own (undef when
+unset). eve_only puts the watcher's rules in observe mode (matches to EVE, no
 real ban); observe_ignored lets that observe mode also process IPs ignore_ips
 would otherwise drop. A rule's own eve_only, when set, layers over this.
+track_only_eve_store lets a track_only rule's own events be written, which they
+are not by default.
 
     my $settings = resolve_settings( $config, $kur_settings, $watcher );
 
@@ -1069,10 +1086,10 @@ sub resolve_settings {
 
 	my $resolved = {};
 	foreach my $item (
-		'max_score',     'find_time',        'ban_time',         'allow_per_rule_thresholds',
-		'eve_only',      'observe_ignored',  'overlap',          'default_severity',
-		'ban_subnet_v4', 'ban_subnet_v6',    'subnet_max_score', 'subnet_find_time',
-		'usedns'
+		'max_score',            'find_time',       'ban_time',      'allow_per_rule_thresholds',
+		'eve_only',             'observe_ignored', 'overlap',       'default_severity',
+		'track_only_eve_store', 'ban_subnet_v4',   'ban_subnet_v6', 'subnet_max_score',
+		'subnet_find_time',     'usedns'
 		)
 	{
 		if ( defined($watcher) && defined( $watcher->{$item} ) ) {
@@ -1083,7 +1100,7 @@ sub resolve_settings {
 			$resolved->{$item} = $config->{$item};
 		}
 	} ## end foreach my $item ( 'max_score', 'find_time', 'ban_time'...)
-	foreach my $flag ( 'allow_per_rule_thresholds', 'eve_only', 'observe_ignored' ) {
+	foreach my $flag ( 'allow_per_rule_thresholds', 'eve_only', 'track_only_eve_store', 'observe_ignored' ) {
 		$resolved->{$flag} = $resolved->{$flag} ? 1 : 0;
 	}
 
@@ -1935,8 +1952,8 @@ sub resolve_rule_config {
 					}
 				} ## end foreach my $rule_name (@rule_names)
 			} ## end foreach my $key (@keys)
-		} ## end if ( defined($level) && ref...)
-	} ## end foreach my $level ( $kur_settings...)
+		} ## end if ( defined($level) && ref( $level->{rule_config...}))
+	} ## end foreach my $level ( $kur_settings, $watcher )
 
 	return $resolved;
 } ## end sub resolve_rule_config
@@ -2005,7 +2022,7 @@ sub _rule_config_error {
 		if ( defined( _severity_error( $override->{severity} ) ) ) {
 			return $where . ' rule "' . $rule_name . '" severity is not one of info/low/medium/high/critical';
 		}
-	} ## end foreach my $rule_name ( keys...)
+	} ## end foreach my $rule_name ( keys( %{$rule_config} ))
 
 	return undef;
 } ## end sub _rule_config_error

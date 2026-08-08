@@ -19,6 +19,7 @@ use App::Baphomet::Config
 use App::Baphomet::Parser     ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::Marks      ();
+use App::Baphomet::Tracks     ();
 use App::Baphomet::RDNS       ();
 use App::Baphomet::Geo        ();
 use App::Baphomet::Offense    ();
@@ -117,19 +118,24 @@ sub new {
 		marks                    => {},
 		mark_sync                => 0,
 		mark_stream_id           => undef,
-		namtar_files             => {},
-		pending_bans             => {},
-		pending_cidr_bans        => {},
-		kur_client               => undef,
-		inflight_bans            => {},
-		dns_async                => 0,
-		dns_inflight             => {},
-		dns_bg                   => undef,
-		wheel_to_watcher         => {},
-		started                  => undef,
-		stopping                 => 0,
-		server                   => undef,
-		stats                    => {
+		# tracked records... per track name a hash of keys, each a record of
+		# accumulated fields. local to this galla by design and never fleet
+		# synced, a record republished per stage line on a busy MX being a
+		# different order of traffic than a scalar brand
+		tracked           => {},
+		namtar_files      => {},
+		pending_bans      => {},
+		pending_cidr_bans => {},
+		kur_client        => undef,
+		inflight_bans     => {},
+		dns_async         => 0,
+		dns_inflight      => {},
+		dns_bg            => undef,
+		wheel_to_watcher  => {},
+		started           => undef,
+		stopping          => 0,
+		server            => undef,
+		stats             => {
 			lines            => 0,
 			unparsed         => 0,
 			matched          => 0,
@@ -878,6 +884,29 @@ sub checkpoint {
 		}
 	);
 
+	# tracked records... one JSON line per key, name,key,expires and the
+	# accumulated fields. these survive a restart by design, a postfix queue
+	# outliving a galla restart being exactly the case the store is for
+	$self->_write_tablet(
+		'tracked',
+		sub {
+			my ($fh) = @_;
+			foreach my $track_name ( sort( keys( %{ $self->{tracked} } ) ) ) {
+				my $store = $self->{tracked}{$track_name};
+				foreach my $key ( sort( keys( %{$store} ) ) ) {
+					print $fh encode_json(
+						{
+							'name'    => $track_name,
+							'key'     => $key,
+							'expires' => $store->{$key}{expires},
+							'fields'  => $store->{$key}{fields},
+						}
+					) . "\n";
+				} ## end foreach my $key ( sort( keys( %{$store} ) ) )
+			} ## end foreach my $track_name ( sort( keys( %{ $self->...})))
+		}
+	);
+
 	# the mark stream cursor... where the fleet mark bus was last drained to,
 	# so a restart resumes the tail rather than replaying the whole stream.
 	# host-local, like the journal cursors
@@ -953,6 +982,7 @@ sub _load_state {
 	$self->_load_stats;
 	$self->_load_context($now);
 	$self->_load_marks($now);
+	$self->_load_tracked($now);
 
 	if ( $self->{mark_sync} ) {
 		$self->_load_mark_stream;
@@ -1283,6 +1313,37 @@ sub _load_marks {
 	return;
 } ## end sub _load_marks
 
+# tracked records, restored whole and pruned of anything already expired. a
+# record whose fields are not a hash is dropped rather than trusted, a
+# hand-edited or truncated tablet being the only way one gets here
+sub _load_tracked {
+	my ( $self, $now ) = @_;
+
+	foreach my $line ( $self->_read_tablet('tracked') ) {
+		if ( $line eq '' ) {
+			next;
+		}
+		my $decoded;
+		eval { $decoded = decode_json($line); };
+		if (   ref($decoded) ne 'HASH'
+			|| !defined( $decoded->{name} )
+			|| !defined( $decoded->{key} )
+			|| ref( $decoded->{fields} ) ne 'HASH'
+			|| !defined( $decoded->{expires} )
+			|| $decoded->{expires} !~ /^[0-9]+$/
+			|| $decoded->{expires} <= $now )
+		{
+			next;
+		} ## end if ( ref($decoded) ne 'HASH' || !defined( ...))
+		$self->{tracked}{ $decoded->{name} }{ $decoded->{key} } = {
+			'expires' => $decoded->{expires} + 0,
+			'fields'  => $decoded->{fields},
+		};
+	} ## end foreach my $line ( $self->_read_tablet('tracked'...))
+
+	return;
+} ## end sub _load_tracked
+
 # the mark stream cursor, then a first drain to catch up on whatever the
 # fleet branded while this galla was down... over the local marks just
 # restored above, so the two converge before the socket opens. a missing
@@ -1511,6 +1572,12 @@ The JSON commands handled are as below.
           joined on the unit separator, which JSON output shows as
           \u001f.
 
+    - tracked :: The live tracked records, per track name a hash of keys,
+          each with its expiry, the fields the transaction has accumulated
+          so far, and the key handed back split... a compound key as a
+          array of its components and a single one as a plain scalar,
+          rather than carrying the separator the store joins on.
+
     - watching :: Per watcher, what it is set to watch and what it is
           watching now... for a file watcher the log specs (literal paths
           and globs) under globs and the concrete files currently followed
@@ -1552,6 +1619,9 @@ sub start_server {
 			},
 			'marked' => sub {
 				return $self->_cmd_marked;
+			},
+			'tracked' => sub {
+				return $self->_cmd_tracked;
 			},
 			'watching' => sub {
 				return $self->_cmd_watching;
@@ -2310,6 +2380,9 @@ sub _process_record {
 		'source' => $seq_source,
 		# carried so the rules do not each call time per line
 		'now' => $now,
+		# the live tracked-record store, read by a rule's tracked clause and
+		# written by its track sweep, both of which run inside the rule
+		'tracked' => $self->{tracked},
 	};
 
 	# rules are checked in order and, under the default overlap of first,
@@ -2339,8 +2412,12 @@ sub _process_record {
 			next;
 		}
 
-		my $gates        = $rule_obj->mark_gates;
-		my $mark_only    = $rule_obj->mark_only;
+		my $gates = $rule_obj->mark_gates;
+		# a track_only rule is mark_only's sibling... it harvests, never
+		# counts, and does not consume the line. one flag drives both, a rule
+		# declaring either being a harvest rule as far as counting goes
+		my $track_only   = $rule_obj->track_only;
+		my $mark_only    = $rule_obj->mark_only || $track_only;
 		my $is_detection = $rule_obj->is_detection;
 		my $country_gate = $watcher->{country_gates}[$rule_int];
 		my $namtar_gate  = $watcher->{namtar_gates}[$rule_int];
@@ -2359,10 +2436,25 @@ sub _process_record {
 		my $rule_eve_only   = defined( $rule_cfg->{eve_only} ) ? $rule_cfg->{eve_only} : $rule_obj->eve_only;
 		my $eve_only        = defined($rule_eve_only)          ? $rule_eve_only        : $watcher->{settings}{eve_only};
 		my $observe_ignored = $watcher->{settings}{observe_ignored};
+		my $track_only_eve  = $watcher->{settings}{track_only_eve_store};
 
 		# a capture line may have completed several deferred offenses
 		my @all_found = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
-		my $consumed  = 0;
+
+		# the found vars swept again for the tracked fields on the way into
+		# the gates. a rule's tracked clause lifts into each offense it judges,
+		# but a offense that reached here without being judged... a json
+		# completion, which is filtered on the capture's own gates and never
+		# the rule's... would carry none of them, and the gates below and the
+		# ban_var read after them address a lifted field by name like any
+		# other. lifts only, never vetoes; the veto was the boolean's to cast
+		if ( @{ $rule_obj->track_gates->{tracked} } ) {
+			foreach my $one (@all_found) {
+				$self->_track_lift( $rule_obj, $one->{data}, $now );
+			}
+		}
+
+		my $consumed = 0;
 		foreach my $one (@all_found) {
 			# the data-level gates vet the whole result once... the var-keyed
 			# mark and country gates, the namtar and reverse_dns gates, and
@@ -2473,8 +2565,9 @@ sub _process_record {
 					}
 				} ## end foreach my $detection_var ( $rule_obj->detection_var)
 				# a subject that crossed raised a sighted, which stands for
-				# the match... only the uncrossed one still needs a sighting
-				if ( !$self->{result_terminal} ) {
+				# the match... only the uncrossed one still needs a sighting.
+				# a track_only rule's own is gated the same as its found
+				if ( !$self->{result_terminal} && !( $track_only && !$track_only_eve ) ) {
 					$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
 				}
 			} else {
@@ -2546,7 +2639,13 @@ sub _process_record {
 				# alert), which carries the match already... the found/noted is
 				# then redundant, so only a result that banished nobody emits
 				# it. observe mode colors the match event noted, not found
-				if ( !$self->{result_terminal} ) {
+				# a track_only rule's own events are largely monitoring noise,
+				# so they are gated behind track_only_eve_store. it never
+				# counts and so can never cross a threshold, which leaves
+				# found/noted as all it can raise here and makes the gating
+				# complete... the rule that reads the record and fires still
+				# carries its full payload
+				if ( !$self->{result_terminal} && !( $track_only && !$track_only_eve ) ) {
 					my $fields = $self->_eve_fields( $context, $score, $set, $lifted );
 					if ( defined($ban_ip) ) {
 						$fields->{ip} = $ban_ip;
@@ -2556,7 +2655,7 @@ sub _process_record {
 					# after the winner, so it keeps its found either way
 					my $event = ( $eve_only || ( $demoted && !$mark_only ) ) ? 'noted' : 'found';
 					$self->_eve_emit( $event, $fields );
-				} ## end if ( !$self->{result_terminal} )
+				} ## end if ( !$self->{result_terminal} && !( $track_only...))
 			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
@@ -2604,6 +2703,7 @@ sub _eve_fields {
 	my $found   = ref( $context->{found} ) eq 'HASH' ? $context->{found} : {};
 	my $src_ip  = $found->{ $context->{rule}->src_ip_var };
 	my $dest_ip = $found->{ $context->{rule}->dest_ip_var };
+	my $tracked = $self->_track_eve( $context->{rule}, $found, time );
 
 	return {
 		defined( $context->{source} ) ? ( 'path' => $context->{source} ) : (),
@@ -2638,6 +2738,9 @@ sub _eve_fields {
 		defined( $context->{threshold} )   ? ( 'threshold' => $context->{threshold} ) : (),
 		( defined($set) && @{$set} )       ? ( 'marks_set' => $set )                  : (),
 		( defined($lifted) && @{$lifted} ) ? ( 'unmarked'  => $lifted )               : (),
+		# the tracked records this result rides, read live... vars per track
+		# name the record's accumulated fields, key the id that found it
+		defined($tracked) ? ( 'tracked' => $tracked ) : (),
 	};
 } ## end sub _eve_fields
 
@@ -3488,6 +3591,88 @@ sub _resolve_offense {
 		'on_unset'  => $on_unset,
 	);
 } ## end sub _resolve_offense
+
+# lifts a rule's tracked into fields onto one found result, the second of the
+# two track sweeps and the one that runs galla side. the rule's own tracked
+# clause already lifted into every offense it judged, so for the ordinary path
+# this finds nothing left to do; it exists for the offense that reached the
+# gates without being judged, a json completion being filtered on its
+# capture's gates rather than the rule's.
+#
+# takes the rule object, the found data hash ref (mutated in place), and the
+# current time. lifts only, never vetoes... the veto was the boolean's to
+# cast, and a record can not un-fire a rule that already fired. a lift never
+# overwrites a field the line itself carried, the same precedence the rule
+# side gives. returns nothing.
+sub _track_lift {
+	my ( $self, $rule_obj, $data, $now ) = @_;
+
+	foreach my $gate ( @{ $rule_obj->track_gates->{tracked} } ) {
+		if ( !defined( $gate->{into} ) ) {
+			next;
+		}
+		my $key = App::Baphomet::Tracks::track_key( $gate, $data );
+		if ( !defined($key) ) {
+			next;
+		}
+		my $record = App::Baphomet::Tracks::track_get( $self->{tracked}, $gate->{name}, $key, $now );
+		if ( !defined($record) ) {
+			next;
+		}
+		foreach my $field ( @{ $gate->{into} } ) {
+			if ( defined( $record->{$field} ) && !exists( $data->{$field} ) ) {
+				$data->{$field} = $record->{$field};
+			}
+		}
+	} ## end foreach my $gate ( @{ $rule_obj->track_gates->{...}})
+
+	return;
+} ## end sub _track_lift
+
+# the tracked records this found result rides, for the EVE event... per track
+# name the live record's fields and the key that found it. read live at emit
+# time rather than snapshotted, every emit happening inside the line's own
+# processing: EVE and the ledger are written once at the determination and the
+# sweeper's batched retry writes neither (see _ban_delivered), so the store can
+# not move between the match and the event.
+#
+# the sweep at the end of the rule precedes this, so vars shows the record
+# including this line's contribution... the reading a operator wants, at the
+# price of the boolean's tracked clause having decided on a state one line
+# older than the event displays.
+#
+# takes the rule object, the found data hash ref, and the current time.
+# returns a hash ref of vars and key, or undef when the rule tracks nothing or
+# no declared key resolved. a compound key renders as a array of its
+# components and a single key as a plain scalar, both mapping to one keyword
+# field in Elasticsearch, rather than emitting the separator the store joins on
+sub _track_eve {
+	my ( $self, $rule_obj, $data, $now ) = @_;
+
+	my $tracks = $rule_obj->tracks;
+	if ( !@{$tracks} ) {
+		return undef;
+	}
+
+	my ( %vars, %keys );
+	foreach my $track ( @{$tracks} ) {
+		my $key = App::Baphomet::Tracks::track_key( $track, $data );
+		if ( !defined($key) ) {
+			next;
+		}
+		$keys{ $track->{name} } = App::Baphomet::Tracks::track_render($key);
+		my $record = App::Baphomet::Tracks::track_get( $self->{tracked}, $track->{name}, $key, $now );
+		if ( defined($record) ) {
+			$vars{ $track->{name} } = { %{$record} };
+		}
+	} ## end foreach my $track ( @{$tracks} )
+
+	if ( !%keys ) {
+		return undef;
+	}
+
+	return { 'vars' => \%vars, 'key' => \%keys };
+} ## end sub _track_eve
 
 # drains the fleet mark bus and folds the new deltas into the live marks,
 # advancing the stream cursor... a no-op unless the store carries a bus. the
@@ -5055,6 +5240,10 @@ sub _sweep {
 		}
 	} ## end foreach my $mark_name ( keys( %{ $self->{marks}...}))
 
+	# expire tracked records beside the marks, for the same reason... a ttl
+	# elapses on time rather than waiting on the next line that would key it
+	App::Baphomet::Tracks::track_prune( $self->{tracked}, $now );
+
 	# expire the correlation state of the rules... rule objects are shared
 	# across watchers, so sweep each once
 	my %swept;
@@ -5231,6 +5420,35 @@ sub _cmd_marked {
 		'marks' => $marks,
 	};
 } ## end sub _cmd_marked
+
+sub _cmd_tracked {
+	my ($self) = @_;
+
+	# the live tracked store, per track name a hash of keys, each with its
+	# expiry and the fields the transaction has accumulated so far. the
+	# compound keys are handed back split, the way the EVE event renders
+	# them, rather than carrying the separator they are joined on
+	my $now     = time;
+	my $tracked = {};
+	foreach my $track_name ( keys( %{ $self->{tracked} } ) ) {
+		my $store = $self->{tracked}{$track_name};
+		foreach my $key ( keys( %{$store} ) ) {
+			if ( $store->{$key}{expires} <= $now ) {
+				next;
+			}
+			$tracked->{$track_name}{$key} = {
+				'expires' => $store->{$key}{expires},
+				'key'     => App::Baphomet::Tracks::track_render($key),
+				'fields'  => $store->{$key}{fields},
+			};
+		} ## end foreach my $key ( keys( %{$store} ) )
+	} ## end foreach my $track_name ( keys( %{ $self->{tracked...}}))
+
+	return {
+		'name'    => $self->{name},
+		'tracked' => $tracked,
+	};
+} ## end sub _cmd_tracked
 
 sub _cmd_watching {
 	my ($self) = @_;

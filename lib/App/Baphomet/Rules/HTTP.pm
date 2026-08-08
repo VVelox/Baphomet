@@ -155,7 +155,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:status|method|gate|selections|condition|keywords|match|ignore|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:status|method|gate|selections|condition|keywords|match|ignore|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|track|tracked|not_tracked|track_only|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -228,7 +228,7 @@ only rule.
 =cut
 
 sub check {
-	my ( $self, $parsed ) = @_;
+	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
 	# must be access log shaped... the syslog parsers never produce these
 	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{host} ) || !defined( $parsed->{status} ) ) {
@@ -241,23 +241,40 @@ sub check {
 		}
 	}
 
-	# the field space, the parsed access-log fields, for the generic gate and
-	# for the returned data... only built ahead of the vetoes when a boolean
-	# filter needs it, else deferred until the line has actually matched
-	my $data;
-	if ( $self->{has_boolean} ) {
-		$data = $self->_field_data($parsed);
-		# the generic gate / selections / keywords, ANDed ahead of the matches
-		if ( !$self->_boolean_pass( $data, undef ) ) {
-			return undef;
-		}
-	}
-
+	# a ignore hit vetoes the line entirely, the track harvest included, so it
+	# is asked ahead of both. it sat below the boolean before tracking existed,
+	# where the two orders gave the same answer, both simply refusing the line
 	foreach my $ignore ( @{ $self->{ignores} } ) {
 		my $value = $parsed->{ $ignore->{field} };
 		if ( defined($value) && $value =~ $ignore->{regexp} ) {
 			return undef;
 		}
+	}
+
+	# the field space, the parsed access-log fields, for the generic gate and
+	# for the returned data... only built ahead of the vetoes when a boolean
+	# filter, a tracked gate, or a harvest needs it, else deferred until the
+	# line has actually matched
+	my $data;
+	my $tracking = defined( $self->{tracks} ) || defined( $self->{track_gates} );
+	if ( $self->{has_boolean} || $tracking ) {
+		$data = $self->_field_data($parsed);
+	}
+
+	# the tracked clause and then the generic gate / selections / keywords,
+	# ANDed ahead of the matches. the verdict is held rather than returned on,
+	# as the harvest below runs whether or not the line was a offense
+	my $passed = 1;
+	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
+		$passed = $self->_offense_boolean_pass( $data, undef, $line_ctx );
+	}
+
+	if ( defined( $self->{tracks} ) ) {
+		$self->_track_sweep( [$data], $line_ctx );
+	}
+
+	if ( !$passed ) {
+		return undef;
 	}
 
 	my $matched;

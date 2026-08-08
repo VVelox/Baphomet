@@ -171,6 +171,30 @@ candidate was internal. The terminal events carry the same `.marks_set`
 and `.unmarked`, so a line that both brands and banishes records the brand
 on its `banish`, the `found` it stands in for having been suppressed.
 
+Any event from a rule carrying a `track` also gets `.tracked`, the state of
+the records that rule is party to at the moment the event was written:
+
+```json
+"tracked": {
+  "vars": { "mail-queue": { "postfix_client_ip": "203.0.113.9" } },
+  "key":  { "mail-queue": "1C36D185729" }
+}
+```
+
+`.tracked.key` is the id the record was filed under, a compound key rendered
+as an array of its components and a single one as a plain scalar, so both map
+to one keyword field rather than carrying the separator the store joins on.
+`.tracked.vars` is the record itself. It is read live, and the harvest at the
+end of the rule precedes the emit, so `vars` includes this line's own
+contribution... the reading an operator wants, at the price of the gate having
+decided on a state one line older than the event displays. A track whose key
+did not resolve on this line appears in neither.
+
+A `track_only` rule's own events are not written at all unless
+`track_only_eve_store` is set, a harvest rule's `found` being largely
+monitoring noise. The rule that reads the record and fires still carries the
+full payload.
+
 A **sighted** event adds `.subject`, the value of the `detection_var` that
 crossed the threshold... a username, a hostname, a URI, or a IP when that is
 what the rule counts. It carries the same `.score` and match envelope a

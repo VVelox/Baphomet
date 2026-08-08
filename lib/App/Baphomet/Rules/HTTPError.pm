@@ -141,7 +141,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:level|module|gate|selections|condition|keywords|message_regexp|ignore_regexp|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:level|module|gate|selections|condition|keywords|message_regexp|ignore_regexp|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|track|tracked|not_tracked|track_only|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -216,7 +216,7 @@ message_regexp entry that hit.
 =cut
 
 sub check {
-	my ( $self, $parsed ) = @_;
+	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
 	# must be error log shaped and carry a client... startup notices and
 	# worker chatter have no one to blame
@@ -230,23 +230,40 @@ sub check {
 		}
 	}
 
-	# the generic gate / selections / keywords over the parsed scalar fields
-	# (the message included, so keywords search the error text), a pre-filter
-	# ANDed ahead of the message_regexp match... the field space is only
-	# built when the rule carries a boolean filter, and reused for the
-	# matched data below rather than rebuilt
-	my $field_data;
-	if ( $self->{has_boolean} ) {
-		$field_data = _scalar_fields($parsed);
-		if ( !$self->_boolean_pass( $field_data, undef ) ) {
-			return undef;
-		}
-	}
-
+	# a ignore hit vetoes the line entirely, the track harvest included, so it
+	# is asked ahead of both. it sat below the boolean before tracking existed,
+	# where the two orders gave the same answer, both simply refusing the line
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
 		if ( $parsed->{message} =~ $ignore ) {
 			return undef;
 		}
+	}
+
+	# the generic gate / selections / keywords over the parsed scalar fields
+	# (the message included, so keywords search the error text), a pre-filter
+	# ANDed ahead of the message_regexp match, with the tracked clause first
+	# among them... the field space is only built when the rule carries a
+	# boolean filter, a tracked gate, or a harvest, and reused for the matched
+	# data below rather than rebuilt
+	my $field_data;
+	my $tracking = defined( $self->{tracks} ) || defined( $self->{track_gates} );
+	if ( $self->{has_boolean} || $tracking ) {
+		$field_data = _scalar_fields($parsed);
+	}
+
+	# the verdict is held rather than returned on, as the harvest below runs
+	# whether or not the line was a offense
+	my $passed = 1;
+	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
+		$passed = $self->_offense_boolean_pass( $field_data, undef, $line_ctx );
+	}
+
+	if ( defined( $self->{tracks} ) ) {
+		$self->_track_sweep( [$field_data], $line_ctx );
+	}
+
+	if ( !$passed ) {
+		return undef;
 	}
 
 	my $entry_int = 0;

@@ -89,6 +89,15 @@ sit under an `or`, and a `keywords` entry, which fans over many fields rather
 than pinning one. A watcher whose rules pin nothing indexes on nothing and
 walks them all, exactly as before.
 
+A `track` is the same clause for a different reason, and the one place the
+index deliberately gives work back. A tracked record's harvest runs whether
+or not the line was an offense, so a rule party to a record has to be handed
+every line of its watcher... index it on a gate and the harvest would only
+ever see lines the rule already matched, which is exactly the conflation
+tracking exists to undo. That is a real per-line cost and it is only paid by
+the non-syslog types: a syslog rule is routed by daemon, and a postfix line
+already reaches every postfix rule.
+
 The index fills lazily, one entry per distinct value seen, and is bounded...
 the value comes off the log line, so a broken or hostile producer chiselling
 a fresh one per line can not grow it without limit.

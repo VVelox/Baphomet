@@ -194,7 +194,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:gate|selections|condition|keywords|match|ignore|capture|key|defer|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:gate|selections|condition|keywords|match|ignore|capture|key|defer|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|track|tracked|not_tracked|track_only|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -357,8 +357,18 @@ sub gate_discriminators {
 	# capture harvests context and completes deferred offenses on its own
 	# gates, and a key defers the offense itself, so either leaves a result
 	# reachable on a line the gate refused. an ignore is pure, but it is
-	# refused here too so the contract stays one sentence long
-	if ( @{ $self->{captures} } || @{ $self->{ignores} } || defined( $self->{correlation_key} ) ) {
+	# refused here too so the contract stays one sentence long.
+	#
+	# a track is the same clause for a different reason. its harvest runs
+	# whether or not the line was a offense, so a rule party to a record has
+	# to be handed every line of its watcher or the harvest silently only ever
+	# sees the lines the rule already matched, which is the conflation the
+	# whole feature exists to undo
+	if (   @{ $self->{captures} }
+		|| @{ $self->{ignores} }
+		|| defined( $self->{correlation_key} )
+		|| defined( $self->{tracks} ) )
+	{
 		return $discriminators;
 	}
 
@@ -479,9 +489,23 @@ sub check {
 		} ## end if ( defined($pendings) )
 	} ## end foreach my $capture ( @{ $self->{captures} } )
 
-	# the offense itself... the boolean pre-filter, then the matches
+	# the offense itself... the tracked clause and the boolean pre-filter,
+	# then the matches. a into lifts into a copy and never into the parsed
+	# event, which every rule on this line shares and none of them owns
+	my $gate_fields = $fields;
+	if ( defined( $self->{track_gates} ) || defined( $self->{tracks} ) ) {
+		$gate_fields = { %{$fields} };
+	}
+	my $tracked_pass = defined( $self->{track_gates} ) ? $self->_tracked_pass( $gate_fields, $line_ctx ) : 1;
+
+	# the harvest, after the read above and never before it, and whether or
+	# not the line turns out to be a offense
+	if ( defined( $self->{tracks} ) ) {
+		$self->_track_sweep( [$gate_fields], $line_ctx );
+	}
+
 	my $found;
-	if ( $self->_boolean_pass( $fields, undef ) ) {
+	if ( $tracked_pass && $self->_boolean_pass( $gate_fields, undef ) ) {
 		my $matched;
 		my $caps   = {};
 		my $missed = 0;
@@ -502,11 +526,13 @@ sub check {
 		} ## end if ( @{ $self->{matches} } )
 
 		if ( !$missed ) {
-			# the flattened fields merged with the captures, fields authoritative
-			my %data = ( %{$caps}, %{$fields} );
+			# the flattened fields merged with the captures, fields
+			# authoritative... and any lifted record fields with them, those
+			# having landed in the copy underneath the event's own
+			my %data = ( %{$caps}, %{$gate_fields} );
 			$found = { 'data' => \%data, 'regexp' => $matched };
 		}
-	} ## end if ( $self->_boolean_pass( $fields, undef ...))
+	} ## end if ( $tracked_pass && $self->_boolean_pass...)
 
 	# a keyed offense resolves through the stored context of a capture with
 	# the same key... a key component that does not resolve leaves the

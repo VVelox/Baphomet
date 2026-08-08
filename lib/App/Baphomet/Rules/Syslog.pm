@@ -286,7 +286,7 @@ sub new {
 
 	foreach my $key ( keys( %{$def} ) ) {
 		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|country|namtar_list|active_time|reverse_dns|distinct|mungers|test_parser|tests|src_ip_var|dest_ip_var)$/
+			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|track|tracked|not_tracked|track_only|country|namtar_list|active_time|reverse_dns|distinct|mungers|test_parser|tests|src_ip_var|dest_ip_var)$/
 			)
 		{
 			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );

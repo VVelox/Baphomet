@@ -11,6 +11,7 @@ use Encode                    ();
 use App::Baphomet::Parser     ();
 use App::Baphomet::Config     qw( compile_ignore_ips ip_ignored );
 use App::Baphomet::Marks      ();
+use App::Baphomet::Tracks     qw( track_key track_get track_put );
 use App::Baphomet::RDNS       ();
 use App::Baphomet::Geo        ();
 use App::Baphomet::Offense    ();
@@ -340,6 +341,88 @@ as in order. The set time survives a restart and rides the fleet mark sync
 bus, so a fleet-shared sequence correlates stages seen on different machines.
 Unordered correlation (all stages present, any order) is the plain C<marked>
 gate over the same brands.
+
+=head2 Tracked records... state that accumulates across lines
+
+=head3 track / tracked / not_tracked / track_only
+
+A daemon that logs one transaction over several lines spreads the facts about
+it across all of them. Postfix is the clearest case: the client address arrives
+on the C<smtpd> line, the sender and recipient on C<cleanup>, the delivery
+verdict on C<local> or C<smtp> an hour later, and the only thing joining them
+is the queue id. The line that finally says something worth banning on is
+rarely the line that says who to ban.
+
+Where a mark holds one scalar per branded key, a tracked record holds a hash
+that accumulates. Later lines lay their fields over the record rather than
+replacing it, so each stage of a transaction contributes what it knows.
+
+    - track :: Array of records this rule is party to, each a hash of C<name>,
+          C<key> (the found var holding the joining id, or a array of them for
+          a compound key), and optionally C<fields> (the found vars to
+          contribute, defaulting to everything found) and C<ttl> (seconds,
+          default 3600). This declares and harvests; it never gates.
+
+    - tracked :: Gate array, ANDed... each a hash of C<name> and at least one
+          of C<where> (predicate entries judged against the B<stored> record,
+          the ordinary gate vocabulary) and C<into> (stored fields to lift into
+          this line's offense). It carries no key of its own, taking the one
+          the C<track> beside it declared.
+
+    - not_tracked :: The inverse gate, each a hash of C<name> alone... it means
+          "no live record for this key" and nothing else. "A record exists but
+          does not match" is already C<tracked> with a negated C<where>.
+
+    - track_only :: When true the rule only harvests, never counting toward a
+          ban, and does not consume the line, exactly as C<mark_only>.
+
+C<into> is the whole point. The bounce fires on the C<local> line, and
+C<ban_var> names an address that only ever appeared on an C<smtpd> line an
+hour earlier:
+
+    track:
+      - name: mail-queue
+        key: postfix_queueid
+        fields: [ postfix_status ]
+    tracked:
+      - name: mail-queue
+        where:
+          - { field: postfix_sasl_username, op: exists }
+          - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
+        into: [ postfix_client_ip ]
+    ban_var: [ postfix_client_ip ]
+
+A C<tracked> or C<not_tracked> naming a record the rule declared no C<track>
+for will not load. The declaration is what the read is a read of, and requiring
+it means a rule that reads is always also a rule that harvests... a reader with
+nothing of its own to add says so with C<fields: []>, which still refreshes the
+record on every sighting. Nor will a C<tracked> entry carrying neither C<where>
+nor C<into> load, doing nothing being worth saying out loud.
+
+Four states a read can find, three of them falling out of behavior that already
+exists:
+
+    - the key does not resolve :: no veto. The line is not part of a tracked
+          transaction, which is not evidence of anything... a postfix C<NOQUEUE>
+          reject carries no queue id and must sail through.
+
+    - the key resolves, no record, C<where> present :: veto, failing closed,
+          which is how country, namtar_list, and reverse_dns all behave.
+
+    - the key resolves, no record, C<into> only :: no veto. Nothing lifts, so a
+          C<ban_var> naming a lifted field simply finds nothing.
+
+    - a record exists but C<where> names a field no line ever supplied :: the
+          entry fails and the gate vetoes, a undef value failing every operator
+          but C<exists>... which makes C<< { op: exists, negate: true } >> the
+          never-appeared test.
+
+The harvest runs whether or not the message regexps hit and whether or not the
+boolean passed, a record being a record of the transaction rather than of
+offenses. Only the type gate and C<ignore> stop it, the one because a postfix
+track has no business reading sshd lines and the other because C<ignore> is the
+operator saying this line is not evidence. Records live per galla, are never
+fleet synced, survive a restart, and are visible with C<baphomet tracked>.
 
 =head2 The geography, blocklist, time, and reverse DNS gates
 
@@ -1128,6 +1211,64 @@ sub mark_only {
 	return $self->{def}{mark_only} ? 1 : 0;
 }
 
+=head2 tracks
+
+Returns the rule's compiled C<track> declarations as a array ref, possibly
+empty. Each entry is a hash of C<name>, C<key> (always a array ref of found
+var names, a single key being a list of one), C<fields> (a array ref of the
+found vars to contribute, or undef meaning everything found), and C<ttl> in
+seconds. This is what the harvest walks.
+
+    foreach my $track ( @{ $rule->tracks } ) { ... }
+
+=cut
+
+sub tracks {
+	my ($self) = @_;
+
+	return defined( $self->{tracks} ) ? $self->{tracks} : [];
+}
+
+=head2 track_gates
+
+Returns the rule's tracked-record gates as a hash of two arrays, C<tracked>
+and C<not_tracked>, either possibly empty. Each entry carries the C<name> and
+the C<key> lifted from the C<track> that declared it; a tracked entry also
+carries its compiled C<where> gates and its C<into> list, either possibly
+undef. Evaluated as a clause of the rule's own boolean rather than galla
+side, so what C<into> lifts is readable by C<gate> and C<keywords>.
+
+    my $gates = $rule->track_gates;
+    foreach my $gate ( @{ $gates->{tracked} } ) { ... }
+
+=cut
+
+sub track_gates {
+	my ($self) = @_;
+
+	if ( !defined( $self->{track_gates} ) ) {
+		$self->{track_gates} = { 'tracked' => [], 'not_tracked' => [] };
+	}
+
+	return $self->{track_gates};
+}
+
+=head2 track_only
+
+Returns true if the rule only harvests tracked records, never counting toward
+a ban... and a track_only rule does not consume the line either, so matching
+falls through to the watcher's later rules. C<mark_only>'s sibling.
+
+    if ( $rule->track_only ) { ... }
+
+=cut
+
+sub track_only {
+	my ($self) = @_;
+
+	return $self->{def}{track_only} ? 1 : 0;
+}
+
 =head2 _check_detection_var
 
 Validates a rule's C<detection_var>, if any, and reports whether the rule is
@@ -1173,6 +1314,7 @@ sub _check_common {
 
 	$self->_check_thresholds($def);
 	$self->_check_marks($def);
+	$self->_check_tracks($def);
 	$self->_check_country($def);
 	$self->_check_namtar($def);
 	$self->_check_active_time($def);
@@ -1666,10 +1808,18 @@ as a C<vars> compound is), and assertable after the run via
 C<marks_expected> (each C<< {name, key, value?, absent?} >>). Time is a
 virtual clock, base 1000000000, threaded through matching and the store
 both... a C<messages> entry may be a hash C<< {message, advance?|at?,
-found_after?, marks_after?} >> to steer it and assert mid-run. Var-less
-mark gates are offender-time and run only in the galla's ban path, so
-they are not provable here... key a testable gate by C<var>/C<vars>, as
-the shipped readers do.
+found_after?, marks_after?, tracked_after?} >> to steer it and assert
+mid-run. Var-less mark gates are offender-time and run only in the
+galla's ban path, so they are not provable here... key a testable gate by
+C<var>/C<vars>, as the shipped readers do.
+
+The tracked-record store gets the same treatment, a throwaway per entry
+seedable via C<tracked_before> (each C<< {name, key, fields, ttl?} >>) and
+assertable via C<tracked_expected> (each
+C<< {name, key, fields?, absent?} >>). A rule that both harvests and reads
+is better proved without the seed at all: a multiline C<messages> test
+walks a harvest line and a reading line through one scope, so the record
+the gate reads is one the rule really built.
 
 =cut
 
@@ -1760,13 +1910,14 @@ sub run_tests {
 			my $bad_key = 0;
 			foreach my $test_key ( keys( %{$test} ) ) {
 				if ( $test_key
-					!~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|dns|geo)$/ )
+					!~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo)$/
+					)
 				{
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
 					$bad_key = 1;
 				}
-			}
+			} ## end foreach my $test_key ( keys( %{$test} ) )
 			if ($bad_key) {
 				next;
 			}
@@ -1783,10 +1934,17 @@ sub run_tests {
 			# a rule file may seed, exercise, and assert with no galla up
 			my $test_scope = 'run_tests ' . $where;
 			my %marks_store;
+			my %tracked_store;
 			my $clock = 1_000_000_000;
 
 			if ( defined( $test->{marks_before} )
 				&& $self->_test_marks_seed( \%marks_store, $test->{marks_before}, $clock, $where, $results ) )
+			{
+				next;
+			}
+
+			if ( defined( $test->{tracked_before} )
+				&& $self->_test_tracked_seed( \%tracked_store, $test->{tracked_before}, $clock, $where, $results ) )
 			{
 				next;
 			}
@@ -1833,10 +1991,10 @@ sub run_tests {
 			my $message_int  = 0;
 			foreach my $message_entry (@messages) {
 				my $message = $message_entry;
-				my ( $found_after, $marks_after );
+				my ( $found_after, $marks_after, $tracked_after );
 				if ( ref($message_entry) eq 'HASH' ) {
 					foreach my $entry_key ( keys( %{$message_entry} ) ) {
-						if ( $entry_key !~ /^(?:message|advance|at|found_after|marks_after)$/ ) {
+						if ( $entry_key !~ /^(?:message|advance|at|found_after|marks_after|tracked_after)$/ ) {
 							$results->{fail}++;
 							push(
 								@{ $results->{failures} },
@@ -1860,8 +2018,9 @@ sub run_tests {
 					} elsif ( defined( $message_entry->{advance} ) ) {
 						$clock += $message_entry->{advance};
 					}
-					$found_after = $message_entry->{found_after};
-					$marks_after = $message_entry->{marks_after};
+					$found_after   = $message_entry->{found_after};
+					$marks_after   = $message_entry->{marks_after};
+					$tracked_after = $message_entry->{tracked_after};
 				} ## end if ( ref($message_entry) eq 'HASH' )
 
 				my $parsed;
@@ -1885,8 +2044,19 @@ sub run_tests {
 				# the line context a staged rule's skip bound reads... the
 				# message index is the sequence with in the test entry, and
 				# now the virtual clock, so windows prove deterministically
-				my $found
-					= $self->check( $parsed, $test_scope, { 'seq' => $message_int, 'source' => '', 'now' => $clock } );
+				my $found = $self->check(
+					$parsed,
+					$test_scope,
+					{
+						'seq'    => $message_int,
+						'source' => '',
+						'now'    => $clock,
+						# the throwaway record store, the seam the tracked
+						# clause and the track sweep both read... a rule that
+						# tracks proves it cold, the same way branding does
+						'tracked' => \%tracked_store,
+					}
+				);
 				$message_int++;
 				if ( defined($found) ) {
 					foreach my $one ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () ) {
@@ -2002,6 +2172,17 @@ sub run_tests {
 					$entry_failed = 1;
 					last;
 				} ## end if ( defined($marks_after) && $self->_test_marks_assert...)
+				if (
+					defined($tracked_after)
+					&& $self->_test_tracked_assert(
+						\%tracked_store, $tracked_after, $clock,
+						$where . ' after message ' . ( $message_int - 1 ), $results
+					)
+					)
+				{
+					$entry_failed = 1;
+					last;
+				} ## end if ( defined($tracked_after) && $self->_test_tracked_assert...)
 			} ## end foreach my $message_entry (@messages)
 			if ($entry_failed) {
 				next;
@@ -2076,6 +2257,14 @@ sub run_tests {
 			if (   !$data_failed
 				&& defined( $test->{marks_expected} )
 				&& $self->_test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results ) )
+			{
+				$data_failed = 1;
+			}
+
+			if (   !$data_failed
+				&& defined( $test->{tracked_expected} )
+				&& $self->_test_tracked_assert( \%tracked_store, $test->{tracked_expected}, $clock, $where,
+					$results ) )
 			{
 				$data_failed = 1;
 			}
@@ -2206,6 +2395,171 @@ sub _test_geo_locator {
 
 	return ( $locator, $fixture->{lists} || {} );
 } ## end sub _test_geo_locator
+
+# seeds a test entry's throwaway tracked store from its tracked_before...
+# records earlier lines of a transaction would have left, without which a
+# reading rule's tracked gate can never be armed from its own file. a
+# multiline messages: test can build the record for real instead, walking a
+# harvest line and a reading line through one scope, which is the better
+# proof where the rule file owns both halves.
+#
+# takes the throwaway store hash ref, the tracked_before list, the virtual
+# clock, the where string for messages, and the results hash. each seed is a
+# hash of name, key (a string, or a array for a compound key), fields (the
+# hash the record holds), and a optional ttl defaulting to 3600.
+#
+# returns true on a malformed entry, the failure pushed, false on success.
+#
+#     tracked_before:
+#       - name: mail-queue
+#         key: 1C36D185729
+#         fields: { postfix_client_ip: 203.0.113.9 }
+sub _test_tracked_seed {
+	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
+
+	if ( ref($seeds) ne 'ARRAY' ) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' tracked_before is not a array' );
+		return 1;
+	}
+
+	foreach my $seed ( @{$seeds} ) {
+		if (   ref($seed) ne 'HASH'
+			|| !defined( $seed->{name} )
+			|| !defined( $seed->{key} )
+			|| ref( $seed->{fields} ) ne 'HASH' )
+		{
+			$results->{fail}++;
+			push(
+				@{ $results->{failures} },
+				$where . ' has a tracked_before entry lacking a name, key, and fields hash'
+			);
+			return 1;
+		} ## end if ( ref($seed) ne 'HASH' || !defined( $seed...))
+		foreach my $seed_key ( keys( %{$seed} ) ) {
+			if ( $seed_key !~ /^(?:name|key|fields|ttl)$/ ) {
+				$results->{fail}++;
+				push(
+					@{ $results->{failures} },
+					$where . ' has a tracked_before entry with the unknown key "' . $seed_key . '"'
+				);
+				return 1;
+			}
+		} ## end foreach my $seed_key ( keys( %{$seed} ) )
+		my $key = _test_mark_store_key( $seed->{key} );
+		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
+		$store->{ $seed->{name} }{$key} = {
+			'expires' => $clock + $ttl,
+			'fields'  => { %{ $seed->{fields} } },
+		};
+	} ## end foreach my $seed ( @{$seeds} )
+
+	return 0;
+} ## end sub _test_tracked_seed
+
+# asserts a tracked_expected/tracked_after list against the throwaway tracked
+# store... that the record is live and holds the named fields by default,
+# that it is not live at all under absent.
+#
+# takes the throwaway store hash ref, the assertion list, the virtual clock,
+# the where string, and the results hash. each assertion is a hash of name,
+# key (a string or a compound array), and either fields (a hash of field to
+# expected value, each compared as a string) or a true absent.
+#
+# returns true on any miss, the failures pushed, false when every assertion
+# held.
+#
+#     tracked_expected:
+#       - name: mail-queue
+#         key: 1C36D185729
+#         fields: { postfix_to: victim@example.org }
+sub _test_tracked_assert {
+	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
+
+	if ( ref($expected) ne 'ARRAY' ) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' tracked assertion is not a array' );
+		return 1;
+	}
+
+	my $failed = 0;
+	foreach my $expect ( @{$expected} ) {
+		if ( ref($expect) ne 'HASH' || !defined( $expect->{name} ) || !defined( $expect->{key} ) ) {
+			$results->{fail}++;
+			push( @{ $results->{failures} }, $where . ' has a tracked assertion lacking a name and key' );
+			$failed = 1;
+			next;
+		}
+		my $assert_bad = 0;
+		foreach my $expect_key ( keys( %{$expect} ) ) {
+			if ( $expect_key !~ /^(?:name|key|fields|absent)$/ ) {
+				$results->{fail}++;
+				push(
+					@{ $results->{failures} },
+					$where . ' has a tracked assertion with the unknown key "' . $expect_key . '"'
+				);
+				$failed     = 1;
+				$assert_bad = 1;
+			}
+		} ## end foreach my $expect_key ( keys( %{$expect} ) )
+		if ($assert_bad) {
+			next;
+		}
+
+		my $key    = _test_mark_store_key( $expect->{key} );
+		my $shown  = ref( $expect->{key} ) eq 'ARRAY' ? join( '|', @{ $expect->{key} } ) : $expect->{key};
+		my $record = track_get( $store, $expect->{name}, $key, $clock );
+
+		if ( $expect->{absent} ) {
+			if ( defined($record) ) {
+				$results->{fail}++;
+				push(
+					@{ $results->{failures} },
+					$where . ' expected no live ' . $expect->{name} . ' record for "' . $shown . '" but found one'
+				);
+				$failed = 1;
+			}
+			next;
+		} ## end if ( $expect->{absent} )
+
+		if ( !defined($record) ) {
+			$results->{fail}++;
+			push(
+				@{ $results->{failures} },
+				$where . ' expected a live ' . $expect->{name} . ' record for "' . $shown . '" but found none'
+			);
+			$failed = 1;
+			next;
+		}
+
+		if ( ref( $expect->{fields} ) ne 'HASH' ) {
+			next;
+		}
+		foreach my $field ( sort( keys( %{ $expect->{fields} } ) ) ) {
+			my $got  = $record->{$field};
+			my $want = $expect->{fields}{$field};
+			if ( !defined($got) || "$got" ne "$want" ) {
+				$results->{fail}++;
+				push(
+					@{ $results->{failures} },
+					$where . ' '
+						. $expect->{name}
+						. ' record "'
+						. $shown
+						. '" field '
+						. $field
+						. ' expected "'
+						. $want
+						. '" but got '
+						. ( defined($got) ? '"' . $got . '"' : 'undef' )
+				);
+				$failed = 1;
+			} ## end if ( !defined($got) || "$got" ne "$want" )
+		} ## end foreach my $field ( sort( keys( %{ $expect->{fields...}})))
+	} ## end foreach my $expect ( @{$expected} )
+
+	return $failed;
+} ## end sub _test_tracked_assert
 
 # joins a marks_before/marks_expected key... a list is a vars compound,
 # joined the way the store joins one
@@ -2598,6 +2952,183 @@ sub _check_marks {
 
 	return;
 } ## end sub _check_marks
+
+# dies if the def's track keys, track, tracked, not_tracked, and track_only,
+# hold unusable values, compiling the usable ones onto the object... called by
+# every handler's new, as the keys are legal on every type. Names are
+# constrained like mark names so they ride tablets and commands cleanly.
+#
+# takes the def hash ref. returns nothing, leaving tracks (a array ref of
+# { name, key, fields, ttl }) and track_gates ({ tracked, not_tracked }) on
+# the object, each entry of the latter carrying the key its declaration gave
+# so the runtime never has to look one up.
+#
+# two rulings are enforced here rather than left to surprise a operator at
+# three in the morning. A tracked or not_tracked naming a record the rule
+# declared no track for will not load, the declaration being what the read is
+# a read of. And a tracked entry carrying neither where nor into will not
+# load, doing nothing being worth saying out loud.
+sub _check_tracks {
+	my ( $self, $def ) = @_;
+
+	my $name = $self->{name};
+
+	if ( !defined( $def->{track} ) && !defined( $def->{tracked} ) && !defined( $def->{not_tracked} ) ) {
+		if ( $def->{track_only} ) {
+			die( 'The rule "' . $name . '" is track_only but declares no track' );
+		}
+		return;
+	}
+
+	# the declarations first, as the gates below are checked against them
+	my %declared;
+	if ( defined( $def->{track} ) ) {
+		my $where = 'The track of the rule "' . $name . '"';
+		if ( ref( $def->{track} ) ne 'ARRAY' || !@{ $def->{track} } ) {
+			die( $where . ' is not a non-empty array' );
+		}
+		my @tracks;
+		foreach my $entry ( @{ $def->{track} } ) {
+			if ( ref($entry) ne 'HASH' ) {
+				die( $where . ' contains a entry that is not a hash' );
+			}
+			foreach my $entry_key ( keys( %{$entry} ) ) {
+				if ( $entry_key !~ /^(?:name|key|fields|ttl)$/ ) {
+					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
+				}
+			}
+			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ ) {
+				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
+			}
+			if ( defined( $declared{ $entry->{name} } ) ) {
+				die( $where . ' declares "' . $entry->{name} . '" twice, which leaves its key ambiguous' );
+			}
+
+			# the key, a found var or a compound list of them. a list of one is
+			# the same thing as the plain string, so both compile to a list and
+			# the runtime has one shape to resolve
+			my @components;
+			if ( ref( $entry->{key} ) eq 'ARRAY' ) {
+				if ( !@{ $entry->{key} } ) {
+					die( $where . ' entry "' . $entry->{name} . '" has a key that is a empty array' );
+				}
+				@components = @{ $entry->{key} };
+			} else {
+				@components = ( $entry->{key} );
+			}
+			foreach my $component (@components) {
+				if ( !defined($component) || ref($component) ne '' || $component eq '' ) {
+					die( $where . ' entry "' . $entry->{name} . '" has a key that is not a non-empty found var' );
+				}
+			}
+
+			# fields absent means everything found is contributed, which is not
+			# the same as a empty list, which means nothing is... the second is
+			# how a rule that only reads a record declares itself
+			my $fields;
+			if ( defined( $entry->{fields} ) ) {
+				if ( ref( $entry->{fields} ) ne 'ARRAY' ) {
+					die( $where . ' entry "' . $entry->{name} . '" has a fields that is not a array' );
+				}
+				foreach my $field ( @{ $entry->{fields} } ) {
+					if ( !defined($field) || ref($field) ne '' || $field eq '' ) {
+						die(      $where
+								. ' entry "'
+								. $entry->{name}
+								. '" has a fields entry that is not a non-empty string' );
+					}
+				}
+				$fields = [ @{ $entry->{fields} } ];
+			} ## end if ( defined( $entry->{fields} ) )
+
+			my $ttl = 3600;
+			if ( defined( $entry->{ttl} ) ) {
+				if ( ref( $entry->{ttl} ) ne '' || $entry->{ttl} !~ /^[0-9]+$/ || !$entry->{ttl} ) {
+					die( $where . ' entry "' . $entry->{name} . '" has a ttl that is not a positive int of seconds' );
+				}
+				$ttl = $entry->{ttl};
+			}
+
+			my $track = {
+				'name'   => $entry->{name},
+				'key'    => \@components,
+				'fields' => $fields,
+				'ttl'    => $ttl
+			};
+			$declared{ $entry->{name} } = $track;
+			push( @tracks, $track );
+		} ## end foreach my $entry ( @{ $def->{track} } )
+		$self->{tracks} = \@tracks;
+	} ## end if ( defined( $def->{track} ) )
+
+	my $gates = { 'tracked' => [], 'not_tracked' => [] };
+	foreach my $key ( 'tracked', 'not_tracked' ) {
+		if ( !defined( $def->{$key} ) ) {
+			next;
+		}
+		my $where = 'The ' . $key . ' of the rule "' . $name . '"';
+		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
+			die( $where . ' is not a non-empty array' );
+		}
+		foreach my $entry ( @{ $def->{$key} } ) {
+			if ( ref($entry) ne 'HASH' ) {
+				die( $where . ' contains a entry that is not a hash' );
+			}
+			my $allowed = $key eq 'tracked' ? qr/^(?:name|where|into)$/ : qr/^(?:name)$/;
+			foreach my $entry_key ( keys( %{$entry} ) ) {
+				if ( $entry_key !~ $allowed ) {
+					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
+				}
+			}
+			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ ) {
+				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
+			}
+			if ( !defined( $declared{ $entry->{name} } ) ) {
+				die( $where . ' entry "' . $entry->{name} . '" names a record the rule declares no track for' );
+			}
+
+			my $gate = { 'name' => $entry->{name}, 'key' => $declared{ $entry->{name} }{key} };
+
+			if ( $key eq 'tracked' ) {
+				if ( !defined( $entry->{where} ) && !defined( $entry->{into} ) ) {
+					die(      $where
+							. ' entry "'
+							. $entry->{name}
+							. '" carries neither where nor into, so it does nothing' );
+				}
+				if ( defined( $entry->{where} ) ) {
+					# the ordinary gate vocabulary, judged against the stored
+					# record rather than the line... so a undef stored value
+					# already fails every operator but exists
+					$gate->{where}
+						= $self->_compile_gates( $entry->{where}, $where . ' entry "' . $entry->{name} . '" where' );
+				}
+				if ( defined( $entry->{into} ) ) {
+					if ( ref( $entry->{into} ) ne 'ARRAY' || !@{ $entry->{into} } ) {
+						die( $where . ' entry "' . $entry->{name} . '" has a into that is not a non-empty array' );
+					}
+					foreach my $field ( @{ $entry->{into} } ) {
+						if ( !defined($field) || ref($field) ne '' || $field eq '' ) {
+							die(      $where
+									. ' entry "'
+									. $entry->{name}
+									. '" has a into entry that is not a non-empty string' );
+						}
+					}
+					$gate->{into} = [ @{ $entry->{into} } ];
+				} ## end if ( defined( $entry->{into} ) )
+			} ## end if ( $key eq 'tracked' )
+
+			push( @{ $gates->{$key} }, $gate );
+		} ## end foreach my $entry ( @{ $def->{$key} } )
+	} ## end foreach my $key ( 'tracked', 'not_tracked' )
+
+	if ( @{ $gates->{tracked} } || @{ $gates->{not_tracked} } ) {
+		$self->{track_gates} = $gates;
+	}
+
+	return;
+} ## end sub _check_tracks
 
 # dies if the def's country gate is malformed... is xor isnot, each a 2-
 # letter code or a %%%country_codes{name}%%% import, vars an optional list
@@ -3131,17 +3662,43 @@ sub _check_stages {
 	if ( !defined($message) ) {
 		return undef;
 	}
-	if ( !defined($scope) ) {
-		$scope = '';
-	}
-	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
-	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} )     ? $line_ctx->{seq} : undef;
 
+	# 1.5, and lifted above the core so it stops the harvest too... a ignore
+	# hit is the operator saying this line is not evidence, which no amount of
+	# wanting a complete record overrides
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
 		if ( $message =~ $ignore ) {
 			return undef;
 		}
 	}
+
+	my $found = $self->_check_stages_core( $message, $scope, $line_ctx, $envelope, $munge );
+
+	# the harvest runs on every line of a sequence, not only the one that
+	# completed it... the completing line's whole accumulated field space when
+	# there is one, this line's munger enrichment when there is not
+	if ( defined( $self->{tracks} ) ) {
+		my $source
+			= defined($found)       ? $found->{data}
+			: ref($munge) eq 'HASH' ? $munge
+			:                         {};
+		$self->_track_sweep( [$source], $line_ctx );
+	}
+
+	return $found;
+} ## end sub _check_stages
+
+# the staged matcher proper, wrapped by _check_stages so the ignore veto and
+# the track sweep sit either side of it. returns undef until the final stage
+# completes, then the found carrying the merged captures and the stage hits
+sub _check_stages_core {
+	my ( $self, $message, $scope, $line_ctx, $envelope, $munge ) = @_;
+
+	if ( !defined($scope) ) {
+		$scope = '';
+	}
+	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
+	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} )     ? $line_ctx->{seq} : undef;
 
 	my $stages = $self->{stages};
 	my $store  = $self->{stage_state}{$scope};
@@ -3217,7 +3774,7 @@ sub _check_stages {
 			last;
 		}
 
-		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge );
+		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge, $line_ctx );
 	} ## end for ( my $stage_int = 0; $stage_int < scalar...)
 
 	# no slot advanced... a line matching the first stage heads a fresh
@@ -3232,13 +3789,13 @@ sub _check_stages {
 	}
 	$self->_stage_slot_new( $store, $key_value, $now );
 
-	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq, $munge );
-} ## end sub _check_stages
+	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq, $munge, $line_ctx );
+} ## end sub _check_stages_core
 
 # lands a hit on a slot's awaited stage... counts, merges captures later
 # stages authoritative, and fires the found when the final stage completes
 sub _stage_hit {
-	my ( $self, $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge ) = @_;
+	my ( $self, $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge, $line_ctx ) = @_;
 
 	my $slot  = $store->{$key_value};
 	my $stage = $self->{stages}[$stage_int];
@@ -3266,8 +3823,8 @@ sub _stage_hit {
 			$data = { %{$munge}, %{ $slot->{data} } };
 		}
 		my $found = { 'data' => $data, 'regexp' => undef, 'stages' => $slot->{hits} };
-		if ( $self->{has_boolean} ) {
-			if ( !$self->_boolean_pass( $found->{data}, $message ) ) {
+		if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
+			if ( !$self->_offense_boolean_pass( $found->{data}, $message, $line_ctx ) ) {
 				return undef;
 			}
 		}
@@ -3496,6 +4053,160 @@ sub _expand_token {
 	die( $where . ', "' . $original . '", uses the unknown token "' . $token . '"' );
 } ## end sub _expand_token
 
+# the tracked/not_tracked clause of the rule's boolean, run first among them
+# so that whatever a into lifts is readable by the gate and keywords that
+# follow. reading here rather than galla side is the decision the whole
+# feature rests on... galla side it could only AND after the rule had already
+# matched, so a record could veto a offense but never help decide what the
+# offense was.
+#
+# takes the found data hash ref for one offense (mutated in place by a into)
+# and the line context, whose tracked key holds the galla's live store (or a
+# throwaway one under run_tests). a caller threading no store is read as a
+# store holding nothing, which vetoes a where and passes a not_tracked, the
+# same fail-closed reading a genuinely empty store gets.
+#
+# returns 1 when every entry holds, 0 on the first veto. the four states a
+# read can find are documented under "Tracked records" above.
+sub _tracked_pass {
+	my ( $self, $data, $line_ctx ) = @_;
+
+	my $gates = $self->{track_gates};
+	if ( !defined($gates) ) {
+		return 1;
+	}
+
+	my $store = ( ref($line_ctx) eq 'HASH' && ref( $line_ctx->{tracked} ) eq 'HASH' ) ? $line_ctx->{tracked} : {};
+	my $now   = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) )           ? $line_ctx->{now}     : time;
+
+	foreach my $gate ( @{ $gates->{tracked} } ) {
+		my $key = track_key( $gate, $data );
+		if ( !defined($key) ) {
+			# the line is not part of a tracked transaction, which is not
+			# evidence of anything... a postfix NOQUEUE reject carries no
+			# queue id and must sail through
+			next;
+		}
+
+		my $record = track_get( $store, $gate->{name}, $key, $now );
+		if ( !defined($record) ) {
+			# a where asserts something about the history, and no history
+			# leaves the assertion unproven... fail closed, the way country,
+			# namtar_list, and reverse_dns all do. a into-only entry has
+			# nothing to assert, so it simply lifts nothing
+			if ( defined( $gate->{where} ) ) {
+				return 0;
+			}
+			next;
+		} ## end if ( !defined($record) )
+
+		if ( defined( $gate->{where} ) && !$self->_gates_pass( $gate->{where}, $record, undef ) ) {
+			return 0;
+		}
+
+		# the lift lands underneath this line's own fields, exactly as the
+		# munger fields do, so a capture of the same name always wins
+		if ( defined( $gate->{into} ) ) {
+			foreach my $field ( @{ $gate->{into} } ) {
+				if ( defined( $record->{$field} ) && !exists( $data->{$field} ) ) {
+					$data->{$field} = $record->{$field};
+				}
+			}
+		}
+	} ## end foreach my $gate ( @{ $gates->{tracked} } )
+
+	foreach my $gate ( @{ $gates->{not_tracked} } ) {
+		my $key = track_key( $gate, $data );
+		if ( !defined($key) ) {
+			next;
+		}
+		if ( defined( track_get( $store, $gate->{name}, $key, $now ) ) ) {
+			return 0;
+		}
+	}
+
+	return 1;
+} ## end sub _tracked_pass
+
+# the rule's whole boolean for one offense... the tracked clause and then the
+# keywords/gate/selections, in that order so a lifted field is readable by the
+# rest. split out because the tracked clause has to run whether or not the
+# rule carries a boolean of its own, a rule gating purely on a record being a
+# legal and useful thing to write.
+#
+# takes the found data hash ref, the message (for the MESSAGE pseudo-field),
+# and the line context. returns 1 when the offense stands, 0 when it does not.
+sub _offense_boolean_pass {
+	my ( $self, $data, $message, $line_ctx ) = @_;
+
+	if ( !$self->_tracked_pass( $data, $line_ctx ) ) {
+		return 0;
+	}
+	if ( $self->{has_boolean} && !$self->_boolean_pass( $data, $message ) ) {
+		return 0;
+	}
+
+	return 1;
+} ## end sub _offense_boolean_pass
+
+# the track sweep, the harvest. reads each declared track's fields out of a
+# line's found vars and lays them over the record, newest winning.
+#
+# it does not care whether the message regexps hit or whether the boolean
+# passed, a record being a record of the transaction rather than of offenses.
+# the caller hands it the field spaces to sweep, which is why it is given
+# refs taken BEFORE the boolean could drop them... gating the harvest on "did
+# this line look bannable" is exactly the conflation the feature exists to
+# undo. only the type gate and a ignore hit stop it, and both do so by
+# returning before this is ever reached.
+#
+# runs after the read at _tracked_pass and never before it. write first and
+# the gate would judge a record it just made... not_tracked could never pass,
+# and a where would degenerate into a plain field check the gate already does.
+#
+# takes a array ref of found data hash refs to harvest from (one per offense,
+# or a single base field space on a line that matched nothing) and the line
+# context carrying the store and the clock. returns nothing.
+sub _track_sweep {
+	my ( $self, $sources, $line_ctx ) = @_;
+
+	my $tracks = $self->{tracks};
+	if ( !defined($tracks) ) {
+		return;
+	}
+
+	my $store = ( ref($line_ctx) eq 'HASH' && ref( $line_ctx->{tracked} ) eq 'HASH' ) ? $line_ctx->{tracked} : undef;
+	if ( !defined($store) ) {
+		return;
+	}
+	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
+
+	foreach my $data ( @{$sources} ) {
+		foreach my $track ( @{$tracks} ) {
+			my $key = track_key( $track, $data );
+			if ( !defined($key) ) {
+				next;
+			}
+
+			# a fields list contributes what it names, absent contributes
+			# everything found, and a empty list contributes nothing at all...
+			# how a rule that only reads a record declares itself. the ttl
+			# refreshes either way, sighting the key being evidence enough
+			# that the transaction is alive
+			my %fields;
+			foreach my $field ( defined( $track->{fields} ) ? @{ $track->{fields} } : keys( %{$data} ) ) {
+				if ( defined( $data->{$field} ) ) {
+					$fields{$field} = $data->{$field};
+				}
+			}
+
+			track_put( $store, $track->{name}, $key, \%fields, $track->{ttl}, $now );
+		} ## end foreach my $track ( @{$tracks} )
+	} ## end foreach my $data ( @{$sources} )
+
+	return;
+} ## end sub _track_sweep
+
 # checks a message against the compiled capture, ignore, and message
 # regexps... returns undef or a found hash with the folded captures,
 # possibly carrying a more array of further completions when a capture
@@ -3613,15 +4324,33 @@ sub _check_message {
 		}
 	}
 
-	# the rule's boolean matcher (the keywords, the gate, or the
-	# selections+condition, over the captures, and the json fields when
-	# message_json) filters the offense and each completion, dropping those
-	# that do not pass... none skips this
-	if ( $self->{has_boolean} ) {
-		if ( defined($found) && !$self->_boolean_pass( $found->{data}, $message ) ) {
+	# the field spaces the track sweep will harvest, taken here because the
+	# boolean below may drop the very records holding them and the harvest
+	# does not care whether the line was a offense. a line that matched
+	# nothing still contributes what the mungers and the JSON body gave it
+	my @sweep;
+	if ( defined( $self->{tracks} ) ) {
+		@sweep = map { $_->{data} }
+			grep { defined($_) } ( $found, @completions );
+		if ( !@sweep ) {
+			@sweep = ( defined($extra) ? $extra : {} );
+		}
+	}
+
+	# the rule's boolean matcher (the tracked clause, then the keywords, the
+	# gate, or the selections+condition, over the captures, and the json
+	# fields when message_json) filters the offense and each completion,
+	# dropping those that do not pass... none skips this
+	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
+		if ( defined($found) && !$self->_offense_boolean_pass( $found->{data}, $message, $line_ctx ) ) {
 			$found = undef;
 		}
-		@completions = grep { $self->_boolean_pass( $_->{data}, $message ) } @completions;
+		@completions = grep { $self->_offense_boolean_pass( $_->{data}, $message, $line_ctx ) } @completions;
+	}
+
+	# the harvest, after the read above and never before it
+	if (@sweep) {
+		$self->_track_sweep( \@sweep, $line_ctx );
 	}
 
 	my $primary = $found;

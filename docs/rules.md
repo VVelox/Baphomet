@@ -212,13 +212,18 @@ rule.
    ├─ 1.3  mungers                          syslog and raw rules only
    │       Log-Munger decodes the line and its fields are laid into the
    │       offense. They go down first, so a capture of the same name in
-   │       1.6 or 1.7 overwrites one of them.
+   │       1.7 or 1.8 overwrites one of them.
    │
-   ├─ 1.4  ignore_regexp / ignore
-   │       └─▶ a hit. The rule stops. No context is stored and no
-   │           deferred offense completes.
+   ├─ 1.4  track
+   │       The rule declares which tracked records it is party to. It
+   │       reads nothing and can not veto, there being nothing yet to
+   │       judge... the declaration is what arms 1.9 and 1.10.
    │
-   ├─ 1.5  stages                           syslog and raw rules only
+   ├─ 1.5  ignore_regexp / ignore
+   │       └─▶ a hit. The rule stops. No context is stored, no deferred
+   │           offense completes, and nothing is harvested at 1.10.
+   │
+   ├─ 1.6  stages                           syslog and raw rules only
    │       The line is tested against the stage this sequence is waiting
    │       on. A hit advances the sequence if that stage's `within` and
    │       `skip` bounds allow it, and kills the sequence if they do not.
@@ -226,15 +231,15 @@ rule.
    │       one is already in flight for its key. Only the line completing
    │       the last stage is an offense, and it carries the captures of
    │       every stage before it.
-   │       └─▶ the sequence is not complete. The rule stops. Steps 1.6
-   │           and 1.7 do not run on a staged rule.
+   │       └─▶ the sequence is not complete. The rule stops. Steps 1.7
+   │           and 1.8 do not run on a staged rule.
    │
-   ├─ 1.6  capture_regexp / capture
+   ├─ 1.7  capture_regexp / capture
    │       A hit stores this line's captures under its correlation key,
    │       where a later offense can claim them. An offense already
    │       deferred against that key completes here and now.
    │
-   ├─ 1.7  message_regexp / match
+   ├─ 1.8  message_regexp / match
    │       The entries are tried in order and the first to hit wins. An
    │       entry carrying a `key` needs its context. If the context holds
    │       that key, the stored captures merge with this line's into one
@@ -242,13 +247,24 @@ rule.
    │       to wait for a capture line or gives way to the next entry.
    │       └─▶ nothing hit and nothing completed. The rule stops.
    │
-   ├─ 1.8  gate / keywords / selections / condition
+   ├─ 1.9  tracked / not_tracked / gate / keywords / selections / condition
    │       The rule's boolean, ANDed with everything above. It reads the
    │       captures, the munger fields, and the JSON fields alike.
-   │       └─▶ false. The rule stops.
+   │       `tracked` is a clause of it and is judged first among them, so
+   │       whatever its `into` lifts is readable by the rest.
+   │       └─▶ false. The rule stops, but 1.10 still runs.
+   │
+   ├─ 1.10 the track sweep
+   │       Each declared record takes this line's contribution. It does
+   │       not care whether the regexps hit or whether the boolean
+   │       passed, a record being a record of the transaction rather than
+   │       of offenses... only 1.1 and 1.5 stop it. It runs after the
+   │       read at 1.9 and never before it, so `tracked` judges the
+   │       history rather than a record this line just wrote.
    │
    ▼
    An offense, holding every field the steps above put in it.
+   A rule that got no further than 1.10 harvested and stopped.
 
    ├──[ 2  THE GATES ]  is the offense a real one?
    │
@@ -297,9 +313,9 @@ rule.
    │       lifted from the ones `unmark` names. An offender in
    │       `ignore_ips` is never branded.
    │
-   ├─ 4.2  mark_only
-   │       └─▶ set. The rule stops here. It brands and does nothing
-   │           else, so the line is not consumed.
+   ├─ 4.2  mark_only / track_only
+   │       └─▶ either set. The rule stops here. It harvests and does
+   │           nothing else, so the line is not consumed.
    │
    ├─ 4.3  ignore_ips
    │       └─▶ the offender is on the list. It is not counted. Observe
@@ -893,6 +909,38 @@ without `undefed` (the captures existed, the gate discarded them). A
 does is count toward a ban, and `marks_expected` is what proves its
 branding.
 
+Tracked records get the same treatment. `tracked_before` seeds one, each
+entry a `name`, a `key` (a string, or a list for a compound key), the
+`fields` the record holds, and an optional `ttl`. `tracked_expected`
+asserts after the run, either that a record is live and holds the named
+fields or, under `absent`, that there is none.
+
+```yaml
+tests:
+  positive:
+    - message: "Jan  2 04:00:00 mx1 postfix/local[222]: 1C36D185729: to=<victim@example.org>, status=bounced"
+      tracked_before:
+        - name: mail-queue
+          key: 1C36D185729
+          fields: { postfix_client_ip: "203.0.113.9" }
+      data:
+        postfix_client_ip: "203.0.113.9"   # lifted by into, never on this line
+      tracked_expected:
+        - name: mail-queue
+          key: 1C36D185729
+          fields: { postfix_to: "victim@example.org" }
+  negative:
+    # the same line unseeded... a where over no history fails closed
+    - message: "Jan  2 04:00:00 mx1 postfix/local[222]: 1C36D185729: to=<victim@example.org>, status=bounced"
+      found: 0
+```
+
+The both-ways discipline is the same as for marks, and for the same reason.
+Better still, where the rule file owns both halves, drop the seed and prove
+it for real: a multiline `messages:` test walks the harvest line and the
+reading line through one scope, so the record the gate reads is one the rule
+actually built. `tracked_after` asserts mid-run beside `marks_after`.
+
 ### Proving order and time
 
 The `messages` form feeds lines in order through one throwaway scope, and
@@ -1239,6 +1287,101 @@ The vocabulary is what makes marks a mesh rather than pairwise plumbing.
 The brand crosses watchers within the galla, and rides the mark bus of a
 Redis tablet across a fleet, so a source that brute-forced the mail host
 arrives at the web host already condemned.
+
+### tracked records... state that accumulates across lines
+
+A mark holds one scalar per key. A tracked record holds a hash that
+accumulates, which is what a daemon logging one transaction over several
+lines needs.
+
+Postfix is the clearest case. The client address arrives on the `smtpd`
+line, the sender and recipient on `cleanup`, the delivery verdict on `local`
+or `smtp` an hour later, and the only thing joining them is the queue id.
+The line that finally says something worth banning on is rarely the line
+that says who to ban.
+
+    track:
+      - name: mail-queue
+        key: postfix_queueid
+        fields: [ postfix_client_ip, postfix_sasl_username ]
+        ttl: 3600
+    track_only: true
+
+That is the harvest rule. It watches the `smtpd` lines, files what they say
+under the queue id, and does nothing else. And this is the rule that reads
+it back:
+
+    track:
+      - name: mail-queue
+        key: postfix_queueid
+        fields: [ postfix_status ]
+    tracked:
+      - name: mail-queue
+        where:
+          - { field: postfix_sasl_username, op: exists }
+          - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
+        into: [ postfix_client_ip ]
+    ban_var: [ postfix_client_ip ]
+
+The bounce fires on the `local` line, and `ban_var` names an address that
+only ever appeared on an `smtpd` line an hour earlier. That is what `into`
+is for.
+
+- `track` :: The records this rule is party to. Each names the record
+      (`name`), the found var holding the joining id (`key`, or a list of
+      them for a compound key), optionally the found vars to contribute
+      (`fields`, defaulting to everything found), and optionally a `ttl` in
+      seconds, default 3600.
+
+- `tracked` :: The gate. Each names a record and carries at least one of
+      `where` (predicate entries, the ordinary gate vocabulary, judged
+      against the **stored** record rather than the line) and `into` (stored
+      fields lifted into this line's offense). It takes no key of its own,
+      using the one the `track` beside it declared.
+
+- `not_tracked` :: The inverse gate, naming a record and nothing else. It
+      means "no live record for this key". A record that exists but does not
+      match is already `tracked` with a negated `where`.
+
+- `track_only` :: `mark_only`'s sibling. The rule harvests, never counts,
+      and does not consume the line.
+
+A `tracked` or `not_tracked` naming a record the rule declared no `track`
+for will not load, the declaration being what the read is a read of. So a
+rule that reads is always also a rule that harvests... one with nothing of
+its own to add says so with `fields: []`, which still keeps the record
+alive on every sighting. Nor will a `tracked` carrying neither `where` nor
+`into` load, doing nothing being worth saying out loud.
+
+Four states a read can find:
+
+| the key | the record | `where` | what happens |
+|---|---|---|---|
+| does not resolve | — | — | no veto. A `NOQUEUE` reject carries no queue id and must sail through |
+| resolves | none | present | veto, failing closed, as country and namtar_list do |
+| resolves | none | absent | no veto. Nothing lifts, so a `ban_var` naming a lifted field finds nothing |
+| resolves | exists | names a field no line ever gave | veto. A missing value fails every operator but `exists`, which makes `{ op: exists, negate: true }` the never-appeared test |
+
+The harvest runs whether or not the message regexps hit and whether or not
+the boolean passed, a record being a record of the transaction rather than
+of offenses. Only the type gate and `ignore` stop it: the one because a
+postfix track has no business reading sshd lines, the other because
+`ignore` is the operator saying this line is not evidence. The read at 1.9
+always precedes the write at 1.10, so a `where` judges the history rather
+than a record the same line just wrote.
+
+Records live per galla, cross watchers and rules but not kurs, survive a
+restart, and are visible with `baphomet tracked`. They are deliberately not
+fleet synced... a record republished per stage line on a busy MX is a
+different order of traffic than a scalar brand. A record holds at most 64
+fields, and the store keeps the same 10000-key bound the marks and the DNS
+and geo caches share.
+
+Prove one from the rule file the way brands are proved: `tracked_before`
+seeds a record, `tracked_expected` asserts one, and a multiline `messages:`
+test walks a harvest line and a reading line through one scope so the record
+the gate reads is one the rule really built. See
+[Proving brands and gates](#proving-brands-and-gates).
 
 ### country... narrowing an offense by geography
 
