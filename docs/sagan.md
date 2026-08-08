@@ -57,10 +57,9 @@ the galla. None of these has a fail2ban equivalent.
   `syslog/sshd-mark-users` brands each account with the source that hit it,
   `syslog/sshd-spray` fires when a second source hits the same account.
   And the shipped rules brand Sagan's own standard bit vocabulary name for
-  name... `brute_force`, `recon`, `exploit_attempt`, `honeypot` at its
-  TTLs, set by classtype and read by the shipped `-condemned` and
-  `-escalation` rules (the standard brands in [rules](rules.md)).
-  `baphomet marked` reads the store.
+  name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at its
+  TTLs (the standard brands in [rules](rules.md)). `baphomet marked` reads
+  the store.
 - **A country gate (`country_code`).** A rule key
   `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
   offender (or a harvested var) geolocates inside, or outside, a named set of
@@ -86,8 +85,7 @@ Sagan's remaining vocabulary maps onto machinery already here... its
 content/pcre match chains are subsumed by Perl regexps, its json_content by
 the json rule type's dotted paths, its program/facility/level gates by
 `daemons`, and its `msg` and `classtype` metadata carry across under the same
-names. Its actions are Ereshkigal's domain, since Baphomet accuses and does
-not act.
+names. Its actions are Ereshkigal's domain.
 
 ## What Sagan does that this does not
 
@@ -116,9 +114,8 @@ broader build.
 Detection with no offender, once the sharpest gap, is closed... a
 detection-only rule (a `detection_var` in place of `ban_var`) alerts on a
 thing with no address to banish, a config change or a service crash, counting
-by any subject and writing `sighting`/`sighted` to EVE. It does not act, since
-acting is Ereshkigal's half, but it detects. See [rules](rules.md) and
-[eve](eve.md).
+by any subject and writing `sighting`/`sighted` to EVE. See [rules](rules.md)
+and [eve](eve.md).
 
 ## Porting a rule
 
@@ -164,7 +161,7 @@ surface the signature without banning... port it as a detection rule with
 `detection_var: [ SRC ]`, so it writes `sighting`/`sighted` to EVE and touches
 no firewall. To turn the signature into a ban instead, name `ban_var: [ SRC ]`
 and let the kur's thresholds decide. This is the one real choice the port asks
-of you, since Baphomet acts where Sagan only alerts.
+of you.
 
 **Tests.** Lift sample lines from the rule's comments or your own logs into a
 `tests:` block, then `baphomet test_line` pokes single lines at a draft and

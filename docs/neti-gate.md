@@ -35,9 +35,8 @@ authed_groups = [ "wheel" ]
 The `baphomet` CLI completes the challenge transparently, so nothing
 changes in how you drive it beyond being one of the permitted. Group and
 user membership is resolved per request, so changes apply without a
-restart. This gates the manager socket only... the galla sockets are 0600
-and spoken to only by the manager. Every CLI command rides this one
-socket, the manager reaching Ereshkigal on their behalf, so the gate here
+restart. This gates the manager socket only, and every CLI command rides
+it, the manager reaching Ereshkigal on their behalf... the gate here
 covers the whole control plane.
 
 ## Per command authorization

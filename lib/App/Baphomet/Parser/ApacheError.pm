@@ -157,20 +157,4 @@ sub _split_client {
 	return ( $raw, undef );
 } ## end sub _split_client
 
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
-=cut
-
 1;

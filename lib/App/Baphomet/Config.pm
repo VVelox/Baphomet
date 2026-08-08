@@ -107,8 +107,7 @@ Top level keys are as below.
           rules shipped with the dist. A rule of C<syslog/sshd> is the file
           C<syslog/sshd.yaml> under here, shadowing the shipped rule of the
           same name. It need not exist... a name absent here falls through to
-          the shipped rules, so this dir is only for a site's own rules or
-          overrides of the shipped ones.
+          the shipped rules.
         Default :: /usr/local/etc/baphomet/rules
 
     - groups_dir :: The site override dir for rule groups, searched ahead of
@@ -178,12 +177,12 @@ Top level keys are as below.
 
     - track_only_eve_store :: Whether a track_only rule's own EVE events are
           written. Off by default, a harvest rule's found being largely
-          monitoring noise... a track_only rule never counts and so can never
-          cross a threshold, which leaves found, noted, and sighting as the
-          only events it can raise and makes gating those complete. The rule
-          that reads the record and fires still carries its full payload. May
-          be overridden per kur and per watcher, so it can be switched on for
-          the one watcher whose track is not filling.
+          monitoring noise... a track_only rule never counts, so found,
+          noted, and sighting are the only events it can raise and gating
+          those is complete. The rule that reads the record and fires still
+          carries its full payload. May be overridden per kur and per
+          watcher, so it can be switched on for the one watcher whose track
+          is not filling.
         Default :: 0
 
     - observe_ignored :: Whether observe mode also scores what ignore_ips
@@ -222,9 +221,7 @@ Top level keys are as below.
           alerts where the offender may be the src or the dest depending
           on where in the stream it fired. A kur may carry its own
           internal, extending this. Where not set it defaults to the
-          ignore_ips, so what you ignore is also treated as yours... and
-          since a ignored IP is never banished anyway, the banished end
-          is by extension not ignored either.
+          ignore_ips, so what you ignore is also treated as yours.
         Default :: undef, meaning the same as ignore_ips
 
     - socket_group :: Group ownership of the manager socket.
@@ -1068,14 +1065,9 @@ sub check_kur_def {
 
 Resolves the effective max_score, find_time, ban_time,
 allow_per_rule_thresholds, eve_only, track_only_eve_store, observe_ignored, and
-default_severity for a watcher... watcher over kur over global. The four
-booleans are normalized to a plain 0 or 1. default_severity is the level a
-rule's EVE events carry when the rule sets no severity of its own (undef when
-unset). eve_only puts the watcher's rules in observe mode (matches to EVE, no
-real ban); observe_ignored lets that observe mode also process IPs ignore_ips
-would otherwise drop. A rule's own eve_only, when set, layers over this.
-track_only_eve_store lets a track_only rule's own events be written, which they
-are not by default.
+default_severity for a watcher... watcher over kur over global, each setting
+documented under L</DESCRIPTION>. The four booleans are normalized to a plain
+0 or 1. A rule's own eve_only, when set, layers over the resolved one.
 
     my $settings = resolve_settings( $config, $kur_settings, $watcher );
 
@@ -2075,21 +2067,5 @@ sub _times_error {
 
 	return undef;
 } ## end sub _times_error
-
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
-=cut
 
 1;

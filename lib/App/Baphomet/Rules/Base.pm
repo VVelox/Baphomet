@@ -399,8 +399,7 @@ nothing of its own to add says so with C<fields: []>, which still refreshes the
 record on every sighting. Nor will a C<tracked> entry carrying neither C<where>
 nor C<into> load, doing nothing being worth saying out loud.
 
-Four states a read can find, three of them falling out of behavior that already
-exists:
+Four states a read can find:
 
     - the key does not resolve :: no veto. The line is not part of a tracked
           transaction, which is not evidence of anything... a postfix C<NOQUEUE>
@@ -531,8 +530,9 @@ fails closed... no resolver, a non-address value, a missing matches_var.
 Beware C<on_servfail: pass> or C<compare> on a negated gate... it means
 a DNS outage counts everyone, the trade being coverage over the
 outage-can-not-misaim guarantee. Lookups are per match, bounded and
-cached galla-side, so a rule's embedded tests can not exercise this
-gate.
+cached galla-side; a C<dns> fixture in a rule's embedded tests stands in
+for the resolver, so the gate is provable from the rule's own file...
+see L</run_tests>.
 
 =head2 Enrichment... mungers
 
@@ -1820,6 +1820,13 @@ C<< {name, key, fields?, absent?} >>). A rule that both harvests and reads
 is better proved without the seed at all: a multiline C<messages> test
 walks a harvest line and a reading line through one scope, so the record
 the gate reads is one the rule really built.
+
+A C<dns> fixture (C<ptr> and C<forward> maps, answers a list, C<nxdomain>,
+or C<servfail>, anything unfixtured answering servfail) stands in for the
+resolver, and a C<geo> fixture (a C<countries> map and the C<lists> a
+C<%%%country_codes{name}%%%> token resolves against) for the GeoIP
+locator... with one present the reverse_dns or country gate runs exactly
+as in the galla, and absent it the gate is skipped as it always was.
 
 =cut
 
@@ -5468,21 +5475,5 @@ sub _eval_condition {
 	} ## end foreach my $name ( @{$names} )
 	return 0;
 } ## end sub _eval_condition
-
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
-=cut
 
 1;

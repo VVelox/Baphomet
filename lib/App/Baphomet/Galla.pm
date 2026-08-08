@@ -5541,20 +5541,6 @@ The state tablet store could not be set up... the file backend's base dir is
 not read/writable, a configured backend would not load, or a store such as the
 redis backend's could not be reached. See L<App::Baphomet::ClayTablet>.
 
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
 =cut
 
 1;

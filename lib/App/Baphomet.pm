@@ -333,12 +333,12 @@ The JSON commands handled are as below.
 
     - banished :: Who Kur holds for the kurs this Baphomet feeds, seen
           from the watcher's seat. The manager asks Ereshkigal, the source
-          of truth for who Kur holds, for its banned lists, pares them to
-          the fed kurs (the recidive kur included), expands any fan_out
-          gate to its members, and folds in each galla's pending bans...
-          banishments spoken but not yet heard. With args.name, just that
-          one kur. So every CLI query rides the one manager socket rather
-          than reaching around it to Ereshkigal.
+          of truth, for its banned lists, pares them to the fed kurs (the
+          recidive kur included), expands any fan_out gate to its members,
+          and folds in each galla's pending bans... banishments spoken but
+          not yet heard. With args.name, just that one kur. So every CLI
+          query rides the one manager socket rather than reaching around
+          it to Ereshkigal.
 
     - stop :: Stop all the gallas and then the manager. Returns
           C<stopping> and the manager's C<pid>, so the caller can wait for
@@ -1315,8 +1315,6 @@ L<https://rt.cpan.org/NoAuth/Bugs.html?Dist=App-Baphomet>
 L<https://metacpan.org/release/App-Baphomet>
 
 =back
-
-=head1 ACKNOWLEDGEMENTS
 
 =head1 LICENSE AND COPYRIGHT
 

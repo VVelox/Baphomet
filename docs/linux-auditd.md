@@ -7,10 +7,9 @@ file a galla can tail, and how to tell the kernel to record the few things it
 stays silent about by default, so the `%syslog/linux-audit%` rules have
 something to read.
 
-The rules and their group are named `linux-auditd-*` on purpose. Other
-platforms carry their own audit machinery, with different records and different
-field names... only the Linux one is described here. Anything else would want
-its own rules and its own page.
+The rules and their group are named `linux-auditd-*` on purpose... other
+platforms carry their own audit machinery, with different records and
+different field names, and would want their own rules and their own page.
 
 For what each rule watches for, see [rules-catalog](rules-catalog.md). For the
 mechanics of a rule, [rules](rules.md). For the alerts these detection rules raise,
@@ -99,7 +98,7 @@ about: rsyslog's kernel reader keeps the printk uptime (`[ 1234.567890]`) at the
 head of the message, while journald's kmsg reader strips it, so the same event
 reaches two hosts in two shapes. Both the rule and Log-Munger's `kernel` decoder
 step over the prefix rather than reading it, so the captures come out identical
-either way and there is nothing to configure. The rule captures the profile
+either way. The rule captures the profile
 itself rather than leaning on the enrichment for it, so the match never depends
 on the decoder having read the line the same way.
 
@@ -141,8 +140,7 @@ Two Debian-family teeth to watch for:
   the same group. Both ship, one fires per host. Same split in
   `linux-auditd-mac-tamper`, which reads SELinux's `enforcing=0` and AppArmor's
   profile removal as two separate regexps... see
-  [AppArmor hosts](#apparmor-hosts-the-shorter-road) below, and note you may not
-  need any of this page at all.
+  [AppArmor hosts](#apparmor-hosts-the-shorter-road).
 
 ### RHEL / CentOS Stream / Rocky / AlmaLinux / Fedora
 

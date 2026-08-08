@@ -32,12 +32,10 @@ subsumes the routine one: a line whose hit crosses the threshold emits
 only the `banish` (or `alert`, or `sighted`), never a `found` (or `noted`,
 or `sighting`) beside it, since the terminal event already carries the
 whole match. So one line is one event... a burst of failures reads as
-several `found`s and then a single `banish` on the one that tipped it, not
-a `found` and a `banish` for that last line both.
+several `found`s and then a single `banish` on the one that tipped it.
 
 - **found** ... a rule matched a line and the offender stayed under the
-  threshold. The record of a sighting that did not (yet) act... the
-  crossing hit is the `banish`, not a `found`.
+  threshold. The record of a sighting that did not (yet) act.
 - **banish** ... an IP crossed its threshold and was condemned to Kur.
   Written when the decision is made, synchronously and with the full
   context, not when Ereshkigal accepts it... so the audit never waits on
@@ -132,16 +130,13 @@ Suricata class rule that only gates on `event_type`/`alert.category` and
 bans on the native `src_ip`/`dest_ip` has a `found` byte-identical to its
 `parsed`, since nothing was extracted. They **diverge** the moment the
 rule synthesizes a field the line did not literally contain (mongodb-auth's
-`SRC`) or a correlation rule folds in fields from a remembered line. When
-in doubt, read `found` for the offense and `parsed` for the untouched
-record.
+`SRC`) or a correlation rule folds in fields from a remembered line.
 
 A **banish** event adds `.ip` and `.ban_time`, and `.recidive` is true
 when it is a seventh-gate escalation to the recidive kur. A banish
 triggered by a specific line crossing the threshold carries that line's
-`raw`/`parsed`/`found`/`rule`, always... the record is written at the
-crossing, so a Kur outage that pends the send for later retry never
-strips it. A recidive escalation, which is triggered by the ledger count
+`raw`/`parsed`/`found`/`rule`, as above. A recidive escalation, which is
+triggered by the ledger count
 rather than a line, is the bare banishment: it carries `.count`, how many
 times the IP has been banished across all kurs, and the `.threshold` that
 count had to reach, the recidive gate's own `max_score` and not any

@@ -55,9 +55,7 @@ predicate layer (see [rules](rules.md)):
   placeholder becomes a literal `values` list, or, for a config-managed set, a
   `namtar_list` gate.
 
-So nothing in a Sigma rule's detection block goes untranslated. The
-selections-and-condition boolean, the operators, the decode transforms, the
-field-absent and field-present tests all have a home.
+So nothing in a Sigma rule's detection block goes untranslated.
 
 ## What Sigma does that this does not
 

@@ -50,8 +50,8 @@ Makes one blocking call to the baphomet manager over its socket and returns
 the result, dieing on a connect, auth, or command failure. The manager
 speaks the L<POE::Component::Server::JSONUnix> protocol, so every CLI query
 rides that dist's own blocking client to the one manager socket rather than
-reaching around it to Ereshkigal... the manager is the one that talks to
-Ereshkigal. The socket is the global C<--socket>.
+reaching around it to Ereshkigal, the manager being the one that talks to
+it. The socket is the global C<--socket>.
 
     my $result = $self->app->manager_call('status');
     my $result = $self->app->manager_call( 'banished', { 'name' => 'sshd' } );
@@ -82,21 +82,5 @@ sub manager_call {
 
 	return $response->{result};
 } ## end sub manager_call
-
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
-=cut
 
 1;

@@ -32,11 +32,10 @@ our @EXPORT_OK = qw( log_drek );
 
 =head1 DESCRIPTION
 
-This holds the C<log_drek> sub used by both C<baphomet> and C<galla> as well
-as the various App::Baphomet modules for logging everything they do. It is a
-plain function usable with out new or the like being called, exported on
-request, so everything can share one implementation instead of each carrying
-their own copy.
+The C<log_drek> sub both C<baphomet> and C<galla> and the various
+App::Baphomet modules log through... a plain function, no new needed,
+exported on request, so everything shares one implementation instead of each
+carrying their own copy.
 
 =head1 EXPORTS
 
@@ -85,21 +84,5 @@ sub log_drek {
 
 	return;
 } ## end sub log_drek
-
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
-=cut
 
 1;

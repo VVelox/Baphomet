@@ -28,10 +28,10 @@ our $VERSION = '0.0.1';
 
 Asks the Baphomet manager, over its socket, for who Kur holds via the
 C<banished> command. The manager is the one that talks to Ereshkigal, the
-source of truth for who Kur holds... it pares the banned lists to the kurs
-this Baphomet feeds and merges in each galla's pending bans, banishments
-spoken but not yet heard, marked C<pending>, so this command reaches only
-the one manager socket rather than around it to Ereshkigal.
+source of truth... it pares the banned lists to the kurs this Baphomet
+feeds and merges in each galla's pending bans, banishments spoken but not
+yet heard, marked C<pending>, so this command reaches only the one manager
+socket rather than around it.
 
 A kur this Baphomet targets that is a fan_out kur on the Ereshkigal side
 has no ban list of it's own... the banishments land on it's members, so
@@ -141,21 +141,5 @@ sub _pare_to_ip {
 
 	return $pared;
 } ## end sub _pare_to_ip
-
-=head1 AUTHOR
-
-Zane C. Bowers-Hadley, C<< <vvelox at vvelox.net> >>
-
-=head1 LICENSE AND COPYRIGHT
-
-This software is Copyright (c) 2026 by Zane C. Bowers-Hadley.
-
-This is free software, licensed under:
-
-  The GNU General Public License, Version 2, June 1991, or (at your
-  option) any later version, matching fail2ban, which parts of this
-  project, most notably the shipped rules, are derived from.
-
-=cut
 
 1;

@@ -33,13 +33,11 @@ Rules are resolved across two places, in order:
    `make install`, and resolved from there at run time.
 
 A name is looked up in the override dir first, so a file there shadows the
-shipped rule of the same name. This is how a site overrides a shipped rule or
-adds its own without touching what ships... drop
-`syslog/sshd.yaml` under the override dir to replace the shipped `syslog/sshd`,
-or add `syslog/mydaemon.yaml` for one that does not ship. Names absent from
-the override dir fall through to the shipped set, so a fresh install needs
-nothing copied into place... the shipped rules answer on their own. See the
-[catalog](rules-catalog.md) for what ships.
+shipped rule of the same name... drop `syslog/sshd.yaml` there to replace
+the shipped `syslog/sshd`, or add `syslog/mydaemon.yaml` for one that does
+not ship. Anything else falls through to the shipped set, so a fresh install
+needs nothing copied into place. See the [catalog](rules-catalog.md) for
+what ships.
 
 ## Rule groups
 
@@ -62,12 +60,8 @@ named `json/suricata-all` is the file `groups/json/suricata-all`, and a file
 of that name in the override dir shadows the shipped one. Unlike a rule, a
 group file carries no extension.
 
-The file is newline delimited, one rule per line:
-
-- a line whose first non-whitespace character is `#` is a comment,
-- a blank or whitespace-only line is ignored,
-- leading and trailing whitespace on a line is trimmed,
-- every surviving line is one rule name to include.
+The file is newline delimited, one rule name per line... `#` comments and
+blank lines are ignored, and surrounding whitespace is trimmed.
 
 ```
 # every shipped Suricata classtype rule
@@ -78,14 +72,13 @@ json/suricata-exploit-kit
 ```
 
 Expansion happens once, before any rule loads. The result keeps order and is
-deduplicated to the first occurrence... so a rule named by two groups, or by a
-group and again explicitly, loads once and sits at its first position, which
-under the default first-match [`overlap`](configuration.md) is the only one
-that could have fired anyway... and under an `overlap` of `all` the dedup is
-what keeps a twice-named rule from counting twice. A group that resolves to no file, a member not in `type/name` form, an
-empty group, or a member of a type the watcher's parser can not feed all fail
-loudly at start, never silently. Groups do not nest... a member is a rule, not
-another `%group%`.
+deduplicated to the first occurrence, so a rule named twice... by two groups,
+or by a group and again explicitly... loads once, sits at its first position,
+and can never count twice, whatever the [`overlap`](configuration.md). A
+group that resolves to no file, a member not in `type/name` form, an empty
+group, or a member of a type the watcher's parser can not feed all fail
+loudly at start, never silently. Groups do not nest... a member is a rule,
+not another `%group%`.
 
 Groups pair naturally with per-rule
 [config overrides](configuration.md#per-rule-config-overrides): pull the bulk
@@ -107,7 +100,7 @@ watcher whole. What ships:
 | `json/suricata-malware` | " | the critical "host is compromised" classtypes (C2, trojan, exploit kit, credential theft, coin mining) |
 | `json/suricata-recon` | " | scanning and probing... noisier, suits `eve_only` observe mode |
 | `syslog/mail` | a maillog | postfix, sendmail, dovecot, courier, cyrus, perdition, sieve, qmail, and the rest of the MTA/IMAP/POP auth rules |
-| `syslog/messages` | the broad catch-all syslog | the eighteen daemons that log through syslog and so land in whichever broad file their facility is routed to, rather than a file of their own... postgres arrives on LOCAL0 and openvpn on DAEMON, so these may be split across `messages`/`daemon`/`syslog` or all be in one. The panels and monitors (webmin, phpMyAdmin, Froxlor, monit, nrpe, haproxy), the file and directory services (samba, rsyncd, slapd), openvpn, postgresql, screensharingd, suhosin, and the daemons that refuse or rate-limit (strongswan, unbound, freeradius's unknown clients, scanlogd, xinetd). Give it to each broad log you have... a rule whose daemon is absent costs one string compare. Deliberately excludes `pam-generic` and `drupal-auth`, whose `//.//` gate matches every line and which double-count against the service rules, and `named-refused`, whose own header warns a refusal can be innocent |
+| `syslog/messages` | the broad catch-all syslog | the eighteen daemons with no log file of their own... the panels and monitors (webmin, phpMyAdmin, Froxlor, monit, nrpe, haproxy), the file and directory services (samba, rsyncd, slapd), openvpn, postgresql, screensharingd, suhosin, and the daemons that refuse or rate-limit (strongswan, unbound, freeradius's unknown clients, scanlogd, xinetd). Their facilities scatter them across `messages`/`daemon`/`syslog`, so give it to each broad log you have... a rule whose daemon is absent costs one string compare. Deliberately excludes `pam-generic` and `drupal-auth`, whose `//.//` gate double-counts against the service rules, and `named-refused`, whose own header warns a refusal can be innocent |
 | `syslog/ftp` | an FTP log | proftpd, pure-ftpd, vsftpd, wuftpd, gssftpd |
 | `syslog/voip` | a VoIP log | asterisk, freeswitch, murmur |
 | `syslog/ssh` | an auth log | the base `sshd` and `dropbear`... not the `sshd-*` tuning variants, which are alternative modes, not additive |
@@ -477,9 +470,9 @@ offender is banished once the surviving weights in the window sum to
 `max_score`. So a dangerous signature can weigh 10 and banish on one hit,
 a noisy one weigh 1, and several different rules against one IP accrue
 together toward the one threshold, sshguard-style, instead of racing
-separate counters. With every weight 1 the score is just the hit count,
-exactly as before, so nothing changes for unweighted rules. `weight`,
-like the thresholds, is honored only under `allow_per_rule_thresholds`.
+separate counters. With every weight 1 the score is just the hit count.
+`weight`, like the thresholds, is honored only under
+`allow_per_rule_thresholds`.
 
 ```yaml
 # one heavy hit is enough, hold the door eternally
@@ -575,22 +568,21 @@ find_time: 600
 ```
 
 That complements `http/botsearch`, which knows a list of paths worth alarming
-at... this catches the scanner whose list you have never seen. Counting paths is
-also what keeps it quiet with no ignore list: a browser 404ing on favicon.ico,
-robots.txt and an apple-touch icon has asked for three paths and will never
-approach the threshold however often it retries them, where a hit counter would
-need every such path excluded by hand. `path` drops the method, so a scanner
-alternating GET and HEAD counts one path... the query string does survive it, so
-an application that 404s with varying parameters counts each as its own, and
+at... this catches the scanner whose list you have never seen. Counting paths
+is also what keeps it quiet with no ignore list: a browser 404ing on
+favicon.ico, robots.txt and an apple-touch icon holds at three paths however
+often it retries them. `path` drops the method, so a scanner alternating GET
+and HEAD counts one path... the query string does survive it, so an
+application that 404s with varying parameters counts each as its own, and
 wants a higher score rather than a wider gate.
 
 The shipped `syslog/sshd-stuffing` is the offender-keyed form worked through: the
 same failures `syslog/sshd` reads, the account captured instead of stepped over,
 and `distinct: {of: USER}` so the score is how many accounts a source has failed
-against. Note what it says about ordering... it matches the same lines as
-`syslog/sshd`, so under the default [`overlap`](configuration.md) of `first`
-whichever is listed earlier eats the record and the other never counts. Two rules
-counting different things off one line want `overlap = "all"`.
+against. It matches the same lines as `syslog/sshd`, so under the default
+[`overlap`](configuration.md) of `first` whichever is listed earlier eats the
+line and the other never counts... two rules counting different things off one
+line want `overlap = "all"`.
 
 Two practical notes. A result whose grouping key is missing or empty is skipped
 rather than counted, since there is nothing to file it under. And each set is
@@ -1046,12 +1038,10 @@ After a rule matches and its offender is in hand, a set of optional gates can
 still drop the count. They are the shared vocabulary layered over every
 type's matcher... a match that passes the matcher but fails a gate is not an
 offense. An offender a gate vetoes is neither counted nor branded... the
-rule's `mark` skips it too, since a non-offense earns no brand. When a gate
-vetoes every offender the result did not fire at all: it brands nobody,
-writes no EVE event, and does not consume the line, so it falls through to
-the later rules... the legitimate Googlebot the `reverse_dns` gate clears,
-say, is free to match a benign rule instead of being branded `recon` by the
-one that spared it.
+rule's `mark` skips it too, since a non-offense earns no brand. And a rule
+whose gates veto every offender did not fire at all, so the line falls
+through to the rules after it...
+[a veto is not a quiet pass](#the-order-it-runs-in).
 
 The gates are universal, but the matcher and offender keys that precede them
 are not... which is the whole shape of the types. The full support matrix, a
@@ -1154,11 +1144,9 @@ it".
 
 A rule whose mark gates veto, like a mark_only rule, does not consume the
 line either, so a branding rule and the rule that reads it can both act on
-the same line by falling through. What consuming means is the watcher's
-[`overlap`](configuration.md) setting... under the default `first` the first
-rule to fire eats the line, under `shadow` every later rule that also fires
-is demoted to observe mode for that hit, surfacing as `noted`, and under
-`all` every firing rule judges for real.
+the same line by falling through. What consuming costs the rules after it
+is the watcher's [`overlap`](configuration.md) setting, phase 6 of
+[the order it runs in](#the-order-it-runs-in).
 
 The shipped `syslog/sshd-mark-users` and `syslog/sshd-spray` pair catch a
 single account hit from more than one source... the distributed brute-force
@@ -1278,15 +1266,12 @@ banishes nobody until its `detection_var` is flipped to `ban_var`:
 | `raw/cisco-asa-breach`, `raw/fortinet-breach`, `raw/citrix-breach` | a successful firewall/VPN/admin login from a branded source, per gear family |
 | `raw/citrix-condemned` | a NetScaler AAA failure from a source branded recon/exploit/honeypot |
 
-The network gear families ([rules-catalog](rules-catalog.md)) both feed and
-read the mesh... their brute-force, scan, and exploit rules brand the same
-names the Unix daemons do, so a source that hammered the FortiGate VPN
-arrives at sshd already condemned, and the reverse.
-
-The vocabulary is what makes marks a mesh rather than pairwise plumbing.
-The brand crosses watchers within the galla, and rides the mark bus of a
-Redis tablet across a fleet, so a source that brute-forced the mail host
-arrives at the web host already condemned.
+The shared vocabulary is what makes marks a mesh rather than pairwise
+plumbing. The network gear families ([rules-catalog](rules-catalog.md))
+brand the same names the Unix daemons do, the brand crosses watchers within
+the galla, and it rides the mark bus of a Redis tablet across a fleet... so
+a source that hammered the FortiGate VPN arrives at sshd already condemned,
+and the mail host's brute-forcer lands at the web host the same way.
 
 ### tracked records... state that accumulates across lines
 
@@ -1442,9 +1427,10 @@ without them. All of them prove their gate from their own tests with a
   listing it. Run one family or the other per service, not both.
 
 Order the ban family **ahead** of the per-service rules it shadows. A vetoed
-gate does not consume the line (see [how it is counted](#how-it-is-counted)),
-so a domestic event falls straight through and counts at the ordinary rule
-exactly as before, while foreign traffic is peeled off the top.
+gate does not consume the line (see
+[the order it runs in](#the-order-it-runs-in)), so a domestic event falls
+straight through and counts at the ordinary rule exactly as before, while
+foreign traffic is peeled off the top.
 
 Beyond these, a geography policy is yours to compose... any offense rule plus
 a `country` gate and your own `country_codes` lists.
@@ -1604,10 +1590,9 @@ and its captures come back as the enrichment.
 
 Order is deliberate: the munger runs **first**, its fields laid down
 underneath, and the rule's own `message_regexp` captures then overwrite any
-of the same name. A divergence there is meaningful... it is the rule
-choosing a looser (or different) read than the munger's for that one field,
-on purpose. Everything the munger decoded that the rule did not recapture
-rides along untouched.
+of the same name... the rule choosing a different read than the munger's
+for that one field, on purpose. Everything the munger decoded that the rule
+did not recapture rides along untouched.
 
 Mungers are supported on `syslog` and `raw` rules, including
 [staged](#stages-ordered-sequences-with-in-one-rule) ones... a staged rule enriches the *completed
@@ -1657,15 +1642,14 @@ their own username... logging in as `admin srcip=8.8.8.8` aimed the ban at
 value and `srcip=` is another, so the offender stays the field the appliance
 wrote. Each of those rules carries a positive test proving exactly that.
 
-Because such a rule's matcher *is* its munger, the stakes on resolution rise:
-where an enrichment-only rule losing its munger merely loses fields, this one
-would see no fields at all, veto every line, and never fire. The existing
-fatal-on-unresolvable behavior is what covers that, and the rule's own
-[tests](#tests) are the second net... they exercise the real munger, so a rule
-whose decoder is missing or wrong fails at load rather than matching nothing in
-the field. The `raw/fortinet-*` and `raw/sonicwall-*` rules accordingly need
-Log::Munger installed *with* the `fortinet` and `sonicwall` rule files, not
-merely present.
+Because such a rule's matcher *is* its munger, losing the munger would not
+merely lose fields... it would veto every line and never fire. The
+fatal-on-unresolvable behavior above covers that, and the rule's own
+[tests](#tests) exercise the real munger, so a missing or wrong decoder
+fails at load rather than matching nothing in the field. The
+`raw/fortinet-*` and `raw/sonicwall-*` rules accordingly need Log::Munger
+installed *with* the `fortinet` and `sonicwall` rule files, not merely
+present.
 
 ## How the types differ
 

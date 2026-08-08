@@ -245,8 +245,8 @@ Every Suricata rule lists both `src_ip` and `dest_ip` as ban_vars and sets
 `ban_not_internal`, so the offender is picked as whichever end of the flow
 is not one of your own hosts... an inbound attack bans the external src, a
 C2 callout from an inside host bans the external dest. Set the `internal`
-config field to your networks; it defaults to the ignore IPs. See the
-"Banning the external end of a flow" section of [rules](rules.md).
+config field to your networks; it defaults to the ignore IPs. See
+[`ban_not_internal`](rules.md#ban_not_internal).
 
 ## raw rules
 
@@ -293,12 +293,12 @@ those families that accuse the far end of a connection carry no
 decomposes the ledger and the rule gates on named fields, banishing
 `fg_offender_ip` / `sw_offender_ip` / `hw_offender_ip`.
 
-That is not tidiness. These events log the account someone just tried, the
-account name is whatever they typed, and a rule scanning the line for the
-first `srcip=` could be handed a different one... log in as
-`admin srcip=8.8.8.8` and the ban lands on 8.8.8.8. Reading fields cannot be
-steered that way. Those rules therefore need Log::Munger installed **with**
-its `fortinet`, `sonicwall`, and `huawei` rule files, not merely present.
+That is not tidiness... the account name in these events is whatever the
+client typed, and a rule scanning for the first `srcip=` could be handed a
+forged one, aiming the ban wherever the attacker chose. Reading fields
+cannot be steered that way. Those rules therefore need Log::Munger
+installed **with** its `fortinet`, `sonicwall`, and `huawei` rule files,
+not merely present.
 
 The remaining ten in those families still match on regexps, because they do not
 accuse the far end and so were never steerable... the config-change and
