@@ -54,7 +54,7 @@ baseline. UID 0 (root) is threaded into any rule that names allowed users
 or groups, so root passes it as it passes the baseline.
 
 The commands that may be named are `status`, `status_all`, `status_galla`,
-`accused`, `marked`, `watching`, `banished`, and `stop`.
+`accused`, `marked`, `tracked`, `watching`, `banished`, and `stop`.
 
 A worked example... the `lnms-f2b-extend` command an snmpd extend runs
 reaches the manager's `banished` command for its tallies, so letting the

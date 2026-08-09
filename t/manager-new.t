@@ -272,6 +272,13 @@ ok( !eval { App::Baphomet->new( 'config' => $dir . '/config.toml' ); 1 }, 'a rul
 
 ok( App::Baphomet::Config::known_command('banished'), 'banished is a nameable, gateable command' );
 
+# start_server dies on any drift between it's handler table and the command
+# list, and after daemonizing that death has nowhere to go, so every handled
+# command being nameable is worth checking where it is cheap to see
+foreach my $handled (qw( status status_all status_galla accused marked tracked watching banished stop )) {
+	ok( App::Baphomet::Config::known_command($handled), $handled . ' is a nameable, gateable command' );
+}
+
 write_config( '', "[recidive]\nkur = \"recidive\"" );
 my $withrec = App::Baphomet->new( 'config' => $dir . '/config.toml' );
 ok( defined($withrec), 'a manager with a recidive kur builds' ) || diag($@);
