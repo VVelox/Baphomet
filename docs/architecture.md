@@ -133,13 +133,13 @@ Both speak the newline delimited JSON protocol of
 same as Ereshkigal, and every client... the CLI included... drives them
 with that dist's own blocking and async clients. The manager socket
 answers `status`, `status_all`, `status_galla`, `accused`, `marked`,
-`watching`, `banished`, and `stop`, with the status, accused, marked, and
-watching fan-out proxied to the galla sockets and `banished` proxied on to
-Ereshkigal for who Kur holds. Every CLI query rides this one socket rather
-than reaching around the manager, so the manager is the single door to the
-control plane. The manager socket's group and mode are configurable via
-`socket_group` and `socket_mode`... it only exposes read-only views and
-stop, but stop is still stop.
+`tracked`, `watching`, `banished`, and `stop`, with the status, accused,
+marked, tracked, and watching fan-out proxied to the galla sockets and
+`banished` proxied on to Ereshkigal for who Kur holds. Every CLI query
+rides this one socket rather than reaching around the manager, so the
+manager is the single door to the control plane. The manager socket's
+group and mode are configurable via `socket_group` and `socket_mode`... it
+only exposes read-only views and stop, but stop is still stop.
 
 Everything logs to syslog under the daemon facility, the manager as
 `baphomet` and each worker as `galla-<kur>`.

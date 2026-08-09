@@ -4,8 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 use App::Baphomet::App -command;
-use App::Baphomet         ();
-use App::Baphomet::Config qw( pidfile_or_daemonize );
+use App::Baphomet          ();
+use App::Baphomet::Config  qw( pidfile_or_daemonize );
+use App::Baphomet::LogDrek qw( log_drek );
 
 =head1 NAME
 
@@ -62,9 +63,19 @@ sub execute {
 
 	pidfile_or_daemonize( $baphomet->pid_path, $opt->foreground );
 
-	$baphomet->start_server;
+	# daemonized, STDERR is gone, so a death in here would otherwise be
+	# wholly silent... a start that leaves nothing behind but a stale PID
+	# file. syslog is the only place left to say it, and the PID file is
+	# cleared either way so the next start does not race a dead PID
+	eval { $baphomet->start_server; };
+	my $died = $@;
 
 	unlink( $baphomet->pid_path ) if -e $baphomet->pid_path;
+
+	if ($died) {
+		log_drek( 'err', 'the manager failed to start... ' . $died );
+		die($died);
+	}
 
 	return;
 } ## end sub execute

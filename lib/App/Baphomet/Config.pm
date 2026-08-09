@@ -28,7 +28,7 @@ our @EXPORT_OK
 # authority the config checks validate against, so the config and the
 # manager can not drift on what commands exist. App::Baphomet guards its own
 # handler table against this list at startup
-our @COMMANDS = qw( status status_all status_galla accused marked watching banished stop );
+our @COMMANDS = qw( status status_all status_galla accused marked tracked watching banished stop );
 my %command_set = map { $_ => 1 } @COMMANDS;
 
 =head1 SYNOPSIS
@@ -261,8 +261,8 @@ Top level keys are as below.
           enable_auth on. A command named here is judged by its own rule
           alone; every command not named falls to the baseline built from
           authed_users and authed_groups. The commands that may be named are
-          status, status_all, status_galla, accused, marked, watching, and
-          stop. Keys...
+          status, status_all, status_galla, accused, marked, tracked,
+          watching, banished, and stop. Keys...
 
               default :: The verdict for a command that no rule and no
                   baseline speaks to, one of C<allow> or C<deny>.
