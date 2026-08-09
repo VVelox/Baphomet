@@ -134,7 +134,7 @@ my @ev = read_events();
 # the sighted stands for its line, so no sighting beside it
 is( scalar( grep { $_->{event_type} eq 'sighting' && $_->{found}{USER} eq 'alice' } @ev ),
 	2, 'each sub-threshold detection match emits a sighting' );
-is( scalar( grep { $_->{event_type} eq 'sighted' && $_->{subject} eq 'alice' } @ev ),
+is( scalar( grep { $_->{event_type} eq 'sighted' && ( $_->{subject_vars}{USER} || '' ) eq 'alice' } @ev ),
 	1, 'and a sighted when the subject crosses the threshold, standing for its line' );
 
 is( scalar( grep { $_->{event_type} eq 'found' } @ev ),  0, 'never a found' );
@@ -144,12 +144,14 @@ is( scalar( grep { $_->{event_type} eq 'alert' } @ev ),  0, 'never an alert' );
 is_deeply( \@sent, [], 'a detection rule sends nothing to Kur' );
 ok( !defined( $galla->{counters}{'alice'} ), 'detection leaves the real counters untouched' );
 
-my ($sighted) = grep { $_->{event_type} eq 'sighted' && $_->{subject} eq 'alice' } @ev;
-is( $sighted->{subject},     'alice',                     'the sighted names the subject' );
-is( $sighted->{score},       3,                           'and carries the score' );
-is( $sighted->{found}{USER}, 'alice',                     'and the triggering found' );
-is( $sighted->{msg},         '[POLICY] tripwire tripped', 'and the rule msg' );
-ok( !exists( $sighted->{ip} ), 'a sighted has no ip... the subject is not a offender' );
+my ($sighted) = grep { $_->{event_type} eq 'sighted' && ( $_->{subject_vars}{USER} || '' ) eq 'alice' } @ev;
+is( $sighted->{subject_vars}{USER},        'alice', 'the sighted names what the detection_var held' );
+is( $sighted->{subject_vars_scores}{USER}, 3,       'and what it is worth' );
+is( $sighted->{subjects_crossed}{USER},    3,       'and that it is the var that crossed' );
+is( $sighted->{score},                     3,       'and carries the score' );
+is( $sighted->{found}{USER},               'alice', 'and the triggering found' );
+is( $sighted->{msg},                       '[POLICY] tripwire tripped', 'and the rule msg' );
+ok( !exists( $sighted->{banishing} ), 'a sighted banishes nobody... the subject is not a offender' );
 
 #
 # subjects are isolated... a second subject accrues on its own, into the
@@ -159,7 +161,7 @@ ok( !exists( $sighted->{ip} ), 'a sighted has no ip... the subject is not a offe
 @sent = ();
 feed( $galla, 'detectw', 'audit', 'd.log', 'policy tripwire tripped by bob', 2 );
 @ev = read_events();
-is( scalar( grep { $_->{event_type} eq 'sighted' && $_->{subject} eq 'bob' } @ev ),
+is( scalar( grep { $_->{event_type} eq 'sighted' && ( $_->{subject_vars}{USER} || '' ) eq 'bob' } @ev ),
 	0, 'below the threshold a subject raises no sighted' );
 is( scalar( @{ $galla->{shadow_counters}{'bob'} } ), 2, 'a detection subject counts into the shadow bucket' );
 ok( !defined( $galla->{counters}{'bob'} ), 'and never the real bucket' );
@@ -173,7 +175,8 @@ feed( $galla, 'banw', 'sshd', 'b.log', 'bad thing from 9.9.9.9', 3 );
 @ev = read_events();
 is( scalar( grep { $_->{event_type} eq 'found' && $_->{found}{SRC} eq '9.9.9.9' } @ev ),
 	2, 'a plain rule alongside a detection rule still emits found for its sub-threshold hits' );
-is( scalar( grep { $_->{event_type} eq 'banish' && $_->{ip} eq '9.9.9.9' } @ev ), 1, 'and banishes' );
+is( scalar( grep { $_->{event_type} eq 'banish' && ( $_->{banishing}[0] || '' ) eq '9.9.9.9' } @ev ),
+	1, 'and banishes' );
 is_deeply( \@sent, ['9.9.9.9'], 'the plain rule reaches Kur' );
 
 # the detected subject never touched the ledger

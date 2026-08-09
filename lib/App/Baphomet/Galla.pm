@@ -2505,33 +2505,60 @@ sub _process_record {
 			# nobody, so it has no offenders, only detection_var subjects
 			my $not_internal = $is_detection ? 0 : $rule_obj->ban_not_internal;
 
-			# the offenders this result would banish... the ban_vars that
-			# captured a IP that is not one of our own. also who the var-less
-			# marks brand and the var-less gates key by
-			my @offenders;
-			if ( !$is_detection ) {
-				foreach my $ban_var ( $rule_obj->ban_var ) {
-					my $ip = $one->{data}{$ban_var};
-					if ( !defined($ip) ) {
-						next;
-					}
-					if ( $not_internal && ip_ignored( $self->{internal}, $ip ) ) {
-						# ip_ignored is a plain set membership test... here it is
-						# the internal set, so this IP is ours, not the offender
-						next;
-					}
-					push( @offenders, $ip );
-				} ## end foreach my $ban_var ( $rule_obj->ban_var )
-			} ## end if ( !$is_detection )
+			# the subjects this result names, one record per var that captured
+			# something... a ban rule's ban_vars, less any end of the flow that
+			# is one of our own, or a detection rule's detection_vars. the var
+			# that held the value travels beside it, so every event this result
+			# raises can say which var named what and what each one is worth
+			# instead of promoting a single scalar that has to misdescribe the
+			# rest. the values are also who the var-less marks brand and the
+			# var-less gates key by
+			my @subjects;
+			foreach my $subject_var ( $is_detection ? $rule_obj->detection_var : $rule_obj->ban_var ) {
+				my $value = $one->{data}{$subject_var};
+				if ( !defined($value) || ( $is_detection && $value eq '' ) ) {
+					next;
+				}
+				if ( $not_internal && ip_ignored( $self->{internal}, $value ) ) {
+					# ip_ignored is a plain set membership test... here it is
+					# the internal set, so this IP is ours, not the offender
+					next;
+				}
+				push( @subjects, { 'var' => $subject_var, 'value' => $value } );
+			} ## end foreach my $subject_var ( $is_detection ? $rule_obj...)
 
 			# usedns... a ban_var value that is not a IP is a hostname the
 			# daemon logged, hostile input. under no it is dropped, under
-			# resolve_seen it becomes the addresses it resolves to, and
-			# under resolve_ban it counts by name, resolving at the
-			# threshold over in _ban_ip
-			if (@offenders) {
-				@offenders = $self->_usedns_offenders( $watcher_name, \@offenders );
+			# resolve_seen it becomes one record per address it resolves to,
+			# each still naming the var and the name it came from, and under
+			# resolve_ban it counts by name, resolving at the threshold over
+			# in _ban_ip
+			if ( !$is_detection && @subjects ) {
+				@subjects = $self->_usedns_subjects( $watcher_name, \@subjects );
 			}
+
+			# the values to count, deduped in first-named order... one line is
+			# one piece of evidence about a address, so two vars naming it, or
+			# two names resolving to it, walk it one step toward the threshold
+			# and not two. both vars then read the one bucket and report the
+			# one score
+			my @offenders;
+			my %offender_seen;
+			foreach my $subject (@subjects) {
+				if ( $offender_seen{ $subject->{value} }++ ) {
+					next;
+				}
+				push( @offenders, $subject->{value} );
+			}
+
+			# what each var named, and what each is worth once counted... read
+			# by _eve_fields into subject_vars and subject_vars_scores. the
+			# score map is filled as the offenders are registered below, and
+			# the context holds it by reference, so a event built from a copy
+			# of this context still sees the whole of it
+			$context->{subjects}        = \@subjects;
+			$context->{subject_scores}  = {};
+			$context->{subject_crossed} = {};
 
 			# a result that crosses its threshold emits a terminal event
 			# (banish/alert/sighted) that already stands for the match... the
@@ -2539,6 +2566,11 @@ sub _process_record {
 			# set by the threshold blocks in _register_hit and the subnet
 			# tally, read after the offenders are counted. reset per result
 			$self->{result_terminal} = 0;
+
+			# the crossings this result raises, held until the last offender
+			# has been counted... see _defer_crossing. reset per result, and
+			# drained in both branches below before anything is emitted
+			$self->{deferred_crossings} = [];
 
 			my $score;
 			my ( $set, $lifted ) = ( [], [] );
@@ -2553,17 +2585,22 @@ sub _process_record {
 				$context->{marks_set} = $set;
 				$context->{unmarked}  = $lifted;
 				$consumed             = 1;
-				foreach my $detection_var ( $rule_obj->detection_var ) {
-					my $subject = $one->{data}{$detection_var};
-					if ( !defined($subject) || $subject eq '' ) {
-						next;
-					}
+				foreach my $subject_value (@offenders) {
 					my $registered
-						= $self->_register_hit( $watcher_name, $subject, $context, $eve_only, $observe_ignored, 1 );
-					if ( !defined($score) && defined($registered) ) {
-						$score = $registered;
+						= $self->_register_hit( $watcher_name, $subject_value, $context, $eve_only, $observe_ignored,
+							1 );
+					if ( defined($registered) ) {
+						$context->{subject_scores}{$subject_value} = $registered;
+						if ( !defined($score) ) {
+							$score = $registered;
+						}
 					}
-				} ## end foreach my $detection_var ( $rule_obj->detection_var)
+				} ## end foreach my $subject_value (@offenders)
+
+				# every subject is counted and the score map is whole, so the
+				# crossings held back may act now and write it entire
+				$self->_drain_crossings;
+
 				# a subject that crossed raised a sighted, which stands for
 				# the match... only the uncrossed one still needs a sighting.
 				# a track_only rule's own is gated the same as its found
@@ -2601,10 +2638,10 @@ sub _process_record {
 				$context->{unmarked}  = $lifted;
 				my @survivors = @{ $outcome->{survivors} };
 
-				# the offender promoted to the event's top-level ip, the first
-				# survivor... undef and absent when the rule branded only or
-				# had no offender to pass for banning
-				my $ban_ip = $survivors[0];
+				# only a survivor is counted, so only a survivor earns a score
+				# entry... a subject a gate vetoed keeps its place in
+				# subject_vars with nothing beside it in subject_vars_scores,
+				# which is that veto on the record
 				if ( !$mark_only ) {
 					if ($demoted) {
 						# a later firing rule under overlap shadow... the line
@@ -2617,8 +2654,11 @@ sub _process_record {
 						# as for a real judgment
 						foreach my $ip (@survivors) {
 							my $registered = $self->_register_hit( $watcher_name, $ip, $context, 1, $observe_ignored );
-							if ( !defined($score) && defined($registered) ) {
-								$score = $registered;
+							if ( defined($registered) ) {
+								$context->{subject_scores}{$ip} = $registered;
+								if ( !defined($score) ) {
+									$score = $registered;
+								}
 							}
 						}
 						$self->_tick( 'demoted', $watcher_name, $rule_name );
@@ -2628,12 +2668,19 @@ sub _process_record {
 						foreach my $ip (@survivors) {
 							my $registered
 								= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
-							if ( !defined($score) && defined($registered) ) {
-								$score = $registered;
+							if ( defined($registered) ) {
+								$context->{subject_scores}{$ip} = $registered;
+								if ( !defined($score) ) {
+									$score = $registered;
+								}
 							}
-						}
+						} ## end foreach my $ip (@survivors)
 					} ## end else [ if ($demoted) ]
 				} ## end if ( !$mark_only )
+
+				# every offender is counted and the score map is whole, so the
+				# crossings held back may act now and write it entire
+				$self->_drain_crossings;
 
 				# a offender that crossed raised a banish (or, observe mode, an
 				# alert), which carries the match already... the found/noted is
@@ -2647,15 +2694,12 @@ sub _process_record {
 				# carries its full payload
 				if ( !$self->{result_terminal} && !( $track_only && !$track_only_eve ) ) {
 					my $fields = $self->_eve_fields( $context, $score, $set, $lifted );
-					if ( defined($ban_ip) ) {
-						$fields->{ip} = $ban_ip;
-					}
 					# a demoted match reads as observe mode... noted, not
 					# found. a mark_only rule brands the same before and
 					# after the winner, so it keeps its found either way
 					my $event = ( $eve_only || ( $demoted && !$mark_only ) ) ? 'noted' : 'found';
 					$self->_eve_emit( $event, $fields );
-				} ## end if ( !$self->{result_terminal} && !( $track_only...))
+				}
 			} ## end else [ if ($is_detection) ]
 		} ## end foreach my $one (@all_found)
 
@@ -2715,7 +2759,9 @@ sub _eve_fields {
 		defined( $context->{stages} ) ? ( 'stages' => $context->{stages} ) : (),
 		'src_ip'  => $src_ip,
 		'dest_ip' => $dest_ip,
-		'msg'     => $context->{rule}->msg,
+		# what each ban_var or detection_var named, and what each is worth
+		$self->_subject_var_fields($context),
+		'msg' => $context->{rule}->msg,
 		# the Suricata alert.gid/signature_id/rev analogues, always integers...
 		# gid 0 shipped / 1 override, sid the rule name's hash, rev the def's or
 		# 0 when unversioned
@@ -2743,6 +2789,180 @@ sub _eve_fields {
 		defined($tracked) ? ( 'tracked' => $tracked ) : (),
 	};
 } ## end sub _eve_fields
+
+# writes a match's subjects out as the three var-keyed EVE fields... what each
+# var named, what each is worth, and which of them crossed. a rule may name
+# several ban_vars or several detection_vars, and a usedns resolution may turn
+# one of them into several addresses, so the offense is a list and the event
+# says so rather than promoting one scalar that would have to misdescribe the
+# rest of it.
+#
+# args:
+#   $context :: the match context. reads subjects, the arrayref of
+#               { var, value, hostname } records _process_record built,
+#               subject_scores, the hashref of counted value => live score it
+#               filled while registering them, and subject_crossed, the
+#               hashref of crossing value => the threshold it reached.
+#               hostname is set only where usedns resolved a name into the
+#               addresses it answered with
+#
+# returns a list of key/value pairs to splat into a EVE record, empty when the
+# context carries no subjects... a recidive escalation, a pending ban restored
+# off a tablet, or a rule naming no var that captured anything.
+#
+# subject_vars gives each var the bare value it captured, or, where a name was
+# resolved, that name beside its addresses. subject_vars_scores mirrors that
+# shape: a scalar against a bare value, a map of value => score against a
+# decomposed one. a var absent from subject_vars_scores was named but never
+# counted, which is how a subject in ignore_ips or one a per-offender gate
+# vetoed says so plainly. subjects_crossed names only the vars that reached
+# their threshold, against the number they had to reach, and is absent
+# entirely where nothing crossed... which is every routine found, noted, and
+# sighting, a crossing suppressing those in favor of the terminal event it
+# raises.
+#
+#   # SRC named 1.2.3.4 and counted to 3, short of a max_score of 5
+#   ( 'subject_vars' => { 'SRC' => '1.2.3.4' }, 'subject_vars_scores' => { 'SRC' => 3 } )
+#
+#   # the same var a couple of hits later, crossing
+#   ( 'subject_vars' => { 'SRC' => '1.2.3.4' }, 'subject_vars_scores' => { 'SRC' => 5 },
+#     'subjects_crossed' => { 'SRC' => 5 } )
+#
+#   # SRC named bad.example.com, resolve_seen turning it into two addresses
+#   # counted apart, the first of them over
+#   ( 'subject_vars' => { 'SRC' => { 'hostname' => 'bad.example.com',
+#                                    'ip'       => [ '192.0.2.72', '192.0.2.73' ] } },
+#     'subject_vars_scores' => { 'SRC' => { '192.0.2.72' => 5, '192.0.2.73' => 1 } },
+#     'subjects_crossed'    => { 'SRC' => 5 } )
+#
+#   # a detection rule's USER, five distinct values deep and over
+#   ( 'subject_vars' => { 'USER' => 'admin' }, 'subject_vars_scores' => { 'USER' => 5 },
+#     'subjects_crossed' => { 'USER' => 5 } )
+sub _subject_var_fields {
+	my ( $self, $context ) = @_;
+
+	my $subjects = ref($context) eq 'HASH' ? $context->{subjects} : undef;
+	if ( ref($subjects) ne 'ARRAY' || !@{$subjects} ) {
+		return ();
+	}
+
+	my $scores  = ref( $context->{subject_scores} ) eq 'HASH'  ? $context->{subject_scores}  : {};
+	my $crossed = ref( $context->{subject_crossed} ) eq 'HASH' ? $context->{subject_crossed} : {};
+
+	# the records gathered back under the var that held them, in the order the
+	# rule names its vars... one record to a var ordinarily, and one per
+	# address where a name was resolved
+	my @order;
+	my %by_var;
+	foreach my $subject ( @{$subjects} ) {
+		if ( !defined( $by_var{ $subject->{var} } ) ) {
+			$by_var{ $subject->{var} } = [];
+			push( @order, $subject->{var} );
+		}
+		push( @{ $by_var{ $subject->{var} } }, $subject );
+	}
+
+	my %vars;
+	my %var_scores;
+	my %var_crossed;
+	foreach my $var (@order) {
+		my $records  = $by_var{$var};
+		my $hostname = $records->[0]{hostname};
+		my @values   = map { $_->{value} } @{$records};
+
+		# decomposed where a name was resolved into addresses, and a bare
+		# value only where the var holds the one thing and nothing resolved
+		# it. a var somehow holding several unresolved values is written as
+		# the list it is rather than losing all but the first
+		if ( defined($hostname) ) {
+			$vars{$var} = { 'hostname' => $hostname, 'ip' => \@values };
+		} elsif ( scalar(@values) == 1 ) {
+			$vars{$var} = $values[0];
+		} else {
+			$vars{$var} = \@values;
+		}
+
+		my %held;
+		foreach my $value (@values) {
+			if ( defined( $scores->{$value} ) ) {
+				$held{$value} = $scores->{$value};
+			}
+			# a var crossed the moment any one value under it did... where a
+			# name resolved to several addresses they raced the one threshold,
+			# so whichever of them tipped over names the same number
+			if ( defined( $crossed->{$value} ) ) {
+				$var_crossed{$var} = $crossed->{$value};
+			}
+		} ## end foreach my $value (@values)
+		if ( !%held ) {
+			next;
+		}
+		$var_scores{$var} = ref( $vars{$var} ) ? \%held : $held{ $values[0] };
+	} ## end foreach my $var (@order)
+
+	return (
+		'subject_vars' => \%vars,
+		%var_scores  ? ( 'subject_vars_scores' => \%var_scores )  : (),
+		%var_crossed ? ( 'subjects_crossed'    => \%var_crossed ) : (),
+	);
+} ## end sub _subject_var_fields
+
+# holds a threshold crossing until the whole result has been counted, then
+# runs it... a crossing acting the moment it happened would write its
+# subject_vars_scores with every subject after it in the list still uncounted,
+# so a two-var rule's banish would carry only the first var's score and read
+# as though the second had never been counted at all.
+#
+# args:
+#   $crossing :: a closure taking no arguments and doing whatever the crossing
+#                does... _ban_ip, _alert_ip, _sighted, _ban_subnet, or
+#                _alert_subnet, with the arguments it closed over
+#
+# returns nothing. the crossing is queued while _process_record has a queue
+# standing and run at once otherwise, so a crossing raised off the per-result
+# path still acts rather than being silently dropped.
+#
+#   $self->_defer_crossing( sub { $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
+sub _defer_crossing {
+	my ( $self, $crossing ) = @_;
+
+	if ( ref( $self->{deferred_crossings} ) eq 'ARRAY' ) {
+		push( @{ $self->{deferred_crossings} }, $crossing );
+		return;
+	}
+
+	$crossing->();
+
+	return;
+} ## end sub _defer_crossing
+
+# runs the crossings _defer_crossing held for this result, in the order they
+# were raised... called once every offender has been counted and the context's
+# subject_scores is whole, and before the routine found/noted/sighting that
+# the crossings may have made redundant.
+#
+# the queue is taken down before the first crossing runs rather than emptied,
+# so anything a crossing raises in turn acts at once instead of queueing onto
+# a list nobody will drain again.
+#
+# takes no arguments beyond the invocant and returns nothing.
+#
+#   $self->_drain_crossings;
+sub _drain_crossings {
+	my ($self) = @_;
+
+	my $queue = $self->{deferred_crossings};
+	if ( ref($queue) ne 'ARRAY' ) {
+		return;
+	}
+	$self->{deferred_crossings} = undef;
+
+	foreach my $crossing ( @{$queue} ) {
+		$crossing->();
+	}
+
+	return;
+} ## end sub _drain_crossings
 
 # stands the optional DNS resolver up for usedns, if enable_dns consents...
 # stores a resolving closure on success, a error string otherwise. a set
@@ -3884,14 +4104,23 @@ sub _register_hit {
 				delete( $dcounters->{$rule_name}{$key} );
 			}
 			# the crossing raises a terminal event, so the caller's routine
-			# found/noted/sighting for this result is now redundant
+			# found/noted/sighting for this result is now redundant. it is
+			# held until the caller has counted the rest of the offenders, so
+			# the event it raises carries the whole score map
 			$self->{result_terminal} = 1;
+			# and the crossing it's self goes on the record, against the value
+			# that crossed and the number it had to reach... a rule naming
+			# several vars leaves the reader no way to tell which of them
+			# tipped over otherwise
+			if ( ref( $context->{subject_crossed} ) eq 'HASH' ) {
+				$context->{subject_crossed}{$ip} = $max_score + 0;
+			}
 			if ($detection) {
-				$self->_sighted( $ip, $context, $score );
+				$self->_defer_crossing( sub { return $self->_sighted( $ip, $context, $score ); } );
 			} elsif ($eve_only) {
-				$self->_alert_ip( $ip, $ban_time, $context, $score );
+				$self->_defer_crossing( sub { return $self->_alert_ip( $ip, $ban_time, $context, $score ); } );
 			} else {
-				$self->_ban_ip( $ip, $ban_time, $context, $score );
+				$self->_defer_crossing( sub { return $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
 			}
 		} ## end if ( $score >= $max_score )
 
@@ -3937,14 +4166,22 @@ sub _register_hit {
 	if ( $score >= $max_score ) {
 		delete( $bucket->{$ip} );
 		# the crossing raises a terminal event, so the caller's routine
-		# found/noted/sighting for this result is now redundant
+		# found/noted/sighting for this result is now redundant. it is held
+		# until the caller has counted the rest of the offenders, so the event
+		# it raises carries the whole score map
 		$self->{result_terminal} = 1;
+		# and the crossing it's self goes on the record, against the value that
+		# crossed and the number it had to reach... a rule naming several vars
+		# leaves the reader no way to tell which of them tipped over otherwise
+		if ( ref( $context->{subject_crossed} ) eq 'HASH' ) {
+			$context->{subject_crossed}{$ip} = $max_score + 0;
+		}
 		if ($detection) {
-			$self->_sighted( $ip, $context, $score );
+			$self->_defer_crossing( sub { return $self->_sighted( $ip, $context, $score ); } );
 		} elsif ($eve_only) {
-			$self->_alert_ip( $ip, $ban_time, $context, $score );
+			$self->_defer_crossing( sub { return $self->_alert_ip( $ip, $ban_time, $context, $score ); } );
 		} else {
-			$self->_ban_ip( $ip, $ban_time, $context, $score );
+			$self->_defer_crossing( sub { return $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
 		}
 	} ## end if ( $score >= $max_score )
 
@@ -4050,43 +4287,74 @@ sub _register_subnet_hit {
 	# would have a per-IP found reporting the subnet's threshold
 	my $subnet_context = ref($context) eq 'HASH' ? { %{$context}, 'threshold' => $max_score + 0 } : $context;
 
+	# held with the per-IP crossings until the caller has finished counting...
+	# the copy above is shallow, so the score map it shares with the original
+	# is still filling and the deferred event reads it whole
 	if ($eve_only) {
-		$self->_alert_subnet( $network, $ban_time, $subnet_context, $score, $info );
+		$self->_defer_crossing(
+			sub { return $self->_alert_subnet( $network, $ban_time, $subnet_context, $score, $info ); } );
 	} else {
-		$self->_ban_subnet( $network, $ban_time, $subnet_context, $score, $info );
+		$self->_defer_crossing(
+			sub { return $self->_ban_subnet( $network, $ban_time, $subnet_context, $score, $info ); } );
 	}
 
 	return;
 } ## end sub _register_subnet_hit
 
-# filters and transforms a offender list per the watcher's usedns... IPs
-# pass untouched, hostnames are dropped (no), resolved into their
-# addresses (resolve_seen), or passed through to count by name
-# (resolve_ban)
-sub _usedns_offenders {
-	my ( $self, $watcher_name, $offenders ) = @_;
+# filters and transforms a subject list per the watcher's usedns... a subject
+# whose value is a IP passes untouched, and one whose value is a hostname is
+# dropped (no), resolved into one record per address it names (resolve_seen),
+# or passed through to count by the name itself (resolve_ban), where the
+# resolution waits for the threshold over in _ban_hostname.
+#
+# args:
+#   $watcher_name :: the watcher's name, for its usedns setting and the tick
+#   $subjects     :: arrayref of subject records, each a hashref of var, the
+#                    name of the ban_var that captured it, and value, what it
+#                    captured
+#
+# returns the kept records as a list, each a fresh hashref so the caller's
+# input is left alone. a record built from a resolution also carries hostname,
+# the name the address answered for, which is what has the EVE event write the
+# var as its name beside its addresses rather than as a bare string. a name
+# that resolves to nothing, or past usedns_max_addrs, contributes no records
+# at all.
+#
+#   my @subjects = $self->_usedns_subjects( 'sshd', [ { 'var' => 'SRC', 'value' => 'bad.example.com' } ] );
+#
+#   # resolve_seen, the name answering with two addresses
+#   #   ( { 'var' => 'SRC', 'value' => '192.0.2.72', 'hostname' => 'bad.example.com' },
+#   #     { 'var' => 'SRC', 'value' => '192.0.2.73', 'hostname' => 'bad.example.com' } )
+#   # resolve_ban, counting by the name
+#   #   ( { 'var' => 'SRC', 'value' => 'bad.example.com' } )
+#   # no, naming nobody banishable
+#   #   ()
+sub _usedns_subjects {
+	my ( $self, $watcher_name, $subjects ) = @_;
 
 	my $mode = $self->{watchers}{$watcher_name}{settings}{usedns};
 	my @kept;
-	foreach my $offender ( @{$offenders} ) {
-		if ( defined( ip_family($offender) ) || $mode eq 'resolve_ban' ) {
-			push( @kept, $offender );
+	foreach my $subject ( @{$subjects} ) {
+		if ( defined( ip_family( $subject->{value} ) ) || $mode eq 'resolve_ban' ) {
+			push( @kept, { %{$subject} } );
 			next;
 		}
 		if ( $mode eq 'resolve_seen' ) {
-			my $addrs = $self->_resolve_hostname_seen($offender);
+			my $addrs = $self->_resolve_hostname_seen( $subject->{value} );
 			if ( defined($addrs) ) {
-				push( @kept, @{$addrs} );
+				foreach my $addr ( @{$addrs} ) {
+					push( @kept, { 'var' => $subject->{var}, 'value' => $addr, 'hostname' => $subject->{value} } );
+				}
 			}
 			next;
 		}
 		# no... a hostname names nobody banishable, though the match still
 		# wrote to EVE
 		$self->_tick( 'hostname_dropped', $watcher_name );
-	} ## end foreach my $offender ( @{$offenders} )
+	} ## end foreach my $subject ( @{$subjects} )
 
 	return @kept;
-} ## end sub _usedns_offenders
+} ## end sub _usedns_subjects
 
 # resolves a hostname to its addresses through the optional resolver,
 # cached both ways, capped, and fenced... the ignored and the internal are
@@ -4271,16 +4539,90 @@ sub _ban_hostname {
 				);
 				return;
 			} ## end if ( !defined($addrs) || !@{$addrs} )
-			foreach my $addr ( @{$addrs} ) {
-				my $addr_context = ref($context) eq 'HASH' ? { %{$context}, 'hostname' => $hostname } : undef;
-				$self->_ban_ip( $addr, $ban_time, $addr_context, $score );
-			}
+			# one determination, one banish event, naming every address the
+			# name answered with... the var that held the name is rewritten
+			# into that name beside its addresses, so the chain of custody
+			# from name to address is on the record
+			$self->_ban_ips( $addrs, $ban_time, $self->_resolved_subject_context( $context, $hostname, $addrs ),
+				$score );
 			return;
 		}
 	);
 
 	return;
 } ## end sub _ban_hostname
+
+# rewrites a match context for a name that has just been resolved... the
+# threshold was crossed by the name under resolve_ban, so the context arrived
+# holding the name as a bare value with the tally against it, and the banish
+# about to be written lands on addresses instead. a shallow copy, because the
+# caller still holds the original and a later crossing of another var reads
+# its subjects and scores unrewritten.
+#
+# args:
+#   $context  :: the match context, or undef for a banish with no match behind
+#                it, such as a pending hostname restored off a tablet
+#   $hostname :: the name that was counted and has now been resolved
+#   $addrs    :: arrayref of the addresses it answered with
+#
+# returns a fresh context hashref with every subject record naming $hostname
+# replaced by one record per address, each carrying the name under hostname,
+# and with the name's score and crossing re-keyed onto each of those
+# addresses... the tally and the threshold it reached were the name's, and each
+# address it named inherits them whole. subjects naming anything else are left
+# as they are. returns undef for a undef context.
+#
+#   # SRC counted 'bad.example.com' to 2, resolving to two addresses
+#   my $resolved = $self->_resolved_subject_context( $context, 'bad.example.com',
+#       [ '192.0.2.72', '192.0.2.73' ] );
+#   # the event then reads
+#   #   subject_vars        => { SRC => { hostname => 'bad.example.com',
+#   #                                     ip => [ '192.0.2.72', '192.0.2.73' ] } }
+#   #   subject_vars_scores => { SRC => { '192.0.2.72' => 2, '192.0.2.73' => 2 } }
+#   #   subjects_crossed    => { SRC => 2 }
+sub _resolved_subject_context {
+	my ( $self, $context, $hostname, $addrs ) = @_;
+
+	if ( ref($context) ne 'HASH' ) {
+		return undef;
+	}
+
+	my $resolved = { %{$context} };
+	if ( ref( $resolved->{subjects} ) ne 'ARRAY' ) {
+		return $resolved;
+	}
+
+	my $scores  = ref( $resolved->{subject_scores} ) eq 'HASH'  ? $resolved->{subject_scores}  : {};
+	my $crossed = ref( $resolved->{subject_crossed} ) eq 'HASH' ? $resolved->{subject_crossed} : {};
+
+	my $name_score   = $scores->{$hostname};
+	my $name_crossed = $crossed->{$hostname};
+
+	my @subjects;
+	my %rekeyed_scores  = %{$scores};
+	my %rekeyed_crossed = %{$crossed};
+	foreach my $subject ( @{ $resolved->{subjects} } ) {
+		if ( $subject->{value} ne $hostname || defined( $subject->{hostname} ) ) {
+			push( @subjects, $subject );
+			next;
+		}
+		foreach my $addr ( @{$addrs} ) {
+			push( @subjects, { 'var' => $subject->{var}, 'value' => $addr, 'hostname' => $hostname } );
+			if ( defined($name_score) ) {
+				$rekeyed_scores{$addr} = $name_score;
+			}
+			if ( defined($name_crossed) ) {
+				$rekeyed_crossed{$addr} = $name_crossed;
+			}
+		}
+	} ## end foreach my $subject ( @{ $resolved->{subjects} ...})
+
+	$resolved->{subjects}        = \@subjects;
+	$resolved->{subject_scores}  = \%rekeyed_scores;
+	$resolved->{subject_crossed} = \%rekeyed_crossed;
+
+	return $resolved;
+} ## end sub _resolved_subject_context
 
 # banishes a IP to Kur... the record and the send are decoupled. the record
 # (the EVE banish, the ledger chisel, the recidive gate) lands here at the
@@ -4297,50 +4639,121 @@ sub _ban_ip {
 		return $self->_ban_hostname( $ip, $ban_time, $context, $score );
 	}
 
-	# one record per ban-cycle... a crossing while a send is in flight or a
-	# retry is pending has already been recorded, so it is absorbed. the
-	# pending guard is what dedups a flood of crossings during a Kur outage
-	# to the one banish the first crossing already wrote
-	if ( $self->{inflight_bans}{ 'ip:' . $ip } || exists( $self->{pending_bans}{$ip} ) ) {
+	return $self->_ban_ips( [$ip], $ban_time, $context, $score );
+} ## end sub _ban_ip
+
+# banishes a set of addresses on the one determination... the ordinary banish
+# hands it a single address and a resolved hostname hands it every address the
+# name answered with, which is one judgment landing in several places and so
+# one banish event rather than a stack of near-identical ones. the ledger
+# chisel, the recidive gate, and the send stay per address, each address being
+# banished in its own right.
+#
+# args:
+#   $ip_list  :: arrayref of addresses, already resolved and known to be IPs
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $context  :: the match context, or undef for a banish with no match behind
+#                it, such as a pending ban restored off a tablet
+#   $score    :: the score that crossed, or undef where there was none
+#
+# returns nothing. an address already inflight or pending was recorded by the
+# crossing that queued it, so it is dropped here... that guard is what dedups
+# a flood of crossings during a Kur outage down to the one banish already
+# written. nothing at all is written when every address is dropped that way.
+#
+#   $self->_ban_ips( [ '192.0.2.72', '192.0.2.73' ], 3600, $context, 5 );
+sub _ban_ips {
+	my ( $self, $ip_list, $ban_time, $context, $score ) = @_;
+
+	my @banishing;
+	foreach my $ip ( @{$ip_list} ) {
+		if ( $self->{inflight_bans}{ 'ip:' . $ip } || exists( $self->{pending_bans}{$ip} ) ) {
+			next;
+		}
+		$self->{inflight_bans}{ 'ip:' . $ip } = 1;
+		push( @banishing, $ip );
+	}
+
+	if ( !@banishing ) {
 		return;
 	}
-	$self->{inflight_bans}{ 'ip:' . $ip } = 1;
 
 	# the record, at determination... then the send, whose outcome only
 	# pends or clears, never touching EVE or the ledger
-	$self->_record_banish( $ip, $ban_time, $context, $score );
-	$self->_deliver_ban( $ip, $ban_time );
+	$self->_emit_banish( \@banishing, $ban_time, $context, $score );
+	foreach my $ip (@banishing) {
+		$self->_record_banish( $ip, $context );
+		$self->_deliver_ban( $ip, $ban_time );
+	}
 
 	return;
-} ## end sub _ban_ip
+} ## end sub _ban_ips
 
-# the banish record... the tick, the EVE banish, the ledger chisel, and the
-# recidive gate, written at the determination with the full context. does
-# not send, does not pend... the audit of a decision, independent of its
-# delivery
+# writes the EVE banish for a determination... one event however many
+# addresses it lands on, the triggering line's envelope and all.
+#
+# args:
+#   $ip_list  :: arrayref of the addresses being banished, which becomes the
+#                event's banishing
+#   $ban_time :: the ban duration in seconds, or undef
+#   $context  :: the match context, or undef when there is no match behind it
+#   $score    :: the score that crossed, or undef
+#
+# returns nothing. with a geoip_db loaded the event also carries country, but
+# only where the whole banishment shares one... a single address always does
+# and a name's addresses usually do, and where they differ there is no one
+# country to name, so the field is left off rather than picking one of them.
+#
+#   $self->_emit_banish( [ '1.2.3.4' ], 3600, $context, 5 );
+sub _emit_banish {
+	my ( $self, $ip_list, $ban_time, $context, $score ) = @_;
+
+	my $country;
+	if ( $self->{eve_enable} && defined( $self->{geoip} ) ) {
+		foreach my $ip ( @{$ip_list} ) {
+			my $one = $self->_country_of($ip);
+			if ( !defined($one) || ( defined($country) && $country ne $one ) ) {
+				$country = undef;
+				last;
+			}
+			$country = $one;
+		}
+	} ## end if ( $self->{eve_enable} && defined( $self...))
+
+	$self->_eve_emit(
+		'banish',
+		{
+			'banishing' => $ip_list,
+			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
+			defined($country)  ? ( 'country'  => $country )  : (),
+			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
+		}
+	);
+
+	return;
+} ## end sub _emit_banish
+
+# the per-address half of the banish record... the tick, the ledger chisel,
+# and the recidive gate, written at the determination. the EVE event was
+# written once for the whole determination over in _emit_banish, but these are
+# each address's own: the ledger counts how often this address has been
+# banished across all kurs, and the recidive gate reads that count.
+#
+# args:
+#   $ip      :: the address being banished
+#   $context :: the match context, or undef when there is no match behind it
+#
+# returns nothing. does not send and does not pend... the audit of a decision,
+# independent of its delivery.
+#
+#   $self->_record_banish( '1.2.3.4', $context );
 sub _record_banish {
-	my ( $self, $ip, $ban_time, $context, $score ) = @_;
+	my ( $self, $ip, $context ) = @_;
 
 	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
 	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
 	$self->_tick( 'bans', $watcher_name, $rule_name );
-
-	# the banish event carries the triggering line's envelope. with a GeoIP
-	# database loaded the banished IP's country rides along
-	my $country = ( $self->{eve_enable} && defined( $self->{geoip} ) ) ? $self->_country_of($ip) : undef;
-	$self->_eve_emit(
-		'banish',
-		{
-			'ip' => $ip,
-			( defined($context) && defined( $context->{hostname} ) )
-			? ( 'hostname' => $context->{hostname} )
-			: (),
-			defined($ban_time) ? ( 'ban_time' => $ban_time )                 : (),
-			defined($country)  ? ( 'country' => $country )                   : (),
-			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
-		}
-	);
 
 	# chisel the banishment into the shared ledger and, if this IP has
 	# been banished too many times across all kurs, drag it through a
@@ -4416,7 +4829,9 @@ sub _alert_ip {
 	$self->_eve_emit(
 		'alert',
 		{
-			'ip' => $ip,
+			# what it would have banished, written the way the banish it
+			# stands in for writes it
+			'banishing' => [$ip],
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 			defined($country)  ? ( 'country'  => $country )  : (),
 			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
@@ -4442,13 +4857,10 @@ sub _sighted {
 	$self->_tick( 'sightings', $watcher_name, $rule_name );
 	log_drek( 'info', 'sighted ' . $subject . ' (detection)', undef, 'galla-' . $self->{name} );
 
-	$self->_eve_emit(
-		'sighted',
-		{
-			'subject' => $subject,
-			defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (),
-		}
-	);
+	# no banishing and no subject of its own... a detection rule banishes
+	# nobody, and subject_vars already names every detection_var and what each
+	# is worth, the one at threshold being the one that crossed
+	$self->_eve_emit( 'sighted', { defined($context) ? %{ $self->_eve_fields( $context, $score ) } : (), } );
 
 	return;
 } ## end sub _sighted
@@ -4489,7 +4901,7 @@ sub _record_subnet_banish {
 	$self->_eve_emit(
 		'banish',
 		{
-			'ip' => $network,
+			'banishing' => [$network],
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 			defined($info)     ? ( 'bucket'   => $info )     : (),
 			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
@@ -4566,7 +4978,7 @@ sub _alert_subnet {
 	$self->_eve_emit(
 		'alert',
 		{
-			'ip' => $network,
+			'banishing' => [$network],
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 			defined($info)     ? ( 'bucket'   => $info )     : (),
 			defined($context)  ? %{ $self->_eve_fields( $context, $score ) } : (),
@@ -4927,10 +5339,10 @@ sub _recidive_check {
 		$self->_eve_emit(
 			'banish',
 			{
-				'ip'       => $subject,
-				'kur'      => $self->{recidive}{kur},
-				'ban_time' => $ban_time,
-				'count'    => $count,
+				'banishing' => [$subject],
+				'kur'       => $self->{recidive}{kur},
+				'ban_time'  => $ban_time,
+				'count'     => $count,
 				# what the ledger count had to reach, the recidive gate's own
 				# threshold rather than any watcher's... the count is this
 				# event's score, so it reads the same way

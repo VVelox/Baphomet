@@ -220,9 +220,10 @@ ok( !defined( $galla->{rule_counters}{'json/suricata-admin'}{'203.0.113.1'} ), '
 # the watcher severity won over the kur, and reached EVE... the first hit
 # crosses and banishes, so the match surfaces as a banish (which stands for
 # the line), not a found beside it
-my ($admin_banish) = grep { $_->{event_type} eq 'banish' && ( $_->{ip} || '' ) eq '203.0.113.1' } read_events();
+my ($admin_banish)
+	= grep { $_->{event_type} eq 'banish' && ( $_->{banishing}[0] || '' ) eq '203.0.113.1' } read_events();
 ok( defined($admin_banish), 'the admin match produced a banish event, not a redundant found' );
-is( scalar( grep { $_->{event_type} eq 'found' && ( $_->{ip} || '' ) eq '203.0.113.1' } read_events() ),
+is( scalar( grep { $_->{event_type} eq 'found' && ( $_->{found}{src_ip} || '' ) eq '203.0.113.1' } read_events() ),
 	0, 'and no found beside the banish' );
 is( $admin_banish->{severity}, 'high', 'the watcher rule_config severity won over the kur and reached EVE' );
 

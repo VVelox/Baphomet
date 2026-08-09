@@ -101,8 +101,8 @@ my @escalation_events = do {
 	close($efh);
 	grep { $_->{recidive} } map { JSON::MaybeXS::decode_json($_) } @lines;
 };
-is( scalar(@escalation_events),       1,          'one recidive banish event' );
-is( $escalation_events[0]{ip},        '9.9.9.9',  'for the recidivist' );
+is( scalar(@escalation_events), 1, 'one recidive banish event' );
+is_deeply( $escalation_events[0]{banishing}, ['9.9.9.9'], 'for the recidivist' );
 is( $escalation_events[0]{kur},       'recidive', 'naming the recidive kur' );
 is( $escalation_events[0]{count},     3,          'carrying the ledger count as its score' );
 is( $escalation_events[0]{threshold}, 3,          'and the recidive threshold that count had to reach' );

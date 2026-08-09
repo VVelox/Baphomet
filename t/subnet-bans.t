@@ -128,7 +128,7 @@ is_deeply( \@ip_bans,   [],               'no per-IP ban, max_score is far highe
 
 my ($banish) = grep { $_->{event_type} eq 'banish' } read_events();
 ok( defined($banish), 'a banish event was written' );
-is( $banish->{ip},             '65.49.1.0/24', 'the banish ip is the CIDR' );
+is_deeply( $banish->{banishing}, ['65.49.1.0/24'], 'the banish names the CIDR' );
 is( $banish->{raw}{src_ip},    '65.49.1.30',   'raw is the last triggering line' );
 is( $banish->{bucket}{family}, 'v4',           'bucket family is v4' );
 is( $banish->{bucket}{cidr},   '65.49.1.0/24', 'bucket cidr' );
@@ -204,7 +204,7 @@ reset_eve();
 feed( $galla, '198.51.100.5' );
 feed( $galla, '198.51.100.6' );
 is_deeply( \@cidr_bans, [], 'observe mode sends no CIDR ban' );
-my ($alert) = grep { $_->{event_type} eq 'alert' && $_->{ip} && $_->{ip} eq '198.51.100.0/24' } read_events();
+my ($alert) = grep { $_->{event_type} eq 'alert' && ( $_->{banishing}[0] || '' ) eq '198.51.100.0/24' } read_events();
 ok( defined($alert), 'observe mode raises an alert on the CIDR' );
 is( $alert->{bucket}{cidr}, '198.51.100.0/24', 'the observe alert carries the bucket' );
 
@@ -260,7 +260,8 @@ is( $esc[0]{cidr},     '45.148.10.0/24', 'the escalated subject is the CIDR' );
 is( $esc[0]{ban_time}, 0,                'with the recidive ban_time' );
 
 my ($recev)
-	= grep { $_->{event_type} eq 'banish' && $_->{recidive} && $_->{ip} eq '45.148.10.0/24' } read_events();
+	= grep { $_->{event_type} eq 'banish' && $_->{recidive} && ( $_->{banishing}[0] || '' ) eq '45.148.10.0/24' }
+	read_events();
 ok( defined($recev), 'a recidive banish event for the CIDR was written' );
 is( $recev->{kur}, 'recidive', 'the escalation event names the recidive kur' );
 

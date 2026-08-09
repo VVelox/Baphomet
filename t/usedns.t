@@ -3,8 +3,10 @@ use 5.006;
 use strict;
 use warnings;
 use Test::More;
-use File::Temp qw( tempdir );
-use File::Path qw( make_path );
+use File::Temp    qw( tempdir );
+use File::Path    qw( make_path );
+use JSON::MaybeXS qw( decode_json );
+use Sys::Hostname ();
 
 BEGIN {
 	eval { require Ereshkigal::Client; };
@@ -51,6 +53,8 @@ run_base_dir = "$dir/run"
 tablet_base_dir = "$dir/cache"
 rules_dir = "$dir/rules"
 ereshkigal_socket = "$dir/nonexistent.sock"
+eve_log = "$dir/eve/eve.json"
+eve_enable = true
 max_score = 10
 find_time = 600
 enable_dns = true
@@ -78,6 +82,15 @@ parser = "raw"
 rule = "raw/hostile"
 EOC
 close($fh);
+
+sub read_events {
+	my $path = $dir . '/eve/eve.json';
+	return () if !-f $path;
+	open( my $efh, '<', $path ) || die($!);
+	my @lines = <$efh>;
+	close($efh);
+	return map { decode_json($_) } @lines;
+}
 
 my $galla = App::Baphomet::Galla->new( 'config' => $dir . '/config.toml', 'name' => 'app' );
 ok( defined($galla),   'new worked' );
@@ -152,6 +165,29 @@ ok( defined( $galla->{pending_bans}{'192.0.2.72'} ) && defined( $galla->{pending
 	'both resolved addresses went to the ban path' );
 ok( !defined( $galla->{pending_bans}{'ban.example.com'} ), 'the name itself was never queued' );
 ok( !defined( $galla->{counters}{'ban.example.com'} ),     'and its counter cleared' );
+
+# the chain of custody from name to address, on the record... one crossing is
+# one determination however many addresses the name answered with, so one
+# banish event names them all, and the var that held the name is written as
+# that name beside its addresses. the envelope's hostname stays this machine's
+# own: the event's fields are merged over that envelope, so a offender key
+# called hostname would replace the sensor's identity with the attacker's
+my @banish = grep { $_->{event_type} eq 'banish' } read_events();
+is( scalar(@banish), 1, 'one banish event for the one crossing' );
+is_deeply( [ sort @{ $banish[0]{banishing} } ], [ '192.0.2.72', '192.0.2.73' ], 'naming every resolved address' );
+is( $banish[0]{subject_vars}{HOST}{hostname}, 'ban.example.com', 'the var names what resolved' );
+is_deeply(
+	[ sort @{ $banish[0]{subject_vars}{HOST}{ip} } ],
+	[ '192.0.2.72', '192.0.2.73' ],
+	'beside the addresses it answered with'
+);
+is_deeply(
+	$banish[0]{subject_vars_scores}{HOST},
+	{ '192.0.2.72' => 2, '192.0.2.73' => 2 },
+	'the name was counted by name, and each address it named inherits that tally'
+);
+is( $banish[0]{subjects_crossed}{HOST}, 2, 'and the crossing rides across the resolution with it' );
+is( $banish[0]{hostname},               Sys::Hostname::hostname(), 'and hostname is still this machine' );
 
 #
 # no... a hostname names nobody banishable

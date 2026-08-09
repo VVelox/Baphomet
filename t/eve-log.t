@@ -184,12 +184,14 @@ ok( !exists( $f->{rule}{def}{tests} ),          'rule tests stripped for space' 
 # the banish event... it stands for the crossing line whole, carrying the
 # same raw/parsed/found the suppressed found would have
 my $c = $banish[0];
-is( $c->{event_type},  'banish',  'banish event_type' );
-is( $c->{ip},          '9.9.9.9', 'banish ip' );
-is( $c->{ban_time},    300,       'banish ban_time' );
-is( $c->{score},       3,         'banish score' );
-is( $c->{threshold},   3,         'banish threshold, the score it had to reach' );
-is( $c->{found}{SRC},  '9.9.9.9', 'banish carries the triggering found' );
+is( $c->{event_type}, 'banish', 'banish event_type' );
+is_deeply( $c->{banishing}, ['9.9.9.9'], 'banish names who it lands on' );
+is( $c->{subject_vars}{SRC},        '9.9.9.9', 'and which var named them' );
+is( $c->{subject_vars_scores}{SRC}, 3,         'and what that var is worth' );
+is( $c->{ban_time},                 300,       'banish ban_time' );
+is( $c->{score},                    3,         'banish score' );
+is( $c->{threshold},                3,         'banish threshold, the score it had to reach' );
+is( $c->{found}{SRC},               '9.9.9.9', 'banish carries the triggering found' );
 is( $c->{raw},         'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'banish carries the raw line' );
 is( $c->{path},        $dir . '/log',                                             'banish carries the source path' );
 is( $found[-1]{score}, 2, 'the last found is the second hit, not the banishing third' );

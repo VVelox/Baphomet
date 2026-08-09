@@ -59,8 +59,8 @@ several `found`s and then a single `banish` on the one that tipped it.
   `sighted`. See [rules](rules.md).
 - **sighted** ... the detection twin of `banish`, a subject whose count
   crossed the threshold under a detection rule. It carries the match
-  envelope but names a `.subject`, not an `.ip`... the subject need not be a
-  address, and nothing is sent to Kur.
+  envelope but banishes nobody... the subject need not be a address, and
+  nothing is sent to Kur.
 
 Every record carries these fields...
 
@@ -132,7 +132,49 @@ bans on the native `src_ip`/`dest_ip` has a `found` byte-identical to its
 rule synthesizes a field the line did not literally contain (mongodb-auth's
 `SRC`) or a correlation rule folds in fields from a remembered line.
 
-A **banish** event adds `.ip` and `.ban_time`, and `.recidive` is true
+### The offense, written as its parts
+
+A rule may name several `ban_var`s, both ends of a flow say, and a `usedns`
+resolution may turn one of them into several addresses. The offense is a
+list, and every event a match raises writes it as one.
+
+`.subject_vars` gives each `ban_var` or `detection_var` what it captured.
+Ordinarily that is the bare value. Where usedns resolved a name it is that
+name under `hostname` beside the addresses it answered with under `ip`.
+
+`.subject_vars_scores` mirrors that shape... a scalar against a bare value, a
+map of address to score against a resolved one. **A var missing from it was
+named but never counted**, which is how a subject in `ignore_ips` or one a
+per-offender gate vetoed says so.
+
+`.subjects_crossed` names the vars that reached their threshold, against the
+number they had to reach. It is absent where nothing crossed, which is every
+routine `found`, `noted`, and `sighting`... a crossing suppresses those in
+favor of the terminal event it raises. It saves comparing each score against
+`.threshold` by hand, and on a rule naming several vars it is the only thing
+that says which of them tipped over.
+
+```json
+{ "banishing": ["1.2.3.4"],
+  "subject_vars": { "SRC": "1.2.3.4" },
+  "subject_vars_scores": { "SRC": 3 },
+  "subjects_crossed": { "SRC": 3 } }
+
+{ "banishing": ["192.0.2.72", "192.0.2.73"],
+  "subject_vars": { "SRC": { "hostname": "bad.example.com",
+                             "ip": ["192.0.2.72", "192.0.2.73"] } },
+  "subject_vars_scores": { "SRC": { "192.0.2.72": 3, "192.0.2.73": 3 } },
+  "subjects_crossed": { "SRC": 3 } }
+```
+
+`.banishing` is the array of what went to Kur, and it is on every event that
+banishes or would have... a banish, a subnet banish, a recidive escalation, a
+observe-mode alert. A rule that banishes nobody carries none.
+
+Two vars naming the one address is one piece of evidence, and counts once. Both
+vars then read the one bucket and report the one score.
+
+A **banish** event adds `.banishing` and `.ban_time`, and `.recidive` is true
 when it is a seventh-gate escalation to the recidive kur. A banish
 triggered by a specific line crossing the threshold carries that line's
 `raw`/`parsed`/`found`/`rule`, as above. A recidive escalation, which is
@@ -140,13 +182,19 @@ triggered by the ledger count
 rather than a line, is the bare banishment: it carries `.count`, how many
 times the IP has been banished across all kurs, and the `.threshold` that
 count had to reach, the recidive gate's own `max_score` and not any
-watcher's. With a `geoip_db` loaded, the banished IP's `.country` rides
-along too.
+watcher's. With a `geoip_db` loaded, `.country` rides along too, though only
+where the whole banishment shares one... a single address always does.
 
-A **subnet banish** is a banish whose `.ip` is a CIDR (`65.49.1.0/24`)
-rather than a single address... raised when a network bucket crosses
-`subnet_max_score` (see [configuration](configuration.md)). Its `.raw` (and
-`.parsed`/`.found`) are the last line that tipped the bucket over, and it
+One crossing is one banish however many addresses it lands on. A name counted
+under a `usedns` of `resolve_ban` resolves at the threshold and may name
+several, and they arrive as one event with every one of them in `.banishing`
+and the name itself under `.subject_vars`. The ledger and the recidive gate
+still count each address in its own right. See [usedns](usedns.md).
+
+A **subnet banish** is a banish whose `.banishing` holds a CIDR
+(`65.49.1.0/24`) rather than a single address... raised when a network bucket
+crosses `subnet_max_score` (see [configuration](configuration.md)). Its `.raw`
+(and `.parsed`/`.found`) are the last line that tipped the bucket over, and it
 adds a `.bucket` table describing the network: `family` (`v4`/`v6`),
 `cidr`, `prefix`, `members` (the distinct offender IPs that fed it, in
 first-seen order), `hits`, `score`, and the `first`/`last` epochs the
@@ -155,16 +203,14 @@ rather than the per-IP `max_score`, matching the `.score` beside it. It
 carries no `.country`, a CIDR has no single one.
 
 An **alert** is the observe-mode stand-in for a banish, and carries the
-same `.ip`, `.ban_time`, `.score`, and envelope one would... `.bucket`
+same `.banishing`, `.ban_time`, `.score`, and envelope one would... `.bucket`
 included, when what crossed was a subnet.
 
 A **found** or **noted** event carries `.marks_set` and `.unmarked` when
-the rule branded or lifted marks, and `.ip`, the offender the match would
-pass for banning (the first `ban_var` candidate to survive the per-IP
-gates)... absent when the rule branded only, banished nobody, or every
-candidate was internal. The terminal events carry the same `.marks_set`
-and `.unmarked`, so a line that both brands and banishes records the brand
-on its `banish`, the `found` it stands in for having been suppressed.
+the rule branded or lifted marks. The terminal events carry the same
+`.marks_set` and `.unmarked`, so a line that both brands and banishes records
+the brand on its `banish`, the `found` it stands in for having been
+suppressed.
 
 Any event from a rule carrying a `track` also gets `.tracked`, the state of
 the records that rule is party to at the moment the event was written:
@@ -190,19 +236,20 @@ A `track_only` rule's own events are not written at all unless
 monitoring noise. The rule that reads the record and fires still carries the
 full payload.
 
-A **sighted** event adds `.subject`, the value of the `detection_var` that
-crossed the threshold... a username, a hostname, a URI, or a IP when that is
-what the rule counts. It carries the same `.score` and match envelope a
-banish would, but no `.ip`, `.ban_time`, `.country`, or `.recidive`... a
-detection rule never banishes, so none of those apply. A **sighting** carries
-the match envelope like a `found`, plus `.marks_set` / `.unmarked` when the
-rule brands.
+A **sighted** event carries the same `.score` and match envelope a banish
+would, but no `.banishing`, `.ban_time`, `.country`, or `.recidive`... a
+detection rule never banishes, so none of those apply. Who crossed is the var
+`.subjects_crossed` names, read out of `.subject_vars`... a username, a
+hostname, a URI, or a IP when that is what the rule counts. A **sighting**
+carries the match envelope like a `found`, plus `.marks_set` / `.unmarked`
+when the rule brands.
 
 ## Reading it
 
 ```shell
-# every banishment, as ip and kur
-jq -r 'select(.event_type=="banish") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.json
+# every banishment, one line to a address
+jq -r 'select(.event_type=="banish") | .banishing[] as $ip | "\(.kur) \($ip)"' \
+    /var/log/baphomet/eve.json
 
 # the busiest offenders, by how often they tripped a rule... both found
 # (the sub-threshold hits) and banish (the crossing ones), since a
@@ -210,18 +257,29 @@ jq -r 'select(.event_type=="banish") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.j
 jq -r 'select(.event_type=="found" or .event_type=="banish") | .found.SRC // .found.HOST' \
     /var/log/baphomet/eve.json | sort | uniq -c | sort -rn | head
 
-# what a given IP did, in full
-jq 'select(.found.SRC=="1.2.3.4" or .ip=="1.2.3.4")' /var/log/baphomet/eve.json
+# what a given IP did, in full... whichever var named it, and the
+# banishments that landed on it
+jq 'select(. as $event
+           | ([ $event.subject_vars[]? | if type == "object" then .ip[]? else . end ]
+              + ($event.banishing // [])) | index("1.2.3.4"))' \
+    /var/log/baphomet/eve.json
 
 # what observe mode WOULD have banished
-jq -r 'select(.event_type=="alert") | "\(.kur) \(.ip)"' /var/log/baphomet/eve.json
+jq -r 'select(.event_type=="alert") | .banishing[] as $ip | "\(.kur) \($ip)"' \
+    /var/log/baphomet/eve.json
 
 # every detection that crossed its threshold, as subject and kur
-jq -r 'select(.event_type=="sighted") | "\(.kur) \(.subject)"' /var/log/baphomet/eve.json
+jq -r 'select(.event_type=="sighted")
+       | .kur as $kur | .subject_vars as $vars
+       | .subjects_crossed | keys[] | "\($kur) \($vars[.])"' \
+    /var/log/baphomet/eve.json
 
 # who is closest to being banished, without going to the config for the
 # number they are racing
-jq -r 'select(.event_type=="found" and .score) | "\(.score)/\(.threshold) \(.ip) \(.rule.name)"' \
+jq -r 'select(.event_type=="found" and .subject_vars_scores)
+       | .threshold as $threshold | .rule.name as $rule | .subject_vars as $vars
+       | .subject_vars_scores | to_entries[] | select(.value | type == "number")
+       | "\(.value)/\($threshold) \($vars[.key]) \($rule)"' \
     /var/log/baphomet/eve.json | sort -u
 ```
 

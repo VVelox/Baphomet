@@ -85,35 +85,45 @@ sub fire {
 }
 sub query_count { return scalar( grep { $_->{qname} eq $_[0] } @queries ); }
 
+# _usedns_subjects speaks in subject records, the var that captured a name
+# travelling with it so the EVE event can write that var as the name beside the
+# addresses it answered with. the addresses alone are what this file is about
+sub kept {
+	my ($name) = @_;
+	return [ map { $_->{value} } $galla->_usedns_subjects( 'seen', [ { 'var' => 'SRC', 'value' => $name } ] ) ];
+}
+
 #
 # resolve_seen... cache-first, fail closed on the cold line
 #
 
-my @kept = $galla->_usedns_offenders( 'seen', ['cold.example.com'] );
-is( scalar(@kept),                    0, 'a cold name counts nobody on its first line' );
-is( query_count('cold.example.com'),  2, 'and fired its A and AAAA' );
+is( scalar( @{ kept('cold.example.com') } ), 0, 'a cold name counts nobody on its first line' );
+is( query_count('cold.example.com'),         2, 'and fired its A and AAAA' );
 
-@kept = $galla->_usedns_offenders( 'seen', ['cold.example.com'] );
-is( scalar(@kept),                   0, 'still nobody while the answer is in flight' );
-is( query_count('cold.example.com'), 2, 'and no further queries fired' );
+is( scalar( @{ kept('cold.example.com') } ), 0, 'still nobody while the answer is in flight' );
+is( query_count('cold.example.com'),         2, 'and no further queries fired' );
 
 ok( fire( 'cold.example.com', 'A',    ['192.0.2.70'] ), 'A answered' );
 ok( fire( 'cold.example.com', 'AAAA', [] ),             'AAAA answered empty' );
 
-@kept = $galla->_usedns_offenders( 'seen', ['cold.example.com'] );
-is_deeply( \@kept, ['192.0.2.70'], 'the warm cache counts the address on the next line' );
+is_deeply( kept('cold.example.com'), ['192.0.2.70'], 'the warm cache counts the address on the next line' );
+
+# the resolved record names what it came from, which is what has the event
+# write the var as its hostname and addresses rather than as a bare string
+my ($resolved) = $galla->_usedns_subjects( 'seen', [ { 'var' => 'SRC', 'value' => 'cold.example.com' } ] );
+is( $resolved->{var},      'SRC',              'the resolved record keeps the var that captured the name' );
+is( $resolved->{hostname}, 'cold.example.com', 'and names what it resolved from' );
 
 # the fences still stand on the background path... a resolved ignored
 # address never counts
-$galla->_usedns_offenders( 'seen', ['mixed.example.com'] );
+kept('mixed.example.com');
 fire( 'mixed.example.com', 'A',    [ '127.0.0.5', '192.0.2.71' ] );
 fire( 'mixed.example.com', 'AAAA', [] );
-@kept = $galla->_usedns_offenders( 'seen', ['mixed.example.com'] );
-is_deeply( \@kept, ['192.0.2.71'], 'the ignored resolved address was dropped by the fence' );
+is_deeply( kept('mixed.example.com'), ['192.0.2.71'], 'the ignored resolved address was dropped by the fence' );
 
 # both families failing reads as a failure and ticks
 my $failures_before = $galla->{stats}{dns_failures};
-$galla->_usedns_offenders( 'seen', ['dead.example.com'] );
+kept('dead.example.com');
 fire( 'dead.example.com', 'A',    undef );
 fire( 'dead.example.com', 'AAAA', undef );
 is( $galla->{stats}{dns_failures}, $failures_before + 1, 'a failed resolution ticked dns_failures once' );

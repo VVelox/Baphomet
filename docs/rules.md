@@ -398,6 +398,14 @@ types do not use `ban_var` at all, their offender is fixed (see
 [how the types differ](#how-the-types-differ)). A rule names `ban_var` or
 `detection_var`, never both.
 
+Naming several is ordinary... both ends of a flow, say. Each is counted in
+its own bucket, each is judged by the per-offender gates on its own, and a
+result whose every candidate is gated out did not fire at all. Two of them
+naming the one address is one piece of evidence and counts once. Every event
+the match raises names each var and what each is worth, under `subject_vars`
+and `subject_vars_scores`, and a terminal event adds `subjects_crossed`, which
+of them tipped over... see [eve](eve.md).
+
 ### detection_var
 
 The parallel of `ban_var` for a **detection-only rule**. It names the
@@ -406,8 +414,9 @@ username, a hostname, a URI, a service, or a IP when that is what you want.
 The presence of `detection_var` (in place of `ban_var`) is what makes a rule
 detection-only: it runs the whole match/count/threshold path like any other
 rule, but never banishes. Each match writes a `sighting` to EVE, and a
-subject crossing `max_score` within `find_time` writes a `sighted` naming it,
-never touching Kur. Counting rides the shadow buckets, so a detection rule
+subject crossing `max_score` within `find_time` writes a `sighted` whose
+`subjects_crossed` names the var that did it, never touching Kur. Counting
+rides the shadow buckets, so a detection rule
 can never nudge a real ban over its threshold, and `ignore_ips` does not
 apply. This is Sagan/Wazuh-style detection... alerting on a thing with no
 address to banish, a policy tripwire, a config change, a service crash.

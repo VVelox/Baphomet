@@ -57,10 +57,24 @@ The fences:
 
 ## On the record
 
-A banish that came through a name carries `hostname` beside `ip` in its
-EVE event, so the chain of custody from name to address is on the record.
-See [eve](eve.md). fail2ban's `raw` mode... hand the name over verbatim...
-does not exist here, because the other side does not take names.
+A banish that came through a name writes the var that captured it as that
+name beside the addresses it answered with, so the chain of custody is on the
+record:
+
+```json
+{ "banishing": ["192.0.2.72", "192.0.2.73"],
+  "subject_vars": { "SRC": { "hostname": "bad.example.com",
+                             "ip": ["192.0.2.72", "192.0.2.73"] } },
+  "subjects_crossed": { "SRC": 5 } }
+```
+
+Note the name is not under `hostname` at the top level, which every EVE record
+already spends on the machine Baphomet is running on. One crossing is one
+banish however many addresses the name named, though the ledger and the
+recidive gate still count each address in its own right. See [eve](eve.md).
+
+fail2ban's `raw` mode... hand the name over verbatim... does not exist here,
+because the other side does not take names.
 
 ## The other direction... reverse_dns
 
