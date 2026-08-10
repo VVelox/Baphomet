@@ -17,6 +17,8 @@ references:
   - https://www.resillion.com/wp-content/uploads/2023/07/Resillion-Citrix-Vulnerability-Report-1.pdf
 message_regexp:
   - ' CLI CMD_EXECUTED \d+ \d+ :\s+User (?<USER>\S+) - Remote_ip %%%%SRC%%%% - Command "man '
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 ban_var:
   - SRC
 weight: 10

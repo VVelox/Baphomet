@@ -666,22 +666,37 @@ instead by the loader, so there is nothing to set... `gid`, `0` for a shipped
 rule and `1` for one from the site override dir (`rules_dir`), and `sid`, a
 stable positive integer hashed from the rule name. See [eve](eve.md).
 
-### src_ip_var / dest_ip_var
+### src_ip_var / dest_ip_var / src_port_var / dest_port_var / user_var
 
 Optional, on every rule type, inert to matching. Each names the found var
-holding an endpoint of the flow, whose value is lifted to a top-level EVE
-field so a consumer reads the source and destination addresses without
-digging through `found` (see [eve](eve.md)):
+holding one of the fields worth reading at a glance, whose value is lifted to
+a top-level EVE field so a consumer gets it without digging through `found`
+(see [eve](eve.md)):
 
 - `src_ip_var` — the var promoted to `.src_ip`. Defaults to the found var
   literally named `src_ip`.
 - `dest_ip_var` — the var promoted to `.dest_ip`. Defaults to `dest_ip`.
+- `src_port_var` — the var promoted to `.src_port`. Defaults to `src_port`.
+- `dest_port_var` — the var promoted to `.dest_port`. Defaults to `dest_port`.
+- `user_var` — the var promoted to `.user`, the account the line was about.
+  Defaults to `user`.
 
-Point either at whatever a schema uses, `flow.src_ip` for a Suricata eve
-line say, since `found` flattens nesting to dotted paths. Both `.src_ip` and
-`.dest_ip` are always emitted, `null` when the named var is absent, so the
-fields can be leaned on. This only shapes the EVE event; who gets banished is
-still [`ban_var`](#ban_var) / [`ban_not_internal`](#ban_not_internal).
+Point any of them at whatever a schema uses, `flow.src_ip` for a Suricata eve
+line say, since `found` flattens nesting to dotted paths. All five are always
+emitted, `null` when the named var is absent, so the fields can be leaned on.
+This only shapes the EVE event; who gets banished is still
+[`ban_var`](#ban_var) / [`ban_not_internal`](#ban_not_internal).
+
+The defaults suit the JSON schemas and the http access parse, which name these
+fields exactly so already. A regexp rule capturing them under its own names
+has to say which is which, the way the shipped syslog rules pair a
+`(?<USER>...)` capture with `user_var: USER`.
+
+A port is written as a number wherever it reads as one, so a native JSON
+integer and a regexp capture's `"22"` land in the field as the one type... a
+port stored as a string loses every range query over it. A var pointed at
+something that is not a port is written as it is rather than dropped, so the
+mistake surfaces.
 
 ## Tests
 
@@ -1076,7 +1091,7 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `src_ip_var` / `dest_ip_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `src_ip_var` / `dest_ip_var` / `src_port_var` / `dest_port_var` / `user_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `tests` / `test_parser` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ¹ the http and http_error types have no `ban_var`... their offender is the
@@ -1572,8 +1587,8 @@ above borrow Log-Munger's regexp *pieces* to help write a pattern, a
 **munger** borrows a whole Log-Munger decoder to *read* the line for you. A
 rule names the mungers that apply to it, they run over the line before the
 rule's own `message_regexp`, and every field they decode is laid into the
-offense... available to the gates, the marks, `ban_var`/`detection_var`,
-`src_ip_var`/`dest_ip_var`, and the EVE `found` alike, no rule-format change.
+offense... available to the gates, the marks, `ban_var`/`detection_var`, the
+promoted vars, and the EVE `found` alike, no rule-format change.
 
 ```yaml
 # a sshd rule that leans on Log-Munger's sshd decoder for the ssh_* fields

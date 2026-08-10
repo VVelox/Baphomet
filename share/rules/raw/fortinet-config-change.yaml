@@ -22,6 +22,8 @@ message_regexp:
   - 'logid="\d*(?:32151|32101|32102|32103|32120|32150|32005)" type="event".*?user="(?<USER>[^"]+)"'
   - 'logid="\d*32095" type="event".*?user="(?<USER>[^"]+)".*?action="?factory_reset'
   - 'logid="\d*(?:32007|32013)" type="event".*?user="(?<USER>[^"]+)".*?(?:removed|deleted|cleared)'
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 detection_var:
   - USER
 tests:

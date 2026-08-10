@@ -41,6 +41,8 @@ marked:
   - name: citrix-vpn-login-src
     var: USER
     value_not: SRC
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 detection_var:
   - SRC
 max_score: 1

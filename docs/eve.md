@@ -84,6 +84,9 @@ Every record carries these fields...
 | `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
 | `src_ip` | the flow's source IP, lifted from the found var the rule's `src_ip_var` names (default `src_ip`)... always present, `null` when that var is absent. |
 | `dest_ip` | the flow's destination IP, lifted from the found var the rule's `dest_ip_var` names (default `dest_ip`)... always present, `null` when that var is absent. |
+| `src_port` | the flow's source port, lifted from the found var the rule's `src_port_var` names (default `src_port`)... always present, `null` when that var is absent. |
+| `dest_port` | the flow's destination port, lifted from the found var the rule's `dest_port_var` names (default `dest_port`)... always present, `null` when that var is absent. |
+| `user` | the account the line was about, lifted from the found var the rule's `user_var` names (default `user`)... always present, `null` when that var is absent. |
 | `raw` | the log line exactly as received (bytes untouched), or, when that line is itself a JSON object or array, the decoded structure rather than an escaped string blob. The unprocessed input. See [raw, parsed, found](#raw-parsed-found). |
 | `parsed` | the record the parser made of that line, before the rule touched it... the structural fields. The unit of what the rule matched against. See [raw, parsed, found](#raw-parsed-found). |
 | `found` | the assembled offense... the fields the rule matched, extracted, or correlated, and the ones `ban_var`/`detection_var`, the gates, and the marks resolve against. See [raw, parsed, found](#raw-parsed-found). |
@@ -113,8 +116,9 @@ two of them coincide, but each answers a different question.
   are tested against.
 
 - **`found`** ... the offense the rule assembled, and the hash that
-  `ban_var`/`detection_var`, the gates, the marks, and `src_ip_var`/
-  `dest_ip_var` all read. For a regexp rule (syslog/raw/http_error) it is
+  `ban_var`/`detection_var`, the gates, the marks, and the promoted vars
+  (`src_ip_var` and its four siblings) all read. For a regexp rule
+  (syslog/raw/http_error) it is
   the rule's named captures... often a small subset, like just `SRC` and
   `USER`, extracted from the message. For a `json` rule it is the
   flattened record *plus* anything the rule pulled out or brought in: a

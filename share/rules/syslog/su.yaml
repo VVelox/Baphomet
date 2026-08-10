@@ -24,6 +24,8 @@ message_regexp:
   - '^pam_unix\(su(?:-l)?:auth\): authentication failure;.*\bruser=(?<USER>\S+)'
   # the shadow-suite phrasing seen on some distros
   - '^FAILED su for \S+ by (?<USER>\S+)'
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 detection_var:
   - USER
 tests:

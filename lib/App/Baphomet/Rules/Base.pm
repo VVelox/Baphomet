@@ -1320,7 +1320,7 @@ sub _check_common {
 	$self->_check_active_time($def);
 	$self->_check_reverse_dns($def);
 	$self->_check_distinct($def);
-	$self->_check_ip_vars($def);
+	$self->_check_promoted_vars($def);
 
 	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
@@ -1543,6 +1543,59 @@ sub dest_ip_var {
 	my ($self) = @_;
 
 	return defined( $self->{def}{dest_ip_var} ) ? $self->{def}{dest_ip_var} : 'dest_ip';
+}
+
+=head2 src_port_var
+
+Returns the name of the found var holding the flow's source port, defaulting to
+C<src_port> when the def names none. The port twin of L</src_ip_var>, promoted
+to the EVE event's top-level C<src_port>. The galla writes it as a number where
+it reads as one, so a capture arriving as the string C<"22"> and a JSON schema's
+native integer land in the one field as the one type.
+
+    my $src_port_var = $rule->src_port_var;   # 'src_port' or the named var
+
+=cut
+
+sub src_port_var {
+	my ($self) = @_;
+
+	return defined( $self->{def}{src_port_var} ) ? $self->{def}{src_port_var} : 'src_port';
+}
+
+=head2 dest_port_var
+
+Returns the name of the found var holding the flow's destination port,
+defaulting to C<dest_port> when the def names none. The parallel of
+L</src_port_var>, promoted to the EVE event's top-level C<dest_port>.
+
+    my $dest_port_var = $rule->dest_port_var;   # 'dest_port' or the named var
+
+=cut
+
+sub dest_port_var {
+	my ($self) = @_;
+
+	return defined( $self->{def}{dest_port_var} ) ? $self->{def}{dest_port_var} : 'dest_port';
+}
+
+=head2 user_var
+
+Returns the name of the found var holding the account the line is about,
+defaulting to C<user> when the def names none. Promoted to the EVE event's
+top-level C<user>, so who was being logged in as reads beside the address it
+came from without going through C<found>. The shipped regexp rules capture the
+account as C<USER> and name it, while the http access parse and the JSON
+schemas already call it C<user> and need no override.
+
+    my $user_var = $rule->user_var;   # 'user' or the named var
+
+=cut
+
+sub user_var {
+	my ($self) = @_;
+
+	return defined( $self->{def}{user_var} ) ? $self->{def}{user_var} : 'user';
 }
 
 =head2 mungers
@@ -3411,15 +3464,15 @@ sub _check_distinct {
 	return;
 } ## end sub _check_distinct
 
-# dies if the def's src_ip_var or dest_ip_var is set to anything but a
+# dies if any of the def's promoted-var keys is set to anything but a
 # non-empty string... each names the found var whose value the galla
 # promotes to the EVE top level. absent is fine, they default to the
-# literal src_ip and dest_ip fields
-sub _check_ip_vars {
+# literal src_ip, dest_ip, src_port, dest_port, and user fields
+sub _check_promoted_vars {
 	my ( $self, $def ) = @_;
 
 	my $name = $self->{name};
-	foreach my $item ( 'src_ip_var', 'dest_ip_var' ) {
+	foreach my $item ( 'src_ip_var', 'dest_ip_var', 'src_port_var', 'dest_port_var', 'user_var' ) {
 		if ( !exists( $def->{$item} ) ) {
 			next;
 		}
@@ -3429,7 +3482,7 @@ sub _check_ip_vars {
 	}
 
 	return;
-} ## end sub _check_ip_vars
+} ## end sub _check_promoted_vars
 
 # Names the first message_regexp whose shape leaves the offender open to being
 # chosen by whoever wrote the line, or undef when none does. Sets

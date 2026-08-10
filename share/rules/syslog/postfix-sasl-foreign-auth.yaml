@@ -32,6 +32,8 @@ country:
     - "%%%country_codes{home}%%%"
   vars:
     - SRC
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 ban_var:
   - SRC
 max_score: 1

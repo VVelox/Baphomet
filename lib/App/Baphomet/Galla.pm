@@ -2740,14 +2740,13 @@ sub _eve_fields {
 		$lifted = $context->{unmarked};
 	}
 
-	# the flow's src and dest addresses lifted to the top level from the found
-	# data, under the vars the rule names or the src_ip / dest_ip defaults...
-	# always emitted, null when the named var is absent, so a consumer can
-	# lean on them being there
+	# the flow's endpoints and the account it was about, lifted to the top level
+	# from the found data under the vars the rule names or the src_ip / dest_ip
+	# / src_port / dest_port / user defaults... all five always emitted, null
+	# when the named var is absent, so a consumer can lean on them being there
 	my $found   = ref( $context->{found} ) eq 'HASH' ? $context->{found} : {};
-	my $src_ip  = $found->{ $context->{rule}->src_ip_var };
-	my $dest_ip = $found->{ $context->{rule}->dest_ip_var };
-	my $tracked = $self->_track_eve( $context->{rule}, $found, time );
+	my $rule    = $context->{rule};
+	my $tracked = $self->_track_eve( $rule, $found, time );
 
 	return {
 		defined( $context->{source} ) ? ( 'path' => $context->{source} ) : (),
@@ -2757,8 +2756,11 @@ sub _eve_fields {
 		# a staged rule's whole story... each stage hit's index, epoch, and
 		# line, the raw above being only the final one
 		defined( $context->{stages} ) ? ( 'stages' => $context->{stages} ) : (),
-		'src_ip'  => $src_ip,
-		'dest_ip' => $dest_ip,
+		'src_ip'    => $found->{ $rule->src_ip_var },
+		'dest_ip'   => $found->{ $rule->dest_ip_var },
+		'src_port'  => _eve_port( $found->{ $rule->src_port_var } ),
+		'dest_port' => _eve_port( $found->{ $rule->dest_port_var } ),
+		'user'      => $found->{ $rule->user_var },
 		# what each ban_var or detection_var named, and what each is worth
 		$self->_subject_var_fields($context),
 		'msg' => $context->{rule}->msg,
@@ -5744,6 +5746,37 @@ sub _ensure_eve_dir {
 
 	return;
 } ## end sub _ensure_eve_dir
+
+# renders a port for the EVE event... a number where it reads as one, and
+# whatever it was otherwise.
+#
+# a JSON schema hands a port over as a native integer while a regexp capture
+# hands over the string "22", and the two land in the one EVE field. left
+# alone, whichever arrives at a dynamic mapping first decides the type, and a
+# port stored as a keyword loses every range query over it.
+#
+# args:
+#   $port :: the found var's value, or undef where the rule named a var the
+#            line did not carry
+#
+# returns undef for undef, the value as a number where it is all digits, and
+# the value untouched otherwise... a var pointed at something that is not a
+# port is written as it is rather than dropped, so the rule bug surfaces
+# instead of hiding.
+#
+#   _eve_port('22')     # 22, a number
+#   _eve_port(22)       # 22
+#   _eve_port(undef)    # undef
+#   _eve_port('imaps')  # 'imaps', the rule naming the wrong var
+sub _eve_port {
+	my ($port) = @_;
+
+	if ( !defined($port) || $port !~ /^[0-9]+$/ ) {
+		return $port;
+	}
+
+	return $port + 0;
+}
 
 # sums the weights of a bucket's [epoch, weight] entries into its score
 sub _score_of {

@@ -30,6 +30,8 @@ stages:
       - '^Accepted \w+ for (?<USER>\S+) from %%%%SRC%%%%'
     within: 600
 per: [ SRC ]
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 detection_var: [ SRC ]
 max_score: 1
 tests:

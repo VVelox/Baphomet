@@ -20,6 +20,8 @@ references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
   - ' SSLVPN (?:(?:NON)?HTTP_RESOURCEACCESS_DENIED|CLISEC_(?:CHECK|EXP_EVAL)) \d+ \d+ :\s+Context (?<USER>[^@\s]+)@'
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 detection_var:
   - USER
 tests:

@@ -29,6 +29,8 @@ message_regexp:
   # separator together, and a Browser_type holds dashes of its own), so the
   # anchor is the ordering rather than a parse.
   - ' SSLVPN LOGIN \d+ \d+ :.*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+# the account the line names, promoted to the EVE event as .user
+user_var: USER
 ban_var:
   - SRC
 mark_only: true
