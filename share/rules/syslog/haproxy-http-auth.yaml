@@ -15,6 +15,7 @@ daemons:
   - haproxy
 message_regexp:
   - '^(?:::f{4,6}:)?%%%%SRC%%%%(?::\d+)?\s+.*<NOSRV> -1/-1/-1/-1/\+*\d* 401'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

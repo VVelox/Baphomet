@@ -20,6 +20,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^%%%%SRC%%%% - (?!- )\S+ \[[^\]]*\] "[A-Z]+ [^"]*" 401\b'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

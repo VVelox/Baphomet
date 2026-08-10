@@ -21,6 +21,7 @@ message_regexp:
   - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Client with IP address %%%%SRC%%%% has no reverse DNS entry, connection rejected before SMTP greeting$'
   - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Administration login into Web Administration from %%%%SRC%%%% failed: IP address not allowed$'
   - '^\[\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2}\] Message from IP address %%%%SRC%%%%, sender \S+ rejected: sender domain does not exist$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

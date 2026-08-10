@@ -23,6 +23,7 @@ message_regexp:
   - 'SSHD_LOGIN_FAILED_LIMIT: Login failure limit reached for user ''[^'']*'' from host ''%%%%SRC%%%%'''
   - 'SSHD_LOGIN_FAILED \[junos@\S+ username="[^"]*" source-address="%%%%SRC%%%%"'
   - 'LOGIN_FAILED: Login failed for user \S+ from host %%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

@@ -10,6 +10,7 @@ daemons:
 message_regexp:
   - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?[^:]*: 550 User (?:<.*> )?unknown\.?$'
   - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?msg="535 Authentication failed\.",cmd:(?: AUTH \S+)?(?: [0-9a-zA-Z\+/=]+)?(?: \S+)$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

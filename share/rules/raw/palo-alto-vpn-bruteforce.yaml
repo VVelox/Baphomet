@@ -26,6 +26,7 @@ message_regexp:
   - 'SSL VPN user (?:authentication|login) failed.*?[Ff]rom:?\s*%%%%SRC%%%%'
   - 'GlobalProtect (?:portal|gateway) (?:user|client) authentication failed.*?Login from:?\s*%%%%SRC%%%%'
   - ',GLOBALPROTECT,(?:[^,]*,){4}(?:portal|gateway)-auth,(?:[^,]*,){6}%%%%SRC%%%%,.*,failure,'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

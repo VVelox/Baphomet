@@ -16,7 +16,6 @@ message_regexp:
   - '^(?<USER>\S+) : user NOT in sudoers'
   - '^(?<USER>\S+) : command not allowed'
   - '^(?<USER>\S+) : \d+ incorrect password attempts?'
-# the account the line names, promoted to the EVE event as .user
 user_var: USER
 detection_var:
   - USER

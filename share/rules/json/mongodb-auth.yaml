@@ -18,6 +18,7 @@ gate:
 match:
   - field: attr.remote
     regexp: '^%%%%SRC%%%%:\d+$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

@@ -22,6 +22,7 @@ references:
 message_regexp:
   - ' APPFW APPFW_(?:BUFFEROVERFLOW_(?:COOKIE|HDR|URL)|COOKIE|CSRF_TAG|DENYURL|FIELDCONSISTENCY|FIELDFORMAT|REFERER_HEADER|SAFECOMMERCE(?:_XFORM)?|SAFEOBJECT|SQL|STARTURL|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
   - ' APPFW AF_400_RESP \d+ \d+ :\s+%%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

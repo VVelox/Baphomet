@@ -19,6 +19,7 @@ message_regexp:
   - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
     key: KEY
     defer: 600
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

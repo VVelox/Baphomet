@@ -42,6 +42,10 @@ ignore_regexp:
   - 'severity="(?:low|info)"'
   - 'SSL\.Anonymous\.Ciphers'
   - 'URL blocked '
+src_ip_var: fg_offender_ip
+dest_ip_var: fg_dstip
+src_port_var: fg_srcport
+dest_port_var: fg_dstport
 ban_var:
   - fg_offender_ip
 ban_not_internal: true

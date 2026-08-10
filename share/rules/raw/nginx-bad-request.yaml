@@ -19,6 +19,7 @@ mark:
     ttl: 86400
 message_regexp:
   - '^%%%%SRC%%%% - \S+ \[[^\]]*\] "[^"]*" 400\b'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

@@ -13,6 +13,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^%%%%TIMESTAMP_ISO8601%%%%: \(?(?:http|mod)_auth\.c\.\d+\) (?:password doesn''t match for (?:\S+|.*?) username:\s+(?:\S+|.*?)\s*|digest: auth failed(?: for\s+(?:\S+|.*?)\s*)?: (?:wrong password|uri mismatch \([^)]*\))|get_password failed),? IP: %%%%SRC%%%%\s*$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

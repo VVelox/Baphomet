@@ -31,6 +31,8 @@ gate:
     op: re
     nocase: true
     value: '^Port scan attack$'
+src_ip_var: hw_offender_ip
+dest_ip_var: hw_DestinationIp
 ban_var:
   - hw_offender_ip
 tests:

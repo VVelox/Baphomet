@@ -33,6 +33,10 @@ gate:
   - field: sw_msg
     op: re
     value: '^(?:(?:Back Orifice|NetBus|Net Spy|Senna Spy|Sub Seven|Striker|RIPper|Priority|Land) attack dropped|Ping of [dD]eath dropped|PASV response (?:bounce|spoof) attack dropped|Possible DNS rebind attack detected|IP [sS]poof (?:[dD]etected|[dD]ropped)|IPS Prevention Alert|Smurf (?:Amplification )?[aA]ttack|Spank attack multicast packet dropped|Source routed IP packet dropped)'
+src_ip_var: sw_offender_ip
+dest_ip_var: sw_dst_ip
+src_port_var: sw_src_port
+dest_port_var: sw_dst_port
 ban_var:
   - sw_offender_ip
 tests:

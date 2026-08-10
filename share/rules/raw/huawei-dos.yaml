@@ -31,6 +31,8 @@ gate:
     op: re
     nocase: true
     value: '^(?:fraggle|Smurf|land|ICMP flood|TCP flood|Winnuke|Ping of death|Tear drop|Syn flood|Large ICMP) attack$'
+src_ip_var: hw_offender_ip
+dest_ip_var: hw_DestinationIp
 ban_var:
   - hw_offender_ip
 tests:

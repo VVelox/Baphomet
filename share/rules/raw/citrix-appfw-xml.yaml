@@ -26,6 +26,7 @@ references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
   - ' APPFW APPFW_XML_(?:ATTACHMENT_\S+|ERR_(?!D?DOS)\S+|PACKET_PROCESSING_\S+|SQL|VALIDATION_\S+|VALIDATOR_LOAD_\S+|WSI_ERR_\S+|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

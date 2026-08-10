@@ -17,6 +17,7 @@ message_regexp:
   - '^I\(<0\.\d+\.0>:ejabberd_c2s:\d+\) : \([^)]+\) Failed authentication for \S+ from (?:IP )?%%%%SRC%%%%(?: \(\{\{(?:\d+,){3}\d+\},\d+\}\))?$'
   # lager format, with or without the leading timestamp
   - '^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? )?\[info\] <0\.\d+\.\d+>@ejabberd_c2s:\w+:\d+ \([^\)]+\) Failed (?:c2s \w+ )?authentication for \S+ from (?:IP )?(?:::FFFF:)?%%%%SRC%%%%(?:: |$)'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

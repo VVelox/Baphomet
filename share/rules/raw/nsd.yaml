@@ -50,6 +50,7 @@ message_regexp:
   - '^(?:\[(?:\d+|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\] |%%%%SYSLOGTIMESTAMP%%%% \S+ )?nsd\[\d+\]: info: ratelimit block .* query %%%%SRC%%%% TYPE255\s*$'
   # a transfer attempt from an address in no acl
   - '^(?:\[(?:\d+|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\] |%%%%SYSLOGTIMESTAMP%%%% \S+ )?nsd\[\d+\]: info: .*? from(?: client)? %%%%SRC%%%% refused, no acl matches\.?\s*$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

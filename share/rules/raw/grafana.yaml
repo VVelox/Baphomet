@@ -12,6 +12,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^t=%%%%TIMESTAMP_ISO8601%%%%(?: lvl=err?or)? msg="Invalid username or password"(?: \S+=(?:\S*|"[^"]*"))* remote_addr=%%%%SRC%%%%$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

@@ -11,6 +11,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^%%%%DATESTAMP%%%% \[LOGIN_ERROR\].*from %%%%SRC%%%%: Unknown user or password incorrect\.$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

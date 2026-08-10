@@ -16,6 +16,7 @@ references:
   - https://kb.juniper.net/InfoCenter/index?page=content&id=JSA10713
 message_regexp:
   - 'system-warning-00515: Admin user (?i:"?(?:system|username)"?) has logged on via \S+ from %%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 # one hit is a verdict, honored when the kur allows per-rule thresholds

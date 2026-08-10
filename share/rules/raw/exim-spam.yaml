@@ -15,6 +15,7 @@ message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+F=(?:<>|[^@]+@\S+) rejected after DATA: This message contains a virus \(\S+\)\.\s*$'
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ SA: Action: flagged as Spam but accepted: score=\d+\.\d+ required=\d+\.\d+ \(scanned in \d+/\d+ secs \| Message-Id: \S+\)\. From \S+ \(host=\S+ \[%%%%SRC%%%%\]\) for \S+$'
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ SA: Action: silently tossed message: score=\d+\.\d+ required=\d+\.\d+ trigger=\d+\.\d+ \(scanned in \d+/\d+ secs \| Message-Id: \S+\)\. From \S+ \(host=(?:\S+ )?\[%%%%SRC%%%%\]\) for \S+$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

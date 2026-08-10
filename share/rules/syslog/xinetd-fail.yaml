@@ -15,6 +15,7 @@ daemons:
 message_regexp:
   - '^FAIL: \S+ address from=%%%%SRC%%%%$'
   - '^FAIL: \S+ libwrap from=%%%%SRC%%%%$'
+src_ip_var: SRC
 ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows

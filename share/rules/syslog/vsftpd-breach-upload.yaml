@@ -20,6 +20,7 @@ message_regexp:
 marked:
   - names: [ brute_force, recon, exploit_attempt, honeypot ]
     var: SRC
+src_ip_var: SRC
 detection_var: [ SRC ]
 max_score: 1
 tests:

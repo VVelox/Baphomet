@@ -68,6 +68,8 @@ selections:
       op: startswith
       value: FAIL
 condition: "ssh or shell or ftp or web"
+src_ip_var: hw_offender_ip
+user_var: hw_UserName
 ban_var:
   - hw_offender_ip
 tests:

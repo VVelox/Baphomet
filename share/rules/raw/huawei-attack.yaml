@@ -33,6 +33,8 @@ gate:
     op: re
     nocase: true
     value: '^(?:IP spoof|Time stamp|Ip options route record|Ip option source route|Ip options|Redirect|Trace route|Unreachable|Udp flood|Other-protocol|IP Fragment|Ftp Bounce|Tcp flag) attack$'
+src_ip_var: hw_offender_ip
+dest_ip_var: hw_DestinationIp
 ban_var:
   - hw_offender_ip
 tests:

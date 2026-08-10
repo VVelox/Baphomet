@@ -24,6 +24,7 @@ message_regexp:
   - '- ive - \[%%%%SRC%%%%\].*?(?i:Login failed|authentication failed)'
   - '- ive - \[%%%%SRC%%%%\].*?not authenticated yet'
   - '- ive - \[%%%%SRC%%%%\].*?Host Checker policy .*?failed'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

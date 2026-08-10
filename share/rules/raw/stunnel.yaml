@@ -14,6 +14,7 @@ mark:
     ttl: 86400
 message_regexp:
   - '^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} LOG\d\[\d+:\d+\]: SSL_accept from %%%%SRC%%%%:\d+ : [\dA-F]+: error:[\dA-F]+:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

@@ -38,6 +38,10 @@ selections:
       op: re
       value: '^(?:Probable port scan detected|Probable TCP (?:FIN|NULL|XMAS) scan detected|TCP Xmas [tT]ree dropped)$'
 condition: "possible or probable"
+src_ip_var: sw_offender_ip
+dest_ip_var: sw_dst_ip
+src_port_var: sw_src_port
+dest_port_var: sw_dst_port
 ban_var:
   - sw_offender_ip
 tests:

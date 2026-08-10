@@ -13,6 +13,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^%%%%TIMESTAMP_ISO8601%%%%(?:\|-?\d+){3}\|\[[^\]]*\] \[%%%%SRC%%%%\] Authentication failed for ''[^'']+'''
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

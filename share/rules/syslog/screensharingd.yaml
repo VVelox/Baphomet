@@ -14,6 +14,7 @@ daemons:
   - screensharingd
 message_regexp:
   - '^Authentication: FAILED :: User Name: .+ :: Viewer Address: %%%%SRC%%%% :: Type: DH$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

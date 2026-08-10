@@ -26,6 +26,7 @@ message_regexp:
   - ',THREAT,spyware,[^,]*,[^,]*,%%%%SRC%%%%,.*Suspicious DNS Quer(?:y|ies)'
 ignore_regexp:
   - ',online-personal-storage,'
+src_ip_var: SRC
 detection_var:
   - SRC
 tests:

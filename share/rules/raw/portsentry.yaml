@@ -14,6 +14,7 @@ mark:
     ttl: 86400
 message_regexp:
   - '^\d+ - %%%%DATESTAMP%%%% Host: \S+/%%%%SRC%%%% Port: \d+ (?:TCP|UDP) Blocked$'
+src_ip_var: SRC
 ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows

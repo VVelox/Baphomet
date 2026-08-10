@@ -18,6 +18,7 @@ message_regexp:
   - '^(?:APOP )?authentication failed for (?:mapped )?user .*? - %%%%SRC%%%%$'
   - '^root login not allowed - %%%%SRC%%%%$'
   - '^can''t find APOP secret for user .*? - %%%%SRC%%%%$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

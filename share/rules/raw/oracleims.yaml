@@ -13,6 +13,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^<co ts="%%%%TIMESTAMP_ISO8601%%%%".*? tr="[A-Z]+\|[0-9.]+\|\d+\|%%%%SRC%%%%\|\d+" ap="[^"]*" mi="Bad password" us="[^"]*" di="535 5\.7\.8 Bad username or password(?: \(Authentication failed\))?\."/>$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

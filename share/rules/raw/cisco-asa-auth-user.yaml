@@ -26,7 +26,6 @@ message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-109016: Can''t find authorization ACL \S+ for user ''(?<USER>[^'']*)'''
   - '%ASA-\d-719019: WebVPN user: ?(?<USER>\S+) authorization failed'
   - '%ASA-\d-719023: WebVPN user:? ?(?<USER>\S+) has not been successfully authenticated\. Access denied'
-# the account the line names, promoted to the EVE event as .user
 user_var: USER
 detection_var:
   - USER

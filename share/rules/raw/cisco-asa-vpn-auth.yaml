@@ -28,6 +28,7 @@ message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-713198: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, User Authorization failed'
   - '%(?:ASA|PIX)-\d-611311: V(?:NP|PN)Client: XAUTH Failed: Peer: %%%%SRC%%%%'
   - '%(?:ASA|PIX)-\d-402120: Received an ESP packet \([^)]*\) from %%%%SRC%%%% (?:\([^)]*\) )?to \S+ that failed authentication'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

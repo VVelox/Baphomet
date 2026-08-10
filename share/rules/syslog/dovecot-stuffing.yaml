@@ -60,7 +60,8 @@ distinct:
   of: USER
 max_score: 5
 find_time: 3600
-# the account the line names, promoted to the EVE event as .user
+src_ip_var: SRC
+dest_ip_var: dovecot_lip
 user_var: USER
 ban_var:
   - SRC

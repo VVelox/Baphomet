@@ -43,6 +43,8 @@ selections:
       op: eq
       value: auth_failed
 condition: "ssl_vpn or ppp_auth"
+src_ip_var: fg_offender_ip
+user_var: fg_user
 ban_var:
   - fg_offender_ip
 tests:

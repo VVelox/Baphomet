@@ -16,6 +16,7 @@ daemons:
 message_regexp:
   - '^(?:<W>[\d\-]+ [\d:]+\.\d+ )?\d+ => <\d+:[^>]+\(-1\)> Rejected connection from %%%%SRC%%%%:\d+: Invalid server password$'
   - '^(?:<W>[\d\-]+ [\d:]+\.\d+ )?\d+ => <\d+:[^>]+\(-1\)> Rejected connection from %%%%SRC%%%%:\d+: Wrong certificate or password for existing user$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

@@ -13,6 +13,7 @@ daemons:
 message_regexp:
   - '^Non-existent login as .+ from %%%%SRC%%%%\s*$'
   - '^Invalid login as .+ from %%%%SRC%%%%\s*$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

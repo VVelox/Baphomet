@@ -12,6 +12,7 @@ daemons:
   - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
 message_regexp:
   - '^LOGIN FAILED, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

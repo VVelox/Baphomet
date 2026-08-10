@@ -59,6 +59,7 @@ distinct:
   of: postfix_to
 max_score: 10
 find_time: 3600
+src_ip_var: postfix_client_ip
 ban_var:
   - postfix_client_ip
 tests:

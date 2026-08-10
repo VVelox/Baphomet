@@ -16,6 +16,7 @@ classtype: suspicious-traffic
 message_regexp:
   - 'IDP_ATTACK_LOG_EVENT(?:_LS)?:.*?Attack log <%%%%SRC%%%%/\d+->'
   - 'IDP_SESSION_LOG_EVENT(?:_LS)?:.*? <%%%%SRC%%%%/\d+->'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

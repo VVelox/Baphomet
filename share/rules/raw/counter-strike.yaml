@@ -12,6 +12,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^L \d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}: Bad Rcon: "rcon \d+ "\S+"  sv_contact ".*?"" from "%%%%SRC%%%%:\d+"$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

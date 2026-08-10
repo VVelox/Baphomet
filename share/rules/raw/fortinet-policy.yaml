@@ -36,6 +36,11 @@ selections:
       op: re
       value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
 condition: "modern or legacy"
+src_ip_var: fg_offender_ip
+dest_ip_var: fg_dstip
+src_port_var: fg_srcport
+dest_port_var: fg_dstport
+user_var: fg_user
 detection_var:
   - fg_offender_ip
 tests:

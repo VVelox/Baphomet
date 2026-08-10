@@ -15,6 +15,7 @@ mark:
 message_regexp:
   - '^WARNING: Authentication attempt from %%%%SRC%%%% for user "[^"]*" failed\.$'
   - '^\d{2}:\d{2}:\d{2}\.\d+ \[\S+\] WARN\s+\S+ - Authentication attempt from %%%%SRC%%%% for user "[^"]+" failed\.$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

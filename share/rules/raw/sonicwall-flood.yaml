@@ -27,6 +27,10 @@ gate:
   - field: sw_msg
     op: re
     value: '^(?:Possible (?:SYN|FIN|RST) [fF]lood|.*(?:SYN|FIN|RST)[- ][fF]looding machine |(?:SYN|FIN|RST) Flood Blacklist on )'
+src_ip_var: sw_offender_ip
+dest_ip_var: sw_dst_ip
+src_port_var: sw_src_port
+dest_port_var: sw_dst_port
 ban_var:
   - sw_offender_ip
 tests:

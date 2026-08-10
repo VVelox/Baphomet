@@ -21,7 +21,8 @@ message_regexp:
   - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
   - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%'
   - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?<USER>\S+) from %%%%SRC%%%%'
-# the account the line names, promoted to the EVE event as .user
+src_ip_var: SRC
+src_port_var: ssh_src_port
 user_var: USER
 ban_var:
   - SRC

@@ -43,6 +43,7 @@ message_regexp:
   - 'Authorization failed for user \S+.*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
   - 'NTLM authentication failed for user .*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
   - 'Failed keyboard-interactive/pam for (?:invalid user )?\S+ from %%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

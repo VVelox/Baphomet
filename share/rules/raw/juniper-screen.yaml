@@ -27,6 +27,7 @@ message_regexp:
   - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)?: [^!]+! source: %%%%SRC%%%%'
   - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)? \[junos@\S+ .*?source-address="%%%%SRC%%%%"'
   - 'system-(?:alert|critical|emergency)-\d{5}: [^!]+! From %%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

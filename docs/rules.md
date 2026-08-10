@@ -692,6 +692,14 @@ fields exactly so already. A regexp rule capturing them under its own names
 has to say which is which, the way the shipped syslog rules pair a
 `(?<USER>...)` capture with `user_var: USER`.
 
+A [munger](#enriching-a-match-mungers) field is as good a target as a capture,
+and often the only one there is. The shipped sshd rules promote their own `SRC`
+capture as `.src_ip`, since it matches lines the munger does not read, but take
+`.src_port` and `.user` from `ssh_src_port` / `ssh_user`, which no sshd regexp
+holds. Where both sources exist, prefer whichever covers more of the rule's
+lines... a var names one field, not a fallback chain, so a var pointed at the
+thinner source reads as absent on every line the other would have covered.
+
 A port is written as a number wherever it reads as one, so a native JSON
 integer and a regexp capture's `"22"` land in the field as the one type... a
 port stored as a string loses every range query over it. A var pointed at

@@ -15,6 +15,7 @@ mark:
 message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ Connection "[^"]+": User authentication failed\. The user name that has been provided was "(?:[^"]+|.+)", from %%%%SRC%%%%\.$'
   - '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2} \S+\s+\[[^\]]+\] \(\d{4}-\d{2}-\d{2} [\d:.]+\) <SECURITY_LOG>: Connection "[^"]+": User authentication failed\. The user name that has been provided was "(?:[^"]+|.+)", from %%%%SRC%%%%\.$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

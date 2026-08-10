@@ -44,6 +44,7 @@ message_regexp:
   # cannot match inside peer_label= (the underscore is a word character), so a
   # peer never stands in for the confined side.
   - '^type=USER_AVC msg=audit\([\d.]+:\d+\): .*\bmsg=''apparmor="DENIED" .*?\blabel="(?<PROFILE>[^"]+)"'
+src_ip_var: audit_msg_addr
 detection_var:
   - PROFILE
 tests:

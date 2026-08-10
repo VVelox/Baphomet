@@ -17,6 +17,7 @@ daemons:
 message_regexp:
   - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? Can''t find user \[[^@]+@[^\]]+\] from %%%%SRC%%%%$'
   - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? SIP auth (?:failure|challenge) \((?:REGISTER|INVITE)\) on sofia profile ''[^'']+'' for \[[^\]]*\] from ip %%%%SRC%%%%$'
+src_ip_var: SRC
 ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows

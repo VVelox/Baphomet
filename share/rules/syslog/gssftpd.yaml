@@ -12,6 +12,7 @@ daemons:
   - ftpd
 message_regexp:
   - '^repeated login failures from %%%%SRC%%%% \(\S+\)$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

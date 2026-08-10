@@ -27,6 +27,10 @@ gate:
   - field: sw_msg
     op: re
     value: '^(?:Access attempt from host (?:out of compliance with GSC policy|without (?:Anti-Virus agent|GSC) installed)|Access to proxy server denied|ActiveX (?:or Java archive )?access denied|Data connection from non default port dropped|Internet Access restricted to authorized users|Forbidden E-Mail [aA]ttachment|Using LDAP [wW]ithout TLS|Heartbeat received from (?:an )?incompatible source)'
+src_ip_var: sw_offender_ip
+dest_ip_var: sw_dst_ip
+src_port_var: sw_src_port
+dest_port_var: sw_dst_port
 detection_var:
   - sw_offender_ip
 tests:

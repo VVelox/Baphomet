@@ -35,6 +35,9 @@ message_regexp:
   - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*?,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*?,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+src_ip_var: SRC
+dest_ip_var: dovecot_lip
+user_var: dovecot_user
 ban_var:
   - SRC
 tests:

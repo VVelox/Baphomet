@@ -56,6 +56,7 @@ selections:
       op: startswith
       value: LogAuthFailed
 condition: "arp_dup or dhcp_nak or dhcp_acquired or vrrp_auth"
+src_ip_var: hw_offender_ip
 detection_var:
   - hw_offender_ip
   - hw_iface

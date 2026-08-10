@@ -34,6 +34,9 @@ message_regexp:
   - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
     key: [ syslog.host, syslog.daemon, syslog.pid ]
     defer: 120
+src_ip_var: SRC
+src_port_var: ssh_src_port
+user_var: ssh_user
 ban_var:
   - SRC
 tests:

@@ -44,6 +44,7 @@ gate:
     op: eq
     nocase: true
     value: refused
+src_ip_var: unbound_client_ip
 ban_var:
   - unbound_client_ip
 tests:

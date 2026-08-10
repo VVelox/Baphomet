@@ -15,6 +15,7 @@ daemons:
 message_regexp:
   - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?: possible SMTP attack: command=AUTH, count=\d+$'
   - '^(?:\w{14,20}: )?AUTH failure \([^\)]+\):(?: [^:]+:)? (?:authentication failure|user not found): [^,]*, (?:user=(?:\S+|.*?), )?relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

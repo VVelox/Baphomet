@@ -21,6 +21,8 @@ mungers:
   - auditd
 message_regexp:
   - '^type=ANOM_LOGIN_FAILURES msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b'
+src_ip_var: SRC
+user_var: audit_msg_acct
 ban_var:
   - SRC
 tests:

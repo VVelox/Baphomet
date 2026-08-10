@@ -41,6 +41,8 @@ gate:
     op: eq
     nocase: true
     value: peer config
+src_ip_var: ipsec_remote_ip
+dest_ip_var: ipsec_local_ip
 ban_var:
   - ipsec_remote_ip
 tests:

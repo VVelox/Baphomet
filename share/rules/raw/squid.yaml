@@ -13,6 +13,7 @@ mark:
 message_regexp:
   - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+[A-Z_]+_DENIED/403 .*$'
   - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+NONE/405 .*$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

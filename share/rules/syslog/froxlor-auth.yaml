@@ -13,6 +13,7 @@ daemons:
 message_regexp:
   - '^\[Login Action %%%%SRC%%%%\] Unknown user \S* tried to login\.$'
   - '^\[Login Action %%%%SRC%%%%\] User \S* tried to login with wrong password\.$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

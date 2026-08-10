@@ -15,6 +15,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^type=USER_(?:ERR|AUTH) msg=audit\([\d.]+:\d+\): (?:user )?pid=\d+ uid=0 auid=\d+ ses=\d+ subj=(?:unconfined_u|system_u):system_r:sshd_t:s0-s0:c0\.c1023 msg=''op=\S+ acct="?\S+"? exe="/usr/sbin/sshd" hostname=(?:\?|(?:\d+\.){3}\d+) addr=%%%%SRC%%%% terminal=ssh res=failed''$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

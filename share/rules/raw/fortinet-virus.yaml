@@ -36,6 +36,11 @@ selections:
       op: re
       value: '^\d*(?:60000|63000|63002)$'
 condition: "modern or legacy_logid or legacy_log_id"
+src_ip_var: fg_offender_ip
+dest_ip_var: fg_dstip
+src_port_var: fg_srcport
+dest_port_var: fg_dstport
+user_var: fg_user
 detection_var:
   - fg_offender_ip
 tests:

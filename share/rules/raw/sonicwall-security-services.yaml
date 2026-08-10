@@ -25,6 +25,10 @@ gate:
   - field: sw_msg
     op: re
     value: '^(?:Anti-Spyware (?:Detection|Prevention) Alert|Application Filters? (?:Detection|Block) Alert)'
+src_ip_var: sw_offender_ip
+dest_ip_var: sw_dst_ip
+src_port_var: sw_src_port
+dest_port_var: sw_dst_port
 detection_var:
   - sw_offender_ip
 tests:

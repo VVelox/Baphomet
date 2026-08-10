@@ -18,6 +18,7 @@ message_regexp:
   - '^(?:error\s*:\s+)?(?:Warning|HttpRequest):\s+(?:access denied\s+--\s+)?[Cc]lient ''?\[?%%%%SRC%%%%\]?''?(?:\s+supplied|\s*:)\s+(?:unknown user ''[^'']+''|wrong password for user ''[^'']*''|empty password)'
 ignore_regexp:
   - '^\w+: access denied -- client \[?%%%%SRC%%%%\]?: unknown user ''''$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

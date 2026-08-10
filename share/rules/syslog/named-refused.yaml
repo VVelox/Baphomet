@@ -19,6 +19,8 @@ mungers:
   - named
 message_regexp:
   - '^(?:[\w-]+: ){0,2}client(?: @\S*)? %%%%SRC%%%%#\d+(?: \([^\)]+\))?: (?:view [\w-]+: )?(?:query(?: \(cache\))?|zone transfer|bad zone transfer request: ''\S+/IN'': non-authoritative zone).* (?:denied|\(NOTAUTH\))\s*$'
+src_ip_var: SRC
+src_port_var: dns_client_port
 ban_var:
   - SRC
 tests:

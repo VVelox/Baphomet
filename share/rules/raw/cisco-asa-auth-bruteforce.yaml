@@ -26,6 +26,7 @@ message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-113005: AAA user authentication Rejected\s*:.* user IP = %%%%SRC%%%%'
   - '%(?:ASA|PIX|FWSM)-\d-605004: Login denied from %%%%SRC%%%%/\d+'
   - '%(?:ASA|PIX|FWSM)-\d-710003: (?:TCP|UDP) access denied by ACL from %%%%SRC%%%%/\d+'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

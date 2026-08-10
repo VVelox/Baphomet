@@ -25,6 +25,7 @@ message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-201006: RCMD backconnection failed for %%%%SRC%%%%/\d+'
   - '%(?:ASA|PIX|FWSM)-\d-107001: RIP auth failed from %%%%SRC%%%%:'
   - '%(?:ASA|PIX|FWSM)-\d-312001: RIP hdr failed from %%%%SRC%%%%:'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

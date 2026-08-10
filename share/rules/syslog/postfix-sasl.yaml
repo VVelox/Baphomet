@@ -16,6 +16,8 @@ mungers:
   - postfix
 message_regexp:
   - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
+src_ip_var: SRC
+user_var: postfix_sasl_username
 ban_var:
   - SRC
 tests:

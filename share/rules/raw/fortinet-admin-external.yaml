@@ -29,6 +29,9 @@ gate:
     op: cidr
     values: [ "10.0.0.0/8", "127.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" ]
     negate: true
+src_ip_var: fg_offender_ip
+dest_ip_var: fg_dstip
+user_var: fg_user
 detection_var:
   - fg_offender_ip
 max_score: 1

@@ -22,6 +22,7 @@ message_regexp:
   - '^%%%%SRC%%%%:\d+ TLS Auth Error: Auth Username/Password verification failed for peer'
   - '^%%%%SRC%%%%:\d+ Decrypt packet error'
   - 'TLS Error: incoming packet authentication failed from \[AF_INET\]%%%%SRC%%%%:\d+'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

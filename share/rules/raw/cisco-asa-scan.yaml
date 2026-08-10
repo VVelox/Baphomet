@@ -22,6 +22,7 @@ message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-419001: Dropping TCP packet from [^:]+:%%%%SRC%%%%/\d+ to [^,]+, reason:'
   - '%(?:ASA|PIX|FWSM)-\d-500003: Bad TCP hdr length \([^)]*\) from %%%%SRC%%%%/\d+'
   - '%(?:ASA|PIX|FWSM)-\d-418001: Through-the-device packet to/from management-only network is denied: \S+ src [^:]+:%%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

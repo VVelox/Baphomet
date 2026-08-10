@@ -14,6 +14,7 @@ daemons:
   - suhosin
 message_regexp:
   - '^(?:\(mod_fastcgi\.c\.\d+\) FastCGI-stderr:\s)?ALERT - .*? \(attacker ''%%%%SRC%%%%'', file ''[^'']*''(?:, line \d+)?\)$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

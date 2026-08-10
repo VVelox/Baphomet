@@ -13,6 +13,7 @@ daemons:
 message_regexp:
   - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
   - '^(?:\[pid \d+\] )?\[[^\]]+\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

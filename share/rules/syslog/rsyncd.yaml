@@ -18,6 +18,7 @@ daemons:
   - rsync
 message_regexp:
   - '^auth failed on module \S+ from \S+ \(%%%%SRC%%%%\)'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

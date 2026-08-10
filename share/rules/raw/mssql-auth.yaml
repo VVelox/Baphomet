@@ -14,6 +14,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^%%%%TIMESTAMP_ISO8601%%%% Logon\s+Login failed for user ''(?:[^'']*|.*)''\. [^''\[]+\[CLIENT: %%%%SRC%%%%\]$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

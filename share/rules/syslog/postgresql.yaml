@@ -22,6 +22,7 @@ daemons:
 message_regexp:
   - '\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
   - '\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

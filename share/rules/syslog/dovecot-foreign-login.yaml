@@ -36,7 +36,8 @@ country:
     - "%%%country_codes{home}%%%"
   vars:
     - SRC
-# the account the line names, promoted to the EVE event as .user
+src_ip_var: SRC
+dest_ip_var: dovecot_lip
 user_var: USER
 detection_var:
   - SRC

@@ -228,6 +228,81 @@ SKIP: {
 		}
 	}
 	is_deeply( \@unnamed, [], 'every shipped rule capturing USER names it as its user_var' );
+
+	#
+	# and the same for the address... the SRC token only ever matches an
+	# address, so a rule capturing it has an offender to promote
+	#
+	my @unpromoted;
+	foreach my $path ( glob( $rules_dir . '/*/*.yaml' ) ) {
+		open( my $rfh, '<', $path ) || die($!);
+		my $body = do { local $/; <$rfh> };
+		close($rfh);
+		if ( $body =~ /%%%%SRC%%%%|\(\?<SRC>/ && $body !~ /^src_ip_var:/m ) {
+			push( @unpromoted, $path );
+		}
+	}
+	is_deeply( \@unpromoted, [], 'every shipped rule capturing SRC names it as its src_ip_var' );
+} ## end SKIP:
+
+#
+# the whole chain over a shipped rule... the sshd rule captures no account of
+# its own, so .user can only come from the munger, and the port has no other
+# source at all. this is the enrichment actually reaching the log rather than
+# the wiring being merely well formed
+#
+
+SKIP: {
+	if ( !-d 'share/rules' ) {
+		skip( 'no rules dir found... not running from the dist root?', 4 );
+	}
+	if ( !eval { require Log::Munger; 1 } ) {
+		skip( 'Log::Munger not available', 4 );
+	}
+
+	my $shipped = tempdir( CLEANUP => 1 );
+	make_path( $shipped . '/run' );
+	open( my $sfh, '>', $shipped . '/log' ) || die($!);
+	close($sfh);
+
+	open( $sfh, '>', $shipped . '/config.toml' ) || die($!);
+	print $sfh <<"EOC";
+run_base_dir = "$shipped/run"
+tablet_base_dir = "$shipped/cache"
+rules_dir = "share/rules"
+ereshkigal_socket = "$shipped/nonexistent.sock"
+eve_log = "$shipped/eve/eve.json"
+eve_enable = true
+max_score = 10
+find_time = 600
+
+[kur.app]
+ban_time = 300
+
+[kur.app.w]
+log = "$shipped/log"
+parser = "bsd_syslog"
+rule = "syslog/sshd"
+EOC
+	close($sfh);
+
+	my $shipped_galla = App::Baphomet::Galla->new( 'config' => $shipped . '/config.toml', 'name' => 'app' );
+	if ( $shipped_galla->{perror} ) {
+		skip( 'the shipped galla would not build... ' . $shipped_galla->{errorString}, 4 );
+	}
+
+	$shipped_galla->_handle_line( 'w',
+		'Jul 12 08:15:50 gate sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2' );
+
+	open( my $efh, '<', $shipped . '/eve/eve.json' ) || die($!);
+	my @shipped_lines = <$efh>;
+	close($efh);
+
+	my $shipped_event = decode_json( $shipped_lines[0] );
+	is( $shipped_event->{src_ip},   '192.0.2.7', 'the shipped sshd rule promotes its own SRC capture' );
+	is( $shipped_event->{src_port}, 4711,        'and the port, which only the munger holds' );
+	is( $shipped_event->{user},     'admin',     'and the account, which the rule itself never captures' );
+	like( $shipped_lines[0], qr/"src_port":4711[,}]/, 'the munger port reaches the log as a JSON number' );
 } ## end SKIP:
 
 done_testing;

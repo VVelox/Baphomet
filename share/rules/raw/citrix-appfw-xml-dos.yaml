@@ -20,6 +20,7 @@ references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
   - ' APPFW APPFW_XML_(?:D?DOS_ERR_\S+|ERR_D?DOS_\S+) \d+ \d+ :\s+%%%%SRC%%%%'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

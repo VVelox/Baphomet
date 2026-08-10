@@ -12,6 +12,7 @@ mark:
     ttl: 21600
 message_regexp:
   - '^%%%%TIMESTAMP_ISO8601%%%%: Failed Login: username=.+ ip=%%%%SRC%%%%$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

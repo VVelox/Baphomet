@@ -16,6 +16,7 @@ mungers:
   - auditd
 message_regexp:
   - '^type=ANOM_EXEC msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)"'
+user_var: audit_msg_acct
 detection_var:
   - EXE
 tests:

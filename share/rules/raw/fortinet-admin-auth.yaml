@@ -35,6 +35,9 @@ gate:
     value: '^\d*32002$'
   - field: fg_type
     values: [ event ]
+src_ip_var: fg_offender_ip
+dest_ip_var: fg_dstip
+user_var: fg_user
 ban_var:
   - fg_offender_ip
 tests:

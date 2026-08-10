@@ -24,6 +24,8 @@ mungers:
   - auditd
 message_regexp:
   - '^type=(?:USER_LOGIN|USER_AUTH|USER_ERR|USER_ACCT|CRED_ACQ) msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b.* res=failed'
+src_ip_var: SRC
+user_var: audit_msg_acct
 ban_var:
   - SRC
 tests:

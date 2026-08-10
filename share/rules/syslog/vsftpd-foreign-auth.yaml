@@ -27,6 +27,7 @@ country:
     - "%%%country_codes{home}%%%"
   vars:
     - SRC
+src_ip_var: SRC
 ban_var:
   - SRC
 max_score: 1

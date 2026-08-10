@@ -28,7 +28,7 @@ message_regexp:
 marked:
   - names: [ recon, exploit_attempt, honeypot ]
     var: SRC
-# the account the line names, promoted to the EVE event as .user
+src_ip_var: SRC
 user_var: USER
 detection_var:
   - SRC

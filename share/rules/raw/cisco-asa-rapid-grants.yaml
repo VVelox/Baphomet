@@ -16,6 +16,7 @@ references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
 message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-713160: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote user \(session Id - \d+\) has been granted access by the Firewall Server'
+src_ip_var: SRC
 detection_var: [ SRC ]
 max_score: 10
 find_time: 300

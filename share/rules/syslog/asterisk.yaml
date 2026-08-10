@@ -22,6 +22,7 @@ message_regexp:
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? "Rejecting unknown SIP connection from \[?%%%%SRC%%%%\]?(?::\d+)?"$'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Request (?:''[^'']*'' )?from ''(?:[^'']*|.*?)'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?''\s\(callid: [^\)]*\) - (?:No matching endpoint found|Not match Endpoint(?: Contact)? ACL|(?:Failed|Error) to authenticate)\s*$'
+src_ip_var: SRC
 ban_var:
   - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows

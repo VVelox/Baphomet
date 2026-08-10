@@ -21,6 +21,7 @@ message_regexp:
   - regexp: '^conn=(?<CONN>\d+) op=\d+ RESULT(?:\s(?!err)\S+=\S*)* err=49 text=[\w\s]*$'
     key: CONN
     defer: 600
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

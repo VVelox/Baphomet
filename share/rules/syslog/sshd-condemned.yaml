@@ -34,6 +34,9 @@ message_regexp:
 marked:
   - name: brute_force
     var: SRC
+src_ip_var: SRC
+src_port_var: ssh_src_port
+user_var: ssh_user
 ban_var:
   - SRC
 weight: 10

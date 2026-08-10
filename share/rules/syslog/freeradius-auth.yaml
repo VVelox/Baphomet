@@ -38,6 +38,7 @@ gate:
     op: exists
   - field: radius_user
     op: exists
+user_var: radius_user
 detection_var:
   - radius_user
 tests:

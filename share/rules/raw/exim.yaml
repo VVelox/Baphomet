@@ -17,6 +17,7 @@ message_regexp:
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? rejected RCPT [^@]+@\S+: (?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$'
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? SMTP protocol synchronization error \([^)]*\): rejected (?:connection from|"\S+") (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)? (?:next )?input=".*"\s*$'
   - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? SMTP call from (?:[^\[\( ]* )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)? dropped: too many (?:nonmail commands|syntax or protocol errors) \(last (?:command )?was "[^"]*"\)\s*$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

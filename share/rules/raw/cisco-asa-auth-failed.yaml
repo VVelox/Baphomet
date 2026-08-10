@@ -24,6 +24,7 @@ message_regexp:
   - '%(?:ASA|PIX|FWSM)-\d-109008: Authorization denied for user ''[^'']*'' from %%%%SRC%%%%/\d+'
   - '%(?:ASA|PIX|FWSM)-\d-109024: Authorization denied from %%%%SRC%%%%/\d+ to \S+ \(not authenticated\)'
   - '%(?:ASA|PIX|FWSM)-\d-109025: Authorization denied \(acl=[^)]*\) for user ''[^'']*'' from %%%%SRC%%%%/\d+'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

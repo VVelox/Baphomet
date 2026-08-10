@@ -15,7 +15,6 @@ rev: 1
 msg: "[JUNIPER] authentication anomaly - no source address"
 severity: medium
 classtype: brute-force
-# the account the line names, promoted to the EVE event as .user
 user_var: USER
 detection_var:
   - USER

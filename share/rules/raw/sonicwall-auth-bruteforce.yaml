@@ -30,6 +30,10 @@ gate:
   - field: sw_msg
     op: re
     value: '^(?:(?:CLI administrator|Administrator) login denied due to bad credentials|Administrator login denied from .*logins disabled from this interface|Wrong Admin Password|Admin Login Disabled|FTP client user .*logged in failed)'
+src_ip_var: sw_offender_ip
+dest_ip_var: sw_dst_ip
+src_port_var: sw_src_port
+dest_port_var: sw_dst_port
 ban_var:
   - sw_offender_ip
 tests:

@@ -12,6 +12,7 @@ daemons:
   - '//^(?:cyrus/)?(?:tim)?sieved?$//'
 message_regexp:
   - '^badlogin: \S+ ?\[(?:::ffff:)?%%%%SRC%%%%\] \S+ authentication failure$'
+src_ip_var: SRC
 ban_var:
   - SRC
 tests:

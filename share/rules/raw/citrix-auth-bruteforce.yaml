@@ -19,7 +19,7 @@ references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
   - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
-# the account the line names, promoted to the EVE event as .user
+src_ip_var: SRC
 user_var: USER
 ban_var:
   - SRC

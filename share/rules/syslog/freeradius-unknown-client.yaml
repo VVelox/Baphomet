@@ -30,6 +30,8 @@ mungers:
 gate:
   - field: radius_src_ip
     op: exists
+src_ip_var: radius_src_ip
+src_port_var: radius_src_port
 ban_var:
   - radius_src_ip
 tests:
