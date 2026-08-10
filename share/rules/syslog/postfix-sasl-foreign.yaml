@@ -23,7 +23,9 @@ daemons:
 mungers:
   - postfix
 message_regexp:
-  - '^[0-9A-F]+: client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
+  # both queue id shapes, short uppercase hex and the base 52 mixed-case one
+  # enable_long_queue_ids gives
+  - '^(?:[0-9A-F]{6,}|[0-9A-Za-z]{12,}): client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
 country:
   isnot:
     - "%%%country_codes{home}%%%"
@@ -57,6 +59,17 @@ tests:
       data:
         SRC: "198.51.100.23"
         USER: "moth3r"
+    # the same under enable_long_queue_ids
+    - message: "Aug 10 18:08:52 mail01 postfix/smtpd[11411]: 4Zx1Qk2Y3Zz0jK: client=mail.example[203.0.113.31], sasl_method=LOGIN, sasl_username=neti"
+      geo:
+        countries:
+          "203.0.113.31": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.31"
+        USER: "neti"
   negative:
     # a relay from home... vetoed
     - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"

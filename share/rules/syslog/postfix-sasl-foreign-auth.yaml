@@ -9,12 +9,18 @@
 # SUCCEEDS is a relay about to be used to send in your name, which is why the
 # success is not merely noted here but banished on.
 #
+# Postfix logs no login event, so the success is read twice over: off the
+# authenticated message, and off the disconnect summary of a session that sent
+# none. The second is the one that matters most... a credential checker
+# authenticates, learns the password works, and quits without ever reaching
+# MAIL FROM, so it writes no authenticated message to be caught by.
+#
 # The sibling syslog/postfix-sasl-foreign sights a foreign success and
 # banishes nobody. Run one or the other, not both.
 #
 # List AHEAD of syslog/postfix-sasl: a domestic event is vetoed here without
 # being consumed, and falls through to be counted there exactly as before.
-rev: 1
+rev: 2
 msg: "[POSTFIX] SASL authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -23,8 +29,16 @@ daemons:
 mungers:
   - postfix
 message_regexp:
-  # the success... the same line postfix-sasl-foreign reads
-  - '^[0-9A-F]+: client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
+  # the success that went on to hand over mail... the same line
+  # postfix-sasl-foreign reads. Both queue id shapes, short uppercase hex and
+  # the base 52 mixed-case one enable_long_queue_ids gives.
+  - '^(?:[0-9A-F]{6,}|[0-9A-Za-z]{12,}): client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
+  # and the success that handed over nothing, off the per-session command
+  # counters postfix 3.0 writes on the disconnect line... auth=N is N successful
+  # AUTHs, auth=M/N is M of N attempted, so a leading digit above zero is a
+  # password that worked. The failed session's auth=0/N is left alone, already
+  # counted off the warning line below.
+  - '^disconnect from [^\[]*\[%%%%SRC%%%%\](?::\d+)? .*\bauth=[1-9]\d*(?:/\d+)?(?:\s|$)'
   # and the failure syslog/postfix-sasl counts, verbatim
   - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
 country:
@@ -60,6 +74,37 @@ tests:
       data:
         SRC: "198.51.100.23"
         USER: "moth3r"
+    # the same success under enable_long_queue_ids
+    - message: "Aug 10 18:08:52 mail01 postfix/smtpd[11411]: 4Zx1Qk2Y3Zz0jK: client=mail.example[203.0.113.31], sasl_method=LOGIN, sasl_username=neti"
+      geo:
+        countries:
+          "203.0.113.31": NL
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.31"
+        USER: "neti"
+    # a foreign password that worked and sent nothing... the credential checker
+    - message: "Aug 10 18:09:02 mail01 postfix/submission/smtpd[11412]: disconnect from unknown[203.0.113.32] ehlo=2 starttls=1 auth=1 quit=1 commands=5"
+      geo:
+        countries:
+          "203.0.113.32": DE
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.32"
+    # the same, the password found on the third try
+    - message: "Aug 10 18:09:12 mail01 postfix/submission/smtpd[11413]: disconnect from unknown[203.0.113.33] ehlo=2 starttls=1 auth=1/3 quit=1 commands=5/7"
+      geo:
+        countries:
+          "203.0.113.33": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.33"
     # a foreign SASL failure
     - message: "Mar 10 13:33:30 gandalf postfix/smtpd[3937]: warning: HOSTNAME[203.0.113.14]: SASL LOGIN authentication failed: authentication failure"
       geo:
@@ -92,6 +137,33 @@ tests:
       geo:
         countries:
           "192.0.2.66": unknown
+        lists:
+          home: [ US ]
+      found: 0
+    # a foreign session whose auth failed... counted once, off the warning line,
+    # never twice off the disconnect summary as well
+    - message: "Aug 10 18:09:22 mail01 postfix/submission/smtpd[11414]: disconnect from unknown[203.0.113.34] ehlo=2 starttls=1 auth=0/3 quit=1 commands=5/7"
+      geo:
+        countries:
+          "203.0.113.34": RU
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]
+    # a foreign session that never authenticated at all
+    - message: "Aug 10 18:09:32 mail01 postfix/smtpd[11415]: disconnect from unknown[203.0.113.35] ehlo=1 quit=1 commands=2"
+      geo:
+        countries:
+          "203.0.113.35": BR
+        lists:
+          home: [ US ]
+      found: 0
+      undefed: ["SRC"]
+    # a password that worked from home... vetoed
+    - message: "Aug 10 18:09:42 mail01 postfix/submission/smtpd[11416]: disconnect from unknown[198.51.100.5] ehlo=2 starttls=1 auth=1 quit=1 commands=5"
+      geo:
+        countries:
+          "198.51.100.5": US
         lists:
           home: [ US ]
       found: 0
