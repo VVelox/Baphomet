@@ -7,7 +7,12 @@
 # without `%h` there is no offender on the line and nothing to banish. Two
 # patterns because `%h` renders differently by position: the `%q...host=`
 # idiom (`host=1.2.3.4`) versus a bare address field just before FATAL.
-rev: 3
+#
+# The postgresql munger names the account the password was tried against. Its
+# own PROGRAM gate is narrower than the daemons regexp above, matching only
+# `postgres` and `postgresql`, so a per-cluster syslog_ident such as
+# `postgres-16` still matches the rule but arrives without the account.
+rev: 4
 msg: "[POSTGRESQL] password authentication failure"
 severity: high
 classtype: brute-force
@@ -19,10 +24,13 @@ daemons:
   # routinely set per cluster... so a regexp rather than the bare default, which
   # would have missed `postgresql` and `postgres-16` in silence
   - //^postgres(?:ql)?(?:[-_]\w+)?$//
+mungers:
+  - postgresql
 message_regexp:
   - '\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
   - '\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
 src_ip_var: SRC
+user_var: pgsql_user
 ban_var:
   - SRC
 tests:

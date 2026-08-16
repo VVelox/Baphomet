@@ -11,11 +11,16 @@
 # them does not matter. The embedded tests seed the brands (marks_before)
 # and so prove the gate both ways... a branded source fires, the
 # unbranded does not.
-rev: 2
+#
+# The vsftpd munger names the account the branded source got in as, which is
+# the first thing anyone triaging this will ask.
+rev: 3
 msg: "[VSFTPD] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: successful-user
 daemons:
+  - vsftpd
+mungers:
   - vsftpd
 message_regexp:
   - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
@@ -23,6 +28,7 @@ marked:
   - names: [ brute_force, recon, exploit_attempt, honeypot ]
     var: SRC
 src_ip_var: SRC
+user_var: vsftpd_user
 detection_var: [ SRC ]
 max_score: 1
 tests:

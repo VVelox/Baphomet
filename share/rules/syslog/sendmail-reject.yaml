@@ -5,7 +5,12 @@
 # multi-line "No such user here" pair is handled via correlation... the
 # No such user line carries no host, so it defers on its queue id until
 # the from= line carrying the relay address arrives.
-rev: 1
+#
+# The sendmail munger reads the ruleset, the recipient, the reject text and
+# the relay's own hostname off the line. Its PROGRAM gate knows sendmail,
+# sm-mta and sm-msp-queue but not sm-acceptingconnections, so lines from that
+# ident match the rule and arrive undecorated.
+rev: 2
 msg: "[SENDMAIL] spam / relay reject"
 severity: low
 classtype: misc-activity
@@ -13,6 +18,8 @@ daemons:
   - sendmail
   - sm-mta
   - sm-acceptingconnections
+mungers:
+  - sendmail
 message_regexp:
   - '^(?:\w{14,20}: )?ruleset=check_rcpt, arg1=<\S+@\S+>, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=(?:550 5\.7\.1(?: <\S+@\S+>\.\.\.)?(?: Relaying denied\.)? (?:IP name possibly forged \[(?:\d+\.){3}\d+\]|Proper authentication required\.|IP name lookup failed \[(?:\d+\.){3}\d+\]|Fix reverse DNS for \S+)|553 5\.1\.8(?: <\S+@\S+>\.\.\.)? Domain of sender address \S+ does not exist|550 5\.[71]\.1 <\S+@\S+>\.\.\. (?:Rejected: .*|User unknown))$'
   - '^(?:\w{14,20}: )?ruleset=check_relay(?:, arg\d+=\S*)*, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=421 4\.3\.2 (?:Connection rate limit exceeded\.|Too many open connections\.)$'

@@ -5,7 +5,13 @@
 # The rhost of a PAM failure is not always a IP... some services hand PAM a
 # hostname, so this uses the HOST token and ban_var and whatever matched is
 # what gets sent to Ereshkigal.
-rev: 2
+#
+# The pam munger names the service the stack was running under, the account
+# the failure was about, and the tty... all of which this rule steps over on
+# its way to the rhost. It reads the modern pam_unix(service:type) phrasing
+# only, so the older `(pam_unix)` and bare `pam_unix:` forms the regexp still
+# matches arrive with the offender alone.
+rev: 3
 msg: "[PAM] authentication failure"
 severity: high
 classtype: brute-force
@@ -14,8 +20,11 @@ mark:
     ttl: 21600
 daemons:
   - //.//
+mungers:
+  - pam
 message_regexp:
   - '^\(?pam_[a-z0-9_]+(?:\(\S+\))?\)?:? authentication failure;(?:\s*(?:logname|e?uid|tty)=\S*){0,4}\s+ruser=\S* rhost=%%%%HOST%%%%(?:\s+user=\S*)?\s*$'
+user_var: pam_user
 ban_var:
   - HOST
 tests:

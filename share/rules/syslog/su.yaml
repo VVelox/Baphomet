@@ -7,7 +7,11 @@
 # sudo twin is syslog/sudo-policy. Only failures match... the success forms
 # (a bare "(to root) user on tty", or a "+" prefixed line) are left to sail
 # past, so a normal su never trips it. See docs/rules and docs/eve.
-rev: 2
+#
+# The pam munger joins the su one for the third pattern... the su decoder does
+# not read a PAM stack line, and pam names the target account and the tty on
+# it.
+rev: 3
 msg: "[SU] authentication failure"
 severity: medium
 classtype: attempted-admin
@@ -15,6 +19,7 @@ daemons:
   - su
 mungers:
   - su
+  - pam
 message_regexp:
   # util-linux, verbose... "FAILED SU (to root) kitsune on pts/0"
   - '^FAILED SU \(to \S+\) (?<USER>\S+) on \S+'

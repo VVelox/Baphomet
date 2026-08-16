@@ -3,6 +3,10 @@
 # or successful. See syslog/sshd-foreign-auth for the reasoning, the ordering
 # rule, and the traveler risk, all of which apply here unchanged.
 #
+# The dropbear munger rides along for the source port and, on the shapes it
+# reads, the method... see syslog/dropbear for what it does not read. The
+# account stays the rule's own USER capture, which covers every pattern here.
+#
 # The failure patterns are syslog/dropbear's, entire and verbatim. The success
 # pattern is written from dropbear's own output rather than mined from a
 # corpus... fail2ban annotates only failures, so no shipped test log carries a
@@ -11,11 +15,13 @@
 #
 # List AHEAD of syslog/dropbear: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 2
+rev: 3
 msg: "[DROPBEAR] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
 daemons:
+  - dropbear
+mungers:
   - dropbear
 message_regexp:
   # the success... password and pubkey alike
@@ -30,6 +36,7 @@ country:
   vars:
     - SRC
 src_ip_var: SRC
+src_port_var: dropbear_src_port
 user_var: USER
 ban_var:
   - SRC

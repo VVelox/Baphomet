@@ -11,12 +11,18 @@
 # List AHEAD of syslog/vsftpd and syslog/vsftpd-breach: a domestic event is
 # vetoed here without being consumed, and falls through to be counted there
 # exactly as before.
-rev: 1
+#
+# The mungers are syslog/vsftpd's, for the same reason... vsftpd names the
+# account on the LOGIN shape, pam on the pam_unix one.
+rev: 2
 msg: "[VSFTPD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
 daemons:
   - vsftpd
+mungers:
+  - vsftpd
+  - pam
 message_regexp:
   # success and failure in one shape
   - '^(?:\[pid \d+\] )?\[[^\]]+\] (?:OK|FAIL) LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
@@ -28,6 +34,7 @@ country:
   vars:
     - SRC
 src_ip_var: SRC
+user_var: vsftpd_user
 ban_var:
   - SRC
 max_score: 1

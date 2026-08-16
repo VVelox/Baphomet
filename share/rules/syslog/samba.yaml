@@ -7,7 +7,10 @@
 # IP and would fire on local share ACL rejections, so it is dropped. The
 # offender is in the trailing parens when a hostname leads, a bare address
 # otherwise.
-rev: 2
+#
+# The samba munger reads both halves of that shape, so the name the client
+# presented rides along beside the address rather than being discarded.
+rev: 3
 msg: "[SAMBA] connection denied"
 severity: high
 classtype: brute-force
@@ -16,6 +19,8 @@ mark:
     ttl: 21600
 daemons:
   - smbd
+mungers:
+  - samba
 message_regexp:
   - '(?:[dD]enied connection|[cC]onnection denied) from \S+ \(%%%%SRC%%%%\)'
   - '(?:[dD]enied connection|[cC]onnection denied) from %%%%SRC%%%%(?:\s|$)'
