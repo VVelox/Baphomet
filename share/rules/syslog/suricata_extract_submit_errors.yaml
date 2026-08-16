@@ -1,0 +1,94 @@
+---
+# The malware pipeline dropping samples. suricata_extract_submit runs from
+# cron, hands Suricata's carved files to a sandbox, and writes one "Run Stats"
+# JSON line per invocation. Every counter in it has a matching _delta giving
+# the change since the previous run, and the deltas are the only numbers worth
+# gating on... the totals are cumulative since the counter file was created and
+# will read as catastrophic forever after one bad afternoon.
+#
+# What this catches, and why each matters:
+#
+#   sub_fail_delta      submissions the sandbox did not accept. A live corpus
+#                       shows millions of these accumulated against errors=0,
+#                       so a 5xx from the sandbox is NOT counted as an error by
+#                       the submitter... nothing else will tell you.
+#   errors_delta        errors the submitter recorded itself, with the text in
+#                       last_errors.
+#   truncated_delta     files Suricata carved incomplete. The sample that
+#                       reaches the sandbox is not the sample that crossed the
+#                       wire, so a clean verdict means nothing.
+#
+# Any of the three means the same thing operationally: something crossed your
+# network, Suricata carved it, and nobody looked at it. That is a hole in
+# detection that leaves no trace anywhere else.
+#
+# Nothing is scanned for except the label. The `suricata_extract_submit` munger
+# captures the JSON blob and a decompose flattens it into ses_* fields, so the
+# gate reads numbers rather than picking at text.
+#
+# On the subject: the failure belongs to the service, not to any address, file
+# or sample... the line names none of those, only counts. So the rule counts by
+# the run itself and fires on the first one (max_score 1), the deltas riding
+# along in EVE where the triage actually happens. The host is the syslog tag's
+# own, and the instance question does not arise... there is one submitter.
+#
+# Detection-only. Nothing here is banishable.
+rev: 1
+msg: "[SURICATA-EXTRACT-SUBMIT] carved samples not submitted"
+severity: high
+classtype: program-error
+references:
+  - https://github.com/LilithSec/suricata_extract_submit
+daemons:
+  - suricata_extract_submit
+mungers:
+  - suricata_extract_submit
+message_regexp:
+  - '^(?<RUN>Run Stats): \{'
+selections:
+  submissions_failed:
+    - field: ses_sub_fail_delta
+      op: gt
+      value: 0
+  errors_recorded:
+    - field: ses_errors_delta
+      op: gt
+      value: 0
+  carved_truncated:
+    - field: ses_truncated_delta
+      op: gt
+      value: 0
+condition: "1 of them"
+detection_var:
+  - RUN
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    # submissions refused by the sandbox, with the submitter reporting no
+    # error of its own... the shape a live corpus actually shows
+    - message: 'Aug 13 09:22:00 ids01 suricata_extract_submit[7788]: Run Stats: {"errors":0,"errors_delta":0,"last_errors":[],"sub":115,"sub_2xx":113,"sub_2xx_delta":0,"sub_4xx":1,"sub_4xx_delta":0,"sub_5xx":2909714,"sub_5xx_delta":3,"sub_delta":3,"sub_fail":2909728,"sub_fail_delta":3,"sub_size":1844602685,"timestamp":1780440120,"truncated":0,"truncated_delta":0,"zero_sized":0,"zero_sized_delta":0}'
+      found: 1
+      data:
+        RUN: "Run Stats"
+        ses_sub_fail_delta: 3
+        ses_errors_delta: 0
+    - message: 'Aug 13 09:23:00 ids01 suricata_extract_submit[7789]: Run Stats: {"errors":2,"errors_delta":2,"last_errors":["failed to submit /var/log/suricata/files/file.4242"],"sub":117,"sub_2xx":115,"sub_2xx_delta":2,"sub_4xx":1,"sub_4xx_delta":0,"sub_5xx":2909714,"sub_5xx_delta":0,"sub_delta":2,"sub_fail":2909728,"sub_fail_delta":0,"sub_size":1844602685,"timestamp":1780440180,"truncated":0,"truncated_delta":0,"zero_sized":0,"zero_sized_delta":0}'
+      found: 1
+      data:
+        ses_errors_delta: 2
+        ses_last_errors_0: "failed to submit /var/log/suricata/files/file.4242"
+    - message: 'Aug 13 09:24:00 ids01 suricata_extract_submit[7790]: Run Stats: {"errors":0,"errors_delta":0,"last_errors":[],"sub":119,"sub_2xx":117,"sub_2xx_delta":2,"sub_4xx":1,"sub_4xx_delta":0,"sub_5xx":2909714,"sub_5xx_delta":0,"sub_delta":2,"sub_fail":2909728,"sub_fail_delta":0,"sub_size":1844602685,"timestamp":1780440240,"truncated":4,"truncated_delta":4,"zero_sized":0,"zero_sized_delta":0}'
+      found: 1
+      data:
+        ses_truncated_delta: 4
+  negative:
+    # a clean run... the cumulative totals are enormous and must not fire
+    - message: 'Aug 13 09:25:00 ids01 suricata_extract_submit[7791]: Run Stats: {"errors":0,"errors_delta":0,"last_errors":[],"sub":121,"sub_2xx":119,"sub_2xx_delta":2,"sub_4xx":1,"sub_4xx_delta":0,"sub_5xx":2909714,"sub_5xx_delta":0,"sub_delta":2,"sub_fail":2909728,"sub_fail_delta":0,"sub_size":1844602685,"timestamp":1780440300,"truncated":0,"truncated_delta":0,"zero_sized":0,"zero_sized_delta":0}'
+      found: 0
+    - message: 'Aug 13 09:26:00 ids01 suricata_extract_submit[7792]: None found at this time'
+      found: 0
+      undefed: ["RUN"]
+    - message: 'Aug 13 09:26:01 ids01 suricata_extract_submit[7792]: Looking for JSON files under /var/log/suricata/files/'
+      found: 0
+      undefed: ["RUN"]

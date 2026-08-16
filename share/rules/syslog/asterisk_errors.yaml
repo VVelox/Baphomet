@@ -1,0 +1,100 @@
+---
+# A PBX running degraded... a module that declined to load, a subsystem whose
+# config it could not read, an internal error. The ones that matter most are
+# the CDR and CEL modules: when those decline to load, asterisk keeps taking
+# calls and stops recording them, so the call detail record every dispute and
+# every audit depends on is silently not being written.
+#
+#   ERROR[112418]: loader.c:2687 in load_modules: cdr_custom declined to load.
+#   WARNING[112418]: cel_pgsql.c:463 in process_my_load_module: CEL pgsql config file missing global section.
+#   WARNING[112418]: loader.c:2572 in load_modules: Some non-required modules failed to load.
+#
+# WHAT THIS DELIBERATELY DOES NOT COUNT. An earlier revision took every ERROR
+# and WARNING, which on a live PBX means one thing: 16717 copies of "No
+# registered publish handler for event presence from 1002" across a month,
+# one phone with a presence subscription nobody configured a handler for.
+# Beside it sat deprecation notices, IAX2 frames for call numbers that no
+# longer exist, and registration attempts from endpoints... none of which say
+# the PBX is unwell. They are negative tests below.
+#
+# The endpoint-caused chatter is separable because the munger reads it into
+# endpoint fields rather than into a message, so requiring `asterisk_message`
+# drops most of it before the wording gate is reached. WARNING is then taken
+# only for the load-and-config vocabulary; ERROR is taken whole, being rare and
+# internal by nature.
+#
+# The subject is the message, so each failing module counts as its own thing...
+# `asterisk_function` would have bundled every module failure under
+# `load_modules` and lost which one it was. The source file and line ride along
+# in EVE.
+#
+# Detection-only. A module that will not load is a config or a package problem.
+rev: 2
+msg: "[ASTERISK] module or subsystem failure"
+severity: medium
+classtype: program-error
+daemons:
+  - asterisk
+mungers:
+  - asterisk
+# no message_regexp... the munger's fields are the matcher
+selections:
+  # the subject has to be on the line, and the endpoint-caused warnings decode
+  # into endpoint fields instead of this one
+  has_message:
+    - field: asterisk_message
+      op: exists
+  fail_error:
+    - field: asterisk_level
+      op: eq
+      value: ERROR
+  fail_load:
+    - field: asterisk_message
+      op: re
+      value: '(?:declined to load|failed to load|[Uu]nable to load|[Uu]nable to open|[Uu]nable to bind|[Ff]ailed to bind|config file missing|[Uu]nable to create|[Uu]nable to register|[Uu]nable to connect to|error loading)'
+condition: "has_message and 1 of fail_*"
+detection_var:
+  - asterisk_message
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    - message: "Aug 13 09:02:00 pbx01 asterisk[37046]: ERROR[112418]: loader.c:2687 in load_modules: cdr_custom declined to load."
+      found: 1
+      data:
+        asterisk_level: "ERROR"
+        asterisk_message: "cdr_custom declined to load."
+        asterisk_source_file: "loader.c"
+    - message: "Aug 13 09:02:01 pbx01 asterisk[37046]: ERROR[112418]: loader.c:2687 in load_modules: cel_custom declined to load."
+      found: 1
+      data:
+        asterisk_message: "cel_custom declined to load."
+    - message: "Aug 13 09:02:02 pbx01 asterisk[37046]: WARNING[112418]: cel_pgsql.c:463 in process_my_load_module: CEL pgsql config file missing global section."
+      found: 1
+      data:
+        asterisk_level: "WARNING"
+        asterisk_message: "CEL pgsql config file missing global section."
+    - message: "Aug 13 09:02:03 pbx01 asterisk[37046]: WARNING[112418]: loader.c:2572 in load_modules: Some non-required modules failed to load."
+      found: 1
+      data:
+        asterisk_message: "Some non-required modules failed to load."
+    - message: "Aug 13 10:14:02 pbx01 asterisk[37046]: ERROR[1052343]: netsock2.c:96 in ast_sockaddr_stringify_fmt: getnameinfo(): Address family not recognized"
+      found: 1
+      data:
+        asterisk_level: "ERROR"
+  negative:
+    # one phone, sixteen thousand times a month
+    - message: "Aug 13 09:02:44 pbx01 asterisk[37046]: WARNING[1052319]: res_pjsip_pubsub.c:3635 in pubsub_on_rx_publish_request: No registered publish handler for event presence from 1002"
+      found: 0
+      undefed: ["asterisk_message"]
+    - message: "Aug 13 09:03:10 pbx01 asterisk[37046]: WARNING[112418]: loader.c:2666 in load_modules: Module 'app_getcpeid' has been loaded but may be removed in a future release."
+      found: 0
+    - message: "Aug 13 09:03:11 pbx01 asterisk[37046]: WARNING[1036752]: pbx_config.c:2003 in startup_event_cb: users.conf is deprecated and will be removed in a future version of Asterisk"
+      found: 0
+    - message: "Aug 13 08:31:19 pbx01 asterisk[37046]: WARNING[1052342]: chan_iax2.c:10454 in socket_process_helper: Silently dropping frame without existent call number: 8263"
+      found: 0
+    # the registration failure syslog/asterisk counts and bans on
+    - message: "Aug 13 09:03:00 pbx01 asterisk[37046]: NOTICE[32257]: chan_sip.c:23417 in handle_request_register: Registration from '<sip:301@example.com>' failed for '203.0.113.100:36998' - Wrong password"
+      found: 0
+    - message: "Aug 13 09:04:00 pbx01 asterisk[37046]: VERBOSE[1052319]: pbx.c:4293 in pbx_extension_helper: Executing [1001@internal:1] Dial(\"PJSIP/1002-00000001\", \"PJSIP/1001,30\")"
+      found: 0

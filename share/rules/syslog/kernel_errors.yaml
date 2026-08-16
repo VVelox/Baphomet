@@ -1,0 +1,77 @@
+---
+# A process the kernel had to kill on a fault. FreeBSD writes one line per
+# death naming the process, its jail, the uid it ran as and the signal, and
+# this counts the signals that mean the program broke rather than the ones that
+# mean somebody stopped it... SIGILL, SIGTRAP, SIGABRT, SIGEMT, SIGFPE, SIGBUS
+# and SIGSEGV. A TERM or a KILL is an operator or a supervisor and is left
+# alone.
+#
+# This is the sibling of syslog/linux-auditd-abend for hosts with no auditd,
+# and it is a security signal before it is an operations one. One segfault in a
+# build is noise; a run of them in the same network-facing binary is what
+# somebody working out an offset looks like from the outside, which is why the
+# subject is the process name and the threshold is low.
+#
+# The `kernel` munger reads the shape, so the jail id and the uid ride along in
+# EVE... on a host running jails those are what say WHICH tenant crashed, and
+# a uid of 0 says it was crashing as root.
+#
+# Detection-only. There is no address on the line and nothing to banish; what
+# it wants is a person looking at a core file.
+rev: 1
+msg: "[KERNEL] process died on a fault signal"
+severity: medium
+classtype: program-error
+attack:
+  - T1499.004
+mark:
+  - name: exploit_attempt
+    ttl: 21600
+daemons:
+  - kernel
+mungers:
+  - kernel
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: kernel_comm
+    op: exists
+  # 4 ILL, 5 TRAP, 6 ABRT, 7 EMT, 8 FPE, 10 BUS, 11 SEGV
+  - field: kernel_signal
+    op: re
+    value: '^(?:4|5|6|7|8|10|11)$'
+detection_var:
+  - kernel_comm
+max_score: 3
+find_time: 600
+tests:
+  positive:
+    - message: "Aug 13 00:01:52 web01 kernel: pid 27187 (php-fpm), jid 2, uid 1042: exited on signal 11 (no core dump - denied by kern.coredump)"
+      found: 1
+      data:
+        kernel_comm: "php-fpm"
+        kernel_signal: 11
+        kernel_jid: 2
+        kernel_uid: 1042
+    - message: "Aug 13 09:56:20 web01 kernel: pid 60776 (conftest), jid 96, uid 0: exited on signal 11 (no core dump - denied by kern.coredump)"
+      found: 1
+      data:
+        kernel_comm: "conftest"
+        kernel_uid: 0
+    - message: "Aug 13 01:27:55 desk01 kernel: pid 85314 (xsession-gfx), jid 0, uid 1001: exited on signal 6 (no core dump - denied by kern.coredump)"
+      found: 1
+      data:
+        kernel_comm: "xsession-gfx"
+        kernel_signal: 6
+    - message: "Aug 12 04:11:02 web01 kernel: pid 91532 (mksnapshot), jid 94, uid 0: exited on signal 5 (no core dump - denied by kern.coredump)"
+      found: 1
+      data:
+        kernel_signal: 5
+  negative:
+    # stopped, not broken
+    - message: "Aug 12 04:11:03 web01 kernel: pid 91533 (sleep), jid 94, uid 0: exited on signal 15 (no core dump - denied by kern.coredump)"
+      found: 0
+    - message: "Aug 12 04:11:04 web01 kernel: pid 91534 (dd), jid 0, uid 0: exited on signal 9 (no core dump - denied by kern.coredump)"
+      found: 0
+    - message: "Aug 13 06:12:44 web01 kernel: uhub_reattach_port: device problem (USB_ERR_IOERROR), disabling port 2"
+      found: 0
+      undefed: ["kernel_comm"]

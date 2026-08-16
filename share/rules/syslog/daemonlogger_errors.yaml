@@ -1,0 +1,68 @@
+---
+# The capture sensor losing packets. daemonlogger reports what it did not
+# manage to write when it rolls a file or exits:
+#
+#   1482 packets dropped by kernel (0.42%)
+#
+# Same class of failure as syslog/syslogd_errors, one layer down. A dropped
+# packet is a flow that was never recorded, never carved, and never submitted
+# anywhere... it is a hole in the pcap that no later analysis can tell apart
+# from an hour in which nothing happened. Sustained drops mean the sensor is
+# under-provisioned for the link it is on, and a spike means something filled
+# the pipe... which is also what the traffic worth capturing looks like.
+#
+# Nothing is scanned for beyond the word that says where the loss happened. The
+# `daemonlogger` munger reads the counters and converts them, the percentage as
+# a float, so the gate compares numbers.
+#
+# The subject is the layer that dropped them, kernel or interface. That is a
+# two-valued subject on purpose... the interesting quantity is the percentage,
+# which rides along in EVE, and the question a reader asks first is whether the
+# capture stack or the NIC gave up.
+#
+# On the threshold. A busy sensor drops a handful of packets at rollover and
+# always will, so this fires on the third report inside an hour rather than the
+# first... a sensor that is genuinely behind reports at every rotation. Raise
+# the gate's percentage rather than max_score if your link runs hot and you
+# only care past a point.
+#
+# Detection-only.
+rev: 1
+msg: "[DAEMONLOGGER] capture dropping packets"
+severity: medium
+classtype: program-error
+daemons:
+  - daemonlogger
+mungers:
+  - daemonlogger
+message_regexp:
+  - 'packets dropped by (?<LAYER>kernel|interface)'
+gate:
+  - field: dlog_drop_percent
+    op: exists
+  - field: dlog_drop_percent
+    op: gt
+    value: 0
+detection_var:
+  - LAYER
+max_score: 3
+find_time: 3600
+tests:
+  positive:
+    - message: "Aug 13 05:01:00 ids01 daemonlogger[2200]: 1482 packets dropped by kernel (0.42%)"
+      found: 1
+      data:
+        LAYER: "kernel"
+        dlog_packets_dropped_kernel: 1482
+        dlog_drop_percent: 0.42
+    - message: "Aug 13 05:02:00 ids01 daemonlogger[2200]: 99120 packets dropped by kernel (11.7%)"
+      found: 1
+      data:
+        LAYER: "kernel"
+        dlog_drop_percent: 11.7
+  negative:
+    - message: "Aug 13 05:00:00 ids01 daemonlogger[2200]: 0 packets dropped by kernel (0.00%)"
+      found: 0
+    - message: "Aug 13 04:59:00 ids01 daemonlogger[2200]: Opened pcap file /var/log/daemonlogger/pcap.1780440000"
+      found: 0
+      undefed: ["LAYER"]
