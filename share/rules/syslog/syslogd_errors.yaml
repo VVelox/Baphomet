@@ -1,0 +1,59 @@
+---
+# The log itself losing lines. When rsyslog's rate limiter engages it throws
+# messages away and says so once the flood stops:
+#
+#   imuxsock: 1234 messages lost due to rate-limiting
+#
+# Every rule in this deployment reads a log that is assumed complete. This is
+# the line that says it was not, and it is the only one... the discarded
+# messages leave no other trace anywhere. Whatever was happening loudly enough
+# to trip the limiter is exactly what the gallas did not see, which makes this
+# an evasion signal as much as a capacity one: a burst is what floods a rate
+# limiter, and a burst is what an attack looks like.
+#
+# Nothing is scanned for. The `syslog_daemon` munger reads the shape and
+# converts the count, so the gate is arithmetic rather than a wording match.
+#
+# The subject is the input module that dropped them (imuxsock, imjournal,
+# imudp, ...), which says whether the loss was local, from the journal, or from
+# the network. The count rides along in EVE.
+#
+# max_score of 1: a gap in the record is worth knowing about the first time.
+#
+# Detection-only. The fault is a limiter that wants raising, or a daemon that
+# wants quieting... neither is banishable.
+rev: 1
+msg: "[SYSLOGD] log messages discarded by the rate limiter"
+severity: medium
+classtype: program-error
+daemons:
+  - //^(?:syslogd|rsyslogd|syslog-ng)$//
+mungers:
+  - syslog_daemon
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: syslogd_lost
+    op: exists
+  - field: syslogd_lost
+    op: gt
+    value: 0
+detection_var:
+  - syslogd_module
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    - message: "Aug 13 04:51:00 fw01 rsyslogd[610]: imuxsock: 1234 messages lost due to rate-limiting"
+      found: 1
+      data:
+        syslogd_module: "imuxsock"
+        syslogd_lost: 1234
+    - message: "Aug 13 04:52:00 fw01 rsyslogd[610]: imjournal: 42 messages lost due to rate-limiting"
+      found: 1
+      data:
+        syslogd_module: "imjournal"
+        syslogd_lost: 42
+  negative:
+    - message: "Aug 13 04:50:00 fw01 syslogd[610]: restart"
+      found: 0
+      undefed: ["syslogd_lost"]

@@ -1,0 +1,96 @@
+---
+# The far end of the same failure syslog/galla_errors watches, seen from the
+# side that owns the firewall. Three shapes, one meaning: Kur was asked to ban
+# something and did not.
+#
+#   ban of "not-an-ip" failed... does not appear to be a IPv4 or IPv6 IP
+#   dropping CIDR command... CIDR bans are not enabled for this kur
+#   skipping malformed line 5 in "/var/cache/ereshkigal/kur.loader.csv"... "not,enough"
+#
+# The middle one is the quiet one. Nothing upstream is told that the network
+# ban went nowhere... the galla logged a banishment, the operator saw a
+# banishment, and the packets keep arriving. The first says something upstream
+# is handing Kur a target it cannot parse, which is either a rule extracting
+# the wrong field or something a client wrote getting as far as the ban
+# pipeline. The third is a ban list that will not load, so bans meant to
+# survive a restart did not.
+#
+# Nothing is scanned for... the `kur` munger reads all three and the selections
+# gate on whichever field each leaves behind. That is also why there are three
+# subjects: every shape defines exactly one of them, so a line counts by the
+# thing that failed... the target that would not parse, the reason a CIDR was
+# thrown away, or the file that would not load.
+#
+# max_score of 1, for the reason syslog/galla_errors carries it: a ban that did
+# not happen is the alert.
+#
+# Detection-only. The fault is the suite's own or its caller's.
+rev: 1
+msg: "[KUR] ban request not carried out"
+severity: critical
+classtype: program-error
+references:
+  - https://github.com/LilithSec/Ereshkigal
+daemons:
+  - //^kur(?:-\S+)?$//
+mungers:
+  - kur
+# no message_regexp... the munger's fields are the matcher
+selections:
+  ban_failed:
+    - field: kur_error
+      op: exists
+  cidr_dropped:
+    - field: kur_drop_reason
+      op: exists
+  loader_malformed:
+    - field: kur_line_number
+      op: exists
+condition: "1 of them"
+detection_var:
+  - kur_error
+  - kur_drop_reason
+  - kur_file
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    - message: 'Aug 13 04:19:02 fw01 kur-sshd[4321]: ban of "not-an-ip" failed... does not appear to be a IPv4 or IPv6 IP'
+      found: 1
+      data:
+        kur_target: "not-an-ip"
+        kur_error: "does not appear to be a IPv4 or IPv6 IP"
+    - message: 'Aug 13 04:19:03 fw01 kur-suricata[4321]: cidr ban of "not-a-cidr" failed... does not appear to be a IPv4 or IPv6 CIDR'
+      found: 1
+      data:
+        kur_ban_kind: "cidr"
+        kur_target: "not-a-cidr"
+    - message: 'Aug 13 04:21:44 fw01 kur-recidive[4321]: dropping CIDR command... CIDR bans are not enabled for this kur'
+      found: 1
+      data:
+        kur_action: "dropping CIDR command"
+        kur_drop_reason: "CIDR bans are not enabled for this kur"
+    - message: 'Aug 13 04:21:45 fw01 kur-sshd[4321]: dropping CIDR command... the "dummy" backend does not support CIDR bans'
+      found: 1
+      data:
+        kur_drop_reason: 'the "dummy" backend does not support CIDR bans'
+    - message: 'Aug 13 04:15:09 fw01 kur-sshd[4321]: skipping malformed line 5 in "/var/cache/ereshkigal/kur.loader.csv"... "not,enough"'
+      found: 1
+      data:
+        kur_line_number: 5
+        kur_file: "/var/cache/ereshkigal/kur.loader.csv"
+        kur_line: "not,enough"
+  negative:
+    - message: 'Aug 13 04:19:00 fw01 kur-sshd[4321]: banned 192.0.2.7 expires=1785727347'
+      found: 0
+      undefed: ["kur_error"]
+    - message: 'Aug 13 04:19:01 fw01 kur-sshd[4321]: banned cidr 192.0.2.0/24 expires=0'
+      found: 0
+      undefed: ["kur_error"]
+    # an ordinary expiry, not a failure
+    - message: 'Aug 13 05:19:00 fw01 kur-sshd[4321]: ban of 192.0.2.7 expired'
+      found: 0
+      undefed: ["kur_error"]
+    - message: 'Aug 13 04:14:00 fw01 kur-sshd[4321]: started... socket=/var/run/ereshkigal/kur/sshd.sock backend=pf'
+      found: 0
+      undefed: ["kur_error"]

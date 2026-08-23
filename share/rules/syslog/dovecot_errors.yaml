@@ -1,0 +1,65 @@
+---
+# dovecot saying Error, Fatal or Panic... a mailbox it could not write, an SSL
+# context that would not initialize, an auth worker that went away mid-request.
+# Built from a live IMAP server's log.
+#
+# One of these is worth more than the rest. When dovecot cannot build its SSL
+# server context it keeps answering, so the failure is invisible from the
+# outside except as clients that suddenly cannot log in... and a mail server
+# whose TLS is not starting is a mail server handing credentials to whatever is
+# on the wire. That line carries the reason (a DH parameter it will not accept,
+# a certificate it cannot read) and this rule is the only thing that will tell
+# you about it.
+#
+# Nothing is scanned for... the `dovecot` munger separates the level, the
+# service and the text. The subject is the service (imap, auth, lda, lmtp),
+# which is low-cardinality and says where the fault is; the message rides along
+# in EVE.
+#
+# Detection-only. Nothing here is an attacker, and the login failures that are
+# belong to syslog/dovecot.
+rev: 1
+msg: "[DOVECOT] service error"
+severity: medium
+classtype: program-error
+daemons:
+  - dovecot
+  - dovecot-auth
+  - //^dovecot//
+mungers:
+  - dovecot
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: dovecot_level
+    op: re
+    nocase: true
+    value: '^(?:error|fatal|panic)$'
+detection_var:
+  - dovecot_service
+max_score: 5
+find_time: 600
+tests:
+  positive:
+    - message: "Aug  1 00:03:00 mail01 dovecot[62102]: imap-login: Error: Failed to initialize SSL server context: Can't load DH parameters (ssl_dh setting): error:0A00018A:SSL routines::dh key too small: user=<>, rip=192.0.2.11, lip=192.0.2.42, session=<iAgaOPVXTWfAqA0L>"
+      found: 1
+      data:
+        dovecot_level: "Error"
+        dovecot_service: "imap"
+    - message: "Aug  1 11:10:14 mail01 dovecot[62102]: auth: Error: auth client 0 disconnected with 1 pending requests: EOF"
+      found: 1
+      data:
+        dovecot_level: "Error"
+        dovecot_service: "auth"
+        dovecot_message: "auth client 0 disconnected with 1 pending requests: EOF"
+    - message: "Aug 10 00:00:03 mail01 dovecot[78312]: lda(neti)<78312><zs+5AtJaeWroMQEAHlxYLA>: Error: Mailbox Admin: pwrite_full() failed with file /home/neti/Maildir/.Admin/dovecot.index.cache: File too large (process was started with ulimit -f limit)"
+      found: 1
+      data:
+        dovecot_level: "Error"
+  negative:
+    - message: "Aug 12 00:00:28 mail01 dovecot[23709]: imap-login: Login: user=<neti>, method=PLAIN, rip=127.0.0.1, lip=127.0.0.1, mpid=94432, secured, session=<3DpSd9JYabl/AAAB>"
+      found: 0
+      undefed: ["dovecot_level"]
+    # an authentication failure... syslog/dovecot's business, and not an Error
+    - message: "Aug 12 03:14:02 mail01 dovecot[23709]: imap-login: Disconnected: Too many invalid commands (auth failed, 1 attempts in 4 secs): user=<neti>, method=PLAIN, rip=203.0.113.130, lip=192.0.2.42, session=<pxzG5u5YcKLStkmC>"
+      found: 0
+      undefed: ["dovecot_level"]

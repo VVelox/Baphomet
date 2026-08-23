@@ -3,7 +3,10 @@
 # filter, translated to Baphomet and simplified... the FAIL: prefregex is
 # folded into each regexp. "address" is a xinetd deny_from/only_from
 # rejection and "libwrap" a tcp wrappers hosts.(allow|deny) rejection.
-rev: 2
+#
+# The xinetd munger rides along for the service that was reached for and the
+# reason it was refused, both of which the regexps step over.
+rev: 3
 msg: "[XINETD] connection failure"
 severity: medium
 classtype: attempted-recon
@@ -11,6 +14,8 @@ mark:
   - name: recon
     ttl: 86400
 daemons:
+  - xinetd
+mungers:
   - xinetd
 message_regexp:
   - '^FAIL: \S+ address from=%%%%SRC%%%%$'

@@ -1,7 +1,13 @@
 ---
 # Matches vsftpd failures. Based on the fail2ban vsftpd filter,
 # translated to Baphomet.
-rev: 2
+#
+# Two mungers because the rule matches two daemons' phrasings... vsftpd reads
+# the FAIL LOGIN shape and names the account tried, pam the
+# pam_unix(vsftpd:auth) shape beside it. The address stays the rule's own SRC
+# capture: vsftpd hands its client address over with any ::ffff: prefix
+# intact, and SRC strips it.
+rev: 3
 msg: "[VSFTPD] login failure"
 severity: high
 classtype: brute-force
@@ -10,10 +16,14 @@ mark:
     ttl: 21600
 daemons:
   - vsftpd
+mungers:
+  - vsftpd
+  - pam
 message_regexp:
   - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
   - '^(?:\[pid \d+\] )?\[[^\]]+\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
 src_ip_var: SRC
+user_var: vsftpd_user
 ban_var:
   - SRC
 tests:

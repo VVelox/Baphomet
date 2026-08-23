@@ -1,0 +1,74 @@
+---
+# PostgreSQL raising ERROR, FATAL or PANIC. Built from a live database's log,
+# where the repeating ones are a missing relation (an application deployed
+# against a schema that was never migrated), a constraint violation, and input
+# the server refused to coerce.
+#
+# Worth having as security signal as much as operations. A constraint violation
+# or a type error arriving in a burst is what an injection attempt looks like
+# from the database's side... the payload broke the query rather than the
+# server, and the application above may well have swallowed the exception
+# without saying anything.
+#
+# Nothing is scanned for. The `postgresql` munger reads the log_line_prefix and
+# separates the level from the text, including across the [N-1] chunking syslog
+# splits long statements into. The password-authentication failures are gated
+# OUT... they arrive at FATAL in this same shape, and syslog/postgresql bans on
+# them.
+#
+# The subject is the message text, which is what repeats when something is
+# broken. The prefix (timestamp, pid, and whatever %-escapes the server was
+# configured for) rides along in EVE for the join back to the session.
+#
+# Detection-only... the client is the application, not an attacker to banish,
+# and where it is not, it is syslog/postgresql that says so.
+rev: 1
+msg: "[POSTGRESQL] database error"
+severity: low
+classtype: program-error
+daemons:
+  - //^postgres(?:ql)?(?:[-_]\w+)?$//
+mungers:
+  - postgresql
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: pgsql_level
+    op: re
+    value: '^(?:ERROR|FATAL|PANIC)$'
+  # the brute force belongs to syslog/postgresql. The munger reads an auth
+  # failure into its own field rather than into pgsql_message, so requiring
+  # that field to be absent is the whole exclusion
+  - field: pgsql_auth_error
+    op: exists
+    negate: true
+detection_var:
+  - pgsql_message
+max_score: 10
+find_time: 600
+tests:
+  positive:
+    - message: "Aug 13 09:17:35 db01 postgres[96509]: [6-1] 2026-08-13 09:17:35.222 CDT [96509] ERROR:  relation \"deployment_versions\" does not exist at character 24"
+      found: 1
+      data:
+        pgsql_level: "ERROR"
+        pgsql_message: "relation \"deployment_versions\" does not exist at character 24"
+    - message: "Aug 13 00:34:00 db01 postgres[87004]: [7-1] 2026-08-13 00:34:00.871 CDT [87004] ERROR:  unsupported Unicode escape sequence"
+      found: 1
+      data:
+        pgsql_level: "ERROR"
+    - message: "Aug 10 12:48:15 db01 postgres[59741]: [6-1] 2026-08-10 12:48:15.302 CDT [59741] ERROR:  null value in column \"malscore\" of relation \"alerts\" violates not-null constraint"
+      found: 1
+      data:
+        pgsql_level: "ERROR"
+    - message: "Aug 10 18:33:10 db01 postgres[10798]: [7-1] 2026-08-10 18:33:10.715 CDT [10798] ERROR:  invalid input syntax for type inet: \"203.0.113.31 203.0.113.30\""
+      found: 1
+      data:
+        pgsql_level: "ERROR"
+  negative:
+    # the auth failure syslog/postgresql bans on
+    - message: "Jul 14 08:15:50 db01 postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] bob@maindb 203.0.113.10 FATAL:  password authentication failed for user \"bob\""
+      found: 0
+    - message: "Aug 13 00:34:01 db01 postgres[87004]: [7-2] 2026-08-13 00:34:00.871 CDT [87004] DETAIL:  \\u0000 cannot be converted to text."
+      found: 0
+    - message: "Aug 13 09:00:00 db01 postgres[87004]: [1-1] 2026-08-13 09:00:00.000 CDT [87004] LOG:  checkpoint starting: time"
+      found: 0

@@ -11,7 +11,7 @@
 # against a firewall's management plane are the brute-force shape
 # whatever the label, so the brute_force brand is set, feeding the
 # standard-vocabulary readers the same way raw/fortinet-admin-auth does.
-rev: 2
+rev: 3
 msg: "[SONICWALL] admin/user login failed"
 severity: high
 classtype: unsuccessful-admin
@@ -34,6 +34,9 @@ src_ip_var: sw_offender_ip
 dest_ip_var: sw_dst_ip
 src_port_var: sw_src_port
 dest_port_var: sw_dst_port
+# the decomposed usr=, not a scan of the line... the same reason the offender
+# is sw_offender_ip, as raw/fortinet-admin-auth does with fg_user
+user_var: sw_usr
 ban_var:
   - sw_offender_ip
 tests:

@@ -1,0 +1,135 @@
+---
+# A zone this server is failing to serve. Three ways that happens, and the
+# munger reads all three:
+#
+#   zone example.net/IN/internal-view: loading from master file /etc/namedb/master/example.net failed: file not found
+#   zone 255.in-addr.arpa/IN/internal-view: not loaded due to errors.
+#   transfer of 'example.net/IN' from 192.0.2.53#53: failed while receiving responses: end of file
+#
+# The first two are a primary with a zone file it cannot read or cannot parse,
+# so the zone is not being answered for at all. The third is a secondary that
+# is not getting its copy... which is silent until the SOA expire timer runs
+# out, and then the zone disappears from that server with no further warning.
+#
+# WHAT THIS DELIBERATELY DOES NOT COUNT, and it is the whole point of the rule.
+# A recursive server spends its day talking to broken authorities: SERVFAIL and
+# REFUSED coming back, queries timing out, connections refused, FORMERR replies
+# with echoed cookies. Those say the far end is broken. They say nothing about
+# this server, they arrive constantly on any resolver facing the internet, and
+# counting them buries the lines above under thousands of hits about somebody
+# else's DNS. They are negative tests below so it stays that way.
+#
+# Nothing is scanned for... the `named` munger decomposes the zone lines and
+# the selections gate on the field each leaves behind. The zone-status gate
+# names the failing wordings rather than testing for presence, because that
+# capture is a catch-all... "loaded serial", "sending notifies" and the rest of
+# a healthy zone's life arrive in the same field.
+#
+# The subject is the zone, which every one of these shapes names. The view, the
+# master file, the reason and the master's address ride along in EVE.
+#
+# max_score of 1. A zone that will not load is not a threshold matter... it is
+# either being served or it is not, and one line saying it is not is the alert.
+#
+# Detection-only. The fault is a file, a permission, or a master that will not
+# answer, and none of those is banishable.
+rev: 2
+msg: "[NAMED] zone not loaded, expired, or failing transfer"
+severity: high
+classtype: program-error
+references:
+  - https://bind9.readthedocs.io/en/latest/chapter6.html
+daemons:
+  - //^named(?:-\w+)?$//
+mungers:
+  - named
+# no message_regexp... the munger's fields are the matcher
+selections:
+  # the subject has to be on the line. bind also logs the parse error itself
+  # ("/etc/namedb/master/db.example:11: unknown RR type 'MS'"), which names the
+  # file and the line but not the zone... it always arrives beside the
+  # zone-level line below, so requiring a zone name here loses nothing and
+  # keeps every match countable
+  has_zone:
+    - field: dns_zone_name
+      op: exists
+  # "loading from master file X failed: <reason>"
+  fail_file:
+    - field: dns_zone_error
+      op: exists
+  # the zone-status catch-all, narrowed to the wordings that mean trouble
+  fail_status:
+    - field: dns_zone_status
+      op: re
+      value: '^(?:not loaded|expired|refresh: (?:failure|retry limit|unexpected rcode|non-authoritative)|transfer: (?:failed|could not)|journal rollforward failed|has no NS records|has \d+ SOA records|out of memory|unable to fetch DNSKEY)'
+  # a secondary not getting its copy
+  fail_xfr:
+    - field: dns_xfr_result
+      op: re
+      value: '^(?:failed|connection|timed out|giving up|could not|refused|Transfer status: (?!success))'
+condition: "has_zone and 1 of fail_*"
+detection_var:
+  - dns_zone_name
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    - message: "Aug 13 11:27:02 ns01 named[55104]: zone localhost/IN/internal-view: loading from master file /usr/local/etc/namedb/master/localhost-forward.db failed: file not found"
+      found: 1
+      data:
+        dns_zone_name: "localhost"
+        dns_zone_file: "/usr/local/etc/namedb/master/localhost-forward.db"
+        dns_zone_error: "file not found"
+        dns_view: "internal-view"
+    - message: "Aug 13 11:27:02 ns01 named[55104]: zone 12.168.192.in-addr.arpa/IN/internal-view: loading from master file /usr/local/etc/namedb/master/12.168.192.in-addr.arpa failed: unknown class/type"
+      found: 1
+      data:
+        dns_zone_name: "12.168.192.in-addr.arpa"
+        dns_zone_error: "unknown class/type"
+    - message: "Aug 13 11:27:03 ns01 named[55104]: zone 255.in-addr.arpa/IN/internal-view: not loaded due to errors."
+      found: 1
+      data:
+        dns_zone_name: "255.in-addr.arpa"
+        dns_zone_status: "not loaded due to errors."
+    - message: "Aug 13 06:02:11 ns01 named[55104]: zone example.net/IN/external-view: expired"
+      found: 1
+      data:
+        dns_zone_name: "example.net"
+    - message: "Aug 13 06:12:44 ns01 named[55104]: zone example.org/IN: refresh: failure trying master 192.0.2.53#53 (source 0.0.0.0#0): operation canceled"
+      found: 1
+      data:
+        dns_zone_name: "example.org"
+    - message: "Aug 13 06:15:00 ns01 named[55104]: transfer of 'example.net/IN' from 192.0.2.53#53: failed while receiving responses: end of file"
+      found: 1
+      data:
+        dns_zone_name: "example.net"
+        dns_xfr_result: "failed while receiving responses: end of file"
+        dns_src_ip: "192.0.2.53"
+  negative:
+    # a zone doing exactly what it should
+    - message: "Aug 13 11:27:04 ns01 named[55104]: zone example.net/IN/internal-view: loaded serial 2013011400"
+      found: 0
+    - message: "Aug 13 11:27:05 ns01 named[55104]: zone example.net/IN/internal-view: sending notifies (serial 2013011400)"
+      found: 0
+    - message: "Aug 13 06:16:00 ns01 named[55104]: transfer of 'example.net/IN' from 192.0.2.53#53: Transfer status: success"
+      found: 0
+    # THE INTERNET BEING BROKEN, WHICH IS NOT THIS SERVER'S BUSINESS.
+    # Every one of these is an ordinary event on a working recursor.
+    - message: "Aug 13 00:06:05 ns01 named[55104]: REFUSED unexpected RCODE resolving 'example.net/AAAA/IN': 198.51.100.194#53"
+      found: 0
+      undefed: ["dns_zone_name"]
+    - message: "Aug 13 09:45:22 ns01 named[55104]: timed out resolving 'host12.example.org/A/IN': 203.0.113.28#53"
+      found: 0
+      undefed: ["dns_zone_name"]
+    - message: "Aug 13 00:53:53 ns01 named[55104]: connection refused resolving 'ns1.example.com/A/IN': 192.0.2.35#53"
+      found: 0
+      undefed: ["dns_zone_name"]
+    - message: "Aug 13 09:03:40 ns01 named[55104]: DNS format error from 198.51.100.36#53 resolving example.com/MX for 192.0.2.11#27163: server sent FORMERR with echoed DNS COOKIE"
+      found: 0
+      undefed: ["dns_zone_name"]
+    - message: "Aug 13 04:12:19 ns01 named[55104]: SERVFAIL unexpected RCODE resolving 'edge.example.net/AAAA/IN': 203.0.113.255#53"
+      found: 0
+      undefed: ["dns_zone_name"]
+    # the client-denied line, which syslog/named-refused counts
+    - message: "Aug 13 02:14:44 ns01 named[55104]: client @0x39f7a2619c90 198.51.100.218#7279 (example.org): view external-view: query (cache) 'example.org/A/IN' denied (allow-query-cache did not match)"
+      found: 0

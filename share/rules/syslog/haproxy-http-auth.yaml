@@ -4,7 +4,11 @@
 # haproxy-http-auth filter, translated to Baphomet and simplified. Note
 # that even a successful login logs one such 401 first, so tune findtime
 # and maxretry accordingly.
-rev: 2
+#
+# The haproxy munger reads the rest of the line the 401 is buried in... the
+# frontend and backend that saw it, the request, the client port, the
+# termination state... none of which the regexp bothers to capture.
+rev: 3
 msg: "[HAPROXY] HTTP auth failure"
 severity: high
 classtype: brute-force
@@ -13,9 +17,12 @@ mark:
     ttl: 21600
 daemons:
   - haproxy
+mungers:
+  - haproxy
 message_regexp:
   - '^(?:::f{4,6}:)?%%%%SRC%%%%(?::\d+)?\s+.*<NOSRV> -1/-1/-1/-1/\+*\d* 401'
 src_ip_var: SRC
+src_port_var: haproxy_client_port
 ban_var:
   - SRC
 tests:

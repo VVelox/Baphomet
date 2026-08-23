@@ -1,0 +1,106 @@
+---
+# A watcher that will not stay up. Baphomet spawns one galla per kur and brings
+# it back when it dies, and five of the things it logs mean the same thing...
+# one of its children is not doing its job.
+#
+#   galla "sshd" PID 42876 exited with 2
+#   galla "sshd" died, restarting in 1 seconds
+#   galla "sshd" stderr... can't exec (galla --foreground --name sshd) in child pid 42876: No such file or directory
+#   galla "one" is still running past the stop grace period, sending KILL
+#   galla client "web" error during connect:connect to "/var/run/galla/web.sock"... No such file or directory (2)
+#
+# A galla that is down is a log nobody is reading. Not a ban that failed, as in
+# syslog/galla_errors... an offence that was never counted in the first place,
+# which leaves no trace anywhere at all. The supervisor is the only thing that
+# knows, and it says so once per restart and then goes quiet.
+#
+# Nothing is scanned for. The `baphomet` munger reads all five shapes and every
+# one of them names the child, so the subject is the galla and the count is how
+# often that one is in trouble.
+#
+# On the threshold. One death is an upgrade, a config reload, or an operator,
+# and firing on it would cry wolf at every deploy... three of the SAME child
+# inside ten minutes is a loop, and a galla that cannot exec or cannot be
+# reached hits that within seconds because it fails again on every restart. A
+# deployment that would rather hear about the first one lowers max_score to 1.
+#
+# Detection-only. There is no offender here but your own configuration.
+rev: 1
+msg: "[BAPHOMET] galla crash loop or unreachable"
+severity: high
+classtype: program-error
+references:
+  - https://github.com/VVelox/Baphomet
+daemons:
+  - baphomet
+mungers:
+  - baphomet
+# no message_regexp... the munger's fields are the matcher
+selections:
+  died:
+    - field: bph_action
+      op: eq
+      value: died
+  exited_nonzero:
+    - field: bph_exit_status
+      op: exists
+    - field: bph_exit_status
+      op: gt
+      value: 0
+  wrote_stderr:
+    - field: bph_stderr
+      op: exists
+  had_to_be_signalled:
+    - field: bph_signal
+      op: exists
+  unreachable:
+    - field: bph_error
+      op: exists
+condition: "1 of them"
+detection_var:
+  - bph_galla
+max_score: 3
+find_time: 600
+tests:
+  positive:
+    - message: 'Aug 13 04:31:00 fw01 baphomet[9001]: galla "sshd" died, restarting in 1 seconds'
+      found: 1
+      data:
+        bph_action: "died"
+        bph_galla: "sshd"
+        bph_restart_delay: 1
+    - message: 'Aug 13 04:31:01 fw01 baphomet[9001]: galla "sshd" PID 42876 exited with 2'
+      found: 1
+      data:
+        bph_action: "exited"
+        bph_galla: "sshd"
+        bph_exit_status: 2
+    - message: 'Aug 13 04:31:02 fw01 baphomet[9001]: galla "sshd" stderr... can''t exec (galla --foreground --name sshd) in child pid 42876: No such file or directory'
+      found: 1
+      data:
+        bph_galla: "sshd"
+        bph_stderr: "can't exec (galla --foreground --name sshd) in child pid 42876: No such file or directory"
+    - message: 'Aug 13 04:33:10 fw01 baphomet[9001]: galla "one" is still running past the stop grace period, sending KILL'
+      found: 1
+      data:
+        bph_galla: "one"
+        bph_signal: "KILL"
+    - message: 'Aug 13 04:34:00 fw01 baphomet[9001]: galla client "web" error during connect:connect to "/var/run/galla/web.sock"... No such file or directory (2)'
+      found: 1
+      data:
+        bph_galla: "web"
+        bph_galla_socket: "/var/run/galla/web.sock"
+        bph_error: "No such file or directory (2)"
+  negative:
+    # the ordinary stop... exit 0 is not a failure
+    - message: 'Aug 13 04:30:00 fw01 baphomet[9001]: galla "sshd" PID 42876 exited with 0'
+      found: 0
+    - message: 'Aug 13 04:29:00 fw01 baphomet[9001]: spawned galla "sshd" as PID 29308... /usr/local/bin/galla --foreground --name sshd --config /usr/local/etc/baphomet/config.toml'
+      found: 0
+      undefed: ["bph_error"]
+    - message: 'Aug 13 04:28:00 fw01 baphomet[9001]: started... socket=/var/run/baphomet/socket auth=off gallas=sshd,suricata'
+      found: 0
+      undefed: ["bph_error"]
+    - message: 'Aug 13 04:35:00 fw01 baphomet[9001]: stop requested'
+      found: 0
+      undefed: ["bph_error"]

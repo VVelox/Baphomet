@@ -1,0 +1,93 @@
+---
+# This server's own DNSSEC machinery failing. Two shapes, both about the
+# resolver rather than about whoever it was talking to:
+#
+#   managed-keys-zone/internal-view: Unable to fetch DNSKEY set '.': failure
+#   resolver priming query complete: failure
+#
+# A trust anchor that will not refresh is a resolver on its way to validating
+# nothing, and a priming query that fails is one that cannot reach the root at
+# all. Both are quiet: named keeps answering, and the answers keep looking
+# fine, right up until the anchor ages out.
+#
+# WHAT THIS NO LONGER COUNTS. An earlier revision of this rule fired on every
+# "validating example.com/A: no valid signature found", which is a remote zone
+# with broken signing and nothing to do with this server. A live resolver logs
+# thousands of those... 4251 across four days on the corpus this was written
+# from, spread over the usual handful of badly-signed domains. Counting them
+# said nothing except that the internet is the internet.
+#
+# The bulk case is still worth something, but it is a DIFFERENT rule and wants
+# writing as one: validation failing across MANY DISTINCT names at once is the
+# local side, a clock that has drifted past every RRSIG's validity window or an
+# anchor that did not roll. Measured on that same corpus, the worst five-minute
+# window held 16 distinct failing names, p90 was 5, median 2... so a `distinct`
+# count of ~30 names in 300 seconds would separate "your resolver broke" from
+# "the internet is the internet". It is left unwritten here because a counting
+# rule writes a `sighting` per match, and a rule matching every remote
+# validation failure would put a thousand a day into EVE to earn one useful
+# alert. That trade wants deciding, not assuming.
+#
+# Nothing is scanned for... the `named` munger reads both shapes. The subject
+# is the failure text, and the view rides along in EVE where the line carries
+# one.
+#
+# Detection-only, and max_score 1: a resolver that cannot maintain its own
+# trust anchor is not a threshold matter.
+rev: 2
+msg: "[NAMED] resolver trust anchor or priming failure"
+severity: high
+classtype: program-error
+references:
+  - https://bind9.readthedocs.io/en/latest/dnssec-guide.html
+daemons:
+  - //^named(?:-\w+)?$//
+mungers:
+  - named
+# no message_regexp... the munger's fields are the matcher
+selections:
+  trust_anchor:
+    - field: dns_managed_keys_message
+      op: re
+      value: '^(?:Unable to |unable to |Failed |failed |No valid |no valid )|(?:revoked|expired|: failure$)'
+  priming:
+    - field: dns_priming_result
+      op: re
+      value: '^(?!success)'
+condition: "1 of them"
+detection_var:
+  - dns_managed_keys_message
+  - dns_priming_result
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    - message: "Aug 13 04:00:00 ns01 named[55104]: managed-keys-zone/internal-view: Unable to fetch DNSKEY set '.': failure"
+      found: 1
+      data:
+        dns_view: "internal-view"
+        dns_managed_keys_message: "Unable to fetch DNSKEY set '.': failure"
+    - message: "Aug 13 04:00:01 ns01 named[55104]: resolver priming query complete: failure"
+      found: 1
+      data:
+        dns_priming_result: "failure"
+  negative:
+    # the ordinary life of a working trust anchor
+    - message: "Aug 13 11:27:04 ns01 named[55104]: managed-keys-zone/internal-view: Key 20326 for zone . is now trusted (acceptance timer complete)"
+      found: 0
+    - message: "Aug 13 11:27:03 ns01 named[55104]: managed-keys-zone: Initializing automatic trust anchor management for zone '.'; DNSKEY ID 20326 is now trusted, waiving the normal 30-day waiting period."
+      found: 0
+    - message: "Aug 13 11:27:02 ns01 named[55104]: managed-keys-zone: loaded serial 0"
+      found: 0
+    - message: "Aug 13 04:00:02 ns01 named[55104]: resolver priming query complete: success"
+      found: 0
+    # A REMOTE ZONE WITH BROKEN SIGNING, which is not this server's business
+    - message: "Aug 13 00:00:06 ns01 named[55104]: view internal-view: validating www.example.com/AAAA: no valid signature found"
+      found: 0
+      undefed: ["dns_managed_keys_message"]
+    - message: "Aug 10 00:59:07 ns01 named[55104]: view internal-view: validating social.example.org/A: verify failed due to bad signature (keyid=32887): RRSIG has expired"
+      found: 0
+      undefed: ["dns_managed_keys_message"]
+    - message: "Aug 13 01:25:54 ns01 named[55104]: view internal-view:   validating arpa/SOA: got insecure response; parent indicates it should be secure"
+      found: 0
+      undefed: ["dns_managed_keys_message"]

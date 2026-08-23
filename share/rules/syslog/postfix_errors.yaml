@@ -1,0 +1,115 @@
+---
+# postfix failing at its own job... a map it cannot open, a table older than
+# the source it was built from, a service it cannot talk to, a library that
+# will not start, or the daemon dying outright.
+#
+# WHAT THIS DELIBERATELY DOES NOT COUNT. An earlier revision took every
+# `warning:` postfix logged, and on a live mail server that stream is almost
+# entirely other people's problems... a client whose forward and reverse DNS
+# disagree, a client sending non-SMTP commands, a client with illegal address
+# syntax, and the SASL brute force. Measured over a month of one server's log:
+# 22429 stale-map warnings against roughly 4500 lines about remote clients
+# behaving badly, none of which say anything about whether postfix is working.
+# They are negative tests below so it stays that way.
+#
+# The split is by wording, not by level, because postfix logs both kinds at
+# `warning:`. Anything at `error:`, `fatal:` or `panic:` is taken whole... those
+# levels are postfix in trouble by definition, and none of them appeared in the
+# corpus at all, which is what a healthy mail server looks like.
+#
+# All three of those levels need a Log-Munger new enough to know them... its
+# postfix decoder read only `warning`, `fatal` and `info` until `error` and
+# `panic` were added to POSTFIX_WARNING_LEVEL. Against an older one those two
+# decode to nothing at all and this rule simply never sees them, quietly, which
+# is worth knowing if it has been silent through an outage.
+#
+# A NOTE ON THE STALE-MAP WARNING, because it will be the first thing this
+# rule says. `database /etc/mail/aliases.db is older than source file` fires
+# once per delivery on a server where newaliases was never run after the last
+# edit... 22429 times in a month on the corpus this was written from. That is a
+# real local fault and it is meant to be loud, but it stays loud until somebody
+# runs newaliases. Fix the file, not the rule.
+#
+# Nothing is scanned for... the `postfix` munger separates the level from the
+# text. The subject is the message, which is the thing that repeats when
+# something is broken; the queue id and the client ride along in EVE.
+#
+# Detection-only. A postfix that cannot open a map is not something to firewall.
+rev: 2
+msg: "[POSTFIX] daemon fault"
+severity: medium
+classtype: program-error
+daemons:
+  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+mungers:
+  - postfix
+# no message_regexp... the munger's fields are the matcher
+selections:
+  # postfix in trouble by definition
+  fail_severe:
+    - field: postfix_message_level
+      op: re
+      nocase: true
+      value: '^(?:error|fatal|panic)$'
+  # and the warnings that are about postfix rather than about a client
+  fail_local_warning:
+    - field: postfix_message_level
+      op: eq
+      nocase: true
+      value: warning
+    - field: postfix_message
+      op: re
+      value: '^(?:database \S+ is older than source file|unable to (?:open|look up|create|read)|open database|cannot (?:load|open|start|access)|problem talking to service|premature end-of-input|insecure (?:permissions|directory)|queue file size limit exceeded|mail for \S+ loops back to myself|unsupported dictionary type|dict_\w+:|process \S+ pid \d+ killed by signal|master_wakeup_timer_event)'
+condition: "1 of them"
+detection_var:
+  - postfix_message
+max_score: 1
+find_time: 600
+tests:
+  positive:
+    - message: "Aug 12 00:00:02 mail01 postfix/local[67046]: warning: database /etc/mail/aliases.db is older than source file /etc/mail/aliases"
+      found: 1
+      data:
+        postfix_message_level: "warning"
+        postfix_message: "database /etc/mail/aliases.db is older than source file /etc/mail/aliases"
+    - message: "Aug 12 04:22:09 mail01 postfix/smtpd[73376]: fatal: open lock file /var/lib/postfix/master.lock: unable to set exclusive lock: Resource temporarily unavailable"
+      found: 1
+      data:
+        postfix_message_level: "fatal"
+    - message: "Aug 12 05:01:00 mail01 postfix/smtpd[73376]: warning: problem talking to service rewrite: Connection reset by peer"
+      found: 1
+      data:
+        postfix_message_level: "warning"
+    - message: "Aug 12 05:02:00 mail01 postfix/smtpd[73376]: warning: premature end-of-input on private/rewrite socket while reading input attribute name"
+      found: 1
+    - message: "Aug 12 05:03:00 mail01 postfix/cleanup[73378]: error: unable to look up table hash:/etc/postfix/canonical: No such file or directory"
+      found: 1
+      data:
+        postfix_message_level: "error"
+        postfix_message: "unable to look up table hash:/etc/postfix/canonical: No such file or directory"
+    # postfix reporting its own corrupt state... nothing above this level
+    - message: "Aug 12 05:05:00 mail01 postfix/master[610]: panic: myfree: corrupt or unallocated memory block"
+      found: 1
+      data:
+        postfix_message_level: "panic"
+        postfix_message: "myfree: corrupt or unallocated memory block"
+  negative:
+    # THE REMOTE WORLD MISBEHAVING, which says nothing about this server
+    - message: "Aug 12 00:01:35 mail01 postfix/smtpd[73376]: warning: hostname host-198-51-100-122.example.net does not resolve to address 198.51.100.122: Name does not resolve"
+      found: 0
+    - message: "Aug 12 02:19:41 mail01 postfix/smtpd[13372]: warning: unknown[198.51.100.93]: SASL LOGIN authentication failed: (reason unavailable), sasl_username=neti@example.net"
+      found: 0
+    - message: "Aug 12 02:20:00 mail01 postfix/smtpd[13372]: warning: non-SMTP command from unknown[198.51.100.93]: *"
+      found: 0
+    - message: "Aug 12 02:21:00 mail01 postfix/smtpd[13372]: warning: Illegal address syntax from relay01.example.net[192.0.2.2] in MAIL command: <root@>"
+      found: 0
+    # a remote client that could not negotiate TLS with this server... its
+    # ciphers, its protocol version, its problem
+    - message: "Aug 12 02:22:00 mail01 postfix/smtpd[13372]: warning: TLS library problem: error:0A0000C1:SSL routines::no shared cipher:/usr/src/crypto/openssl/ssl/statem/statem_srvr.c:2220:"
+      found: 0
+    - message: "Aug 12 00:00:28 mail01 postfix/smtpd[23709]: connect from mail.example.org[203.0.113.31]"
+      found: 0
+      undefed: ["postfix_message_level"]
+    - message: "Aug 12 00:32:37 mail01 postfix/qmgr[60723]: 0FD4D1C50EB: from=<root@example.net>, size=1234, nrcpt=1 (queue active)"
+      found: 0
+      undefed: ["postfix_message_level"]

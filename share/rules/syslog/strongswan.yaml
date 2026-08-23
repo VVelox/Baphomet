@@ -17,7 +17,7 @@
 # rule of its own; this one deliberately stops at the shape that carries its own
 # offender. Until then a brute forcer against your EAP identities is not seen
 # here, only the ones that never match a config at all.
-rev: 1
+rev: 2
 msg: "[STRONGSWAN] IKE peer with no matching configuration"
 severity: medium
 classtype: attempted-recon
@@ -43,6 +43,9 @@ gate:
     value: peer config
 src_ip_var: ipsec_remote_ip
 dest_ip_var: ipsec_local_ip
+# the IKE identity the peer offered... the nearest thing to an account on a
+# line that never reaches authentication
+user_var: ipsec_remote_id
 ban_var:
   - ipsec_remote_ip
 tests:

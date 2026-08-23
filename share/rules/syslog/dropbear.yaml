@@ -1,7 +1,14 @@
 ---
 # Matches dropbear auth failures. Based on the fail2ban dropbear filter,
 # translated to Baphomet.
-rev: 2
+#
+# The dropbear munger names the account and the source port for the two
+# canonical shapes... "Bad password attempt for 'x' from ip:port" and the
+# nonexistent-user line. It does not read the lowercased older phrasing, a
+# ::ffff: mapped peer, or the "Exit before auth (user 'x', N fails)" wording,
+# so those arrive with the address alone, which is what the regexps take
+# anyway... the promotion is a bonus where it lands, never the matcher.
+rev: 3
 msg: "[DROPBEAR] authentication failure"
 severity: high
 classtype: brute-force
@@ -10,11 +17,15 @@ mark:
     ttl: 21600
 daemons:
   - dropbear
+mungers:
+  - dropbear
 message_regexp:
   - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
   - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
   - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
 src_ip_var: SRC
+src_port_var: dropbear_src_port
+user_var: dropbear_user
 ban_var:
   - SRC
 tests:

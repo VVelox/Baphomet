@@ -1,0 +1,86 @@
+---
+# The accuser failing to accuse. A galla logs an error in exactly three
+# situations, and all three mean the same thing: a decision it reached was not
+# carried out.
+#
+#   banishing 192.0.2.7 to Kur failed, will retry... no answer from below
+#   kur client error during connect:connect to "/var/run/kur.sock"... No such file or directory (2)
+#   kur client disconnected... server closed connection
+#
+# The first is one ban lost. The second and third are every ban lost, for as
+# long as the socket stays down... the galla goes on counting, goes on deciding,
+# and nothing reaches the firewall. That is the worst failure in the suite
+# because it is silent: from the outside a working Baphomet and a Baphomet
+# whose Kur is gone look identical, both quiet.
+#
+# Nothing is scanned for. The `galla` munger reads the three shapes and this
+# gates on the error field being present at all, so a wording that changes
+# still counts.
+#
+# The subject is the failure reason, which is the thing that repeats while
+# something stays broken. What was not banned (galla_ip or galla_cidr) and
+# which socket refused (galla_kur_socket) ride along in EVE, and the instance
+# is the syslog tag... a galla logs as galla-<kur>, so the event names which
+# one on its own.
+#
+# max_score of 1: one undelivered ban is the alert. There is no threshold at
+# which this becomes acceptable.
+#
+# Detection-only, and necessarily so... the party at fault is your own daemon.
+rev: 1
+msg: "[GALLA] ban not delivered to Kur"
+severity: critical
+classtype: program-error
+references:
+  - https://github.com/LilithSec/Ereshkigal
+daemons:
+  - //^galla(?:-\S+)?$//
+mungers:
+  - galla
+# no message_regexp... the munger's fields are the matcher
+gate:
+  - field: galla_error
+    op: exists
+detection_var:
+  - galla_error
+max_score: 1
+find_time: 3600
+tests:
+  positive:
+    - message: 'Aug 13 04:19:02 fw01 galla-sshd[1234]: banishing 192.0.2.7 to Kur failed, will retry... no answer from below'
+      found: 1
+      data:
+        galla_action: "banishing"
+        galla_error: "no answer from below"
+        galla_ip: "192.0.2.7"
+    - message: 'Aug 13 04:19:03 fw01 galla-suricata[1234]: banishing 198.51.100.0/24 to Kur failed, will retry... no answer from below'
+      found: 1
+      data:
+        galla_cidr: "198.51.100.0/24"
+        galla_error: "no answer from below"
+    - message: 'Aug 13 04:20:11 fw01 galla-sshd[1234]: kur client error during connect:connect to "/var/run/kur.sock"... No such file or directory (2)'
+      found: 1
+      data:
+        galla_action: "kur client error"
+        galla_kur_socket: "/var/run/kur.sock"
+        galla_error: "No such file or directory (2)"
+    - message: 'Aug 13 04:20:12 fw01 galla-sshd[1234]: kur client disconnected... server closed connection'
+      found: 1
+      data:
+        galla_action: "kur client disconnected"
+        galla_error: "server closed connection"
+  negative:
+    # the ban that worked
+    - message: 'Aug 13 04:18:00 fw01 galla-sshd[1234]: banished 192.0.2.7 to Kur ban_time=300'
+      found: 0
+      undefed: ["galla_error"]
+    # observe mode... deliberately not delivered, so not a failure
+    - message: 'Aug 13 04:18:01 fw01 galla-sshd[1234]: would banish 192.0.2.7 to Kur (observe mode) ban_time=300'
+      found: 0
+      undefed: ["galla_error"]
+    - message: 'Aug 13 04:17:00 fw01 galla-sshd[1234]: started... socket=/var/run/baphomet/galla/sshd.sock watchers=authlog'
+      found: 0
+      undefed: ["galla_error"]
+    - message: 'Aug 13 04:17:01 fw01 galla-sshd[1234]: following "/var/log/auth.log" for the watcher "authlog"'
+      found: 0
+      undefed: ["galla_error"]

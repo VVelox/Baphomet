@@ -1,0 +1,89 @@
+---
+# The other supervisor, the same failure. Ereshkigal spawns one kur per
+# instance and brings it back when it dies, and three of the things it logs
+# mean a child is not doing its job.
+#
+#   kur "sshd" PID 97452 exited with 1
+#   kur "sshd" died, restarting in 1 seconds
+#   stopping kur "down" via it's socket failed, sending TERM... Failed to connect to "/var/run/kur/down.sock"
+#
+# Worse here than in syslog/baphomet_errors, and worth the same severity for a
+# different reason. A galla that is down stops counting; a kur that is down
+# stops ENFORCING, and every ban decided while it was gone was accepted by
+# nobody. Bans already in the firewall stay, so nothing visibly breaks... the
+# table simply stops growing while the log fills with banishments.
+#
+# The stop-failed shape deserves its own note: a kur that would not answer its
+# socket and had to be signalled may have been wedged for some time before
+# anyone asked it to stop, and its bans went nowhere for all of it.
+#
+# Nothing is scanned for. The `ereshkigal` munger reads the three shapes and
+# each names the instance, so the subject is the kur.
+#
+# Threshold as syslog/baphomet_errors carries it, and for the same reason: one
+# death is a deploy, three of the same instance inside ten minutes is a loop.
+#
+# Detection-only.
+rev: 1
+msg: "[ERESHKIGAL] kur crash loop or unresponsive"
+severity: high
+classtype: program-error
+references:
+  - https://github.com/LilithSec/Ereshkigal
+daemons:
+  - ereshkigal
+mungers:
+  - ereshkigal
+# no message_regexp... the munger's fields are the matcher
+selections:
+  died:
+    - field: eresh_action
+      op: eq
+      value: died
+  exited_nonzero:
+    - field: eresh_exit_status
+      op: exists
+    - field: eresh_exit_status
+      op: gt
+      value: 0
+  stop_failed:
+    - field: eresh_error
+      op: exists
+condition: "1 of them"
+detection_var:
+  - eresh_kur
+max_score: 3
+find_time: 600
+tests:
+  positive:
+    - message: 'Aug 13 04:41:00 fw01 ereshkigal[9100]: kur "sshd" died, restarting in 1 seconds'
+      found: 1
+      data:
+        eresh_action: "died"
+        eresh_kur: "sshd"
+        eresh_restart_delay: 1
+    - message: 'Aug 13 04:41:01 fw01 ereshkigal[9100]: kur "sshd" PID 97452 exited with 1'
+      found: 1
+      data:
+        eresh_action: "exited"
+        eresh_kur: "sshd"
+        eresh_exit_status: 1
+    - message: 'Aug 13 04:42:30 fw01 ereshkigal[9100]: stopping kur "down" via it''s socket failed, sending TERM... Failed to connect to "/var/run/kur/down.sock"'
+      found: 1
+      data:
+        eresh_kur: "down"
+        eresh_signal: "TERM"
+        eresh_error: 'Failed to connect to "/var/run/kur/down.sock"'
+  negative:
+    - message: 'Aug 13 04:40:00 fw01 ereshkigal[9100]: kur "sshd" PID 97452 exited with 0'
+      found: 0
+    - message: 'Aug 13 04:39:00 fw01 ereshkigal[9100]: spawned kur "sshd" as PID 97452... /usr/local/bin/kur --foreground --name sshd --backend pf'
+      found: 0
+      undefed: ["eresh_error"]
+    - message: 'Aug 13 04:38:00 fw01 ereshkigal[9100]: started... socket=/var/run/ereshkigal/socket kurs=recidive,sshd,suricata'
+      found: 0
+      undefed: ["eresh_error"]
+    # membership changes are operator work, not failure
+    - message: 'Aug 13 04:43:00 fw01 ereshkigal[9100]: removed kur "dns"'
+      found: 0
+      undefed: ["eresh_error"]
