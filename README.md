@@ -17,7 +17,7 @@ socket, aimed at the kur of the same name over there. Ereshkigal does the
 firewalling. Baphomet never touches a firewall itself.
 
 That is the accuser. The same galla is also a log analysis engine, in the
-family of Sagan and Wazuh... a rule may **detect** in place of banishing,
+family of Sagan and Wazuh... a rule may detect in place of banishing,
 counting any subject and raising a triageable alert to the EVE event
 stream. Ban or detect is one key's difference. See
 [docs/log-analysis.md](docs/log-analysis.md).
@@ -92,8 +92,7 @@ which is searched ahead of the shipped rules... see
 ```shell
 pkg install p5-App-Cmd p5-Error-Helper p5-JSON-MaybeXS p5-Net-Server \
     p5-POE p5-YAML-LibYAML p5-Regexp-IPv6 p5-App-cpanminus
-cpanm TOML::Tiny Regexp::IPv4 POE::Component::Server::JSONUnix \
-    Ereshkigal App::Baphomet
+cpanm Ereshkigal App::Baphomet
 ```
 
 Startup script for running at boot [rc/freebsd/baphomet](rc/freebsd/baphomet).
@@ -104,8 +103,7 @@ Startup script for running at boot [rc/freebsd/baphomet](rc/freebsd/baphomet).
 apt-get install libapp-cmd-perl libjson-maybexs-perl libnet-server-perl \
     libpoe-perl libtoml-tiny-perl libyaml-libyaml-perl libregexp-ipv6-perl \
     cpanminus
-cpanm Error::Helper Regexp::IPv4 POE::Component::Server::JSONUnix \
-    Ereshkigal App::Baphomet
+cpanm Ereshkigal App::Baphomet
 ```
 
 Startup script for running at boot

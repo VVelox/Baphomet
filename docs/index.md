@@ -1,25 +1,22 @@
 # Baphomet
 
 Baphomet has two faces. It is a log watcher in the same family as fail2ban,
-the **accuser** half of a pair whose punisher half is
+the accuser half of a pair whose punisher half is
 [Ereshkigal](https://github.com/LilithSec/Ereshkigal). It reads logs,
 matches lines against rules, counts the offenses of each IP, and banishes
 repeat offenders to Kur... a ban request sent to the Ereshkigal manager,
 which does the actual firewalling.
 
-It is also a **log analysis engine** in the family of Sagan, Wazuh, and the
+It is also a LAE, log analysis engine, in the family of Sagan, Wazuh, and the
 Sigma detection model... the same galla that bans can instead detect,
 counting any subject and raising a triageable alert to the EVE stream with
 out banishing anyone. Ban or detect is one key's difference. See
 [log-analysis](log-analysis.md) for that half.
 
-A **kur** is a named group of watchers that share thresholds and one ban
+A kur is a named group of watchers that share thresholds and one ban
 destination... Baphomet's equivalent of a fail2ban jail, defined by a
-`[kur.NAME]` table in the config. Its bans go to **Kur**, the underworld
-realm [Ereshkigal](https://github.com/LilithSec/Ereshkigal) rules... so mind
-the case: lowercase `kur` is the jail, capital `Kur` is where the banished
-go. Each kur is run by one **galla**, a worker process; the `baphomet`
-manager looses and oversees them.
+`[kur.NAME]` table in the config. Its bans go to the kur of the same name
+for [Ereshkigal](https://github.com/LilithSec/Ereshkigal) rules.
 
 ## The docs
 
