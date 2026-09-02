@@ -22,7 +22,7 @@ is( $backend->verify, undef, 'a writable base dir verifies' );
 
 # the csv/jsonl suffix split, and the galla.<name>.<kind> shape
 is( $backend->locator('counters'), $dir . '/galla.sshd.counters.csv',  'counters is a csv' );
-is( $backend->locator('marks'),    $dir . '/galla.sshd.marks.csv',     'marks is a csv' );
+is( $backend->locator('marks'),    $dir . '/galla.sshd.marks.jsonl',   'marks is a jsonl' );
 is( $backend->locator('context'),  $dir . '/galla.sshd.context.jsonl', 'context is a jsonl' );
 is( $backend->locator('stats'),    $dir . '/galla.sshd.stats.jsonl',   'stats is a jsonl' );
 

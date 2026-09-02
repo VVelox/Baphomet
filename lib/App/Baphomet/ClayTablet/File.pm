@@ -77,7 +77,10 @@ The path of the tablet of the given kind for this galla.
 sub locator {
 	my ( $self, $kind ) = @_;
 
-	my $suffix = ( $kind eq 'context' || $kind eq 'stats' || $kind eq 'distinct' ) ? 'jsonl' : 'csv';
+	my $suffix
+		= ( $kind eq 'context' || $kind eq 'stats' || $kind eq 'distinct' || $kind eq 'marks' || $kind eq 'tracked' )
+		? 'jsonl'
+		: 'csv';
 
 	return $self->{base_dir} . '/galla.' . $self->{name} . '.' . $kind . '.' . $suffix;
 }

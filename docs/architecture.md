@@ -273,8 +273,8 @@ restart or a crash does not forget what it was in the middle of...
 ├── galla.<kur>.cursors.csv       journal cursors, one per journal watcher
 ├── galla.<kur>.stats.jsonl       running stats, so totals survive a respawn
 ├── galla.<kur>.context.jsonl     correlation context and deferred offenses
-├── galla.<kur>.marks.csv         branded marks
-├── galla.<kur>.tracked.csv       tracked records
+├── galla.<kur>.marks.jsonl       branded marks
+├── galla.<kur>.tracked.jsonl     tracked records
 ├── galla.<kur>.mark_stream.csv   fleet mark-stream cursor, under mark_sync
 └── banishments.csv               the shared ledger... every banishment, by all
 ```
@@ -308,10 +308,10 @@ Tablet by tablet, what the rows hold...
 - `context.jsonl` :: one JSON line per rule carrying correlation state...
   `rule` and `state`, the state opaque, whatever the rule handed over and
   gets handed back on restore.
-- `marks.csv` :: one JSON line per branded key... `name` the mark, `key`
+- `marks.jsonl` :: one JSON line per branded key... `name` the mark, `key`
   the branded subject, `expires` the epoch the brand lifts, plus `set`
   and `value` when the brand stored them.
-- `tracked.csv` :: one JSON line per tracked record... `name` the track,
+- `tracked.jsonl` :: one JSON line per tracked record... `name` the track,
   `key` the subject, `expires`, and the accumulated `fields`.
 - `mark_stream.csv` :: a single line, the stream ID the fleet mark bus was
   last drained to, so a restart resumes at the tail rather than replaying

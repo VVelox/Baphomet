@@ -203,7 +203,7 @@ SKIP: {
 		'tablet_base_dir' => $dir,
 	);
 	is( $local->verify, undef, 'local mode verifies even with the bus down' );
-	like( $local->locator('marks'), qr{localstore/galla\.sshd\.marks\.csv$}, 'host-local tablets land on the disk' );
+	like( $local->locator('marks'), qr{localstore/galla\.sshd\.marks\.jsonl$}, 'host-local tablets land on the disk' );
 	ok( $local->write( 'marks', ['a line'] ), 'storage writes to the local file' );
 	is_deeply( [ $local->read('marks') ], ['a line'], 'and reads back with the bus down' );
 }
