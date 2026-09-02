@@ -137,21 +137,125 @@ asked.
 
 Both speak the newline delimited JSON protocol of
 [POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix),
-same as Ereshkigal. The manager socket answers `status`, `status_all`,
-`status_galla`, `accused`, `marked`, `tracked`, `watching`, `banished`,
-and `stop`, with the status, accused, marked, tracked, and watching
-fan-out proxied to the galla sockets and `banished` asking Ereshkigal who
-Kur holds for the fed kurs, gates expanded to their members and each
-galla's still-pending bans folded in. Every CLI query of the live daemons
-rides this one socket rather than reaching around the manager, so the
-manager is the single door to the control plane... only `baphomet ledger`
-reads its tablet straight off disk. The manager socket's group and mode
-are configurable via `socket_group` and `socket_mode`, with the
-[Neti gate](neti-gate.md) available over that... it only exposes
-read-only views and stop, but stop is still stop.
+same as Ereshkigal... one `{"command":...,"args":{...}}` object a line,
+answered with `{"status":"ok","result":...}` or
+`{"status":"error","error":"..."}`. The galla sockets are the manager's
+alone; the manager socket is the one every CLI query of the live daemons
+rides rather than reaching around the manager, so the manager is the
+single door to the control plane... only `baphomet ledger` reads its
+tablet straight off disk. Driving the socket raw or from your own code
+is covered in [usage](usage.md), and who may drive it at all... group
+and mode, the ownership challenge, per command authorization... in
+[the Neti gate](neti-gate.md).
 
 Everything logs to syslog under the daemon facility, the manager as
 `baphomet` and each worker as `galla-<kur>`.
+
+The manager socket answers...
+
+- `status` :: what the manager itself knows, without asking the gallas
+- `status_all` :: `status` with every running galla asked for its own
+- `status_galla` :: one galla, summary and status
+- `accused` :: the still-live hits, per IP
+- `marked` :: the live marks
+- `tracked` :: the live tracked records
+- `watching` :: what each watcher follows right now
+- `banished` :: who Kur holds for the fed kurs, pending included
+- `stop` :: stop the gallas, then the manager
+
+### status
+
+Takes no args. The result...
+
+- `pid` :: the manager's PID
+- `uptime` :: seconds since it started
+- `config` :: the loaded config
+- `gallas` :: keyed by galla name... each with `running` (0 or 1), `pid` (null when down), `restarts` (times respawned), and `enabled` (0 or 1)
+
+### status_all
+
+Takes no args. The result is `status` with each running galla's entry
+under `gallas` gaining `status`, the galla's own report, or `error`
+where it could not answer. A galla's own report...
+
+- `name` :: the galla's kur
+- `pid` :: its PID
+- `uptime` :: seconds since it started
+- `watchers` :: keyed by watcher name... each with its `parser`, `rules`, and `settings`, plus `logs` and `following` for a file watcher or `journal` and `journal_running` for a journal one, as under `watching` below
+- `stats` :: the running stats totals
+- `tracked_ips` :: how many IPs carry live hits
+- `tracked_subnets` :: how many subnets carry live tallies
+- `pending_bans` :: IPs banished but not yet heard by Ereshkigal
+- `pending_cidr_bans` :: the subnet twin of `pending_bans`
+- `recidive` :: the kur banishments escalate to, or null
+
+### status_galla
+
+Args...
+
+- `name` :: the galla to ask, required
+
+The result is that galla's `gallas` entry from `status`... `name`,
+`running`, `pid`, `restarts`, `enabled`... plus, when running, `status`
+or `error` as in `status_all`.
+
+### accused, marked, tracked, watching
+
+The four fan-out commands all take the same one arg...
+
+- `name` :: one galla instead of all, optional
+
+...and answer the same way: a `gallas` hash keyed by galla name, each
+entry the galla's own answer or `{"error":...}` for one dead, wedged,
+or not running, so one bad worker never takes the whole reply down.
+Each answer carries the galla's `name` beside its payload.
+
+For `accused` the payload is `accused`, keyed by IP...
+
+- `hits` :: the raw count of still-live hits
+- `score` :: their weighted sum, what actually races `max_score`
+- `first` :: epoch of the oldest live hit
+- `last` :: epoch of the newest
+- `rules` :: the same four per rule, where per-rule buckets exist
+
+For `marked` it is `marks`, keyed by mark name, each branded key under
+it carrying...
+
+- `expires` :: when the brand fades, epoch
+- `value` :: the harvested value, where the mark carries one
+
+For `tracked` it is `tracked`, keyed by track name, each live record
+carrying...
+
+- `expires` :: when the record lapses, epoch
+- `key` :: the compound key, split into its parts
+- `fields` :: what the transaction has accumulated so far
+
+For `watching` it is `watchers`, keyed by watcher name...
+
+- `globs` :: the paths and globs a file watcher hunts by
+- `following` :: the concrete files it has a tail wheel on right now
+- `journal` :: the journalctl matches, for a journal watcher
+- `journal_running` :: whether the journal wheel is up, for the same
+
+### banished
+
+Args...
+
+- `name` :: one kur instead of every fed kur, optional... refused for a kur this Baphomet does not feed
+
+The result is a `kurs` hash keyed by kur. Each entry is Ereshkigal's
+holdings for it... `banned` and `expires`... or, for a gate holding no
+list of its own, its `fan_out` member list and `members`, each member's
+own `banned` and `expires`... or `error`. The galla's still-pending
+bans ride in beside them as `pending`.
+
+### stop
+
+Takes no args. The result is `stopping` and the manager's `pid`,
+answered before the death so a restart can wait on the PID rather than
+racing the still-present PID file... then the gallas go down, then the
+manager.
 
 ## The tablets
 
@@ -175,6 +279,44 @@ restart or a crash does not forget what it was in the middle of...
 └── banishments.csv               the shared ledger... every banishment, by all
 ```
 
+Tablet by tablet, what the rows hold...
+
+- `counters.csv` :: `ip,hit,weight,rule`. One row per still-live hit...
+  `hit` is the epoch the hit landed, `weight` what it counts for toward
+  the trigger, and `rule` is empty for the shared kur bucket or names the
+  rule for a per-rule bucket.
+- `subnet.csv` :: `family,net,hit,weight,member`. One row per live deposit
+  in a subnet bucket... `family` is `v4` or `v6`, the two kept apart,
+  `net` the bucket's network, and `member` the address that fed the
+  deposit, so a resumed count still remembers who is in it.
+- `distinct.jsonl` :: one JSON line per distinct value a distinct-counting
+  rule has seen from an address... `rule`, `ip`, `value`, and the value's
+  newest `epoch`, so a restart resumes a partial cardinality count.
+- `pending.csv` :: `ip,ban_time`. One row per ban Ereshkigal could not be
+  reached for... `ban_time` in seconds, empty meaning the kur's default.
+- `pending_cidr.csv` :: `net,ban_time`. The subnet twin, a network where
+  the address would be.
+- `positions.csv` :: `file,inode,offset`. Where each followed log was last
+  read to... the inode is what tells a rotated file from the same file
+  grown longer.
+- `cursors.csv` :: `watcher,cursor`. The systemd journal cursor of each
+  journal watcher, so the journal resumes just past the last line seen
+  rather than from now.
+- `stats.jsonl` :: a single JSON line holding the running stats, so the
+  totals `stats` answers with mean since first loosing rather than since
+  the last respawn.
+- `context.jsonl` :: one JSON line per rule carrying correlation state...
+  `rule` and `state`, the state opaque, whatever the rule handed over and
+  gets handed back on restore.
+- `marks.csv` :: one JSON line per branded key... `name` the mark, `key`
+  the branded subject, `expires` the epoch the brand lifts, plus `set`
+  and `value` when the brand stored them.
+- `tracked.csv` :: one JSON line per tracked record... `name` the track,
+  `key` the subject, `expires`, and the accumulated `fields`.
+- `mark_stream.csv` :: a single line, the stream ID the fleet mark bus was
+  last drained to, so a restart resumes at the tail rather than replaying
+  the whole stream. Only written under `mark_sync`.
+
 Checkpointed on the `checkpoint` cadence from the sweeper and again on
 stop, atomically via temp file and rename. On start the tablets are read
 back... stale counters dropped, pending bans taken up for retry, stats
@@ -185,11 +327,21 @@ if it was rotated or truncated, or from the end if it was never followed
 before. The tablets are the counting-side echo of
 Ereshkigal's own ban tablets... the bans themselves live over there.
 
-The ledger is the one tablet shared by every galla rather than per kur...
-each banishment is chiseled in as `epoch,kur,ip,rule,watcher` under an
-exclusive lock, pruned to `ledger_keep` but never below the recidive
-window, read by the recidive gate for its counting and by
-`baphomet ledger` for history.
+The ledger is the one tablet shared by every galla rather than per kur.
+Each banishment is chiseled in as one `epoch,kur,ip,rule,watcher` row
+under an exclusive lock...
+
+- `epoch` :: unix time the banishment was determined.
+- `kur` :: the kur that banished.
+- `ip` :: the banished address... or the network, for a subnet banishment.
+- `rule` :: the rule behind the determination, empty when no rule match
+  stands behind the ban, a recidive escalation for one.
+- `watcher` :: the watcher whose line fed the match, empty likewise.
+
+It is pruned to `ledger_keep` on the checkpoint cadence, never below the
+recidive window, and read back by the recidive gate for its counting...
+rows chiseled by the recidive kur itself never count, so an escalation is
+not itself an offense... and by `baphomet ledger` for history.
 
 Where the per-galla tablets live is pluggable... the file layout above is
 the default backend, and a `[ClayTablet]` config table can put them
