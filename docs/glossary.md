@@ -65,5 +65,5 @@ go. The rest follows from those.
   and last gate of Kur to the `recidive` kur, which should hold it far
   longer. See [configuration](configuration.md).
 - **EVE** :: the event log: a Suricata-shaped NDJSON record of what the
-  gallas do (`found`, `banish`, `noted`, `alert`, `sighting`, `sighted`).
+  gallas do/find (`found`, `banish`, `noted`, `alert`, `sighting`, `sighted`).
   See [eve](eve.md).

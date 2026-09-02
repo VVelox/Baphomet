@@ -1,11 +1,10 @@
 # Coming from Sagan
 
-Run in eve mode, Baphomet is basically Sagan... the same real-time engine
+Run in eve mode, Baphomet is basically
+[Sagan](https://github.com/quadrantsec/sagan)... the same real-time engine
 that parses a stream, matches each line against signatures, correlates, and
 emits a Suricata-shaped alert (see [log-analysis](log-analysis.md)). Neither
-keeps the events; both stream and forget, feeding their alerts onward. What
-Sagan has more of is reach... thousands of rules across dozens of products,
-and more ways to ship an alert out... not a deeper engine.
+keeps the events; both stream and forget, feeding their alerts onward.
 
 The two part company at the other end. Sagan only alerts, while Baphomet can
 also count an offender's hits and banish the repeat ones to Kur, the
@@ -14,31 +13,31 @@ is, in one program, Sagan's detection welded to fail2ban's banishing.
 
 The weld went one way. [fail2ban](fail2ban.md) counts one regexp per jail and
 stops there, where Sagan's rule language reaches much further, so the gates
-Sagan has and fail2ban lacks were read end to end and folded into the galla.
+Sagan has and fail2ban lacks were folded into the galla.
 They run between a rule matching and the offense being counted, so rules
 stay pure matchers.
 
 ## The concept map
 
-| Sagan | here |
-| --- | --- |
-| a rule's `count` / `seconds` | per-rule `max_score` / `find_time` / `ban_time`, under `allow_per_rule_thresholds` |
-| `xbits` / `flexbits` (set/isset/unset) | marks... `mark`/`unmark`/`marked`/`not_marked`/`mark_only`, read by `baphomet marked` |
-| `country_code` (is/isnot) | the `country` gate, resolved via `IP::Geolocation::MMDB` and a `geoip_db` |
-| `blacklist` | the `namtar_list` gate, the inverse of `ignore_ips` |
-| `alert_time` | the `active_time` gate, named `{days, hours}` windows |
-| `content` / `pcre` match chains | Perl regexps in `message_regexp` (syslog/raw/http_error) or `match` (http/json) |
-| `json_content` | the json rule type's dotted paths (`attr.remote`, `request.client_ip`) |
-| `program` / `facility` / `level` gates | `daemons` and the parser's own gates |
-| `msg` | the rule's `msg`... the `[TAG] description` convention |
-| `classtype` | the rule's `classtype`, the same category strings |
-| a rule that alerts without banning | a detection-only rule, a `detection_var` in place of `ban_var`... counts any subject, writes `sighting`/`sighted`, banishes nobody |
-| rule actions | Ereshkigal's domain... Baphomet accuses and does not act |
+| Sagan                                  | here                                                                                                                               |
+|----------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| a rule's `count` / `seconds`           | per-rule `max_score` / `find_time` / `ban_time`, under `allow_per_rule_thresholds`                                                 |
+| `xbits` / `flexbits` (set/isset/unset) | marks... `mark`/`unmark`/`marked`/`not_marked`/`mark_only`, read by `baphomet marked`                                              |
+| `country_code` (is/isnot)              | the `country` gate, resolved via `IP::Geolocation::MMDB` and a `geoip_db`                                                          |
+| `blacklist`                            | the `namtar_list` gate, the inverse of `ignore_ips`                                                                                |
+| `alert_time`                           | the `active_time` gate, named `{days, hours}` windows                                                                              |
+| `content` / `pcre` match chains        | Perl regexps in `message_regexp` (syslog/raw/http_error) or `match` (http/json)                                                    |
+| `json_content`                         | the json rule type's dotted paths (`attr.remote`, `request.client_ip`)                                                             |
+| `program` / `facility` / `level` gates | `daemons` and the parser's own gates                                                                                               |
+| `msg`                                  | the rule's `msg`... the `[TAG] description` convention                                                                             |
+| `classtype`                            | the rule's `classtype`, the same category strings                                                                                  |
+| a rule that alerts without banning     | a detection-only rule, a `detection_var` in place of `ban_var`... counts any subject, writes `sighting`/`sighted`, banishes nobody |
+| rule actions                           | Ereshkigal's domain... Baphomet accuses and does not act                                                                           |
 
 ## The gates folded in
 
 Sagan's gates, the tests it runs around a signature match, were rebuilt in
-the galla. None of these has a fail2ban equivalent.
+the galla.
 
 - **Per-rule thresholds (`count` / `seconds`).** A rule may carry its own
   `max_score` / `find_time` / `ban_time`, so one noisy signature can demand
@@ -56,10 +55,7 @@ the galla. None of these has a fail2ban equivalent.
   `isset a|b`). This is how distributed brute force is caught...
   `syslog/sshd-mark-users` brands each account with the source that hit it,
   `syslog/sshd-spray` fires when a second source hits the same account.
-  And the shipped rules brand Sagan's own standard bit vocabulary name for
-  name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at its
-  TTLs (the standard brands in [rules](rules.md)). `baphomet marked` reads
-  the store.
+  `baphomet marked` reads the store.
 - **A country gate (`country_code`).** A rule key
   `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
   offender (or a harvested var) geolocates inside, or outside, a named set of
@@ -79,44 +75,6 @@ the galla. None of these has a fail2ban equivalent.
   inside, or outside, named `{days, hours}` windows (hours may wrap midnight),
   so the same log line can be ignored at midday and banished at 03:00.
 
-## What needs no borrowing
-
-Sagan's remaining vocabulary maps onto machinery already here... its
-content/pcre match chains are subsumed by Perl regexps, its json_content by
-the json rule type's dotted paths, its program/facility/level gates by
-`daemons`, and its `msg` and `classtype` metadata carry across under the same
-names. Its actions are Ereshkigal's domain.
-
-## What Sagan does that this does not
-
-Honesty section... the two are the same class of engine, but Sagan is the
-broader build.
-
-- **A more general correlation language.** Sagan's xbits and flexbits compose
-  into explicit multi-stage, cross-signature state machines. Baphomet reaches
-  much of the same ground by other means... marks brand a key for a later rule
-  to gate on, staged sequences match ordered multi-stage signatures, and
-  weighted scoring lets several rules accrue toward one threshold on an IP...
-  but there is no single state-machine language naming and wiring them the way
-  flexbits do.
-- **The shipped signature library.** Sagan ships thousands of rules across
-  dozens of products and protocols. Baphomet's shipped set is smaller...
-  the fail2ban corpus, the Suricata classes, and seven of Sagan's own
-  network gear families (Cisco ASA, Citrix, Fortinet, Juniper, Huawei,
-  Palo Alto, SonicWall... see [rules-catalog](rules-catalog.md)) folded in,
-  but the long tail of Sagan's product coverage, the cloud and Windows and
-  appliance families above all, stays unported. A detection rule
-  (`detection_var`) carries any alerting shape you care to port.
-- **Output beyond EVE.** Sagan feeds unified2, syslog, and assorted output
-  plugins onward. Here there is one stream, the Suricata-shaped EVE log
-  ([eve](eve.md)), and acting on the alert is Ereshkigal's half.
-
-Detection with no offender, once the sharpest gap, is closed... a
-detection-only rule (a `detection_var` in place of `ban_var`) alerts on a
-thing with no address to banish, a config change or a service crash, counting
-by any subject and writing `sighting`/`sighted` to EVE. See [rules](rules.md)
-and [eve](eve.md).
-
 ## Porting a rule
 
 A Sagan rule ports to a Baphomet rule about as mechanically as a fail2ban
@@ -129,23 +87,23 @@ rule leaning on `json_content` becomes a `json` rule.
 
 The options translate like so:
 
-| Sagan option | becomes |
-| --- | --- |
-| `program: sshd` | `daemons: [ sshd ]` |
-| `content:"..."`, `pcre:"/.../"` | `message_regexp` entries (Perl regexps) |
-| the tracked source (`parse_src_ip`, `by_src`) | a `%%%%SRC%%%%` token in the regexp |
-| `msg:"..."` | `msg` |
-| `classtype:` | `classtype` |
-| `reference: url,...` | `references` |
-| `threshold:` / `after: count N, seconds M` | `max_score` / `find_time` |
-| `xbits` / `flexbits` (set/isset) | `mark` / `marked` (see [rules](rules.md)) |
+| Sagan option                                                                  | becomes                                                                                             |
+|-------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| `program: sshd`                                                               | `daemons: [ sshd ]`                                                                                 |
+| `content:"..."`, `pcre:"/.../"`                                               | `message_regexp` entries (Perl regexps)                                                             |
+| the tracked source (`parse_src_ip`, `by_src`)                                 | a `%%%%SRC%%%%` token in the regexp                                                                 |
+| `msg:"..."`                                                                   | `msg`                                                                                               |
+| `classtype:`                                                                  | `classtype`                                                                                         |
+| `reference: url,...`                                                          | `references`                                                                                        |
+| `threshold:` / `after: count N, seconds M`                                    | `max_score` / `find_time`                                                                           |
+| `xbits` / `flexbits` (set/isset)                                              | `mark` / `marked` (see [rules](rules.md))                                                           |
 | the bit's `track` (`ip_src`/`by_src`, `by_username`, `ip_username`/`ip_both`) | the mark's keying... var-less for the offender IP, `var` for one capture, `vars` for a compound key |
-| a `\|`-joined isset (`isset, a\|b`) | a `marked` entry with `names` |
-| a `&`-joined set (`set, a&b`) | two entries under `mark` |
-| `country_code:` | the `country` gate |
-| `blacklist:` | the `namtar_list` gate |
-| `alert_time:` | the `active_time` gate |
-| `sid`, `rev`, `metadata` | dropped |
+| a `\|`-joined isset (`isset, a\|b`)                                           | a `marked` entry with `names`                                                                       |
+| a `&`-joined set (`set, a&b`)                                                 | two entries under `mark`                                                                            |
+| `country_code:`                                                               | the `country` gate                                                                                  |
+| `blacklist:`                                                                  | the `namtar_list` gate                                                                              |
+| `alert_time:`                                                                 | the `active_time` gate                                                                              |
+| `sid`, `rev`, `metadata`                                                      | dropped                                                                                             |
 
 Three things the table does not settle.
 
@@ -158,7 +116,8 @@ survives the port whole. See the standard brands in [rules](rules.md).
 
 **Ban or detect.** A Sagan rule alerts, it does not firewall. To keep that...
 surface the signature without banning... port it as a detection rule with
-`detection_var: [ SRC ]`, so it writes `sighting`/`sighted` to EVE and touches
+`detection_var: [ SRC ]`, so it writes `sighting`/`sighted` to [EVE](eve.md)
+and touches
 no firewall. To turn the signature into a ban instead, name `ban_var: [ SRC ]`
 and let the kur's thresholds decide. This is the one real choice the port asks
 of you.
