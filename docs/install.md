@@ -7,19 +7,33 @@ configure there, as Baphomet's config targets them.
 
 ## Dependencies
 
-| CPAN module | FreeBSD pkg | Debian pkg |
-| --- | --- | --- |
-| App::Cmd | p5-App-Cmd | libapp-cmd-perl |
-| Error::Helper | p5-Error-Helper | (cpanm) |
-| JSON::MaybeXS | p5-JSON-MaybeXS | libjson-maybexs-perl |
-| Net::Server (Net::Server::Daemonize) | p5-Net-Server | libnet-server-perl |
-| POE | p5-POE | libpoe-perl |
-| POE::Component::Server::JSONUnix | (cpanm) | (cpanm) |
-| Regexp::IPv4 | (cpanm) | (cpanm) |
-| Regexp::IPv6 | p5-Regexp-IPv6 | libregexp-ipv6-perl |
-| TOML::Tiny | (cpanm) | libtoml-tiny-perl |
-| YAML::XS | p5-YAML-LibYAML | libyaml-libyaml-perl |
-| Ereshkigal (for Ereshkigal::Client) | (cpanm) | (cpanm) |
+| CPAN module                          | FreeBSD pkg      | Debian pkg            |
+|--------------------------------------|------------------|-----------------------|
+| App::Cmd                             | p5-App-Cmd       | libapp-cmd-perl       |
+| Error::Helper                        | p5-Error-Helper  | (cpanm)               |
+| File::ShareDir                       | p5-File-ShareDir | libfile-sharedir-perl |
+| JSON::MaybeXS                        | p5-JSON-MaybeXS  | libjson-maybexs-perl  |
+| Log::Munger                          | (cpanm)          | (cpanm)               |
+| Net::Server (Net::Server::Daemonize) | p5-Net-Server    | libnet-server-perl    |
+| POE                                  | p5-POE           | libpoe-perl           |
+| POE::Component::Server::JSONUnix     | (cpanm)          | (cpanm)               |
+| Regexp::IPv4                         | (cpanm)          | (cpanm)               |
+| Regexp::IPv6                         | p5-Regexp-IPv6   | libregexp-ipv6-perl   |
+| TOML::Tiny                           | (cpanm)          | libtoml-tiny-perl     |
+| YAML::XS                             | p5-YAML-LibYAML  | libyaml-libyaml-perl  |
+| Ereshkigal (for Ereshkigal::Client)  | (cpanm)          | (cpanm)               |
+
+Two more are optional, wanted only if the pieces they serve are in use...
+
+| CPAN module           | FreeBSD pkg   | Debian pkg                  |
+|-----------------------|---------------|-----------------------------|
+| IP::Geolocation::MMDB | (cpanm)       | libip-geolocation-mmdb-perl |
+| Redis::Fast           | p5-Redis-Fast | libredis-fast-perl          |
+
+`IP::Geolocation::MMDB` reads the `geoip_db` for rules with a `country`
+gate (see [configuration.md](configuration.md)), and `Redis::Fast` backs
+the `redis` tablet backend (see [tablets.md](tablets.md)). Neither is
+needed otherwise.
 
 Package names are current as of writing. Anything marked `(cpanm)`, or
 missing from your release, installs cleanly from CPAN via

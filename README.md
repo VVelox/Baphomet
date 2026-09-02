@@ -66,7 +66,8 @@ See [docs/rules.md](docs/rules.md) for writing them.
 ## Install
 
 Requires a running [Ereshkigal](https://github.com/LilithSec/Ereshkigal)
-for the bans to go anywhere.
+for the bans to go anywhere. Fuller notes, optional extras included, live
+in [docs/install.md](docs/install.md).
 
 ### From source
 
@@ -90,8 +91,8 @@ which is searched ahead of the shipped rules... see
 ### FreeBSD
 
 ```shell
-pkg install p5-App-Cmd p5-Error-Helper p5-JSON-MaybeXS p5-Net-Server \
-    p5-POE p5-YAML-LibYAML p5-Regexp-IPv6 p5-App-cpanminus
+pkg install p5-App-Cmd p5-Error-Helper p5-File-ShareDir p5-JSON-MaybeXS \
+    p5-Net-Server p5-POE p5-YAML-LibYAML p5-Regexp-IPv6 p5-App-cpanminus
 cpanm Ereshkigal App::Baphomet
 ```
 
@@ -100,9 +101,9 @@ Startup script for running at boot [rc/freebsd/baphomet](rc/freebsd/baphomet).
 ### Debian
 
 ```shell
-apt-get install libapp-cmd-perl libjson-maybexs-perl libnet-server-perl \
-    libpoe-perl libtoml-tiny-perl libyaml-libyaml-perl libregexp-ipv6-perl \
-    cpanminus
+apt-get install libapp-cmd-perl libfile-sharedir-perl libjson-maybexs-perl \
+    libnet-server-perl libpoe-perl libtoml-tiny-perl libyaml-libyaml-perl \
+    libregexp-ipv6-perl cpanminus
 cpanm Ereshkigal App::Baphomet
 ```
 
