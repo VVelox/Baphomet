@@ -5,6 +5,9 @@ docs/configuration.md
 docs/eve.md
 docs/examples.md
 docs/fail2ban.md
+docs/from-a-line-to-a-ban.dot
+docs/from-a-line-to-a-ban.png
+docs/from-a-line-to-a-ban.svg
 docs/glossary.md
 docs/index.md
 docs/install.md
@@ -19,6 +22,7 @@ docs/tablets.md
 docs/usage.md
 docs/usedns.md
 docs/wazuh.md
+flowchart_update.sh
 lib/App/Baphomet.pm
 lib/App/Baphomet/App.pm
 lib/App/Baphomet/App/FanoutCmd.pm

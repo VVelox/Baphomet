@@ -33,40 +33,35 @@ every kur def, and loads every rule referenced by a watcher, running the
 tests embedded in each... a broken config or rule is fatal here, before
 anything is spawned, rather than something the workers trip over one by
 one. It then spawns one `galla` process per kur via POE::Wheel::Run and
-supervises them, restarting any that die with a backoff that doubles up to
-a minute.
+supervises them, restarting any that die with a backoff that doubles from
+a second up to a minute, resetting once a galla holds for one.
 
-Each galla re-reads the config, takes its own kur from it, and follows the
-log of each watcher of that kur with POE::Wheel::FollowTail, picking up
-where the file left off through rotations.
+Each galla re-reads the config, takes its own kur from it, and follows
+each watcher of that kur... a file watcher with POE::Wheel::FollowTail,
+picking up where the file left off through rotations, a journal watcher
+by running `journalctl --follow` as a supervised child of its own,
+resuming from the saved cursor.
 
 ## From a line to a ban
 
 Inside a galla, each new line of a watcher's log runs the gauntlet...
 
-1. **Parse.** The watcher's parser (e.g. `bsd_syslog`, one of several) breaks
-   the line into time, hostname, daemon, level, pid, facility, severity,
-   and message. Lines that do not parse are counted and skipped.
-2. **The daemon gate.** The rule's `daemons` list is checked against the
-   daemon of the line. No match, no further work.
-3. **The message regexps.** The rule's `message_regexp` entries are tried
-   in order against the message. The first to match wins.
-4. **Extraction.** The named captures the rule's tokens compiled to are
-   pulled out, and each capture named in `ban_var` yields an IP.
-5. **Counting.** Each IP gets a hit recorded. Hits older than `find_time`
-   seconds no longer count. When an IP reaches `max_score` hits, it is
-   seized.
-6. **Banishment.** The galla sends
-   `{"command":"ban","args":{"ips":["..."],"kur":"<name>","ban_time":...}}`
-   to the Ereshkigal manager socket. If Ereshkigal can not be reached, the
-   ban is queued and retried every ten seconds rather than dropped.
+![the gauntlet, from a line to a ban](from-a-line-to-a-ban.svg)
+
+The gates a rule opens with were ground down when the rule was read... the
+plain shapes compiled to bare code refs (see compiled gates below). The ban
+itself is
+`{"command":"ban","args":{"ips":["..."],"kur":"<name>","ban_time":...}}` on
+the Ereshkigal manager socket. Observe mode and detection rules walk the
+same road but count into the shadow buckets and never banish. The full
+clause set and its exact order of judgment live in [rules](rules.md).
 
 Counts are per galla, so an IP hitting two watchers of the same kur
 accumulates in one counter, while kurs count independently.
 
 ### The rule index
 
-A watcher does not offer each line to every rule it carries. It keeps an
+A watcher does not offer each line to every rule it has. It keeps an
 index of which of its rules a line could possibly match, keyed on one field
 of the record, and walks only those... in config order, so the `overlap`
 semantics are untouched.
@@ -77,17 +72,23 @@ the first thing the rule does, before it looks at or remembers anything. For
 the types with no daemon it is whichever field the rules pin most
 *selectively* through a plain equality in their `gate`. On a
 `%json/suricata-all%` watcher that is `alert.category`, not `event_type`:
-both are pinned by every rule, but `event_type` takes two or three values
-across the whole set where `alert.category` takes one per rule, so keying on
-it hands a line one rule instead of forty-four.
+nearly every rule pins both, but `event_type` takes the one value `alert`
+across the whole set where `alert.category` takes one per rule, so keying
+on it hands a line one or two rules instead of forty-four... two, because
+a rule pinning nothing on the chosen field constrains it not at all and
+rides along with every value.
 
-A rule is only indexed on a gate it can not fire around. One carrying a
-`capture`, an `ignore`, or a `key` offers nothing and is always tried, since
-a capture entry judges on its own gates and can complete a deferred offense
-on a line the rule's own gate refused. So can a `selections` arm, which may
-sit under an `or`, and a `keywords` entry, which fans over many fields rather
-than pinning one. A watcher whose rules pin nothing indexes on nothing and
-walks them all, exactly as before.
+A rule is only indexed on a gate it can not fire around, and only a plain
+string equality can be indexed at all. A json rule carrying a `capture`, an
+`ignore`, or a `key` offers nothing and is always tried... a capture entry
+judges on its own gates and can complete a deferred offense on a line the
+rule's own gate refused, and a key defers the offense itself. A
+`selections`/`condition` boolean offers nothing either, an arm of it
+possibly sitting under an `or`. A `keywords` entry, a `//regexp//` value,
+or a typed predicate merely contributes nothing for its field... the rule
+is still indexed on whatever plain equalities its `gate` holds, and only
+one holding none is always tried. A watcher whose rules pin nothing
+indexes on nothing and walks them all, exactly as before.
 
 A `track` is the same clause for a different reason, and the one place the
 index deliberately gives work back. A tracked record's harvest runs whether
@@ -104,18 +105,24 @@ a fresh one per line can not grow it without limit.
 
 ### Compiled gates
 
-The rules the index does hand a line to then run their gates, and a gate's
-shape... whether it is a keyword fan, a typed predicate, or a plain field
-equality... was settled when the rule was read. Each gate whose shape is the
-plain one is compiled at load into a code ref that does only what that gate
-needs, so the shape is not re-asked per line, and a rule that is nothing but
+The rules the index does hand a line to then run their gates. Answering a
+gate is two questions... what shape it is, a keyword fan, a typed predicate,
+or a plain field equality, and whether the line satisfies it. The first was
+settled when the rule was read, yet the one runner that handles every shape
+re-asks it per gate, per line.
+
+So each gate of the plain shape... one field, string equality... is compiled
+at load into a code ref that does only what that gate needs, a single hash
+lookup with no branching around it, and a rule whose boolean is nothing but
 such gates is run by walking those code refs and nothing else.
 
-A keyword fan, a typed predicate, and a gate on the reserved `MESSAGE` field
-keep their branching and take the general path, as does any rule whose
+The rest stay with the shape-asking runner: a keyword fan, a typed
+predicate, a gate on the reserved `MESSAGE` field, and any rule whose
 boolean is more than a gate list... one carrying `keywords` to AND in, or
-`selections` with a `condition` to fold. Nothing about what a gate means
-changes; only when the question of which kind it is gets asked.
+`selections` with a `condition` to fold. Those are the rare shapes, so
+compiling them would restate more paths to buy nothing. Nothing about what
+a gate means changes; only when the question of which kind it is gets
+asked.
 
 ## The sockets
 
@@ -130,16 +137,18 @@ changes; only when the question of which kind it is gets asked.
 
 Both speak the newline delimited JSON protocol of
 [POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix),
-same as Ereshkigal, and every client... the CLI included... drives them
-with that dist's own blocking and async clients. The manager socket
-answers `status`, `status_all`, `status_galla`, `accused`, `marked`,
-`tracked`, `watching`, `banished`, and `stop`, with the status, accused,
-marked, tracked, and watching fan-out proxied to the galla sockets and
-`banished` proxied on to Ereshkigal for who Kur holds. Every CLI query
+same as Ereshkigal. The manager socket answers `status`, `status_all`,
+`status_galla`, `accused`, `marked`, `tracked`, `watching`, `banished`,
+and `stop`, with the status, accused, marked, tracked, and watching
+fan-out proxied to the galla sockets and `banished` asking Ereshkigal who
+Kur holds for the fed kurs, gates expanded to their members and each
+galla's still-pending bans folded in. Every CLI query of the live daemons
 rides this one socket rather than reaching around the manager, so the
-manager is the single door to the control plane. The manager socket's
-group and mode are configurable via `socket_group` and `socket_mode`... it
-only exposes read-only views and stop, but stop is still stop.
+manager is the single door to the control plane... only `baphomet ledger`
+reads its tablet straight off disk. The manager socket's group and mode
+are configurable via `socket_group` and `socket_mode`, with the
+[Neti gate](neti-gate.md) available over that... it only exposes
+read-only views and stop, but stop is still stop.
 
 Everything logs to syslog under the daemon facility, the manager as
 `baphomet` and each worker as `galla-<kur>`.
@@ -151,30 +160,39 @@ restart or a crash does not forget what it was in the middle of...
 
 ```
 /var/db/baphomet/
-├── galla.<kur>.counters.csv    per-IP offense counts, still-live hits
-├── galla.<kur>.pending.csv     bans Ereshkigal could not be reached for
-├── galla.<kur>.positions.csv   file, inode, and byte offset per followed log
-├── galla.<kur>.cursors.csv     journal cursors, one per journal watcher
-├── galla.<kur>.stats.jsonl     running stats, so totals survive a respawn
-├── galla.<kur>.context.jsonl   correlation context and deferred offenses
-└── banishments.csv             the shared ledger... every banishment, by all
+├── galla.<kur>.counters.csv      still-live hits, per IP and per rule bucket
+├── galla.<kur>.subnet.csv        the per-subnet tallies
+├── galla.<kur>.distinct.jsonl    distinct-counting sets
+├── galla.<kur>.pending.csv       bans Ereshkigal could not be reached for
+├── galla.<kur>.pending_cidr.csv  the subnet twin of pending
+├── galla.<kur>.positions.csv     file, inode, and byte offset per followed log
+├── galla.<kur>.cursors.csv       journal cursors, one per journal watcher
+├── galla.<kur>.stats.jsonl       running stats, so totals survive a respawn
+├── galla.<kur>.context.jsonl     correlation context and deferred offenses
+├── galla.<kur>.marks.csv         branded marks
+├── galla.<kur>.tracked.csv       tracked records
+├── galla.<kur>.mark_stream.csv   fleet mark-stream cursor, under mark_sync
+└── banishments.csv               the shared ledger... every banishment, by all
 ```
 
 Checkpointed on the `checkpoint` cadence from the sweeper and again on
 stop, atomically via temp file and rename. On start the tablets are read
-back... counters and pending bans pruned to what is still relevant, stats
+back... stale counters dropped, pending bans taken up for retry, stats
 totals taken up, correlation context restored into the rules, and each log
-resumed at its saved offset if it is the same file grown longer (so lines
-written while the galla was down are still read), or from the top if it
-was rotated or truncated. The tablets are the counting-side echo of
+resumed at its saved offset if it is still the same file and no shorter
+(so lines written while the galla was down are still read), from the top
+if it was rotated or truncated, or from the end if it was never followed
+before. The tablets are the counting-side echo of
 Ereshkigal's own ban tablets... the bans themselves live over there.
 
 The ledger is the one tablet shared by every galla rather than per kur...
-each banishment is chiseled in as `epoch,kur,ip,rule,watcher` under a
-exclusive lock, pruned to `ledger_keep`, read by the recidive gate for
-its counting and by `baphomet ledger` for history.
+each banishment is chiseled in as `epoch,kur,ip,rule,watcher` under an
+exclusive lock, pruned to `ledger_keep` but never below the recidive
+window, read by the recidive gate for its counting and by
+`baphomet ledger` for history.
 
 Where the per-galla tablets live is pluggable... the file layout above is
 the default backend, and a `[ClayTablet]` config table can put them
-elsewhere, the redis backend sharing marks across a fleet. See
+elsewhere, the redis backend sharing marks across a fleet. The ledger is
+the exception, staying on local disk whatever the backend. See
 [tablets](tablets.md).

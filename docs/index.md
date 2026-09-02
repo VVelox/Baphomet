@@ -20,44 +20,31 @@ for [Ereshkigal](https://github.com/LilithSec/Ereshkigal) rules.
 
 ## The docs
 
-- [glossary](glossary.md) ... every borrowed term (kur, Kur, galla, Namtar,
-  Neti, ...) in plain language, in one place. Start here if a name is
-  unfamiliar.
-- [architecture](architecture.md) ... the processes, the sockets, how a
-  line becomes a ban, and how Baphomet relates to Ereshkigal.
-- [install](install.md) ... dependencies and installing.
-- [configuration](configuration.md) ... the config file,
-  `/usr/local/etc/baphomet/config.toml`.
-- [usedns](usedns.md) ... hostname offenders... the resolve modes, the
-  fences around them, and why the default is to drop names.
-- [neti-gate](neti-gate.md) ... who may drive the manager socket... the
+- [glossary](glossary.md) :: A glossary of various terms etc.
+- [architecture](architecture.md) :: How it all works.
+- [install](install.md) :: Install related stuff.
+- [configuration](configuration.md) :: Config info.
+- [usedns](usedns.md) :: Information on usedns related stuff.
+- [neti-gate](neti-gate.md) :: Who may drive the manager socket... the
   ownership challenge and per command authorization.
-- [tablets](tablets.md) ... where a galla's state lives... the file backend
+- [tablets](tablets.md) :: Where a galla's state lives... the file backend
   and the redis mark bus for fleets.
-- [rules](rules.md) ... the rule files, their tokens, and their embedded
-  tests. Read this to write your own.
-- [rules-catalog](rules-catalog.md) ... the shipped rules, what each
-  watches for, and what was deliberately not ported from fail2ban.
-- [log-analysis](log-analysis.md) ... the detection half... rules that alert
+- [rules](rules.md) :: How the various rule files work.
+- [rules-catalog](rules-catalog.md) :: Currently shipped rules.
+- [log-analysis](log-analysis.md) :: the detection half... rules that alert
   with out banishing, the alert metadata, the EVE stream, and how the galla
   is a log analysis engine in the Sagan/Wazuh/Sigma family.
-- [eve](eve.md) ... the EVE event log, a Suricata-shaped NDJSON record
-  of what the gallas do.
-- [linux-auditd](linux-auditd.md) ... forwarding the Linux auditd stream to
+- [eve](eve.md) :: Information on the EVE format.
+- [linux-auditd](linux-auditd.md) :: Forwarding the Linux auditd stream to
   syslog and configuring the kernel's audit rules to feed the
   `%syslog/linux-audit%` group, plus the shorter road for AppArmor denials
   on a host running no auditd at all.
-- [usage](usage.md) ... the `baphomet` CLI.
-- [examples](examples.md) ... copy-paste scenarios.
-- [fail2ban](fail2ban.md) ... the concept map, what is better, what is
-  still missing, and how to migrate a jail.
-- [sagan](sagan.md) ... the gates folded in from Sagan's rule language,
-  and what a full log-analysis engine still does that this does not.
-- [wazuh](wazuh.md) ... the log-analysis slice of Wazuh mapped rule for
-  rule, why the pair with Ereshkigal is its detect-and-respond, and the
-  platform around it (agents, FIM, storage) that stays out of charter.
-- [sigma](sigma.md) ... how the json rule type speaks Sigma's detection
-  model, the modifier mapping, and porting a Sigma rule by hand.
+- [usage](usage.md) :: The `baphomet` CLI.
+- [examples](examples.md) :: Various examples.
+- [fail2ban](fail2ban.md) :: A short comparison for those coming from fail2ban.
+- [sagan](sagan.md) :: A short comparison for those coming from sagan.
+- [wazuh](wazuh.md) :: A short comparison for those coming from wazuh.
+- [sigma](sigma.md) :: A short comparison between SIGMA rules and porting them.
 
 ## Module POD
 

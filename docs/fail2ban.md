@@ -11,32 +11,32 @@ is how a jail with several actions maps over (see below).
 
 ## The concept map
 
-| fail2ban | here |
-| --- | --- |
-| jail | a kur... the counting side in Baphomet's `[kur.<name>]`, the banning side in Ereshkigal's |
-| filter (`filter.d/*.conf`) | a rule (`rules/<type>/<name>.yaml`)... most shipped rules cite the fail2ban filter they were translated from |
-| `failregex` | `message_regexp` (syslog/raw/http_error types) or `match` entries (http/json types) |
-| `ignoreregex` | `ignore_regexp` / `ignore` |
-| `<HOST>` | the `%%%%SRC%%%%` and friends tokens... or nothing at all for the http/http_error/json types, where the parser already extracted the client |
-| `maxretry` | `max_score` |
-| `findtime` | `find_time` |
-| `bantime` | `ban_time`... 0 means eternal, and unset defers to the Ereshkigal side default |
-| `logpath` | the watcher `log`, which may also be a array and may glob, re-expanded live |
-| `backend = auto/polling` | POE::Wheel::FollowTail, always |
-| `backend = systemd` / `journalmatch` | a watcher's `journal` key, matches and all... native, via journalctl |
-| action (`action.d/*.conf`) | Ereshkigal's kur backends... some thirty underworlds, from pf, ipfw, iptables, and nftables through network gear and cloud edges to abuseipdb, shell, and dummy... see its kurs docs |
-| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side... the Baphomet kur targets the gate, whose members each do their own thing, say a pf kur plus an abuseipdb kur reporting upstream |
-| `ignoreip` | `ignore_ips`, global or per kur |
-| `fail2ban-client status/set` | `baphomet status`, `ereshkigal status/ban/unban/banned` |
-| `fail2ban-client status <jail>`, currently failed | `baphomet accused`... and with the per-IP detail fail2ban never shows |
-| `fail2ban-client status <jail>`, banned IP list | `baphomet banished`, the manager asking Ereshkigal and marking bans still pending delivery |
-| `fail2ban-client banned <ip>` | `baphomet banished --ip <ip>` |
-| `fail2ban-client get <jail> banip --with-time` | `baphomet ledger`, filterable by kur, IP, and time |
-| `fail2ban-regex` | `baphomet check_rules` and `baphomet test_line` |
-| the fail2ban SNMP extend for LibreNMS | `baphomet lnms-f2b-extend`, emitting the same jail-tally JSON so a Baphomet host drops into the LibreNMS fail2ban application with no fail2ban present |
-| `recidive` jail | the `[recidive]` table, escalating across all kurs |
-| `bantime.increment` | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban |
-| sqlite persistence | the state tablets under `tablet_base_dir`, the ban history in the shared banishment ledger |
+| fail2ban                                               | here                                                                                                                                                                                 |
+|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| jail                                                   | a kur... the counting side in Baphomet's `[kur.<name>]`, the banning side in Ereshkigal's                                                                                            |
+| filter (`filter.d/*.conf`)                             | a rule (`rules/<type>/<name>.yaml`)... most shipped rules cite the fail2ban filter they were translated from                                                                         |
+| `failregex`                                            | `message_regexp` (syslog/raw/http_error types) or `match` entries (http/json types)                                                                                                  |
+| `ignoreregex`                                          | `ignore_regexp` / `ignore`                                                                                                                                                           |
+| `<HOST>`                                               | the `%%%%SRC%%%%` and friends tokens... or nothing at all for the http/http_error/json types, where the parser already extracted the client                                          |
+| `maxretry`                                             | `max_score`                                                                                                                                                                          |
+| `findtime`                                             | `find_time`                                                                                                                                                                          |
+| `bantime`                                              | `ban_time`... 0 means eternal, and unset defers to the Ereshkigal side default                                                                                                       |
+| `logpath`                                              | the watcher `log`, which may also be a array and may glob, re-expanded live                                                                                                          |
+| `backend = auto/polling`                               | POE::Wheel::FollowTail, always                                                                                                                                                       |
+| `backend = systemd` / `journalmatch`                   | a watcher's `journal` key, matches and all... native, via journalctl                                                                                                                 |
+| action (`action.d/*.conf`)                             | Ereshkigal's kur backends... some thirty underworlds, from pf, ipfw, iptables, and nftables through network gear and cloud edges to abuseipdb, shell, and dummy... see its kurs docs |
+| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side... the Baphomet kur targets the gate, whose members each do their own thing, say a pf kur plus an abuseipdb kur reporting upstream             |
+| `ignoreip`                                             | `ignore_ips`, global or per kur                                                                                                                                                      |
+| `fail2ban-client status/set`                           | `baphomet status`, `ereshkigal status/ban/unban/banned`                                                                                                                              |
+| `fail2ban-client status <jail>`, currently failed      | `baphomet accused`... and with the per-IP detail fail2ban never shows                                                                                                                |
+| `fail2ban-client status <jail>`, banned IP list        | `baphomet banished`, the manager asking Ereshkigal and marking bans still pending delivery                                                                                           |
+| `fail2ban-client banned <ip>`                          | `baphomet banished --ip <ip>`                                                                                                                                                        |
+| `fail2ban-client get <jail> banip --with-time`         | `baphomet ledger`, filterable by kur, IP, and time                                                                                                                                   |
+| `fail2ban-regex`                                       | `baphomet check_rules` and `baphomet test_line`                                                                                                                                      |
+| the fail2ban SNMP extend for LibreNMS                  | `baphomet lnms-f2b-extend`, emitting the same jail-tally JSON so a Baphomet host drops into the LibreNMS fail2ban application with no fail2ban present                               |
+| `recidive` jail                                        | the `[recidive]` table, escalating across all kurs                                                                                                                                   |
+| `bantime.increment`                                    | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban                                                                                            |
+| sqlite persistence                                     | the state tablets under `tablet_base_dir`, the ban history in the shared banishment ledger                                                                                           |
 
 ## What is better over here
 
@@ -89,14 +89,6 @@ Two more turns fail2ban has no equivalent for, from the wider field...
 
 Honesty section, roughly in order of how much it matters...
 
-- **Rich action context.** A fan_out gate covers the shape of several
-  actions per jail (see the concept map), but a member kur only hears the
-  IP... fail2ban interpolates the matched log lines into a action via
-  `<matches>`, where here a shell member gets `%%%BAN%%%` and nothing
-  else, and Ereshkigal's abuseipdb kur reports with a fixed comment.
-  The EVE event log ([eve](eve.md)) is the stream carrying the raw line,
-  the rule, and the count for driving a SIEM or notifications with
-  full context.
 - **Cross-line backreferences.** fail2ban's buffer-join rematching
   (maxlines with SKIPLINES between arbitrary failregex fragments) has no
   general equivalent. Its two real uses are covered by sharper tools...

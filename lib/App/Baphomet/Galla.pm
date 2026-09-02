@@ -962,9 +962,9 @@ sub _snapshot_positions {
 	return;
 } ## end sub _snapshot_positions
 
-# loads the tablets back at start... counters, distinct sets, and pending bans
-# pruned to what is still relevant, log positions kept for start_server to seek
-# to, journal cursors restored, the running stats carried forward, correlation
+# loads the tablets back at start... counters and distinct sets pruned of the
+# stale, pending bans taken back up for retry, log positions kept for
+# start_server to seek to, journal cursors restored, the running stats carried forward, correlation
 # context restored into the rules, marks restored and pruned of the expired,
 # and the mark stream drained to catch up on what the fleet branded while down
 sub _load_state {
@@ -2204,10 +2204,10 @@ my $rule_index_max = 1024;
 #
 # Selective, not popular. The field the most rules name is not the field that
 # thins the list most: on a suricata watcher every rule pins event_type and
-# nearly every rule pins alert.category, but event_type takes two or three
-# values across the whole set where alert.category takes one per rule. Keying
-# on the first hands a line most of the rules back, keying on the second hands
-# it one or two. So each candidate field is scored by the average candidate
+# nearly every rule pins alert.category, but event_type takes the one value
+# alert across the whole set where alert.category takes one per rule. Keying
+# on the first hands a line every rule back, keying on the second hands it
+# one or two. So each candidate field is scored by the average candidate
 # count it would yield... the rules pinning nothing on it, which every line
 # reaches, plus the rules pinning it spread over the distinct values they pin
 # between them. Lowest wins, ties going to the lexically first so the choice
