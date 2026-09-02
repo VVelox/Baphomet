@@ -124,6 +124,34 @@ compiling them would restate more paths to buy nothing. Nothing about what
 a gate means changes; only when the question of which kind it is gets
 asked.
 
+## The sweeper
+
+Everything above runs when a line arrives. What has to happen on time
+rather than on traffic belongs to the sweeper, a pass each galla makes
+every ten seconds...
+
+- retry the pending bans... bans and subnet bans Ereshkigal could not be
+  reached for go out again, batched, and stay pending for the next sweep
+  if it still can not be reached.
+- age out the quiet... counter entries, subnet buckets, and
+  distinct-counting sets whose newest hit is over a day old are dropped,
+  shadow families included, so an IP never seen again does not linger.
+  The fine pruning to `find_time` happens on the hit path... this is the
+  coarse pass for subjects that get no next hit. The recidive tally is
+  pruned past its window the same way.
+- expire on time... marks whose ttl has run out, tracked records past
+  their expiry, and the correlation state of the rules, rather than any
+  of them waiting on the next line that would key it. Under `mark_sync`
+  the fleet mark bus is drained first, so a freshly gossiped brand is
+  present and then aged by the same pass.
+- re-read the namtar lists... a list file whose mtime changed, appeared,
+  or vanished is reloaded, so an updated feed takes effect within a
+  sweep.
+- re-expand the watcher globs... new matches get followed, vanished
+  matches get dropped, literal entries are never dropped.
+- checkpoint the tablets, once the `checkpoint` cadence has come due...
+  which is why that setting rounds up to ten seconds.
+
 ## The sockets
 
 ```
