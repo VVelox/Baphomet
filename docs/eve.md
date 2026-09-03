@@ -34,64 +34,114 @@ or `sighting`) beside it, since the terminal event already carries the
 whole match. So one line is one event... a burst of failures reads as
 several `found`s and then a single `banish` on the one that tipped it.
 
-- **found** ... a rule matched a line and the offender stayed under the
+- **found** :: a rule matched a line and the offender stayed under the
   threshold. The record of a sighting that did not (yet) act.
-- **banish** ... an IP crossed its threshold and was condemned to Kur.
+- **banish** :: an IP crossed its threshold and was condemned to Kur.
   Written when the decision is made, synchronously and with the full
   context, not when Ereshkigal accepts it... so the audit never waits on
   delivery, and a Kur that is down or slow costs the send a retry, never a
-  lost or context-stripped record. Carries the triggering line whole, the
+  lost or context-stripped record. (The recidive escalation is the one
+  exception... see below.) Carries the triggering line whole, the
   same `raw`/`parsed`/`found`/`marks_set` a `found` would have, so it
   stands for that line by itself.
-- **noted** ... the observe-mode twin of `found`, a match under an
+- **noted** :: the observe-mode twin of `found`, a match under an
   `eve_only` rule or watcher, which is recorded but never counted toward a
   real ban. Under an `overlap` of `shadow` a later rule firing on a record
   already consumed is demoted to observe mode for that hit and reads as a
   `noted` too... the winner made the real judgment, this records who else
-  saw it. See [rules](rules.md) and [configuration](configuration.md).
-- **alert** ... the observe-mode twin of `banish`, an offender whose score
+  saw it. A `mark_only` rule is the exception: it brands the same before
+  and after the winner, so it keeps its `found` either way. See
+  [rules](rules.md) and [configuration](configuration.md).
+- **alert** :: the observe-mode twin of `banish`, an offender whose score
   reached the threshold under observe mode... or under demotion, the two
   depositing into the same shadow buckets. It reads just like the banish it
   stands in for, minus the fact of the ban... nothing was sent to Kur.
-- **sighting** ... the detection twin of `found`, a sub-threshold match
+- **sighting** :: the detection twin of `found`, a sub-threshold match
   under a detection-only rule (one carrying a `detection_var`). The rule
   banishes nobody, only counts its subject... the crossing match is the
   `sighted`. See [rules](rules.md).
-- **sighted** ... the detection twin of `banish`, a subject whose count
+- **sighted** :: the detection twin of `banish`, a subject whose count
   crossed the threshold under a detection rule. It carries the match
   envelope but banishes nobody... the subject need not be a address, and
   nothing is sent to Kur.
 
 Every record carries these fields...
 
-| field | what |
-| --- | --- |
-| `eve_type` | `baphomet`, always... marks the producer for downstream tooling. |
-| `event_type` | `found`, `banish`, `noted`, `alert`, `sighting`, or `sighted`. |
-| `timestamp` | ISO 8601 with zone. |
-| `hostname` | the system hostname. |
-| `kur` | the kur. |
-| `path` | the source... the log file, or `journal:<matches>` for a journal watcher. |
-| `score` | the offender's accumulated weighted score after this hit... equal to the raw hit count when no weights are in play. |
-| `threshold` | the score that offender had to reach, the effective `max_score` after the watcher, kur, global and per-rule layers are resolved... so `score` reads without going to the config for the number it is racing. Present whenever `score` is, and absent with it. |
-| `msg` | the rule's human-readable signature, Sagan/Suricata `[TAG] description` style... its `msg`, or the rule name when it sets none. Suricata's `alert.signature`, promoted to the top level. |
-| `gid` | the rule's group id, Suricata's `alert.gid`... `0` when the rule is one of the shipped ones, `1` when it came from the site override dir (`rules_dir`). Always present. |
-| `sid` | the rule's signature id, Suricata's `alert.signature_id`... a stable positive integer hashed from the rule name, so `syslog/sshd` always carries the same `sid`, shipped or overridden. Always present. |
-| `rev` | the rule's revision, Suricata's `alert.rev`... the rule's `rev`, or `0` when it sets none (an unversioned rule). Always present as an integer. |
-| `severity` | the rule's severity (`info`/`low`/`medium`/`high`/`critical`), or the config `default_severity`... omitted when neither is set. |
-| `category` | the rule's class in words, Suricata's `alert.category` promoted to the top level... a `classtype: misc-attack` reads here as `Misc Attack`, the description Snort and Suricata's `classification.config` would have supplied, so an event sorts beside a Suricata one of the same class. A classtype the table does not know becomes its slug title-cased. Present only when the rule sets a classtype. |
-| `references` | the rule's references (URLs, CVE ids)... an array, present only when set. |
-| `attack` | the rule's MITRE ATT&CK technique ids... an array, present only when set. |
-| `src_ip` | the flow's source IP, lifted from the found var the rule's `src_ip_var` names (default `src_ip`)... always present, `null` when that var is absent. |
-| `dest_ip` | the flow's destination IP, lifted from the found var the rule's `dest_ip_var` names (default `dest_ip`)... always present, `null` when that var is absent. |
-| `src_port` | the flow's source port, lifted from the found var the rule's `src_port_var` names (default `src_port`)... always present, `null` when that var is absent. |
-| `dest_port` | the flow's destination port, lifted from the found var the rule's `dest_port_var` names (default `dest_port`)... always present, `null` when that var is absent. |
-| `user` | the account the line was about, lifted from the found var the rule's `user_var` names (default `user`)... always present, `null` when that var is absent. |
-| `raw` | the log line exactly as received (bytes untouched), or, when that line is itself a JSON object or array, the decoded structure rather than an escaped string blob. The unprocessed input. See [raw, parsed, found](#raw-parsed-found). |
-| `parsed` | the record the parser made of that line, before the rule touched it... the structural fields. The unit of what the rule matched against. See [raw, parsed, found](#raw-parsed-found). |
-| `found` | the assembled offense... the fields the rule matched, extracted, or correlated, and the ones `ban_var`/`detection_var`, the gates, and the marks resolve against. See [raw, parsed, found](#raw-parsed-found). |
-| `stages` | a staged rule's whole story... an array of every stage hit (`stage` index, `time` epoch, `line`), `raw` above being only the final line. Present only on staged-rule events. |
-| `rule` | the rule's name and def, with its tests stripped to save space. |
+- `eve_type` :: `baphomet`, always... marks the producer for
+  downstream tooling.
+- `event_type` :: `found`, `banish`, `noted`, `alert`, `sighting`, or
+  `sighted`.
+- `timestamp` :: ISO 8601 with zone.
+- `hostname` :: the system hostname.
+- `kur` :: the kur.
+- `path` :: the source... the log file, or `journal:<matches>` for a
+  journal watcher (bare `journal` when it names no matches).
+- `score` :: the offender's accumulated weighted score after this
+  hit... equal to the raw hit count when no weights are in play.
+- `threshold` :: the score that offender had to reach, the effective
+  `max_score` after the watcher, kur, global and per-rule layers are
+  resolved... so `score` reads without going to the config for the
+  number it is racing. Present whenever `score` is, and absent with
+  it... except on the recidive banish, where it rides beside `.count`,
+  which stands in `score`'s stead.
+- `msg` :: the rule's human-readable signature, Sagan/Suricata
+  `[TAG] description` style... its `msg`, or the rule name when it sets
+  none. Suricata's `alert.signature`, promoted to the top level.
+- `gid` :: the rule's group id, Suricata's `alert.gid`... `0` when the
+  rule is one of the shipped ones, `1` when it came from the site
+  override dir (`rules_dir`). Always present.
+- `sid` :: the rule's signature id, Suricata's `alert.signature_id`...
+  a stable positive integer hashed from the rule name, so
+  `syslog/sshd` always carries the same `sid`, shipped or overridden.
+  Always present.
+- `rev` :: the rule's revision, Suricata's `alert.rev`... the rule's
+  `rev`, or `0` when it sets none (an unversioned rule). Always
+  present as an integer.
+- `severity` :: the rule's severity
+  (`info`/`low`/`medium`/`high`/`critical`), or the config
+  `default_severity`... omitted when neither is set.
+- `category` :: the rule's class in words, Suricata's `alert.category`
+  promoted to the top level... a `classtype: misc-attack` reads here
+  as `Misc Attack`, the description Snort and Suricata's
+  `classification.config` would have supplied, so an event sorts
+  beside a Suricata one of the same class. A classtype the table does
+  not know becomes its slug title-cased. Present only when the rule
+  sets a classtype.
+- `references` :: the rule's references (URLs, CVE ids)... an array,
+  present only when set.
+- `attack` :: the rule's MITRE ATT&CK technique ids... an array,
+  present only when set.
+- `src_ip` :: the flow's source IP, lifted from the found var the
+  rule's `src_ip_var` names (default `src_ip`)... always present,
+  `null` when that var is absent.
+- `dest_ip` :: the flow's destination IP, lifted from the found var
+  the rule's `dest_ip_var` names (default `dest_ip`)... always
+  present, `null` when that var is absent.
+- `src_port` :: the flow's source port, lifted from the found var the
+  rule's `src_port_var` names (default `src_port`)... always present,
+  `null` when that var is absent.
+- `dest_port` :: the flow's destination port, lifted from the found
+  var the rule's `dest_port_var` names (default `dest_port`)... always
+  present, `null` when that var is absent.
+- `user` :: the account the line was about, lifted from the found var
+  the rule's `user_var` names (default `user`)... always present,
+  `null` when that var is absent.
+- `raw` :: the log line exactly as received (bytes untouched), or,
+  when that line is itself a JSON object or array, the decoded
+  structure rather than an escaped string blob. The unprocessed input.
+  See [raw, parsed, found](#raw-parsed-found).
+- `parsed` :: the record the parser made of that line, before the rule
+  touched it... the structural fields. The unit of what the rule
+  matched against. See [raw, parsed, found](#raw-parsed-found).
+- `found` :: the assembled offense... the fields the rule matched,
+  extracted, or correlated, and the ones `ban_var`/`detection_var`,
+  the gates, and the marks resolve against. See
+  [raw, parsed, found](#raw-parsed-found).
+- `stages` :: a staged rule's whole story... an array of every stage
+  hit (`stage` index, `time` epoch, `line`), `raw` above being only
+  the final line. Present only on staged-rule events.
+- `rule` :: the rule's name and def, with its tests stripped to save
+  space.
 
 ### raw, parsed, found
 
@@ -100,13 +150,13 @@ engine... `raw` is the input, `parsed` is what a parser made of it, and
 `found` is what the rule made of that. They overlap, and for some rules
 two of them coincide, but each answers a different question.
 
-- **`raw`** ... the line as it arrived, nothing done to it (beyond the
+- **`raw`** :: the line as it arrived, nothing done to it (beyond the
   UTF-8 scrub above). The one exception is a line that is itself JSON,
   which rides along decoded to its structure rather than as an escaped
   string, so the stream carries the object and not a blob. This is the
   forensic copy... what was on the wire.
 
-- **`parsed`** ... the record a [parser](rules.md) produced from that
+- **`parsed`** :: the record a [parser](rules.md) produced from that
   line, before any rule ran. What it holds depends on the parser: a
   `bsd_syslog` line becomes `daemon`, `pid`, `host`, `facility`, `level`,
   `message`, `time`; a `json` line becomes the object flattened to dotted
@@ -115,7 +165,7 @@ two of them coincide, but each answers a different question.
   line *as delivered*, the common structure the rule's gates and regexps
   are tested against.
 
-- **`found`** ... the offense the rule assembled, and the hash that
+- **`found`** :: the offense the rule assembled, and the hash that
   `ban_var`/`detection_var`, the gates, the marks, and the promoted vars
   (`src_ip_var` and its four siblings) all read. For a regexp rule
   (syslog/raw/http_error) it is
@@ -144,7 +194,8 @@ list, and every event a match raises writes it as one.
 
 `.subject_vars` gives each `ban_var` or `detection_var` what it captured.
 Ordinarily that is the bare value. Where usedns resolved a name it is that
-name under `hostname` beside the addresses it answered with under `ip`.
+name under `hostname` beside the addresses it answered with under `ip`, and
+a var holding several unresolved values is written as the list of them.
 
 `.subject_vars_scores` mirrors that shape... a scalar against a bare value, a
 map of address to score against a resolved one. **A var missing from it was
@@ -173,12 +224,13 @@ that says which of them tipped over.
 
 `.banishing` is the array of what went to Kur, and it is on every event that
 banishes or would have... a banish, a subnet banish, a recidive escalation, a
-observe-mode alert. A rule that banishes nobody carries none.
+observe-mode alert. A rule that banishes nobody has no `.banishing` field.
 
 Two vars naming the one address is one piece of evidence, and counts once. Both
 vars then read the one bucket and report the one score.
 
-A **banish** event adds `.banishing` and `.ban_time`, and `.recidive` is true
+A **banish** event adds `.banishing`, and `.ban_time` when a duration is
+set... a ban riding the kur's default omits the field. `.recidive` is true
 when it is a seventh-gate escalation to the recidive kur. A banish
 triggered by a specific line crossing the threshold carries that line's
 `raw`/`parsed`/`found`/`rule`, as above. A recidive escalation, which is
@@ -186,14 +238,19 @@ triggered by the ledger count
 rather than a line, is the bare banishment: it carries `.count`, how many
 times the IP has been banished across all kurs, and the `.threshold` that
 count had to reach, the recidive gate's own `max_score` and not any
-watcher's. With a `geoip_db` loaded, `.country` rides along too, though only
+watcher's. It is also the one banish written on delivery rather than at
+determination... the event lands when the recidive kur accepts the
+escalation, and a failed escalation is logged but leaves no event and no
+retry. With a `geoip_db` loaded, `.country` rides along too, though only
 where the whole banishment shares one... a single address always does.
 
 One crossing is one banish however many addresses it lands on. A name counted
 under a `usedns` of `resolve_ban` resolves at the threshold and may name
 several, and they arrive as one event with every one of them in `.banishing`
 and the name itself under `.subject_vars`. The ledger and the recidive gate
-still count each address in its own right. See [usedns](usedns.md).
+still count each address in its own right. Resolution is spent only on a
+real banish... under observe mode the name is never resolved, and the
+alert's `.banishing` carries the name itself. See [usedns](usedns.md).
 
 A **subnet banish** is a banish whose `.banishing` holds a CIDR
 (`65.49.1.0/24`) rather than a single address... raised when a network bucket
@@ -204,7 +261,7 @@ adds a `.bucket` table describing the network: `family` (`v4`/`v6`),
 first-seen order), `hits`, `score`, and the `first`/`last` epochs the
 window spanned. Its `.threshold` is the subnet one, `subnet_max_score`
 rather than the per-IP `max_score`, matching the `.score` beside it. It
-carries no `.country`, a CIDR has no single one.
+has no `.country` field, since a subnet can span more than one country.
 
 An **alert** is the observe-mode stand-in for a banish, and carries the
 same `.banishing`, `.ban_time`, `.score`, and envelope one would... `.bucket`
@@ -264,7 +321,8 @@ jq -r 'select(.event_type=="found" or .event_type=="banish") | .found.SRC // .fo
 # what a given IP did, in full... whichever var named it, and the
 # banishments that landed on it
 jq 'select(. as $event
-           | ([ $event.subject_vars[]? | if type == "object" then .ip[]? else . end ]
+           | ([ $event.subject_vars[]?
+                | if type == "object" then .ip[]? elif type == "array" then .[] else . end ]
               + ($event.banishing // [])) | index("1.2.3.4"))' \
     /var/log/baphomet/eve.json
 
