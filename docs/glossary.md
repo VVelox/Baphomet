@@ -53,7 +53,7 @@ go. The rest follows from those.
   gated by one acts only on a value a feed you supply has already
   condemned. See [configuration](configuration.md).
 - **Neti** :: the gatekeeper of Kur. The **Neti gate** is the manager
-  socket's authorization... who may ask a galla its status or stop it.
+  socket's authorization... who may ask baphomet its status, stop it, etc.
   See [neti-gate](neti-gate.md).
 - **state tablet / clay tablet** :: a galla's memory: the hit counters,
   the marks, the pending bans, the log positions, and the shared

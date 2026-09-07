@@ -3,7 +3,7 @@
 Baphomet has two faces. One is the accuser... it counts an IP's offenses and
 banishes the repeat ones to Kur, fail2ban's job (see [fail2ban](fail2ban.md)).
 The other is the one this page is about: the same galla that bans is also a
-log analysis engine, in the family of Sagan, Wazuh/OSSEC, and the Sigma
+log analysis engine, in the family of Sagan, Wazuh, and the Sigma
 detection model... it parses a stream, reads each line against signatures,
 enriches and correlates, and raises an alert. A rule need not end in a ban.
 
@@ -16,9 +16,9 @@ the verdict at the end differs.
 A rule names its offender with one of two keys, and that choice is the whole
 of it:
 
-- **`ban_var`** — the accuser. The named value is counted toward a ban and,
+- **`ban_var`** :: For banishing. The named value is counted toward a ban and,
   at the threshold, banished to Kur.
-- **`detection_var`** — the detection. The named value is counted the same
+- **`detection_var`** :: Detection only. The named value is counted the same
   way, through the same window and threshold, but crossing it banishes
   nobody... it writes a `sighted` to EVE and touches no firewall.
 
@@ -26,8 +26,8 @@ of it:
 off the leash of being an address. It counts by anything the line carries...
 a username, a hostname, a URI, a service, a config key... so a rule can alert
 on a thing with no address to banish at all, a policy tripwire, a service
-crash, a configuration change. This is the Sagan/Wazuh reach a pure banisher
-can not follow. See [rules](rules.md#detection_var).
+crash, a configuration change. This is the Sagan/Wazuh(LAE/Log Analysis Engine) reach a
+pure banisher can not follow. See [rules](rules.md#detection_var).
 
 ## What makes it a detection engine
 
@@ -85,43 +85,3 @@ an `alert`. Stand a new signature up, watch what it would have done against
 live traffic, and only then trust it to act. It is CrowdSec's simulation, and
 it is also, on its own, the way to run Baphomet as a pure detector that never
 touches a firewall. See [rules](rules.md#eve_only).
-
-## Where it stops
-
-Honesty section... Baphomet is a log analysis engine, not a SIEM, and the
-charter is drawn on purpose.
-
-- **No storage, no backscan.** The galla matches a live stream and forgets,
-  holding only its counting window. There is no data lake, no query over
-  stored history, no aggregation beyond the window. That is a SIEM's job, not
-  a log analysis engine's... Sagan streams and forgets the same way, which is
-  why both feed their alerts to something that does keep them.
-- **One output.** There is the EVE stream and nothing else... no unified2, no
-  syslog-out, no output-plugin fan. A consumer reads EVE or reads nothing.
-- **Log sources are the ceiling.** Detection reaches only as far as the
-  parsers... syslog services, access and error logs, and JSON. The Windows
-  corpus that fills the public Sigma set (Sysmon, the Security event log) has
-  nowhere to land, and more coverage means more parsers, not more rule
-  language. See [sigma](sigma.md).
-- **It detects; Ereshkigal acts.** Beyond a ban, the galla raises an alert
-  and stops. There is no active response, no FIM, no SOAR... the things a
-  Wazuh does past detection are out of charter. Acting on a detection is
-  yours to wire off the EVE stream.
-
-## The family
-
-Baphomet did not invent this half, it folded it in. Where each piece came
-from, mapped rule for rule...
-
-- [sagan](sagan.md) — the log analysis engine Baphomet most resembles here;
-  its gates (xbits, country_code, blacklist, alert_time) rebuilt in the galla.
-- [wazuh](wazuh.md) — the OSSEC-fork platform whose log-analysis stage this
-  matches; Baphomet plus Ereshkigal is its detect-and-respond, with out the
-  agent fleet, the file-integrity monitor, or the indexer.
-- [sigma](sigma.md) — the generic detection format the `json` rule type
-  speaks, modifier for modifier.
-- [fail2ban](fail2ban.md) — the other face, the accuser, for when the verdict
-  is a ban.
-
-Start with [rules](rules.md) to write a detection, and [eve](eve.md) for the
-shape of what it emits.

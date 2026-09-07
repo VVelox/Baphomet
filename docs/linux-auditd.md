@@ -1,10 +1,9 @@
 # Linux auditd
 
-The Linux kernel keeps its own ledger of who did what... logins, execs, file
-touches, module loads, the audit subsystem's own subversion. `auditd` is the
-daemon that collects it. This page is how you carry that ledger to a syslog
-file a galla can tail, and how to tell the kernel to record the few things it
-stays silent about by default, so the `%syslog/linux-audit%` rules have
+The Linux kernel keeps its own ledger of who did what... logins, execs, file touches,
+module loads, etc. `auditd` is the daemon that collects it. This page is how you carry
+that ledger to a syslog file a galla can tail, and how to tell the kernel to record the
+few things it stays silent about by default, so the `%syslog/linux-audit%` rules have
 something to read.
 
 The rules and their group are named `linux-auditd-*` on purpose... other
@@ -289,29 +288,29 @@ Most of the group reads records the kernel, PAM, or SELinux already emit with no
 audit rules of your own... provided the emitting subsystem is active, which it is
 by default on stock installs:
 
-| rule | record it reads | emitted by |
-| --- | --- | --- |
-| `linux-auditd-auth-failed` | `USER_LOGIN`/`USER_AUTH`/`USER_ERR`/`CRED_ACQ` | PAM |
-| `linux-auditd-anom-login-failures` | `ANOM_LOGIN_FAILURES` | PAM / faillock |
-| `linux-auditd-user-mgmt` | `ADD_USER`/`DEL_USER`/`USER_MGMT`/... | shadow-utils |
-| `linux-auditd-avc-denied` | `AVC` denied | SELinux |
-| `linux-auditd-apparmor-denied` | `apparmor="DENIED"`, top-level or dbus-nested | AppArmor |
-| `linux-auditd-mac-tamper` | `MAC_STATUS`/`MAC_CONFIG_CHANGE`, or `operation="profile_remove"` | kernel (setenforce) / apparmor_parser |
-| `linux-auditd-promiscuous` | `ANOM_PROMISCUOUS` | kernel (NIC state) |
-| `linux-auditd-abend` | `ANOM_ABEND` | kernel (fatal signal) |
-| `linux-auditd-anom-exec` | `ANOM_EXEC` | kernel / policy tooling |
-| `linux-auditd-audit-tamper` | `CONFIG_CHANGE`/`DAEMON_ABORT` | auditd itself |
+| rule                               | record it reads                                                   | emitted by                            |
+|------------------------------------|-------------------------------------------------------------------|---------------------------------------|
+| `linux-auditd-auth-failed`         | `USER_LOGIN`/`USER_AUTH`/`USER_ERR`/`CRED_ACQ`                    | PAM                                   |
+| `linux-auditd-anom-login-failures` | `ANOM_LOGIN_FAILURES`                                             | PAM / faillock                        |
+| `linux-auditd-user-mgmt`           | `ADD_USER`/`DEL_USER`/`USER_MGMT`/...                             | shadow-utils                          |
+| `linux-auditd-avc-denied`          | `AVC` denied                                                      | SELinux                               |
+| `linux-auditd-apparmor-denied`     | `apparmor="DENIED"`, top-level or dbus-nested                     | AppArmor                              |
+| `linux-auditd-mac-tamper`          | `MAC_STATUS`/`MAC_CONFIG_CHANGE`, or `operation="profile_remove"` | kernel (setenforce) / apparmor_parser |
+| `linux-auditd-promiscuous`         | `ANOM_PROMISCUOUS`                                                | kernel (NIC state)                    |
+| `linux-auditd-abend`               | `ANOM_ABEND`                                                      | kernel (fatal signal)                 |
+| `linux-auditd-anom-exec`           | `ANOM_EXEC`                                                       | kernel / policy tooling               |
+| `linux-auditd-audit-tamper`        | `CONFIG_CHANGE`/`DAEMON_ABORT`                                    | auditd itself                         |
 
 The remaining four read `SYSCALL` and `PATH` records that only appear once you
 have told the kernel to watch for them. Without the audit rules in the next step
 these four sit silent... they are not wrong, they simply have nothing to match.
 
-| rule | wants | supply it with |
-| --- | --- | --- |
-| `linux-auditd-kmod-load` | module syscalls, or a module watch key | the `modules` syscall rule below |
-| `linux-auditd-preload-tamper` | a write to `ld.so.preload`/`ld.so.conf*`, or key `ldpreload` | the `ldpreload` watches below |
-| `linux-auditd-exec-from-writable` | an exec whose binary is in `/tmp`,`/var/tmp`,`/dev/shm`, or key `susp_exec` | the `susp_exec` watches below |
-| `linux-auditd-odd-path` | a `SYSCALL`/`PATH` naming an odd path | execve auditing below |
+| rule                              | wants                                                                       | supply it with                   |
+|-----------------------------------|-----------------------------------------------------------------------------|----------------------------------|
+| `linux-auditd-kmod-load`          | module syscalls, or a module watch key                                      | the `modules` syscall rule below |
+| `linux-auditd-preload-tamper`     | a write to `ld.so.preload`/`ld.so.conf*`, or key `ldpreload`                | the `ldpreload` watches below    |
+| `linux-auditd-exec-from-writable` | an exec whose binary is in `/tmp`,`/var/tmp`,`/dev/shm`, or key `susp_exec` | the `susp_exec` watches below    |
+| `linux-auditd-odd-path`           | a `SYSCALL`/`PATH` naming an odd path                                       | execve auditing below            |
 
 ## Step 5 — the audit rules
 
