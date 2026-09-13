@@ -31,12 +31,10 @@ in the config or a broken rule is a start error rather than a runtime
 mystery.
 
 `stop` is asynchronous on the manager side... it acknowledges, then shuts
-the gallas down and exits a beat later. So the command waits for the
+the gallas down, and then exits. So the command waits for the
 manager process to actually die before returning, up to the config
-`timeout` (30s when no config is read), which is what makes `service
-baphomet restart` safe... otherwise the following `start` would race the
-still-present PID file and abort. `--no-wait` skips the wait, `--timeout`
-caps it.
+`timeout` (30s when not specified). `--no-wait` skips the wait, `--timeout`
+overrides the configured `timeout` value.
 
 ## Watching the watchers
 
@@ -105,11 +103,10 @@ bounded by the `ledger_keep` setting, 30 days by default.
 ## Feeding LibreNMS
 
 ```shell
-# the same JSON the fail2ban SNMP extend emits, each kur a jail
 baphomet lnms-f2b-extend
 baphomet lnms-f2b-extend --pretty
 
-# GZip+Base64 compressed, for a fleet of jails
+# GZip+Base64 compressed... what you want to use with snmpd
 baphomet lnms-f2b-extend -b
 ```
 
@@ -125,11 +122,21 @@ extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend
 
 With `-b` the reply is GZip compressed then Base64 encoded onto one line,
 the LibreNMS extend compression convention it decodes on its own by the
-GZip magic. Worth it once a fleet has enough jails to strain the SNMP
-reply.
+GZip magic.
 
 ```
 extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend -b
+```
+
+Requires the following in the config [neti-gate](neti-gate.md)
+
+```toml
+enable_auth   = true
+authed_groups = [ "wheel" ]
+socket_mode = "0666"
+
+[command_perms.commands.banished]
+users = [ "snmpd" ]
 ```
 
 It wants the manager up for the tallies, which is what reaches Ereshkigal;
