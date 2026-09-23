@@ -12,29 +12,29 @@ not a dashboard alert.
 
 ## The concept map
 
-| Sigma | here |
-| --- | --- |
-| `detection:` named selections | `selections`, each a list of predicates |
-| `condition` | `condition`... `and`/`or`/`not`, `all of them`, `1 of them`, `N of <prefix>_*` |
-| `field: value` | a `gate`/selection predicate over a flattened field |
-| `\|contains` / `\|startswith` / `\|endswith` | `op: contains` / `startswith` / `endswith` |
-| `\|re` | `op: re` (a tokened regexp) |
-| `\|cidr` | `op: cidr` |
-| `\|base64` / `\|base64offset` | `decode: [ base64 ]` / `[ base64offset ]` |
-| `\|wide` / `\|utf16le` / `\|utf16be` | `decode: [ utf16le ]` / ... (`wide` an alias) |
-| `\|windash` | `decode: [ windash ]` |
-| `\|lt` / `\|lte` / `\|gt` / `\|gte` | `op: lt` / `le` / `gt` / `ge` |
-| `\|cased` | the default (Baphomet matches case-sensitively); `nocase: true` is Sigma's default-insensitive |
-| `\|fieldref` | `fieldref`, comparing to another field's live value |
-| `\|exists: true` / `\|exists: false` | `op: exists` / `op: exists` with `negate` |
-| `\|expand` | a `values` list, or a `namtar_list` gate (spliced at conversion) |
-| `field: null` / absent | `negate` (a negated predicate holds when the field is absent) |
-| `title` / `description` | `msg` |
-| `level` | `severity` (informational→info, else 1:1) |
-| `tags: attack.tXXXX` | `attack` |
-| `id` / `references` | `references` |
-| `logsource` (product/service) | the rule type, parser, and `daemons` |
-| the query verdict | a `sighting` (detection rule) or a ban |
+| Sigma                                        | here                                                                                           |
+|----------------------------------------------|------------------------------------------------------------------------------------------------|
+| `detection:` named selections                | `selections`, each a list of predicates                                                        |
+| `condition`                                  | `condition`... `and`/`or`/`not`, `all of them`, `1 of them`, `N of <prefix>_*`                 |
+| `field: value`                               | a `gate`/selection predicate over a flattened field                                            |
+| `\|contains` / `\|startswith` / `\|endswith` | `op: contains` / `startswith` / `endswith`                                                     |
+| `\|re`                                       | `op: re` (a tokened regexp)                                                                    |
+| `\|cidr`                                     | `op: cidr`                                                                                     |
+| `\|base64` / `\|base64offset`                | `decode: [ base64 ]` / `[ base64offset ]`                                                      |
+| `\|wide` / `\|utf16le` / `\|utf16be`         | `decode: [ utf16le ]` / ... (`wide` an alias)                                                  |
+| `\|windash`                                  | `decode: [ windash ]`                                                                          |
+| `\|lt` / `\|lte` / `\|gt` / `\|gte`          | `op: lt` / `le` / `gt` / `ge`                                                                  |
+| `\|cased`                                    | the default (Baphomet matches case-sensitively); `nocase: true` is Sigma's default-insensitive |
+| `\|fieldref`                                 | `fieldref`, comparing to another field's live value                                            |
+| `\|exists: true` / `\|exists: false`         | `op: exists` / `op: exists` with `negate`                                                      |
+| `\|expand`                                   | a `values` list, or a `namtar_list` gate (spliced at conversion)                               |
+| `field: null` / absent                       | `negate` (a negated predicate holds when the field is absent)                                  |
+| `title` / `description`                      | `msg`                                                                                          |
+| `level`                                      | `severity` (informational->info, else 1:1)                                                     |
+| `tags: attack.tXXXX`                         | `attack`                                                                                       |
+| `id` / `references`                          | `references`                                                                                   |
+| `logsource` (product/service)                | the rule type, parser, and `daemons`                                                           |
+| the query verdict                            | a `sighting` (detection rule) or a ban                                                         |
 
 ## The modifier surface, matched
 
@@ -57,33 +57,6 @@ predicate layer (see [rules](rules.md)):
 
 So nothing in a Sigma rule's detection block goes untranslated.
 
-## What Sigma does that this does not
-
-Honesty section... Sigma assumes a SIEM, and Baphomet is not one.
-
-- **Log source coverage.** The public Sigma corpus is overwhelmingly
-  Windows... Sysmon, the Security event log, `process_creation`,
-  `registry_event`. Baphomet has no parser for those, so those rules have
-  nowhere to land. The reachable slice is `product: linux` syslog services,
-  the webserver categories, and generic JSON logs. The lever that widens this
-  is more parsers, not the rule language.
-- **Field names and pipelines.** A Sigma rule names source-specific fields
-  (`Image`, `CommandLine`, `TargetUserName`). A ported json rule fires only if
-  your log actually ships those field paths, and Sigma's processing pipelines,
-  which remap fields per source, have no equivalent here yet... so you map
-  names by hand or shape your ingest to match.
-- **Correlation rules.** Sigma's newer correlation kind... `event_count`,
-  `value_count`, `temporal`, `temporal_ordered`... maps in spirit onto the
-  `distinct` counting, the [marks](rules.md), and `sequence`, but nothing stitches
-  a correlation and its referenced base rules together automatically. You build
-  the pieces by hand.
-- **A data lake.** Sigma queries stored history; Baphomet matches a live
-  stream and forgets, holding only its counting window. There is no backscan
-  and no aggregation over stored events beyond that window.
-- **Ready-made tests.** A Sigma rule ships no sample log lines, so a port
-  arrives testless until you add positive and negative lines yourself... unlike
-  the fail2ban corpus a fail2ban port draws on.
-
 ## Porting a rule
 
 There is no converter command yet, so a Sigma rule ports by hand, and for a
@@ -92,7 +65,7 @@ supported log source the translation is mechanical.
 1. **Check the logsource.** A `product: linux` service becomes a `syslog`
    rule with a `daemons` gate; a webserver category an `http` or `http_error`
    rule; a generic JSON log a `json` rule. A windows or sysmon source has no
-   parser here, so stop... that rule is not portable.
+   parser here, unless being forwarded to like syslog.
 2. **Selections become selections.** Each `detection` selection maps to a
    `selections` entry, and each `field: value` (with its modifiers) to a
    predicate per the concept map. A json rule's fields are the flattened dotted
@@ -110,8 +83,3 @@ supported log source the translation is mechanical.
    `baphomet test_line` pokes single lines at a draft and `baphomet
    check_rules` runs the embedded tests, refusing to load a rule that fails its
    own... the same guard `baphomet start` uses.
-
-An automated `sigma2rule` converter is a future direction, but its ceiling is
-log-source coverage, not the rule language, which already speaks Sigma. See
-[rules](rules.md) to write one, [eve](eve.md) for the sighting the detection form
-emits, and [rules-catalog](rules-catalog.md) for what already ships.

@@ -1,21 +1,10 @@
 # Coming from Sagan
 
-Run in eve mode, Baphomet is basically
+Run in eve mode, Baphomet is similar to Sagan.
 [Sagan](https://github.com/quadrantsec/sagan)... the same real-time engine
 that parses a stream, matches each line against signatures, correlates, and
-emits a Suricata-shaped alert (see [log-analysis](log-analysis.md)). Neither
+emits a eve alert (see [log-analysis](log-analysis.md)). Neither
 keeps the events; both stream and forget, feeding their alerts onward.
-
-The two part company at the other end. Sagan only alerts, while Baphomet can
-also count an offender's hits and banish the repeat ones to Kur, the
-firewalling left to [Ereshkigal](https://github.com/LilithSec/Ereshkigal). It
-is, in one program, Sagan's detection welded to fail2ban's banishing.
-
-The weld went one way. [fail2ban](fail2ban.md) counts one regexp per jail and
-stops there, where Sagan's rule language reaches much further, so the gates
-Sagan has and fail2ban lacks were folded into the galla.
-They run between a rule matching and the offense being counted, so rules
-stay pure matchers.
 
 ## The concept map
 
@@ -34,56 +23,9 @@ stay pure matchers.
 | a rule that alerts without banning     | a detection-only rule, a `detection_var` in place of `ban_var`... counts any subject, writes `sighting`/`sighted`, banishes nobody |
 | rule actions                           | Ereshkigal's domain... Baphomet accuses and does not act                                                                           |
 
-## The gates folded in
-
-Sagan's gates, the tests it runs around a signature match, were rebuilt in
-the galla.
-
-- **Per-rule thresholds (`count` / `seconds`).** A rule may carry its own
-  `max_score` / `find_time` / `ban_time`, so one noisy signature can demand
-  more hits, or fewer, than its neighbours in the same kur... where fail2ban
-  could only threshold a whole jail at once. Inert unless the config opts in
-  with `allow_per_rule_thresholds`.
-- **Marks, cross-rule state (`xbits` / `flexbits`).** A galla-wide store of
-  expiring named marks, keyed by the offender IP, by any capture or field
-  (`var`), or by several joined into one compound key (`vars`, Sagan's
-  `track ip_username`), optionally harvesting and gating on a value
-  (`value_var`, `value_is`/`value_not`... on `marked` and `not_marked`
-  both). Rule keys `mark`/`unmark`/`marked`/`not_marked`/`mark_only` let
-  one rule brand a line and a later rule fire only on the branded, and a
-  `marked` entry may hold on any of several brands (`names`, Sagan's
-  `isset a|b`). This is how distributed brute force is caught...
-  `syslog/sshd-mark-users` brands each account with the source that hit it,
-  `syslog/sshd-spray` fires when a second source hits the same account.
-  `baphomet marked` reads the store.
-- **A country gate (`country_code`).** A rule key
-  `country: {is|isnot: [...], vars?: [...]}` counts a match only when the
-  offender (or a harvested var) geolocates inside, or outside, a named set of
-  country codes. Lists come from the config `country_codes` and a
-  `%%%country_codes{name}%%%` token; resolution is via the optional
-  `IP::Geolocation::MMDB` and a `geoip_db`. Fails closed on a unlocatable IP.
-- **A blocklist gate (`blacklist`), the namtar_list.** The inverse of
-  `ignore_ips`... a rule key `namtar_list: [{list|lists, var?}, ...]` counts
-  an offense only when a value is already on a named list, drawn from the
-  config `namtar_lists` and reloaded on file mtime. A list is a CIDR list
-  matched by address, or a string list matched by exact (optionally
-  case-folded) name, so the gate reaches beyond the offender IP to any
-  captured field via `var`... a honeypot username, a known-bad URI or
-  user-agent. For acting only on the already-known-bad.
-- **A time-of-day gate (`alert_time`), active_time.** A rule key
-  `active_time: {is|isnot: [window names], vars?: [...]}` counts a match only
-  inside, or outside, named `{days, hours}` windows (hours may wrap midnight),
-  so the same log line can be ignored at midday and banished at 03:00.
-
 ## Porting a rule
 
-A Sagan rule ports to a Baphomet rule about as mechanically as a fail2ban
-filter does ([fail2ban](fail2ban.md)). A Sagan `.rules` line is one
-`alert ... ( ... )` with semicolon-separated options, and the ones that matter
-map straight across. They live at
-[github.com/quadrantsec/sagan-rules](https://github.com/quadrantsec/sagan-rules),
-grouped by product... most are syslog-shaped and become `syslog` rules, while a
-rule leaning on `json_content` becomes a `json` rule.
+A Sagan rule can in generally be ported.
 
 The options translate like so:
 
@@ -105,14 +47,11 @@ The options translate like so:
 | `alert_time:`                                                                 | the `active_time` gate                                                                              |
 | `sid`, `rev`, `metadata`                                                      | dropped                                                                                             |
 
-Three things the table does not settle.
-
-**Keep the bit names.** The shipped rules brand Sagan's standard vocabulary
-name for name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at
-the corpus's own TTLs... so port a rule's xbits without renaming them and it
-interlocks with the shipped setters and the `-condemned`/`-escalation`
-readers instead of a private namespace. The corpus's correlation graph
-survives the port whole. See the standard brands in [rules](rules.md).
+**Keep the bit names.** The shipped rules brand Sagan's standard vocabulary name for
+name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at the corpus's own
+TTLs... so port a rule's xbits without renaming them and it interlocks with the shipped
+setters and the `-condemned`/`-escalation` readers instead of a private namespace. See the
+standard brands in [rules](rules.md).
 
 **Ban or detect.** A Sagan rule alerts, it does not firewall. To keep that...
 surface the signature without banning... port it as a detection rule with
@@ -120,7 +59,7 @@ surface the signature without banning... port it as a detection rule with
 and touches
 no firewall. To turn the signature into a ban instead, name `ban_var: [ SRC ]`
 and let the kur's thresholds decide. This is the one real choice the port asks
-of you.
+of you. See [rules](rules.md) for more info.
 
 **Tests.** Lift sample lines from the rule's comments or your own logs into a
 `tests:` block, then `baphomet test_line` pokes single lines at a draft and
