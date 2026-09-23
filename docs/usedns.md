@@ -9,25 +9,34 @@ teeth, so the reasoning sits here next to the knobs.
 
 ## The knobs
 
-| setting | default | what |
-| --- | --- | --- |
-| `usedns` | `no` | How a hostname offender is handled: `no`, `resolve_seen`, or `resolve_ban`. Layered watcher over kur over global, like the other counting settings. |
-| `enable_dns` | `false` | The consent for DNS resolution. With out it, any `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS` module... set but unloadable, and `usedns` behaves as `no`, also loudly. Global only... consent is not delegated downward. |
-| `usedns_timeout` | `2` | Seconds a DNS query may take before being given up on. Resolution is blocking, so this bounds how long a hostile name can stall the galla. |
-| `usedns_max_addrs` | `4` | The most addresses a hostname may resolve to and still be acted on... more and the whole resolution is refused rather than trimmed, failing closed. |
+- **`usedns`**, default `no` :: How a hostname offender is handled: `no`, `resolve_seen`,
+  or `resolve_ban`. Layered watcher over kur over global, like the other counting
+  settings.
+  
+- **`enable_dns`**, default `false` :: The consent for DNS resolution. With out it, any
+  `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS`
+  module... set but unloadable, and `usedns` behaves as `no`, also loudly. Global
+  only... consent is not delegated downward.
+
+- **`usedns_timeout`**, default `2` :: Seconds a DNS query may take before being given up
+  on. Resolution is blocking, so this bounds how long a hostile name can stall the galla.
+
+- **`usedns_max_addrs`**, default `4` :: The most addresses a hostname may resolve to and
+  still be acted on... more and the whole resolution is refused rather than trimmed,
+  failing closed.
 
 ## The modes
 
-- **`no`** (the default) ... the hostname is dropped. The match still
+- **`no`** (the default) :: the hostname is dropped. The match still
   writes to EVE, so the sighting is not lost, but it counts and banishes
   nothing. The `hostname_dropped` stat counts what this discards.
-- **`resolve_seen`** ... the hostname is resolved when seen and the
+- **`resolve_seen`** :: the hostname is resolved when seen and the
   offense buckets under its addresses, beside any direct hits from the
   same client... one attacker, one count, however the daemon spelled
   them. Resolution happens at match volume, so the cache and
   `usedns_timeout` are what stand between a hostile log and your
   resolver.
-- **`resolve_ban`** ... the offense counts under the name itself, and
+- **`resolve_ban`** :: the offense counts under the name itself, and
   resolution happens once, at the moment the threshold trips. The
   cheapest and quietest mode... one lookup per would-be ban, and the
   attacker's nameserver hears nothing until you have already decided to
