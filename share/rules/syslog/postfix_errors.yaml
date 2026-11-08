@@ -35,12 +35,12 @@
 # something is broken; the queue id and the client ride along in EVE.
 #
 # Detection-only. A postfix that cannot open a map is not something to firewall.
-rev: 2
+rev: 3
 msg: "[POSTFIX] daemon fault"
 severity: medium
 classtype: program-error
 daemons:
-  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
 mungers:
   - postfix
 # no message_regexp... the munger's fields are the matcher

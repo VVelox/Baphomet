@@ -20,12 +20,12 @@
 #
 # List AHEAD of syslog/postfix-sasl: a domestic event is vetoed here without
 # being consumed, and falls through to be counted there exactly as before.
-rev: 2
+rev: 3
 msg: "[POSTFIX] SASL authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
 daemons:
-  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
 mungers:
   - postfix
 message_regexp:

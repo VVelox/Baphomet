@@ -31,7 +31,7 @@
 # it the watcher's max_score applies, still counting DISTINCT RECIPIENTS. Ten in
 # an hour is a list being worked... a legitimate sender does not guess. Raise it
 # if you run a mailing list that bounces heavily, and stand it up eve_only first.
-rev: 1
+rev: 2
 msg: "[POSTFIX] recipient enumeration... many unknown recipients from one client"
 severity: high
 classtype: attempted-recon
@@ -41,7 +41,7 @@ mark:
   - name: recon
     ttl: 86400
 daemons:
-  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
 mungers:
   - postfix
 # no message_regexp at all... the munger's fields are the matcher

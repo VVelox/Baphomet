@@ -3,17 +3,21 @@
 # filter in its default mode, translated to Baphomet and simplified... the
 # ddos and aggressive mode matching is dropped, and SASL auth failures live
 # in syslog/postfix-sasl.
-rev: 2
+rev: 3
 msg: "[POSTFIX] smtpd reject / abuse"
 severity: low
 classtype: misc-activity
 daemons:
-  - //^postfix(?:-\w+)?\/\w+(?:\/smtp[ds])?$//
+  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
 mungers:
   - postfix
 message_regexp:
-  - '^\w+: (?:milter-)?reject: [A-Z]{4} from [^\[]*\[%%%%SRC%%%%\](?::\d+)?: [45][50][04] [45]\.\d\.\d+ (?:(?:<[^>]*>)?: )?(?:(?:Helo command|(?:Sender|Recipient) address) rejected: )?(?:Service unavailable|(?:Client host|Command|Data command) rejected|Relay access denied|(?:Host|Domain) not found|need fully-qualified hostname|match|[Uu](?:ser unknown|ndeliverable address))\b'
-  - '^(?:improper command pipelining|too many errors) after \S+ from [^\[]*\[%%%%SRC%%%%\](?::\d+)?:?\s*$'
+  - '^\w+: (?:milter-)?reject: [A-Z]{4,} from [^\[]*\[%%%%SRC%%%%\](?::\d+)?: [45][50][04] [45]\.\d\.\d+ (?:(?:<[^>]*>)?: )?(?:(?:Helo command|(?:Sender|Recipient) address) rejected: )?(?:Service unavailable|Access denied|(?:Client host|Command|Data command) rejected|Relay access denied|Malformed DNS server reply|(?:Host|Domain) not found|need fully-qualified hostname|match|[Uu](?:ser unknown|ndeliverable address))\b'
+  # the queue id (or NOQUEUE) ahead and the "(N bytes)" postfix puts after a
+  # DATA are both optional. A pipelining line with anything after the address
+  # is left alone, which fail2ban's normal mode does count... see the negative
+  # tests.
+  - '^(?:\w+: )?(?:improper command pipelining|too many errors) after \S+(?: \(\d+ bytes\))? from [^\[]*\[%%%%SRC%%%%\](?::\d+)?:?\s*$'
 src_ip_var: SRC
 ban_var:
   - SRC
@@ -59,8 +63,39 @@ tests:
       found: 1
       data:
         SRC: "216.245.198.245"
+    # a 7-letter command, and the two reasons fail2ban added
+    - message: "Jun  1 19:00:55 mail postfix/smtpd[7749]: NOQUEUE: reject: CONNECT from unknown[192.0.2.114]: 450 4.7.25 Client host rejected: cannot find your hostname, [192.0.2.114]; proto=SMTP"
+      found: 1
+      data:
+        SRC: "192.0.2.114"
+    - message: "Jul 18 23:12:56 xxx postfix/smtpd[1938]: NOQUEUE: reject: RCPT from unknown[192.0.2.236]: 554 5.7.1 <dom.tld>: Helo command rejected: Access denied; from=<ADMINISTRATOR@dom.tld> to=<lp@dom.tld> proto=ESMTP helo=<dom.tld>"
+      found: 1
+      data:
+        SRC: "192.0.2.236"
+    - message: "Jul 18 23:12:57 xxx postfix/smtpd[8722]: NOQUEUE: reject: RCPT from foo[192.51.100.143]: 450 4.1.8 <foo@bad.domain>: Sender address rejected: Malformed DNS server reply; from=<foo@bad.domain> to=<foo@porcupine.org> proto=SMTP helo=<192.51.100.143>"
+      found: 1
+      data:
+        SRC: "192.51.100.143"
+    - message: "Jun  3 06:25:43 srv postfix/smtpd[29306]: too many errors after RCPT from example.com[192.0.2.11]"
+      found: 1
+      data:
+        SRC: "192.0.2.11"
+    - message: "Jun  3 06:25:44 srv postfix/smtpd[29307]: too many errors after DATA (0 bytes) from example.com[192.0.2.12]"
+      found: 1
+      data:
+        SRC: "192.0.2.12"
+    - message: "Jun  3 06:25:45 srv postfix/smtpd[29308]: NOQUEUE: too many errors after RCPT from example.com[192.0.2.13]"
+      found: 1
+      data:
+        SRC: "192.0.2.13"
+    # a multi-instance name holding a hyphen (fail2ban 839fb632)
+    - message: "Aug 14 10:00:01 mail postfix-mta-in/smtpd[1234]: NOQUEUE: reject: RCPT from example.net[192.0.2.2]: 554 5.7.1 <a@b>: Relay access denied; from=<c@d> to=<a@b> proto=ESMTP helo=<example.net>"
+      found: 1
+      data:
+        SRC: "192.0.2.2"
   negative:
-    # trailing content after the pipelining line means it was more than a probe
+    # trailing content after the pipelining line means it was more than a probe...
+    # a deliberate departure from fail2ban, whose normal mode counts this
     - message: "Jun 12 08:58:35 srv postfix/smtpd[29306]: improper command pipelining after AUTH from unknown[192.0.2.11]: QUIT"
       found: 0
       undefed: ["SRC"]
