@@ -2102,8 +2102,7 @@ sub run_tests {
 				my $message = $message_entry;
 				my ( $found_after, $marks_after, $tracked_after );
 				if ( ref($message_entry) eq 'HASH' ) {
-					my @unknown_entry_keys
-						= grep { !/^(?:message|advance|at|found_after|marks_after|tracked_after)$/ }
+					my @unknown_entry_keys = grep { !/^(?:message|advance|at|found_after|marks_after|tracked_after)$/ }
 						keys( %{$message_entry} );
 					if (@unknown_entry_keys) {
 						foreach my $entry_key (@unknown_entry_keys) {
@@ -2447,6 +2446,77 @@ sub _test_geo_locator {
 	return ( $locator, $fixture->{lists} || {} );
 } ## end sub _test_geo_locator
 
+# checks one marks_before, tracked_before, marks_expected/marks_after, or
+# tracked_expected/tracked_after entry for the shape all four share... a hash
+# with a name, a key, nothing its list does not allow, and for a tracked seed
+# a fields hash. what each list then does with a sound entry is its own.
+#
+# args:
+#   $entry        :: the list entry as the rule file wrote it
+#   $label        :: what the entry is, for the failure text... 'marks_before
+#                    entry', 'tracked_before entry', 'marks assertion', or
+#                    'tracked assertion'
+#   $allowed      :: arrayref of the keys the entry may carry
+#   $needs_fields :: true when the entry must also carry a fields hash
+#   $where        :: the test entry's where string, leading each failure
+#   $results      :: the run_tests results hash, each failure counted and
+#                    pushed onto its failures
+#
+# returns true when the entry is malformed, false when it is sound. a entry
+# missing what it needs is one failure, and otherwise every unknown key is one
+# failure each, not just the first found.
+#
+#   if ( _test_store_entry_malformed( $seed, 'marks_before entry', [ 'name', 'key', 'value', 'set', 'ttl' ],
+#       0, $where, $results ) )
+#   {
+#       return 1;
+#   }
+sub _test_store_entry_malformed {
+	my ( $entry, $label, $allowed, $needs_fields, $where, $results ) = @_;
+
+	if (   ref($entry) ne 'HASH'
+		|| !defined( $entry->{name} )
+		|| !defined( $entry->{key} )
+		|| ( $needs_fields && ref( $entry->{fields} ) ne 'HASH' ) )
+	{
+		my $lacking = $needs_fields ? 'a name, key, and fields hash' : 'a name and key';
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' lacking ' . $lacking );
+		return 1;
+	} ## end if ( ref($entry) ne 'HASH' || !defined( $entry...))
+
+	my %allowed_keys = map  { $_ => 1 } @{$allowed};
+	my @unknown_keys = grep { !$allowed_keys{$_} } keys( %{$entry} );
+	foreach my $unknown_key (@unknown_keys) {
+		$results->{fail}++;
+		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' with the unknown key "' . $unknown_key . '"' );
+	}
+
+	return @unknown_keys ? 1 : 0;
+} ## end sub _test_store_entry_malformed
+
+# turns a seed or assertion key into the key the throwaway store holds it
+# under, and the form failure text shows it in... a list is a vars compound,
+# joined the way the store joins one, and shown joined on | for reading.
+#
+# args:
+#   $key :: the key as the rule file wrote it, a string or a arrayref of the
+#           compound's parts
+#
+# returns a two item list, the store key and the shown key. both are the
+# string itself for a plain key.
+#
+#   my ( $store_key, $shown ) = _test_store_key( [ '192.0.2.7', 'admin' ] );
+#   # $store_key is "192.0.2.7\x1fadmin", $shown is "192.0.2.7|admin"
+sub _test_store_key {
+	my ($key) = @_;
+
+	if ( ref($key) eq 'ARRAY' ) {
+		return ( join( "\x1f", @{$key} ), join( '|', @{$key} ) );
+	}
+	return ( $key, $key );
+}
+
 # seeds a test entry's throwaway tracked store from its tracked_before...
 # records earlier lines of a transaction would have left, without which a
 # reading rule's tracked gate can never be armed from its own file. a
@@ -2454,12 +2524,17 @@ sub _test_geo_locator {
 # harvest line and a reading line through one scope, which is the better
 # proof where the rule file owns both halves.
 #
-# takes the throwaway store hash ref, the tracked_before list, the virtual
-# clock, the where string for messages, and the results hash. each seed is a
-# hash of name, key (a string, or a array for a compound key), fields (the
-# hash the record holds), and a optional ttl defaulting to 3600.
+# args:
+#   $store   :: the throwaway tracked store hash ref
+#   $seeds   :: the tracked_before list, each a hash of name, key (a string,
+#               or a array for a compound key), fields (the hash the record
+#               holds), and a optional ttl defaulting to 3600
+#   $clock   :: the virtual clock, which the ttl counts from
+#   $where   :: the test entry's where string, for failures
+#   $results :: the run_tests results hash
 #
-# returns true on a malformed entry, the failure pushed, false on success.
+# returns true on a malformed list or entry, the failure pushed, false on
+# success.
 #
 #     tracked_before:
 #       - name: mail-queue
@@ -2475,29 +2550,18 @@ sub _test_tracked_seed {
 	}
 
 	foreach my $seed ( @{$seeds} ) {
-		if (   ref($seed) ne 'HASH'
-			|| !defined( $seed->{name} )
-			|| !defined( $seed->{key} )
-			|| ref( $seed->{fields} ) ne 'HASH' )
+		if (
+			_test_store_entry_malformed(
+				$seed,
+				'tracked_before entry',
+				[ 'name', 'key', 'fields', 'ttl' ],
+				1, $where, $results
+			)
+			)
 		{
-			$results->{fail}++;
-			push(
-				@{ $results->{failures} },
-				$where . ' has a tracked_before entry lacking a name, key, and fields hash'
-			);
 			return 1;
-		} ## end if ( ref($seed) ne 'HASH' || !defined( $seed...))
-		foreach my $seed_key ( keys( %{$seed} ) ) {
-			if ( $seed_key !~ /^(?:name|key|fields|ttl)$/ ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' has a tracked_before entry with the unknown key "' . $seed_key . '"'
-				);
-				return 1;
-			}
-		} ## end foreach my $seed_key ( keys( %{$seed} ) )
-		my $key = _test_mark_store_key( $seed->{key} );
+		} ## end if ( _test_store_entry_malformed( $seed, 'tracked_before entry'...))
+		my ($key) = _test_store_key( $seed->{key} );
 		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
 		$store->{ $seed->{name} }{$key} = {
 			'expires' => $clock + $ttl,
@@ -2510,12 +2574,18 @@ sub _test_tracked_seed {
 
 # asserts a tracked_expected/tracked_after list against the throwaway tracked
 # store... that the record is live and holds the named fields by default,
-# that it is not live at all under absent.
+# that it is not live at all under absent. every assertion is checked, so one
+# run reports every miss.
 #
-# takes the throwaway store hash ref, the assertion list, the virtual clock,
-# the where string, and the results hash. each assertion is a hash of name,
-# key (a string or a compound array), and either fields (a hash of field to
-# expected value, each compared as a string) or a true absent.
+# args:
+#   $store    :: the throwaway tracked store hash ref
+#   $expected :: the assertion list, each a hash of name, key (a string or a
+#                compound array), and either fields (a hash of field to
+#                expected value, each compared as a string) or a true absent
+#   $clock    :: the virtual clock, which liveness is judged at
+#   $where    :: the where string for failures, the test entry's, plus the
+#                message index for a tracked_after
+#   $results  :: the run_tests results hash
 #
 # returns true on any miss, the failures pushed, false when every assertion
 # held.
@@ -2535,30 +2605,20 @@ sub _test_tracked_assert {
 
 	my $failed = 0;
 	foreach my $expect ( @{$expected} ) {
-		if ( ref($expect) ne 'HASH' || !defined( $expect->{name} ) || !defined( $expect->{key} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' has a tracked assertion lacking a name and key' );
+		if (
+			_test_store_entry_malformed(
+				$expect,
+				'tracked assertion',
+				[ 'name', 'key', 'fields', 'absent' ],
+				0, $where, $results
+			)
+			)
+		{
 			$failed = 1;
 			next;
-		}
-		my $assert_bad = 0;
-		foreach my $expect_key ( keys( %{$expect} ) ) {
-			if ( $expect_key !~ /^(?:name|key|fields|absent)$/ ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' has a tracked assertion with the unknown key "' . $expect_key . '"'
-				);
-				$failed     = 1;
-				$assert_bad = 1;
-			}
-		} ## end foreach my $expect_key ( keys( %{$expect} ) )
-		if ($assert_bad) {
-			next;
-		}
+		} ## end if ( _test_store_entry_malformed( $expect,...))
 
-		my $key    = _test_mark_store_key( $expect->{key} );
-		my $shown  = ref( $expect->{key} ) eq 'ARRAY' ? join( '|', @{ $expect->{key} } ) : $expect->{key};
+		my ( $key, $shown ) = _test_store_key( $expect->{key} );
 		my $record = track_get( $store, $expect->{name}, $key, $clock );
 
 		if ( $expect->{absent} ) {
@@ -2612,21 +2672,27 @@ sub _test_tracked_assert {
 	return $failed;
 } ## end sub _test_tracked_assert
 
-# joins a marks_before/marks_expected key... a list is a vars compound,
-# joined the way the store joins one
-sub _test_mark_store_key {
-	my ($key) = @_;
-
-	if ( ref($key) eq 'ARRAY' ) {
-		return join( "\x1f", @{$key} );
-	}
-	return $key;
-}
-
-# seeds a test entry's throwaway store from its marks_before... brands
-# other rules would have set, without which a reader rule's gate can
-# never be armed from its own file. returns true on a malformed entry,
-# the failure pushed
+# seeds a test entry's throwaway mark store from its marks_before... brands
+# other rules would have set, without which a reader rule's gate can never be
+# armed from its own file.
+#
+# args:
+#   $store   :: the throwaway mark store hash ref
+#   $seeds   :: the marks_before list, each a hash of name, key (a string, or
+#               a array for a vars compound), a optional value, a optional
+#               set time defaulting to the clock, and a optional ttl
+#               defaulting to 3600
+#   $clock   :: the virtual clock, which the ttl counts from
+#   $where   :: the test entry's where string, for failures
+#   $results :: the run_tests results hash
+#
+# returns true on a malformed list or entry, the failure pushed, false on
+# success.
+#
+#     marks_before:
+#       - name: brute_force
+#         key: 192.0.2.7
+#         value: ssh
 sub _test_marks_seed {
 	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
 
@@ -2637,22 +2703,18 @@ sub _test_marks_seed {
 	}
 
 	foreach my $seed ( @{$seeds} ) {
-		if ( ref($seed) ne 'HASH' || !defined( $seed->{name} ) || !defined( $seed->{key} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' has a marks_before entry lacking a name and key' );
+		if (
+			_test_store_entry_malformed(
+				$seed,
+				'marks_before entry',
+				[ 'name', 'key', 'value', 'set', 'ttl' ],
+				0, $where, $results
+			)
+			)
+		{
 			return 1;
-		}
-		foreach my $seed_key ( keys( %{$seed} ) ) {
-			if ( $seed_key !~ /^(?:name|key|value|set|ttl)$/ ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' has a marks_before entry with the unknown key "' . $seed_key . '"'
-				);
-				return 1;
-			}
-		} ## end foreach my $seed_key ( keys( %{$seed} ) )
-		my $key = _test_mark_store_key( $seed->{key} );
+		} ## end if ( _test_store_entry_malformed( $seed, 'marks_before entry'...))
+		my ($key) = _test_store_key( $seed->{key} );
 		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
 		$store->{ $seed->{name} }{$key} = {
 			'expires' => $clock + $ttl,
@@ -2664,9 +2726,28 @@ sub _test_marks_seed {
 	return 0;
 } ## end sub _test_marks_seed
 
-# asserts a marks_expected/marks_after list against the throwaway
-# store... presence and value by default, absence under absent. returns
-# true on any miss, the failures pushed
+# asserts a marks_expected/marks_after list against the throwaway mark
+# store... that the mark is live and, when a value is named, holds it, or
+# under absent that it is not live at all. every assertion is checked, so one
+# run reports every miss.
+#
+# args:
+#   $store    :: the throwaway mark store hash ref
+#   $expected :: the assertion list, each a hash of name, key (a string or a
+#                vars compound array), and either a optional value, compared
+#                as a string, or a true absent
+#   $clock    :: the virtual clock, which liveness is judged at
+#   $where    :: the where string for failures, the test entry's, plus the
+#                message index for a marks_after
+#   $results  :: the run_tests results hash
+#
+# returns true on any miss, the failures pushed, false when every assertion
+# held.
+#
+#     marks_expected:
+#       - name: brute_force
+#         key: 192.0.2.7
+#         value: ssh
 sub _test_marks_assert {
 	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
 
@@ -2678,31 +2759,22 @@ sub _test_marks_assert {
 
 	my $failed = 0;
 	foreach my $expect ( @{$expected} ) {
-		if ( ref($expect) ne 'HASH' || !defined( $expect->{name} ) || !defined( $expect->{key} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' has a marks assertion lacking a name and key' );
+		if (
+			_test_store_entry_malformed(
+				$expect,
+				'marks assertion',
+				[ 'name', 'key', 'value', 'absent' ],
+				0, $where, $results
+			)
+			)
+		{
 			$failed = 1;
 			next;
-		}
-		my $assert_bad = 0;
-		foreach my $expect_key ( keys( %{$expect} ) ) {
-			if ( $expect_key !~ /^(?:name|key|value|absent)$/ ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' has a marks assertion with the unknown key "' . $expect_key . '"'
-				);
-				$failed     = 1;
-				$assert_bad = 1;
-			}
-		} ## end foreach my $expect_key ( keys( %{$expect} ) )
-		if ($assert_bad) {
-			next;
-		}
-		my $key   = _test_mark_store_key( $expect->{key} );
-		my $shown = ref( $expect->{key} ) eq 'ARRAY' ? join( '|', @{ $expect->{key} } ) : $expect->{key};
-		my $mark  = $store->{ $expect->{name} }{$key};
-		my $live  = defined($mark) && $mark->{expires} > $clock;
+		} ## end if ( _test_store_entry_malformed( $expect,...))
+
+		my ( $key, $shown ) = _test_store_key( $expect->{key} );
+		my $mark = $store->{ $expect->{name} }{$key};
+		my $live = defined($mark) && $mark->{expires} > $clock;
 		if ( $expect->{absent} ) {
 			if ($live) {
 				$results->{fail}++;
