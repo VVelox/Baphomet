@@ -3,7 +3,7 @@
 # fail2ban nginx-http-auth filter in its normal mode, translated to
 # Baphomet and simplified... the aggressive mode SSL handshake fallback is
 # dropped.
-rev: 1
+rev: 2
 msg: "[NGINX] basic auth failure"
 severity: high
 classtype: unsuccessful-user
@@ -32,12 +32,17 @@ tests:
       found: 1
       data:
         client: "192.0.2.1"
-    # injection via the tail... the rightmost client is the one nginx wrote
-    - message: '2014/04/03 22:20:40 [error] 30708#0: *3 user "test": password mismatch, client: 127.0.0.1, server: test, request: "GET / HTTP/1.1", host: "localhost:8443"": was not found in "/etc/nginx/.htpasswd", client: 192.0.2.2, server: , request: "GET / HTTP/1.1", host: "localhost:8443"'
-      found: 1
-      data:
-        client: "192.0.2.2"
   negative:
+    # a whole tail forged in the account name, ahead of the real one... with
+    # two tails on the line the nginx_error parser names no client, rather
+    # than the wrong one
+    - message: '2014/04/03 22:20:40 [error] 30708#0: *3 user "test": password mismatch, client: 127.0.0.1, server: test, request: "GET / HTTP/1.1", host: "localhost:8443"": was not found in "/etc/nginx/.htpasswd", client: 192.0.2.2, server: , request: "GET / HTTP/1.1", host: "localhost:8443"'
+      found: 0
+      undefed: ["client"]
+    # and one forged after it, in a Host header nginx writes unescaped
+    - message: '2026/07/15 10:00:04 [error] 999#0: *5 user "neti": password mismatch, client: 192.0.2.12, server: s, request: "GET / HTTP/1.1", host: "h", client: 198.51.100.66, server: "y"'
+      found: 0
+      undefed: ["client"]
     # the SSL handshake fallback is aggressive mode business, not ours
     - message: '2020/11/25 14:42:16 [crit] 76952#76952: *2454307 SSL_do_handshake() failed (SSL: error:1408F0C6:SSL routines:ssl3_get_record:packet length too long) while SSL handshaking, client: 142.93.180.14, server: 0.0.0.0:443'
       found: 0

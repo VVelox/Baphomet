@@ -102,6 +102,7 @@ share/rules/http_error/apache-noscript.yaml
 share/rules/http_error/apache-overflows.yaml
 share/rules/http_error/apache-shellshock.yaml
 share/rules/http_error/nginx-botsearch.yaml
+share/rules/http_error/nginx-forbidden.yaml
 share/rules/http_error/nginx-http-auth.yaml
 share/rules/http_error/nginx-limit-req.yaml
 share/rules/http_error/zoneminder.yaml

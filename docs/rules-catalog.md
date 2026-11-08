@@ -343,7 +343,9 @@ field, and no daemon gate applies.
 ## http_error rules
 
 For apache/nginx error logs via the `apache_error` and `nginx_error`
-parsers... these ban the parsed client field.
+parsers... these ban the parsed client field. The `nginx_error` parser names no client
+for a line carrying a second `, client:` tail, forged ahead of the real one or
+after it in a Host header or referrer, so such a line bans nobody.
 
 - `http_error/apache-auth` :: Apache auth failures... both 2.2 and 2.4
   spellings
@@ -356,6 +358,8 @@ parsers... these ban the parsed client field.
 - `http_error/apache-shellshock` :: shellshock attempts
 - `http_error/nginx-http-auth` :: nginx basic auth failures
 - `http_error/nginx-limit-req` :: ngx_http_limit_req rejections
+- `http_error/nginx-forbidden` :: requests refused by an nginx access rule
+  (`deny`)
 - `http_error/nginx-botsearch` :: missing-path probes, per the error log
 - `http_error/zoneminder` :: ZoneMinder login-denied messages in the
   apache error log

@@ -1,0 +1,47 @@
+---
+# Matches requests nginx refused by an access rule ("deny" in a location, the
+# allow/deny module), from its error log. Based on the fail2ban
+# nginx-forbidden filter, translated to Baphomet.
+#
+# A request turned away by rule is one asking for something the site has
+# fenced off... a wp-config.php backup, an admin path, a known exploit target.
+# The message is nginx's own text, with nothing of the client's in it, and the
+# client address comes from the nginx_error parser, which names none at all
+# for a line carrying a forged tail.
+rev: 1
+msg: "[NGINX] request forbidden by an access rule"
+severity: medium
+classtype: web-application-attack
+mark:
+  - name: exploit_attempt
+    ttl: 86400
+test_parser: nginx_error
+level:
+  - error
+message_regexp:
+  - '^access forbidden by rule$'
+tests:
+  positive:
+    - message: '2018/09/14 19:03:05 [error] 2035#2035: *9134 access forbidden by rule, client: 192.0.2.78, server: www.example.net, request: "GET /wp-content/themes/evolve/js/back-end/libraries/fileuploader/upload_handler.php HTTP/1.1", host: "www.example.net", referrer: "http://example.net/foo.php"'
+      found: 1
+      data:
+        client: "192.0.2.78"
+        request: "GET /wp-content/themes/evolve/js/back-end/libraries/fileuploader/upload_handler.php HTTP/1.1"
+    - message: '2018/09/13 15:42:05 [error] 2035#2035: *287 access forbidden by rule, client: 192.0.2.79, server: www.example.com, request: "GET /wp-config.php~ HTTP/1.1", host: "www.example.com"'
+      found: 1
+      data:
+        client: "192.0.2.79"
+    - message: '2018/09/13 15:42:06 [error] 2035#2035: *288 access forbidden by rule, client: 2001:db8::79, server: www.example.com, request: "GET /admin/ HTTP/1.1", host: "www.example.com"'
+      found: 1
+      data:
+        client: "2001:db8::79"
+  negative:
+    # a missing file is not a refusal
+    - message: '2018/09/13 15:42:07 [error] 2035#2035: *289 open() "/var/www/favicon.ico" failed (2: No such file or directory), client: 192.0.2.80, server: www.example.com, request: "GET /favicon.ico HTTP/1.1", host: "www.example.com"'
+      found: 0
+      undefed: ["client"]
+    # a tail forged in the Host header after the real one... the parser names
+    # no client, rather than the attacker's choice
+    - message: '2018/09/13 15:42:08 [error] 2035#2035: *290 access forbidden by rule, client: 192.0.2.81, server: s, request: "GET / HTTP/1.1", host: "h", client: 198.51.100.66, server: "y"'
+      found: 0
+      undefed: ["client"]
