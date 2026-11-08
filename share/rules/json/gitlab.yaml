@@ -1,0 +1,47 @@
+---
+# Matches GitLab web portal login failures in gitlab-rails/application_json.log,
+# the structured log GitLab has written by default since 15.10 in place of
+# application.log. Based on the fail2ban gitlab filter's json logtype,
+# translated to Baphomet. The plain-text application.log is raw/gitlab's.
+#
+# The offender is meta.remote_ip, the address Rails resolved for the request,
+# rather than the "ip=" in the message text. The message also carries the
+# username the client typed, and a field of its own can not be steered by it.
+# meta.remote_ip is a flat key with a dot in its name, which flattens to the
+# same path a nested one would.
+rev: 1
+msg: "[GITLAB] web portal login failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+gate:
+  - field: message
+    values: [ "//^Failed Login: //" ]
+match:
+  - field: meta.remote_ip
+    regexp: '^%%%%SRC%%%%$'
+src_ip_var: SRC
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '{"severity":"INFO","time":"2023-08-25T11:25:19.979Z","correlation_id":"01H8P721YTW1YH5Q7YCSJPVJ5T","meta.caller_id":"SessionsController#new","meta.remote_ip":"192.0.2.11","meta.feature_category":"system_access","meta.client_id":"ip/192.0.2.11","message":"Failed Login: username=admin ip=192.0.2.11"}'
+      found: 1
+      data:
+        SRC: "192.0.2.11"
+    - message: '{"severity":"INFO","time":"2023-08-25T11:31:07.512Z","correlation_id":"01H8P73ABCDEF1234567890ABCD","meta.caller_id":"SessionsController#new","meta.remote_ip":"2001:db8::1","meta.feature_category":"system_access","meta.client_id":"ip/2001:db8::1","message":"Failed Login: username=git ip=2001:db8::1"}'
+      found: 1
+      data:
+        SRC: "2001:db8::1"
+  negative:
+    - message: '{"severity":"INFO","time":"2023-08-25T11:55:10.525Z","correlation_id":"01H8P8RPMVW53W0KWEN2H2DNF4","meta.caller_id":"SessionsController#create","meta.remote_ip":"203.0.113.9","meta.feature_category":"system_access","meta.user":"admin","meta.user_id":2,"meta.client_id":"user/2","message":"Successful Login: username=admin ip=203.0.113.9 method=standard admin=true"}'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # an address typed into the username, ahead of the real "ip=" in the
+    # message... the offender comes from meta.remote_ip, not the message
+    - message: '{"severity":"INFO","time":"2023-08-25T11:25:20.000Z","meta.caller_id":"SessionsController#new","meta.remote_ip":"192.0.2.12","meta.feature_category":"system_access","message":"Failed Login: username=x ip=198.51.100.66 ip=192.0.2.12"}'
+      data:
+        SRC: "192.0.2.12"

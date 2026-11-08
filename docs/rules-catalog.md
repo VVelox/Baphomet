@@ -348,6 +348,9 @@ parsers... these ban the parsed client field.
 For JSON application logs via the `json` parser. Their tests are hand
 built from the documented output shapes.
 
+- `json/gitlab` :: GitLab web portal login failures in the JSON
+  `application_json.log`, the default since 15.10... `raw/gitlab` reads the
+  plain-text `application.log`
 - `json/mongodb-auth` :: MongoDB auth failures, per the structured JSON
   log of mongod 4.4 and later
 - `json/caddy-botsearch` :: probes for admin panels that 40x, per
