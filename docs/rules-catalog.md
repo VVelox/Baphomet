@@ -475,6 +475,8 @@ field instead, the type being the same either way.
   native timestamp
 - `raw/exim` / `raw/exim-spam` :: exim mainlog auth failures, rejects,
   SMTP protocol abuse, and spam/virus rejects
+- `raw/exim-aggressive` :: opt-in, beside `raw/exim`: fail2ban's "more" and
+  "aggressive" modes... no MAIL, unadvertised AUTH, ACL drops, missing DNS
 - `raw/3proxy`, `raw/squid` :: proxy denied connections
 - `raw/gitlab`, `raw/grafana`, `raw/directadmin`, `raw/centreon`,
   `raw/tine20`, `raw/groupoffice`, `raw/oracleims` :: web app / panel

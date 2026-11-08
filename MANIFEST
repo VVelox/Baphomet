@@ -190,6 +190,7 @@ share/rules/raw/counter-strike.yaml
 share/rules/raw/directadmin.yaml
 share/rules/raw/domino-smtp.yaml
 share/rules/raw/ejabberd-auth.yaml
+share/rules/raw/exim-aggressive.yaml
 share/rules/raw/exim-spam.yaml
 share/rules/raw/exim.yaml
 share/rules/raw/fortinet-admin-auth.yaml
