@@ -6,6 +6,10 @@
 - `syslog/authelia-json` :: the same with `log.format: json`, the message
   being one JSON object
   - daemon gate :: `authelia`
+- `syslog/mysqld-auth` :: MySQL/MariaDB auth failures delivered through
+  syslog or the journal, `raw/mysqld-auth`'s regexp behind a daemon gate
+  (HOST token... may be a hostname)
+  - daemon gate :: `mysqld`, `mariadbd`
 - `syslog/asterisk` :: Asterisk auth/registration failures
   - daemon gate :: `asterisk`
 - `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,

@@ -305,6 +305,7 @@ share/rules/syslog/haproxy-http-auth.yaml
 share/rules/syslog/kur_errors.yaml
 share/rules/syslog/monit.yaml
 share/rules/syslog/murmur.yaml
+share/rules/syslog/mysqld-auth.yaml
 share/rules/syslog/nagios.yaml
 share/rules/syslog/named-refused.yaml
 share/rules/syslog/named_dnssec_errors.yaml

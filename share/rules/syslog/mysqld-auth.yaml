@@ -1,0 +1,66 @@
+---
+# Matches MySQL/MariaDB auth failures delivered through syslog or the journal,
+# where the server's own error-log line is the message:
+#
+#   mysqld: 130916 21:30:26 [Warning] Access denied for user 'root'@'192.0.2.4' (using password: YES)
+#   mariadbd[1234]: 2024-01-01 12:00:00 5 [Warning] Access denied for user 'root'@'192.0.2.4' (using password: YES)
+#
+# Based on the fail2ban mysqld-auth filter. The regexp is raw/mysqld-auth's,
+# which reads the server's own error log, verbatim... see that rule for the
+# timestamp shapes and for why the line has to end at the verdict. Keep the
+# two in step. MariaDB 10.5 and later run as mariadbd, and through syslog
+# may leave its own timestamp off, which the regexp already allows.
+#
+# Uses the HOST token and ban_var as mysqld logs hostnames when name
+# resolution is on.
+rev: 1
+msg: "[MYSQLD] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - mysqld
+  - mariadbd
+message_regexp:
+  - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})? )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%''(?:\s+(?:to database ''[^'']*''|\(using password: (?:YES|NO)\))){0,2}\s*$'
+ban_var:
+  - HOST
+tests:
+  positive:
+    - message: "Sep 16 21:30:26 dbhost mysqld: 130916 21:30:26 [Warning] Access denied for user 'hacker'@'192.0.2.159' (using password: YES)"
+      found: 1
+      data:
+        HOST: "192.0.2.159"
+    - message: "Sep  6 01:45:18 srv mysqld: 2019-09-06  1:45:18 140581192722176 [Warning] Access denied for user 'global'@'192.0.2.2' (using password: YES)"
+      found: 1
+      data:
+        HOST: "192.0.2.2"
+    - message: "Sep 24 13:16:50 srv mysqld[1234]: 2019-09-24 13:16:50 8756 [Warning] Access denied for user 'root'@'192.0.2.3' (using password: YES)"
+      found: 1
+      data:
+        HOST: "192.0.2.3"
+    # MariaDB under its 10.5+ name, MySQL 8's stamp and bracketed codes
+    - message: "Jan  3 08:50:04 db01 mariadbd[1234]: 2019-01-03T08:50:04.634875Z 113 [Note] [MY-010926] [Server] Access denied for user 'root'@'192.0.2.5' (using password: NO)"
+      found: 1
+      data:
+        HOST: "192.0.2.5"
+    # through syslog with the server's own stamp left off
+    - message: "Jan  3 08:50:05 db01 mariadbd[1234]: [Warning] Access denied for user 'root'@'db.example.com' (using password: YES)"
+      found: 1
+      data:
+        HOST: "db.example.com"
+  negative:
+    - message: "Sep 16 21:30:27 dbhost mysqld: 130916 21:30:27 [Note] Plugin 'FEDERATED' is disabled."
+      found: 0
+      undefed: ["HOST"]
+    # right message, wrong daemon
+    - message: "Sep 16 21:30:28 dbhost sshd[1]: 130916 21:30:28 [Warning] Access denied for user 'root'@'192.0.2.6' (using password: YES)"
+      found: 0
+      undefed: ["HOST"]
+    # a quote in the account forging a host and verdict ahead of the real
+    # ones... the line has to end at the verdict, so it is not read at all
+    - message: "Sep 16 21:30:29 dbhost mysqld: 130916 21:30:29 [Warning] Access denied for user 'x'@'198.51.100.66' (using password: NO)'@'192.0.2.7' (using password: YES)"
+      found: 0
+      undefed: ["HOST"]
