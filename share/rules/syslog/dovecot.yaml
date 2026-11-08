@@ -2,7 +2,7 @@
 # Matches dovecot auth failures. Based on the fail2ban dovecot filter in
 # its normal mode, translated to Baphomet and simplified... the aggressive
 # mode no-auth-attempt matching is dropped.
-rev: 4
+rev: 5
 msg: "[DOVECOT] authentication failure"
 severity: high
 classtype: brute-force
@@ -17,24 +17,31 @@ daemons:
 mungers:
   - dovecot
 message_regexp:
-  # Anchored on the ", lip=" dovecot writes after the remote address, because
-  # the account name reaches this far. user=<...> is bounded by ">", so an
+  # The account name reaches the address. user=<...> is bounded by ">", so an
   # account holding one closes the field early and whatever follows in the
-  # name is read as further fields... an account of "a>, rip=8.8.8.8, method=X"
-  # plants a rip= ahead of the real one, and lazy matching took it. A bare ","
-  # would not help here, the forged one being comma-followed too; what the
-  # forgery cannot produce is the lip= that always trails the true address.
+  # name is read as further fields... an account of
+  # "a>, rip=8.8.8.8, lip=9.9.9.9" plants a whole rip/lip pair ahead of the
+  # real one, so neither lazy matching nor a lip= anchor can tell them apart.
+  # Nothing dovecot writes after the real pair comes from the client, so the
+  # wildcard is greedy and the last rip= is the one taken.
   #
   # The field run after "):" is a wildcard rather than a spelled-out
   # user=/method= sequence so that a corrupted name costs the match nothing:
   # spelled out, a planted field broke the sequence and the line stopped
   # matching at all, which let the attacker go uncounted instead of merely
-  # misaimed. Lazy plus the lip= anchor steps over the forgery and still
-  # finds the real pair.
-  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\):.*? rip=%%%%SRC%%%%(?:, lip=|\s*$)'
+  # misaimed. Greedy steps over the forgery and still finds the real pair.
+  #
+  # pam(), sql() and the other passdb drivers name the account and then the
+  # address, comma separated, and an account may hold a comma... "x,8.8.8.8"
+  # plants an address ahead of the real one. Greedy takes the last there too.
+  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?:.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
   - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
-  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*?,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
-  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*?,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+  # auth-worker naming the account and address in its own prefix, with the
+  # driver after... "auth-worker(user,ip)<pid><session>: request [N]: pam:" and
+  # the Dovecot 2.4 "auth(user,ip,mech)<session>: Info: sql:"
+  - '^(?:dovecot: )?auth(?:-worker)?\(\S*,%%%%SRC%%%%(?:,\S*)?\)(?:<[^>]+>){0,2}: (?:request \[\d+\]: )?(?:Info: )?(?:[a-z\-]+: )?(?:\w+_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)|[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
 src_ip_var: SRC
 dest_ip_var: dovecot_lip
 user_var: dovecot_user
@@ -95,6 +102,29 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.6"
+    # dovecot 2.3.21+ login abort, the reason code after the reason
+    - message: "Aug 30 09:51:49 host dovecot[2623853]: imap-login: Login aborted: Inactivity (auth failed, 3 attempts in 177 secs) (auth_failed): user=<eric>, method=PLAIN, rip=192.0.2.50, lip=193.24.208.184, TLS, session=<SESSION2>"
+      found: 1
+      data:
+        SRC: "192.0.2.50"
+    - message: "Jun 13 16:35:56 mx dovecot[241]: managesieve-login: Login aborted: Logged out (auth failed, 1 attempts in 10 secs) (auth_failed): user=<user@domain>, method=PLAIN, rip=192.0.2.241, lip=203.0.113.104, TLS, session=<Dp8j1Ho3suQYdo+k>"
+      found: 1
+      data:
+        SRC: "192.0.2.241"
+    # the auth-worker naming account and address in its own prefix
+    - message: "Aug 30 09:48:53 host dovecot[2623853]: auth-worker(eric,192.0.2.51)<566595><SESSION2>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      found: 1
+      data:
+        SRC: "192.0.2.51"
+    - message: "Aug 30 08:42:47 host dovecot[2623853]: auth-worker(eric,192.0.2.60)<3499329>: request [1]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      found: 1
+      data:
+        SRC: "192.0.2.60"
+    # dovecot 2.4
+    - message: "Aug 30 00:10:57 host dovecot: auth(info@example.com,192.0.2.110,sasl:login)<CvN+E95Uf4e7eEnj>: Info: sql: Password mismatch (given password: XxxxXXxx123)"
+      found: 1
+      data:
+        SRC: "192.0.2.110"
   negative:
     # no auth attempts is the aggressive mode's business, not ours
     - message: "Jun 13 20:48:11 platypus dovecot: pop3-login: Disconnected (no auth attempts): rip=121.44.24.254, lip=113.212.99.194, TLS: Disconnected"
@@ -113,3 +143,20 @@ tests:
     - message: "Jun 13 16:30:54 mail01 dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<a>, rip=8.8.8.8, method=X>, method=PLAIN, rip=49.176.98.87, lip=10.0.0.1, TLS"
       data:
         SRC: "49.176.98.87"
+    # the whole rip/lip pair forged... the last pair is dovecot's own
+    - message: "Jun 13 16:30:54 mail01 dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<a>, rip=8.8.8.8, lip=9.9.9.9>, method=PLAIN, rip=49.176.98.87, lip=10.0.0.1, TLS"
+      data:
+        SRC: "49.176.98.87"
+    # an account holding a comma plants an address in the passdb argument list
+    - message: "Jan 29 18:55:55 mail01 dovecot: auth-worker(12182): pam(x,8.8.8.8,192.0.2.4): pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      data:
+        SRC: "192.0.2.4"
+    - message: "Jan 29 05:13:50 mail01 dovecot: auth: passwd-file(x,8.8.8.8,192.0.2.4): unknown user"
+      data:
+        SRC: "192.0.2.4"
+    - message: "Jun 11 13:57:17 mail01 dovecot: auth: sql(x,8.8.8.8,192.0.2.5,<6rXunFtu493AqJDi>): Password mismatch"
+      data:
+        SRC: "192.0.2.5"
+    - message: "Aug 30 09:48:53 mail01 dovecot[2623853]: auth-worker(x,8.8.8.8,192.0.2.51)<566595><SESSION2>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      data:
+        SRC: "192.0.2.51"

@@ -20,9 +20,10 @@
 #
 # The account comes from wherever dovecot put it: user=<> on a login abort,
 # ruser= on the pam path, and the first argument of pam()/passwd-file()/sql() on
-# the auth-worker lines. The address stays anchored exactly as syslog/dovecot
-# anchors it, on the `, lip=` that trails the real rip=, so a `>` planted in a
-# mailbox name cannot move the ban... see that rule for the reasoning.
+# the auth-worker lines. The address is taken exactly as syslog/dovecot takes
+# it, the last rip= on the line and the last address in pam()/sql(), so a `>`
+# or `,` planted in a mailbox name cannot move the ban... see that rule for the
+# reasoning.
 #
 # ORDER AND OVERLAP MATTER. This matches the same lines syslog/dovecot does, so
 # under the default overlap of `first` whichever is listed earlier consumes the
@@ -37,7 +38,7 @@
 # it the watcher's max_score applies, still counting DISTINCT MAILBOXES. Behind a
 # busy NAT five mailboxes failing in an hour is reachable without an attacker, so
 # raise it or put the range in `internal`, and stand it up eve_only first.
-rev: 1
+rev: 2
 msg: "[DOVECOT] credential stuffing... many accounts from one source"
 severity: high
 classtype: brute-force
@@ -52,10 +53,11 @@ daemons:
 mungers:
   - dovecot
 message_regexp:
-  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\): user=<(?<USER>[^>]+)>,.*? rip=%%%%SRC%%%%(?:, lip=|\s*$)'
+  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?: user=<(?<USER>[^>]+)>,.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
   - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?<USER>\S+) rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
-  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\((?<USER>[^,\s]+),%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed:'
-  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\((?<USER>[^,\s]+),%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\((?<USER>\S+),%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed:'
+  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\((?<USER>\S+),%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+  - '^(?:dovecot: )?auth(?:-worker)?\((?<USER>\S+),%%%%SRC%%%%(?:,\S*)?\)(?:<[^>]+>){0,2}: (?:request \[\d+\]: )?(?:Info: )?(?:[a-z\-]+: )?(?:\w+_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)|[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
 distinct:
   of: USER
 max_score: 5
@@ -90,6 +92,11 @@ tests:
       data:
         USER: "admin@example.ru"
         SRC: "192.168.144.226"
+    # the auth-worker naming account and address in its own prefix
+    - message: "Aug 30 09:48:53 mail01 dovecot[2623853]: auth-worker(eric,192.0.2.51)<566595><SESSION2>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      data:
+        USER: "eric"
+        SRC: "192.0.2.51"
   negative:
     # a success is no part of this
     - message: "Jun 13 21:48:07 mail01 dovecot: imap-login: Login: user=<bob>, method=PLAIN, rip=192.0.2.99, lip=10.0.0.1, TLS"
@@ -101,8 +108,17 @@ tests:
       undefed: ["USER", "SRC"]
   injection:
     # a ">" planted in the mailbox name closes user=<> early and plants a rip=,
-    # exactly as for syslog/dovecot... the lip= anchor steps over the forgery, so
-    # the mailbox counted is junk but the source banned is dovecot's own
+    # exactly as for syslog/dovecot... the last rip= is the one taken, so the
+    # mailbox counted is junk but the source banned is dovecot's own
     - message: "Jun 13 16:30:55 mail01 dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<a>, rip=8.8.8.8, method=X>, method=PLAIN, rip=49.176.98.87, lip=10.0.0.1, TLS"
       data:
         SRC: "49.176.98.87"
+    - message: "Jun 13 16:30:55 mail01 dovecot: imap-login: Disconnected (auth failed, 2 attempts): user=<a>, rip=8.8.8.8, lip=9.9.9.9>, method=PLAIN, rip=49.176.98.87, lip=10.0.0.1, TLS"
+      data:
+        SRC: "49.176.98.87"
+    # a comma planted in the account... the account counted holds it, the
+    # address banned is the last one
+    - message: "Jan 29 18:55:55 mail01 dovecot: auth-worker(12182): pam(x,8.8.8.8,192.0.2.4): pam_authenticate() failed: Authentication failure (Password mismatch?)"
+      data:
+        USER: "x,8.8.8.8"
+        SRC: "192.0.2.4"
