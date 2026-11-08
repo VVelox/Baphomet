@@ -1,11 +1,16 @@
 ---
 # Matches MySQL/MariaDB auth failures in the server's own error log,
-# both the old 130324-style and the newer ISO timestamps. Based on the
-# fail2ban mysqld-auth filter, translated to Baphomet.
+# both the old 130324-style and the newer ISO timestamps, MySQL 8's
+# microseconds and trailing Z included. Based on the fail2ban mysqld-auth
+# filter, translated to Baphomet.
+#
+# The account name is the client's and may hold a quote, so the line has to
+# end at the verdict... a forged '@'<host>' followed by more text is not read
+# at all rather than read wrong.
 #
 # Uses the HOST token and ban_var as mysqld logs hostnames when name
 # resolution is on.
-rev: 2
+rev: 3
 msg: "[MYSQLD] authentication failure"
 severity: high
 classtype: brute-force
@@ -13,7 +18,7 @@ mark:
   - name: brute_force
     ttl: 21600
 message_regexp:
-  - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2} )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%'' (?:to database ''[^'']*''|\(using password: (?:YES|NO)\))*\s*$'
+  - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})? )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%''(?:\s+(?:to database ''[^'']*''|\(using password: (?:YES|NO)\))){0,2}\s*$'
 ban_var:
   - HOST
 tests:
@@ -30,6 +35,20 @@ tests:
       found: 1
       data:
         HOST: "sql.example.com"
+    # MySQL 8: microseconds, Z, and the error-code and subsystem brackets
+    - message: "2019-01-03T08:50:04.634875Z 113 [Note] [MY-010926] [Server] Access denied for user 'root'@'192.0.2.1' (using password: NO)"
+      found: 1
+      data:
+        HOST: "192.0.2.1"
+    # nothing after the host
+    - message: "2020-01-16 21:34:14 4644 [Warning] Access denied for user 'root'@'192.0.2.4'"
+      found: 1
+      data:
+        HOST: "192.0.2.4"
+    - message: "2016-02-24T15:26:18.237955 6 [Note] Access denied for user 'root'@'192.0.2.5' (using password: YES)"
+      found: 1
+      data:
+        HOST: "192.0.2.5"
   negative:
     - message: "130324 10:00:00 [Note] Plugin 'FEDERATED' is disabled."
       found: 0
@@ -37,3 +56,14 @@ tests:
     - message: "130324 12:00:00 [Warning] Aborted connection 123 to db: 'unconnected' user: 'root' host: 'localhost' (Got timeout reading communication packets)"
       found: 0
       undefed: ["HOST"]
+    # free text after the verdict is not a mysqld access-denied line
+    - message: "2016-02-24T15:26:18.237955 6 [Note] Access denied for user 'root'@'192.0.2.6' (using password: YES) condition lead to a hypothetical failure"
+      found: 0
+      undefed: ["HOST"]
+    # a quote in the account name forging a whole host and verdict ahead of
+    # the real one... the line must end at the verdict, so it is not read
+    # at all rather than read wrong
+    - message: "2020-01-16 21:34:15 4645 [Warning] Access denied for user 'x'@'8.8.8.8' (using password: NO)'@'192.0.2.7' (using password: YES)"
+      found: 0
+      undefed: ["HOST"]
+
