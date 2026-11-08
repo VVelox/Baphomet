@@ -156,6 +156,7 @@ share/rules/json/suricata-web-application-attack.yaml
 share/rules/json/suricata.yaml
 share/rules/raw/3proxy.yaml
 share/rules/raw/assp.yaml
+share/rules/raw/asterisk.yaml
 share/rules/raw/bitwarden.yaml
 share/rules/raw/centreon.yaml
 share/rules/raw/cisco-asa-auth-bruteforce.yaml

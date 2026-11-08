@@ -433,6 +433,9 @@ field instead, the type being the same either way.
   log, correlated by conn id... 4.4 and later use `json/mongodb-auth`
 - `raw/mysqld-auth` :: MySQL/MariaDB auth failures in the server error
   log (HOST token... may be a hostname)
+- `raw/asterisk` :: Asterisk auth/registration failures in its own
+  `/var/log/asterisk/messages`... `syslog/asterisk`'s patterns behind the
+  native timestamp
 - `raw/exim` / `raw/exim-spam` :: exim mainlog auth failures, rejects,
   SMTP protocol abuse, and spam/virus rejects
 - `raw/3proxy`, `raw/squid` :: proxy denied connections

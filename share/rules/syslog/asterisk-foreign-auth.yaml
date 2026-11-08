@@ -30,7 +30,7 @@
 #
 # Read the traveler risk before turning this on: an extension registering from
 # abroad is banished by its own successful registration, mid-call.
-rev: 1
+rev: 2
 msg: "[ASTERISK] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -45,7 +45,7 @@ message_regexp:
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="SuccessfulAuth"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
   # and everything syslog/asterisk counts, verbatim
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call from ''[^'']*'' \((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
@@ -99,6 +99,16 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.34"
+    # PJSIP naming no caller at all
+    - message: "Jul 12 08:15:53 pbx01 asterisk[3980]: NOTICE[3980] res_pjsip_session.c:  anonymous: Call (UDP:203.0.113.60:65049) to extension '001447441452805' rejected because extension not found in context 'inbound'."
+      geo:
+        countries:
+          "203.0.113.60": DE
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.60"
     # the bare "<addr> failed to authenticate" shape
     - message: "Jul 12 08:15:54 pbx01 asterisk[3308]: NOTICE[3308] chan_sip.c: Host 203.0.113.35 failed to authenticate as '1001'"
       geo:

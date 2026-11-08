@@ -4,7 +4,7 @@
 # machinery is folded into each regexp as a common asterisk log prefix and
 # only the syslog-shaped form is handled. The fail2ban filter's ignoreregex
 # is empty, so there is no ignore_regexp here.
-rev: 2
+rev: 3
 msg: "[ASTERISK] auth / registration failure"
 severity: high
 classtype: brute-force
@@ -15,13 +15,13 @@ daemons:
   - asterisk
 message_regexp:
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call from ''[^'']*'' \((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? hacking attempt detected ''%%%%SRC%%%%''$'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
   - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? "Rejecting unknown SIP connection from \[?%%%%SRC%%%%\]?(?::\d+)?"$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Request (?:''[^'']*'' )?from ''(?:[^'']*|.*?)'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?''\s\(callid: [^\)]*\) - (?:No matching endpoint found|Not match Endpoint(?: Contact)? ACL|(?:Failed|Error) to authenticate)\s*$'
+  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Request (?:''[^'']*'' )?from ''(?:[^'']*|.*?)'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?''\s\(callid: [^\)]*\) - (?:No matching endpoint found|Not match Endpoint(?: Contact)? ACL|(?:Failed|Error) to authenticate)\b[^'']*$'
 src_ip_var: SRC
 ban_var:
   - SRC
@@ -82,6 +82,16 @@ tests:
       found: 1
       data:
         SRC: "1.2.3.4"
+    # newer asterisk counts the retries after the reason
+    - message: 'Jul 12 08:15:51 pbx01 asterisk[17103]: NOTICE[17103] res_pjsip/pjsip_distributor.c: Request ''INVITE'' from ''"test2" <sip:test2@3.4.5.6>'' failed for ''203.0.113.8:5679'' (callid: cafebabe) - No matching endpoint found after 5 tries in 2.500 ms'
+      found: 1
+      data:
+        SRC: "203.0.113.8"
+    # PJSIP naming no caller at all
+    - message: "Jun 12 15:13:54 pbx01 asterisk[3980]: NOTICE[3980] res_pjsip_session.c:  anonymous: Call (UDP:203.0.113.7:65049) to extension '001447441452805' rejected because extension not found in context 'inbound'."
+      found: 1
+      data:
+        SRC: "203.0.113.7"
   negative:
     - message: "Jul 12 08:25:49 vixen42 asterisk[123]: NOTICE[1638] chan_sip.c: Peer '301' is now Reachable. (13ms / 2000ms)"
       found: 0

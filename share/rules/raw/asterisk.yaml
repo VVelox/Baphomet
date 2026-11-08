@@ -1,0 +1,105 @@
+---
+# Matches asterisk auth/registration failures in asterisk's own log files,
+# /var/log/asterisk/messages and full, rather than through syslog. Based on
+# the fail2ban asterisk filter, translated to Baphomet.
+#
+# The patterns are syslog/asterisk's, verbatim, behind the timestamp asterisk
+# stamps each line with itself... "[2012-02-13 17:21:54] " by default, or
+# "[Feb 13 17:21:54] " where dateformat in logger.conf is left at the older
+# syslog-style default, and either with milliseconds when the format asks for
+# them. Keep the two in step when one changes.
+rev: 1
+msg: "[ASTERISK] auth / registration failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? hacking attempt detected ''%%%%SRC%%%%''$'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? "Rejecting unknown SIP connection from \[?%%%%SRC%%%%\]?(?::\d+)?"$'
+  - '^\[(?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} [ \d]\d) \d{2}:\d{2}:\d{2}(?:\.\d+)?\] (?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Request (?:''[^'']*'' )?from ''(?:[^'']*|.*?)'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?''\s\(callid: [^\)]*\) - (?:No matching endpoint found|Not match Endpoint(?: Contact)? ACL|(?:Failed|Error) to authenticate)\b[^'']*$'
+src_ip_var: SRC
+ban_var:
+  - SRC
+# fail2ban jail.conf's word for this filter, honored when the kur allows
+# per-rule thresholds
+max_score: 10
+tests:
+  positive:
+    - message: "[2012-02-13 17:21:54] NOTICE[1638] chan_sip.c: Registration from '<sip:301@example.com>' failed for '192.0.2.1' - Wrong password"
+      found: 1
+      data:
+        SRC: "192.0.2.1"
+    - message: "[2016-08-19 11:11:26] NOTICE[12931]: chan_sip.c:28468 handle_request_register: Registration from 'sip:bob@192.0.2.1' failed for '192.0.2.2:42406' - Wrong password"
+      found: 1
+      data:
+        SRC: "192.0.2.2"
+    - message: "[2012-02-13 17:53:59] NOTICE[1638] chan_iax2.c: Host 192.0.2.3 failed to authenticate as 'Fail2ban'"
+      found: 1
+      data:
+        SRC: "192.0.2.3"
+    - message: "[2012-02-13 17:39:20] NOTICE[1638] chan_iax2.c: No registration for peer 'Fail2ban' (from 192.0.2.4)"
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    # the syslog-style date, and a call naming no caller
+    - message: "[Jan 18 17:39:50] NOTICE[12049]: res_pjsip_session.c:2337 new_invite: Call from 'anonymous' (TCP:[192.0.2.5]:61470) to extension '9011+442037690237' rejected because extension not found in context 'default'."
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+    - message: "[Jun 12 15:13:54] NOTICE[3980] res_pjsip_session.c:  anonymous: Call (UDP:192.0.2.6:65049) to extension '001447441452805' rejected because extension not found in context 'inbound-foo-bar'."
+      found: 1
+      data:
+        SRC: "192.0.2.6"
+    - message: "[2015-03-16 18:46:34] NOTICE[3453] chan_sip.c: hacking attempt detected '192.0.2.7'"
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+    - message: "[2014-01-10 16:39:06] SECURITY[1503] res_security_log.c: SecurityEvent=\"FailedACL\",EventTV=\"1389368346-880526\",Severity=\"Error\",Service=\"SIP\",EventVersion=\"1\",AccountID=\"\",SessionID=\"0x7ff408103b18\",LocalAddress=\"IPV4/UDP/198.51.100.1/5060\",RemoteAddress=\"IPV4/UDP/192.0.2.8/5066\",ACLName=\"domain_must_match\""
+      found: 1
+      data:
+        SRC: "192.0.2.8"
+    - message: "[2013-11-11 14:33:38] WARNING[8447][C-00000244] Ext. s: \"Rejecting unknown SIP connection from 192.0.2.9:52126\""
+      found: 1
+      data:
+        SRC: "192.0.2.9"
+    - message: "[2016-05-23 10:18:16] NOTICE[19388] res_pjsip/pjsip_distributor.c: Request from '\"1000\" <sip:1000@10.0.0.1>' failed for '192.0.2.10:48336' (callid: 276666022) - No matching endpoint found"
+      found: 1
+      data:
+        SRC: "192.0.2.10"
+    - message: "[2016-06-09 00:01:02] NOTICE [22382] manager.c: 192.0.2.11 failed to authenticate as 'admin'"
+      found: 1
+      data:
+        SRC: "192.0.2.11"
+    # newer asterisk counts the retries after the reason
+    - message: '[2016-05-06 07:08:09] NOTICE[17103] res_pjsip/pjsip_distributor.c: Request ''INVITE'' from ''"test2" <sip:test2@3.4.5.6>'' failed for ''192.0.2.16:5679'' (callid: cafebabe) - No matching endpoint found after 5 tries in 2.500 ms'
+      found: 1
+      data:
+        SRC: "192.0.2.16"
+    # milliseconds in the stamp
+    - message: "[2026-07-12 08:15:50.123] NOTICE[1638] chan_iax2.c: Host 192.0.2.12 failed MD5 authentication for 'Fail2ban' (e7df != 53ac)"
+      found: 1
+      data:
+        SRC: "192.0.2.12"
+  negative:
+    - message: "[2012-02-13 17:21:55] NOTICE[1638] chan_sip.c: Peer '301' is now Reachable. (13ms / 2000ms)"
+      found: 0
+      undefed: ["SRC"]
+    - message: "[2012-02-13 17:21:56] VERBOSE[1638] chan_sip.c: Registered SIP '301' at 192.0.2.13:36998"
+      found: 0
+      undefed: ["SRC"]
+    # a syslog-delivered line is syslog/asterisk's
+    - message: "Nov 4 18:30:40 localhost asterisk[32229]: NOTICE[32257]: chan_sip.c:23417 in handle_request_register: Registration from '<sip:301@example.com>' failed for '192.0.2.14:36998' - Wrong password"
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # a SecurityEvent forging a RemoteAddress ahead of asterisk's own
+    - message: "[2015-05-25 07:21:48] SECURITY[6988] res_security_log.c: SecurityEvent=\"InvalidAccountID\",EventTV=\"2015-05-25T07:21:48.275+0300\",Severity=\"Error\",Service=\"PJSIP\",EventVersion=\"1\",AccountID=\"70000180\",SessionID=\"\",LocalAddress=\"IPV4/UDP/127.0.0.1/5060\",RemoteAddress=\"IPV4/UDP/198.51.100.8/1111\"\",LocalAddress=\"IPV4/UDP/198.51.100.1/5060\",RemoteAddress=\"IPV4/UDP/192.0.2.15/5061\""
+      data:
+        SRC: "192.0.2.15"
