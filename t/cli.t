@@ -19,6 +19,17 @@ use JSON::MaybeXS      ();
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/syslog' );
 
+# check_rules and test_line read a config for their defaults, and without
+# --config they read the host's /usr/local/etc/baphomet/config.toml. Even
+# given --file they need some rules dir to exist, and with neither that
+# config's rules_dir nor an installed share dir on the host they die. A config
+# of their own pointing rules_dir at the test's dir keeps the tests from
+# depending on what this machine has installed.
+open( my $cfh, '>', $dir . '/cli.toml' ) || die($!);
+print $cfh 'rules_dir = "' . $dir . '/rules"' . "\n";
+close($cfh);
+my @config = ( '--config', $dir . '/cli.toml' );
+
 open( my $fh, '>', $dir . '/rules/syslog/good.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
@@ -72,11 +83,11 @@ foreach my $command (
 #
 
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'check_rules', '--rules-dir', $dir . '/rules', 'syslog/good' ] );
+	[ 'check_rules', @config, '--rules-dir', $dir . '/rules', 'syslog/good' ] );
 is( $result->exit_code, 0, 'check_rules on a good rule exits 0' );
 like( $result->stdout, qr/syslog\/good \.\.\. ok/, 'check_rules reports the good rule ok' );
 
-$result = App::Cmd::Tester->test_app( 'App::Baphomet::App', [ 'check_rules', '--rules-dir', $dir . '/rules' ] );
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App', [ 'check_rules', @config, '--rules-dir', $dir . '/rules' ] );
 isnt( $result->exit_code, 0, 'check_rules with a bad rule present exits non-zero' );
 like( $result->stdout, qr/syslog\/good \.\.\. ok/, 'the good rule still reported ok' );
 like( $result->stdout, qr/syslog\/bad \.\.\. /,    'the bad rule reported' );
@@ -91,18 +102,18 @@ like(
 
 # --file checks the path outright, resolving nothing
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'check_rules', '--file', $dir . '/rules/syslog/good.yaml' ] );
+	[ 'check_rules', @config, '--file', $dir . '/rules/syslog/good.yaml' ] );
 is( $result->exit_code, 0, 'check_rules --file on a good rule exits 0' );
 like( $result->stdout, qr/syslog\/good \.\.\. ok/, '--file derives the rule name from the path' );
 like( $result->stdout, qr/1 rules checked/,          'and checks only that one' );
 
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'check_rules', '--file', $dir . '/rules/syslog/nope.yaml' ] );
+	[ 'check_rules', @config, '--file', $dir . '/rules/syslog/nope.yaml' ] );
 isnt( $result->exit_code, 0, '--file on a path that is not there exits non-zero' );
 
 # repeatable, and the two need not share a type dir
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'check_rules', '-f', $dir . '/rules/syslog/good.yaml', '-f', $dir . '/rules/syslog/bad.yaml' ] );
+	[ 'check_rules', @config, '-f', $dir . '/rules/syslog/good.yaml', '-f', $dir . '/rules/syslog/bad.yaml' ] );
 isnt( $result->exit_code, 0, '--file twice reports the bad one' );
 like( $result->stdout, qr/2 rules checked/, 'and counts both' );
 
@@ -131,7 +142,7 @@ EOR
 close($fh);
 
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'check_rules', '--file', $dir . '/rules/syslog/lazy.yaml' ] );
+	[ 'check_rules', @config, '--file', $dir . '/rules/syslog/lazy.yaml' ] );
 is( $result->exit_code, 0, 'the injection-shape check does not fail a rule' );
 like( $result->stdout, qr/warning: .*lazy wildcard/, 'it warns instead' );
 like( $result->stdout, qr/syslog\/lazy \.\.\. ok/, 'and the rule still passes its tests' );
@@ -140,7 +151,7 @@ unlink( $dir . '/rules/syslog/lazy.yaml' );
 
 # --verbose names the file, the ranking, and the tests by section
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'check_rules', '--verbose', '--rules-dir', $dir . '/rules', 'syslog/good' ] );
+	[ 'check_rules', @config, '--verbose', '--rules-dir', $dir . '/rules', 'syslog/good' ] );
 is( $result->exit_code, 0, 'check_rules --verbose exits 0 on a good rule' );
 like( $result->stdout, qr/\n    file      \Q$dir\E\/rules\/syslog\/good\.yaml/, 'verbose names the file' );
 like( $result->stdout, qr/\n    tests     positive \d/,                              'verbose counts the tests by section' );
@@ -160,8 +171,7 @@ like(
 
 $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',
-	[
-		'test_line',           '--rules-dir', $dir . '/rules', '--rule',
+	[ 'test_line', @config,           '--rules-dir', $dir . '/rules', '--rule',
 		'syslog/good',         'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4'
 	]
 );
@@ -178,7 +188,7 @@ is( $tl->{rule_file}, $dir . '/rules/syslog/good.yaml', 'and the file it read th
 # --file points at a path outright, no --rule needed
 $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',
-	[   'test_line', '--file', $dir . '/rules/syslog/good.yaml',
+	[ 'test_line', @config, '--file', $dir . '/rules/syslog/good.yaml',
 		'Jul 12 08:15:50 host01 sshd[1]: bad thing from 1.2.3.4'
 	]
 );
@@ -189,7 +199,7 @@ is( JSON::MaybeXS::decode_json( $result->stdout )->{rule},
 # and the two ways of naming a rule are not to be combined
 $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',
-	[   'test_line', '--rule', 'syslog/good', '--file', $dir . '/rules/syslog/good.yaml',
+	[ 'test_line', @config, '--rule', 'syslog/good', '--file', $dir . '/rules/syslog/good.yaml',
 		'Jul 12 08:15:50 host01 sshd[1]: bad thing from 1.2.3.4'
 	]
 );
@@ -197,8 +207,7 @@ isnt( $result->exit_code, 0, '--rule and --file together is a usage error' );
 
 $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',
-	[
-		'test_line',   '--rules-dir', $dir . '/rules', '--rule',
+	[ 'test_line', @config,   '--rules-dir', $dir . '/rules', '--rule',
 		'syslog/good', 'Jul 12 08:15:50 mail01 sshd[1]: nothing of note'
 	]
 );
@@ -206,7 +215,7 @@ is( $result->exit_code, 0, 'test_line on a non-matching line exits 0' );
 like( $result->stdout, qr/"found"\s*:\s*0/, 'test_line reports not found' );
 
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
-	[ 'test_line', '--rules-dir', $dir . '/rules', '--rule', 'syslog/good', 'complete garbage' ] );
+	[ 'test_line', @config, '--rules-dir', $dir . '/rules', '--rule', 'syslog/good', 'complete garbage' ] );
 isnt( $result->exit_code, 0, 'test_line on a unparsable line exits non-zero' );
 
 #
