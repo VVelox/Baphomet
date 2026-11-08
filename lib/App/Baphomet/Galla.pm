@@ -2433,8 +2433,7 @@ sub _process_record {
 		# observe at any level and a trusted rule opt back in either in its file
 		# or from the config. observe_ignored, a watcher setting, lets observe
 		# mode also watch what ignore_ips would drop
-		my $rule_eve_only   = defined( $rule_cfg->{eve_only} ) ? $rule_cfg->{eve_only} : $rule_obj->eve_only;
-		my $eve_only        = defined($rule_eve_only)          ? $rule_eve_only        : $watcher->{settings}{eve_only};
+		my $eve_only        = $rule_cfg->{eve_only} // $rule_obj->eve_only // $watcher->{settings}{eve_only};
 		my $observe_ignored = $watcher->{settings}{observe_ignored};
 		my $track_only_eve  = $watcher->{settings}{track_only_eve_store};
 
@@ -2485,7 +2484,8 @@ sub _process_record {
 			# for the stats and the ledger. the effective severity is the
 			# config's for the rule, then the rule's own, then the
 			# watcher-resolved default_severity
-			my $context = {
+			my $severity = $rule_cfg->{severity} // $rule_obj->severity // $watcher->{settings}{default_severity};
+			my $context  = {
 				'source'    => $source,
 				'raw'       => $line,
 				'parsed'    => $parsed,
@@ -2494,9 +2494,7 @@ sub _process_record {
 				'rule'      => $rule_obj,
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
-				'severity'  => defined( $rule_cfg->{severity} ) ? $rule_cfg->{severity}
-				: defined( $rule_obj->severity ) ? $rule_obj->severity
-				:                                  $watcher->{settings}{default_severity},
+				'severity'  => $severity,
 			};
 
 			# a ban_not_internal rule banishes the end of the flow that is
@@ -2560,63 +2558,29 @@ sub _process_record {
 			$context->{subject_scores}  = {};
 			$context->{subject_crossed} = {};
 
-			# a result that crosses its threshold emits a terminal event
-			# (banish/alert/sighted) that already stands for the match... the
-			# routine found/noted/sighting is then redundant and suppressed.
-			# set by the threshold blocks in _register_hit and the subnet
-			# tally, read after the offenders are counted. reset per result
-			$self->{result_terminal} = 0;
-
-			# the crossings this result raises, held until the last offender
-			# has been counted... see _defer_crossing. reset per result, and
-			# drained in both branches below before anything is emitted
-			$self->{deferred_crossings} = [];
-
-			my $score;
-			my ( $set, $lifted ) = ( [], [] );
+			# resolve the result and brand, in the shared order, then settle who
+			# is counted, how, and whether the line is consumed
+			my $outcome;
+			my @to_count;
+			my $count_eve_only = $eve_only;
 			if ($is_detection) {
 				# detection-only... the data-keyed marks apply (there are no
 				# offenders to brand), each subject counts into the shadow
 				# buckets and never banishes. a subject crossing threshold
 				# raises a sighted, a match itself is a sighting. it consumes
 				# the line the same as any firing non-mark_only rule
-				my $outcome = $self->_resolve_offense( $rule_obj, $one->{data}, [], $now, undef );
-				( $set, $lifted ) = ( $outcome->{set}, $outcome->{lifted} );
-				$context->{marks_set} = $set;
-				$context->{unmarked}  = $lifted;
-				$consumed             = 1;
-				foreach my $subject_value (@offenders) {
-					my $registered
-						= $self->_register_hit( $watcher_name, $subject_value, $context, $eve_only, $observe_ignored,
-							1 );
-					if ( defined($registered) ) {
-						$context->{subject_scores}{$subject_value} = $registered;
-						if ( !defined($score) ) {
-							$score = $registered;
-						}
-					}
-				} ## end foreach my $subject_value (@offenders)
-
-				# every subject is counted and the score map is whole, so the
-				# crossings held back may act now and write it entire
-				$self->_drain_crossings;
-
-				# a subject that crossed raised a sighted, which stands for
-				# the match... only the uncrossed one still needs a sighting.
-				# a track_only rule's own is gated the same as its found
-				if ( !$self->{result_terminal} && !( $track_only && !$track_only_eve ) ) {
-					$self->_eve_emit( 'sighting', $self->_eve_fields( $context, $score, $set, $lifted ) );
-				}
+				$outcome  = $self->_resolve_offense( $rule_obj, $one->{data}, [], $now, undef );
+				@to_count = @offenders;
+				$consumed = 1;
 			} else {
-				# resolve to the surviving offenders and brand them, in the
-				# shared order... the per-offender gates (the var-less mark,
-				# country, namtar, and reverse_dns gates) filter the
-				# candidates, a offender any gate vetoes is neither branded
-				# nor counted, and a result whose every offender is gated out
-				# did not fire: it brands nobody, emits nothing, and does not
-				# consume, falling through to the later rules... the legit
-				# crawler the reverse_dns gate cleared, say
-				my $outcome = $self->_resolve_offense(
+				# the per-offender gates (the var-less mark, country, namtar,
+				# and reverse_dns gates) filter the candidates, a offender any
+				# gate vetoes is neither branded nor counted, and a result whose
+				# every offender is gated out did not fire: it brands nobody,
+				# emits nothing, and does not consume, falling through to the
+				# later rules... the legit crawler the reverse_dns gate cleared,
+				# say
+				$outcome = $self->_resolve_offense(
 					$rule_obj,
 					$one->{data},
 					\@offenders,
@@ -2633,16 +2597,14 @@ sub _process_record {
 				if ( !$outcome->{fired} ) {
 					next;
 				}
-				( $set, $lifted ) = ( $outcome->{set}, $outcome->{lifted} );
-				$context->{marks_set} = $set;
-				$context->{unmarked}  = $lifted;
-				my @survivors = @{ $outcome->{survivors} };
 
 				# only a survivor is counted, so only a survivor earns a score
 				# entry... a subject a gate vetoed keeps its place in
 				# subject_vars with nothing beside it in subject_vars_scores,
-				# which is that veto on the record
+				# which is that veto on the record. a mark_only rule only
+				# brands, counting nobody and not consuming
 				if ( !$mark_only ) {
+					@to_count = @{ $outcome->{survivors} };
 					if ($demoted) {
 						# a later firing rule under overlap shadow... the line
 						# already counted for real through the winner, so this
@@ -2652,55 +2614,61 @@ sub _process_record {
 						# cause nor delay a real ban, its crossing raising a
 						# alert, and ignore_ips is honored on the way in just
 						# as for a real judgment
-						foreach my $ip (@survivors) {
-							my $registered = $self->_register_hit( $watcher_name, $ip, $context, 1, $observe_ignored );
-							if ( defined($registered) ) {
-								$context->{subject_scores}{$ip} = $registered;
-								if ( !defined($score) ) {
-									$score = $registered;
-								}
-							}
-						}
+						$count_eve_only = 1;
 						$self->_tick( 'demoted', $watcher_name, $rule_name );
 					} else {
-						# a firing non-mark_only rule consumes the line
 						$consumed = 1;
-						foreach my $ip (@survivors) {
-							my $registered
-								= $self->_register_hit( $watcher_name, $ip, $context, $eve_only, $observe_ignored );
-							if ( defined($registered) ) {
-								$context->{subject_scores}{$ip} = $registered;
-								if ( !defined($score) ) {
-									$score = $registered;
-								}
-							}
-						} ## end foreach my $ip (@survivors)
-					} ## end else [ if ($demoted) ]
+					}
 				} ## end if ( !$mark_only )
-
-				# every offender is counted and the score map is whole, so the
-				# crossings held back may act now and write it entire
-				$self->_drain_crossings;
-
-				# a offender that crossed raised a banish (or, observe mode, an
-				# alert), which carries the match already... the found/noted is
-				# then redundant, so only a result that banished nobody emits
-				# it. observe mode colors the match event noted, not found
-				# a track_only rule's own events are largely monitoring noise,
-				# so they are gated behind track_only_eve_store. it never
-				# counts and so can never cross a threshold, which leaves
-				# found/noted as all it can raise here and makes the gating
-				# complete... the rule that reads the record and fires still
-				# carries its full payload
-				if ( !$self->{result_terminal} && !( $track_only && !$track_only_eve ) ) {
-					my $fields = $self->_eve_fields( $context, $score, $set, $lifted );
-					# a demoted match reads as observe mode... noted, not
-					# found. a mark_only rule brands the same before and
-					# after the winner, so it keeps its found either way
-					my $event = ( $eve_only || ( $demoted && !$mark_only ) ) ? 'noted' : 'found';
-					$self->_eve_emit( $event, $fields );
-				}
 			} ## end else [ if ($is_detection) ]
+
+			my ( $set, $lifted ) = ( $outcome->{set}, $outcome->{lifted} );
+			$context->{marks_set} = $set;
+			$context->{unmarked}  = $lifted;
+
+			# the crossings this result raises, held on the context until the
+			# last subject has been counted... see _defer_crossing
+			$context->{crossings} = [];
+
+			my $score;
+			foreach my $subject_value (@to_count) {
+				my $registered = $self->_register_hit( $watcher_name, $subject_value, $context, $count_eve_only,
+					$observe_ignored, $is_detection );
+				if ( defined($registered) ) {
+					$context->{subject_scores}{$subject_value} = $registered;
+					if ( !defined($score) ) {
+						$score = $registered;
+					}
+				}
+			} ## end foreach my $subject_value (@to_count)
+
+			# a subject that crossed raised a terminal event (banish, alert, or
+			# sighted, per-IP or subnet) that already stands for the match, so
+			# the routine found/noted/sighting is then redundant
+			my $terminal = @{ $context->{crossings} } ? 1 : 0;
+
+			# every subject is counted and the score map is whole, so the
+			# crossings held back may act now and write it entire
+			$self->_drain_crossings($context);
+
+			# a track_only rule's own events are largely monitoring noise, so
+			# they are gated behind track_only_eve_store. it never counts and so
+			# can never cross a threshold, which leaves the routine event as all
+			# it can raise here and makes the gating complete... the rule that
+			# reads the record and fires still carries its full payload
+			if ( !$terminal && !( $track_only && !$track_only_eve ) ) {
+				# observe mode colors the match event noted, not found, and a
+				# demoted match reads as observe mode. a mark_only rule brands
+				# the same before and after the winner, so it keeps its found
+				# either way
+				my $event = 'found';
+				if ($is_detection) {
+					$event = 'sighting';
+				} elsif ( $eve_only || ( $demoted && !$mark_only ) ) {
+					$event = 'noted';
+				}
+				$self->_eve_emit( $event, $self->_eve_fields( $context, $score, $set, $lifted ) );
+			} ## end if ( !$terminal && !( $track_only && !$track_only_eve...))
 		} ## end foreach my $one (@all_found)
 
 		if ($consumed) {
@@ -2916,20 +2884,24 @@ sub _subject_var_fields {
 # as though the second had never been counted at all.
 #
 # args:
+#   $context  :: the match context of the result being counted, whose crossings
+#                key holds the queue when _process_record has one standing.
+#                undef or a context without the key, as when _register_hit is
+#                driven directly, runs the crossing at once
 #   $crossing :: a closure taking no arguments and doing whatever the crossing
 #                does... _ban_ip, _alert_ip, _sighted, _ban_subnet, or
 #                _alert_subnet, with the arguments it closed over
 #
-# returns nothing. the crossing is queued while _process_record has a queue
-# standing and run at once otherwise, so a crossing raised off the per-result
-# path still acts rather than being silently dropped.
+# returns nothing. a crossing raised off the per-result path still acts rather
+# than being silently dropped. a non-empty queue is also how _process_record
+# knows the result raised a terminal event.
 #
-#   $self->_defer_crossing( sub { $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
+#   $self->_defer_crossing( $context, sub { $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
 sub _defer_crossing {
-	my ( $self, $crossing ) = @_;
+	my ( $self, $context, $crossing ) = @_;
 
-	if ( ref( $self->{deferred_crossings} ) eq 'ARRAY' ) {
-		push( @{ $self->{deferred_crossings} }, $crossing );
+	if ( ref($context) eq 'HASH' && ref( $context->{crossings} ) eq 'ARRAY' ) {
+		push( @{ $context->{crossings} }, $crossing );
 		return;
 	}
 
@@ -2943,21 +2915,24 @@ sub _defer_crossing {
 # subject_scores is whole, and before the routine found/noted/sighting that
 # the crossings may have made redundant.
 #
-# the queue is taken down before the first crossing runs rather than emptied,
-# so anything a crossing raises in turn acts at once instead of queueing onto
-# a list nobody will drain again.
+# the queue is taken off the context before the first crossing runs rather
+# than emptied, so anything a crossing raises in turn acts at once instead of
+# queueing onto a list nobody will drain again, and the closures, which hold
+# the context, stop being reachable from it.
 #
-# takes no arguments beyond the invocant and returns nothing.
+# args:
+#   $context :: the match context _process_record stood the queue up on
 #
-#   $self->_drain_crossings;
+# returns nothing.
+#
+#   $self->_drain_crossings($context);
 sub _drain_crossings {
-	my ($self) = @_;
+	my ( $self, $context ) = @_;
 
-	my $queue = $self->{deferred_crossings};
+	my $queue = delete( $context->{crossings} );
 	if ( ref($queue) ne 'ARRAY' ) {
 		return;
 	}
-	$self->{deferred_crossings} = undef;
 
 	foreach my $crossing ( @{$queue} ) {
 		$crossing->();
@@ -3984,12 +3959,14 @@ sub _register_hit {
 	# default. the per-rule bucket is keyed by rule name across the galla, so a
 	# config max_score/find_time on a rule shared by two watchers of one kur
 	# shares the one bucket
-	my $allow = $settings->{allow_per_rule_thresholds};
-	my $rule_cfg
-		= defined( $context->{rule_name} )
-		? ( $self->{watchers}{$watcher_name}{rule_config} || {} )->{ $context->{rule_name} }
-		: undef;
-	$rule_cfg = {} if ( !defined($rule_cfg) );
+	my $allow    = $settings->{allow_per_rule_thresholds};
+	my $rule_cfg = {};
+	if ( defined( $context->{rule_name} ) ) {
+		my $watcher_rule_config = $self->{watchers}{$watcher_name}{rule_config} || {};
+		if ( defined( $watcher_rule_config->{ $context->{rule_name} } ) ) {
+			$rule_cfg = $watcher_rule_config->{ $context->{rule_name} };
+		}
+	}
 	my $yaml_overrides = $allow ? $context->{rule}->thresholds : {};
 	my $overrides      = {
 		%{$yaml_overrides},
@@ -3998,7 +3975,12 @@ sub _register_hit {
 	my $max_score = defined( $overrides->{max_score} ) ? $overrides->{max_score} : $settings->{max_score};
 	my $find_time = defined( $overrides->{find_time} ) ? $overrides->{find_time} : $settings->{find_time};
 	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}  : $settings->{ban_time};
-	my $weight = defined( $rule_cfg->{weight} ) ? $rule_cfg->{weight} + 0 : ( $allow ? $context->{rule}->weight : 1 );
+	my $weight    = 1;
+	if ( defined( $rule_cfg->{weight} ) ) {
+		$weight = $rule_cfg->{weight} + 0;
+	} elsif ($allow) {
+		$weight = $context->{rule}->weight;
+	}
 
 	# the threshold this hit is racing rides the context, so every event the
 	# match raises carries it beside the score... a score of 3 says nothing on
@@ -4008,17 +3990,20 @@ sub _register_hit {
 	# three. resolved here rather than passed, the way the marks already are
 	$context->{threshold} = $max_score + 0;
 
-	# distinct-cardinality counting... instead of summing hits, the bucket is
-	# the set of distinct values of the rule's `of` field, keyed by the grouping
-	# key, and the score is the set size. bans when the key has produced
-	# max_score distinct values with in find_time. the grouping key is the `by`
-	# field when set (value_count, count of one field grouped by another, N
-	# sources against one account), else the offender (plain distinct-
-	# cardinality, N users from one source), and the ban always lands on the
-	# current offender, so a non-bannable key like a username still banishes the
-	# source that tipped it over
+	# the score, by one of two counting schemes... each clears its own bucket
+	# on a crossing, then the crossing itself is shared below
+	my $score;
 	my $distinct = defined( $context->{rule} ) ? $context->{rule}->distinct : undef;
 	if ( defined($distinct) ) {
+		# distinct-cardinality counting... instead of summing hits, the bucket is
+		# the set of distinct values of the rule's `of` field, keyed by the
+		# grouping key, and the score is the set size. bans when the key has
+		# produced max_score distinct values with in find_time. the grouping key
+		# is the `by` field when set (value_count, count of one field grouped by
+		# another, N sources against one account), else the offender (plain
+		# distinct-cardinality, N users from one source), and the ban always
+		# lands on the current offender, so a non-bannable key like a username
+		# still banishes the source that tipped it over
 		my $dcounters = $use_shadow ? $self->{shadow_distinct_counters} : $self->{distinct_counters};
 		my $rule_name = $context->{rule_name};
 		my $of_value  = $context->{found}{ $distinct->{of} };
@@ -4027,135 +4012,100 @@ sub _register_hit {
 			return undef;
 		}
 
-		my $set = $dcounters->{$rule_name}{$key};
-		if ( !defined($set) ) {
-			$set = $dcounters->{$rule_name}{$key} = {};
+		if ( !defined( $dcounters->{$rule_name}{$key} ) ) {
+			$dcounters->{$rule_name}{$key} = {};
 		}
-		if ( defined($of_value) && $of_value ne '' ) {
-			# bound the set per key... prune the expired first, then evict the
-			# oldest, so a flood of distinct values can not grow it without limit
-			if ( !defined( $set->{$of_value} ) && scalar( keys( %{$set} ) ) >= 10000 ) {
-				foreach my $held ( keys( %{$set} ) ) {
-					if ( ( $now - $set->{$held} ) >= $find_time ) {
-						delete( $set->{$held} );
-					}
-				}
-				if ( scalar( keys( %{$set} ) ) >= 10000 ) {
-					# a linear min-scan, not a sort... this is the per-line
-					# path under a deliberate value flood
-					my $oldest;
-					foreach my $held ( keys( %{$set} ) ) {
-						if ( !defined($oldest) || $set->{$held} < $set->{$oldest} ) {
-							$oldest = $held;
-						}
-					}
-					delete( $set->{$oldest} );
-				} ## end if ( scalar( keys( %{$set} ) ) >= 10000 )
-			} ## end if ( !defined( $set->{$of_value} ) && scalar...)
-			$set->{$of_value} = $now;
-		} ## end if ( defined($of_value) && $of_value ne '')
-		# distinct values older than find_time no longer count
+		my $set = $dcounters->{$rule_name}{$key};
+
+		# distinct values older than find_time no longer count... pruned before
+		# the new value lands, so the bound below only ever evicts the live
 		foreach my $value ( keys( %{$set} ) ) {
 			if ( ( $now - $set->{$value} ) >= $find_time ) {
 				delete( $set->{$value} );
 			}
 		}
 
-		my $score = scalar( keys( %{$set} ) );
-		if ( $score >= $max_score ) {
-			# offender-keyed... the key is the banished IP, clear its set like a
-			# counter. by-keyed value_count... the key is not the ban target, so
-			# keep the set and banish the current offender, catching every
-			# further source while the group stays over threshold
-			if ( $key eq $ip ) {
-				delete( $dcounters->{$rule_name}{$key} );
+		if ( defined($of_value) && $of_value ne '' ) {
+			# bound the set per key, evicting the oldest so a flood of distinct
+			# values can not grow it without limit... a linear min-scan, not a
+			# sort, this being the per-line path under a deliberate value flood
+			if ( !defined( $set->{$of_value} ) && scalar( keys( %{$set} ) ) >= 10000 ) {
+				my $oldest;
+				foreach my $held ( keys( %{$set} ) ) {
+					if ( !defined($oldest) || $set->{$held} < $set->{$oldest} ) {
+						$oldest = $held;
+					}
+				}
+				delete( $set->{$oldest} );
 			}
-			# the crossing raises a terminal event, so the caller's routine
-			# found/noted/sighting for this result is now redundant. it is
-			# held until the caller has counted the rest of the offenders, so
-			# the event it raises carries the whole score map
-			$self->{result_terminal} = 1;
-			# and the crossing it's self goes on the record, against the value
-			# that crossed and the number it had to reach... a rule naming
-			# several vars leaves the reader no way to tell which of them
-			# tipped over otherwise
-			if ( ref( $context->{subject_crossed} ) eq 'HASH' ) {
-				$context->{subject_crossed}{$ip} = $max_score + 0;
-			}
-			if ($detection) {
-				$self->_defer_crossing( sub { return $self->_sighted( $ip, $context, $score ); } );
-			} elsif ($eve_only) {
-				$self->_defer_crossing( sub { return $self->_alert_ip( $ip, $ban_time, $context, $score ); } );
-			} else {
-				$self->_defer_crossing( sub { return $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
-			}
-		} ## end if ( $score >= $max_score )
+			$set->{$of_value} = $now;
+		} ## end if ( defined($of_value) && $of_value ne '')
 
-		# a distinct-counted offender still feeds its subnet bucket... the
-		# subnet family is its own per-hit tally with its own threshold,
-		# regardless of how the per-IP judgment is scored
-		if ( !$detection ) {
-			$self->_register_subnet_hit( $watcher_name, $ip, $context, $eve_only, $weight, $now );
+		$score = scalar( keys( %{$set} ) );
+
+		# offender-keyed... the key is the banished IP, clear its set like a
+		# counter. by-keyed value_count... the key is not the ban target, so
+		# keep the set and banish the current offender, catching every further
+		# source while the group stays over threshold
+		if ( $score >= $max_score && $key eq $ip ) {
+			delete( $dcounters->{$rule_name}{$key} );
 		}
-
-		return $score;
-	} ## end if ( defined($distinct) )
-
-	# observe mode and detection count into the shadow families, kept apart so
-	# a watched or detection rule neither causes nor delays a real ban, nor is
-	# polluted by one
-	my $counters      = $use_shadow ? $self->{shadow_counters}      : $self->{counters};
-	my $rule_counters = $use_shadow ? $self->{shadow_rule_counters} : $self->{rule_counters};
-
-	my $bucket;
-	if ( defined( $overrides->{max_score} ) || defined( $overrides->{find_time} ) ) {
-		if ( !defined( $rule_counters->{ $context->{rule_name} } ) ) {
-			$rule_counters->{ $context->{rule_name} } = {};
-		}
-		$bucket = $rule_counters->{ $context->{rule_name} };
 	} else {
-		$bucket = $counters;
-	}
+		# observe mode and detection count into the shadow families, kept apart
+		# so a watched or detection rule neither causes nor delays a real ban,
+		# nor is polluted by one
+		my $counters      = $use_shadow ? $self->{shadow_counters}      : $self->{counters};
+		my $rule_counters = $use_shadow ? $self->{shadow_rule_counters} : $self->{rule_counters};
 
-	if ( !defined( $bucket->{$ip} ) ) {
-		$bucket->{$ip} = [];
-	}
-	push( @{ $bucket->{$ip} }, [ $now, $weight ] );
+		my $bucket = $counters;
+		if ( defined( $overrides->{max_score} ) || defined( $overrides->{find_time} ) ) {
+			if ( !defined( $rule_counters->{ $context->{rule_name} } ) ) {
+				$rule_counters->{ $context->{rule_name} } = {};
+			}
+			$bucket = $rule_counters->{ $context->{rule_name} };
+		}
 
-	# matches older than find_time no longer count... entries arrive in time
-	# order, so shifting the expired off the front beats rebuilding the array
-	while ( @{ $bucket->{$ip} } && ( $now - $bucket->{$ip}[0][0] ) >= $find_time ) {
-		shift( @{ $bucket->{$ip} } );
-	}
+		if ( !defined( $bucket->{$ip} ) ) {
+			$bucket->{$ip} = [];
+		}
+		push( @{ $bucket->{$ip} }, [ $now, $weight ] );
 
-	my $score = _score_of( $bucket->{$ip} );
+		# matches older than find_time no longer count... entries arrive in time
+		# order, so shifting the expired off the front beats rebuilding the array
+		while ( @{ $bucket->{$ip} } && ( $now - $bucket->{$ip}[0][0] ) >= $find_time ) {
+			shift( @{ $bucket->{$ip} } );
+		}
+
+		$score = _score_of( $bucket->{$ip} );
+
+		if ( $score >= $max_score ) {
+			delete( $bucket->{$ip} );
+		}
+	} ## end else [ if ( defined($distinct) ) ]
 
 	if ( $score >= $max_score ) {
-		delete( $bucket->{$ip} );
-		# the crossing raises a terminal event, so the caller's routine
-		# found/noted/sighting for this result is now redundant. it is held
-		# until the caller has counted the rest of the offenders, so the event
-		# it raises carries the whole score map
-		$self->{result_terminal} = 1;
-		# and the crossing it's self goes on the record, against the value that
-		# crossed and the number it had to reach... a rule naming several vars
-		# leaves the reader no way to tell which of them tipped over otherwise
+		# the crossing goes on the record, against the value that crossed and
+		# the number it had to reach... a rule naming several vars leaves the
+		# reader no way to tell which of them tipped over otherwise
 		if ( ref( $context->{subject_crossed} ) eq 'HASH' ) {
 			$context->{subject_crossed}{$ip} = $max_score + 0;
 		}
+		# the terminal event it raises is held until the caller has counted the
+		# rest of the offenders, so it carries the whole score map
 		if ($detection) {
-			$self->_defer_crossing( sub { return $self->_sighted( $ip, $context, $score ); } );
+			$self->_defer_crossing( $context, sub { return $self->_sighted( $ip, $context, $score ); } );
 		} elsif ($eve_only) {
-			$self->_defer_crossing( sub { return $self->_alert_ip( $ip, $ban_time, $context, $score ); } );
+			$self->_defer_crossing( $context, sub { return $self->_alert_ip( $ip, $ban_time, $context, $score ); } );
 		} else {
-			$self->_defer_crossing( sub { return $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
+			$self->_defer_crossing( $context, sub { return $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
 		}
 	} ## end if ( $score >= $max_score )
 
-	# alongside the per-IP tally the offender also feeds a subnet bucket, when
-	# the watcher names a prefix for this IP's family... its own threshold, its
-	# own window, and a crossing banishes the whole CIDR. a detection subject
-	# never banishes, so it never buckets
+	# alongside the per-IP judgment the offender also feeds a subnet bucket,
+	# when the watcher names a prefix for this IP's family... its own per-hit
+	# tally, threshold, and window regardless of how the per-IP judgment is
+	# scored, and a crossing banishes the whole CIDR. a detection subject never
+	# banishes, so it never buckets
 	if ( !$detection ) {
 		$self->_register_subnet_hit( $watcher_name, $ip, $context, $eve_only, $weight, $now );
 	}
@@ -4243,25 +4193,30 @@ sub _register_subnet_hit {
 	# every further hit
 	delete( $bucket->{$network} );
 
-	# a subnet crossing raises its own banish, so the triggering line's
-	# routine found is redundant just as a per-IP crossing makes it
-	$self->{result_terminal} = 1;
-
 	# the subnet judgment races its own threshold, so the event carries that one
 	# and not the per-IP number the context arrived with. a shallow copy rather
 	# than a write, because the caller still holds this context and emits the
 	# line's own found through it after we return... clobbering the field there
-	# would have a per-IP found reporting the subnet's threshold
-	my $subnet_context = ref($context) eq 'HASH' ? { %{$context}, 'threshold' => $max_score + 0 } : $context;
+	# would have a per-IP found reporting the subnet's threshold. the copy drops
+	# the crossing queue, which the closure below lands in... holding it as well
+	# would be a reference cycle outliving the drain
+	my $subnet_context = $context;
+	if ( ref($context) eq 'HASH' ) {
+		$subnet_context = { %{$context}, 'threshold' => $max_score + 0 };
+		delete( $subnet_context->{crossings} );
+	}
 
-	# held with the per-IP crossings until the caller has finished counting...
-	# the copy above is shallow, so the score map it shares with the original
-	# is still filling and the deferred event reads it whole
+	# held on the original context with the per-IP crossings until the caller
+	# has finished counting... the copy above is shallow, so the score map it
+	# shares with the original is still filling and the deferred event reads it
+	# whole. a queued crossing is also what tells the caller the triggering
+	# line's routine found is redundant, a subnet banish standing for it just
+	# as a per-IP one does
 	if ($eve_only) {
-		$self->_defer_crossing(
+		$self->_defer_crossing( $context,
 			sub { return $self->_alert_subnet( $network, $ban_time, $subnet_context, $score, $info ); } );
 	} else {
-		$self->_defer_crossing(
+		$self->_defer_crossing( $context,
 			sub { return $self->_ban_subnet( $network, $ban_time, $subnet_context, $score, $info ); } );
 	}
 
