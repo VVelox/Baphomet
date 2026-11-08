@@ -1,5 +1,11 @@
 # Rules catalog
 
+- `syslog/authelia` :: Authelia authentication failures, first factor and
+  second, in its default text format through syslog or the journal
+  - daemon gate :: `authelia`
+- `syslog/authelia-json` :: the same with `log.format: json`, the message
+  being one JSON object
+  - daemon gate :: `authelia`
 - `syslog/asterisk` :: Asterisk auth/registration failures
   - daemon gate :: `asterisk`
 - `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,
@@ -348,6 +354,8 @@ parsers... these ban the parsed client field.
 For JSON application logs via the `json` parser. Their tests are hand
 built from the documented output shapes.
 
+- `json/authelia` :: Authelia authentication failures in its own log file
+  with `log.format: json`
 - `json/gitlab` :: GitLab web portal login failures in the JSON
   `application_json.log`, the default since 15.10... `raw/gitlab` reads the
   plain-text `application.log`
@@ -436,6 +444,8 @@ field instead, the type being the same either way.
   log, correlated by conn id... 4.4 and later use `json/mongodb-auth`
 - `raw/mysqld-auth` :: MySQL/MariaDB auth failures in the server error
   log (HOST token... may be a hostname)
+- `raw/authelia` :: Authelia authentication failures in its own log file in
+  the default text format
 - `raw/asterisk` :: Asterisk auth/registration failures in its own
   `/var/log/asterisk/messages`... `syslog/asterisk`'s patterns behind the
   native timestamp

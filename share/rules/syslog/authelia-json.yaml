@@ -1,0 +1,56 @@
+---
+# Matches Authelia authentication failures delivered through syslog or the
+# journal with log.format: json, the message being one JSON object:
+#
+#   authelia[1234]: {"level":"error","msg":"Unsuccessful WebAuthn authentication attempt by user 'neti'","remote_ip":"192.0.2.4",...}
+#
+# Based on the fail2ban authelia filter's json logtype. syslog/authelia reads
+# the default text format through syslog, json/authelia the JSON format in
+# Authelia's own file. message_json is a rule-wide switch, which is why the
+# two syslog forms are two rules.
+#
+# The message is decoded and the gate tests its msg field. The offender is
+# read off the raw message as the "remote_ip" key... the account the client
+# typed sits inside the msg string, where JSON escapes its quotes, so a
+# planted copy reads \"remote_ip\":\"... and can not match a key.
+rev: 1
+msg: "[AUTHELIA] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - authelia
+message_json: true
+message_regexp:
+  - '[{,]"remote_ip":"%%%%SRC%%%%"'
+gate:
+  - { field: msg, op: re, value: '^Unsuccessful \S+ authentication attempt by user ' }
+src_ip_var: SRC
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jun 24 15:49:11 server authelia[1234]: {"level":"error","remote_ip":"192.0.2.100","msg":"Unsuccessful WebAuthn authentication attempt by user ''alice''","time":"2025-06-24T15:49:10+02:00"}'
+      found: 1
+      data:
+        SRC: "192.0.2.100"
+    - message: 'Jun 24 15:49:12 server authelia[1234]: {"error":"authentication failed","level":"error","method":"POST","msg":"Unsuccessful TOTP authentication attempt by user ''admin''","path":"/api/secondfactor/totp","remote_ip":"2001:db8::1","time":"2025-06-24T15:49:12+02:00"}'
+      found: 1
+      data:
+        SRC: "2001:db8::1"
+  negative:
+    - message: 'Jun 24 15:50:00 server authelia[1234]: {"level":"info","method":"POST","msg":"Successful 1FA authentication attempt by user ''example''","path":"/api/firstfactor","remote_ip":"192.0.2.4","time":"2025-06-24T15:50:00+02:00"}'
+      found: 0
+      undefed: ["SRC"]
+    # the text format is syslog/authelia's
+    - message: 'Jun 24 15:47:29 server authelia[1234]: time="2025-06-24T15:47:29+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''example''" remote_ip=192.0.2.4'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # a "remote_ip" typed into the account, ahead of the real key... JSON
+    # escapes its quotes inside msg, so it is no key
+    - message: 'Jun 24 15:49:13 server authelia[1234]: {"level":"error","msg":"Unsuccessful 1FA authentication attempt by user ''x\",\"remote_ip\":\"198.51.100.66''","remote_ip":"192.0.2.101","time":"2025-06-24T15:49:13+02:00"}'
+      data:
+        SRC: "192.0.2.101"

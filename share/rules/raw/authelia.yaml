@@ -1,0 +1,58 @@
+---
+# Matches Authelia authentication failures, first factor and second, in its
+# own log file in the default text (logfmt) format. Based on the fail2ban
+# authelia filter, translated to Baphomet. The same lines through syslog or
+# the journal are syslog/authelia's, and log.format: json is json/authelia's.
+#
+#   time="..." level=error msg="Unsuccessful 1FA authentication attempt by user 'neti'" method=POST path=/api/firstfactor remote_ip=192.0.2.4
+#
+# The account is the client's to write and sits inside msg="...", ahead of
+# remote_ip. The other key=value pairs are stepped over whole, a quoted value
+# with its escapes, and a msg= or remote_ip= is never stepped over, so a
+# remote_ip planted inside the quoted message can not be read as the real one.
+rev: 1
+msg: "[AUTHELIA] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '^\s*(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*msg="Unsuccessful (?<METHOD>\S+) authentication attempt by user ''(?<USER>(?:[^\\'']|\\.)*)''[^"]*"\s+(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*remote_ip=%%%%SRC%%%%(?:\s|$)'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'time="2025-06-24T15:47:29+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''example''" error="authentication failed. Cause: error occurred performing bind: LDAP Result Code 49 \"Invalid Credentials\": " method=POST path=/api/firstfactor remote_ip=192.0.2.4'
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+        USER: "example"
+        METHOD: "1FA"
+    - message: 'time="2025-06-24T15:47:35+02:00" level=error msg="Unsuccessful TOTP authentication attempt by user ''john''" method=POST path=/api/secondfactor/totp remote_ip=192.0.2.50'
+      found: 1
+      data:
+        SRC: "192.0.2.50"
+        USER: "john"
+        METHOD: "TOTP"
+    - message: 'time="2025-06-24T15:47:40+02:00" level=error msg="Unsuccessful Duo authentication attempt by user ''admin''" remote_ip=2001:db8::1'
+      found: 1
+      data:
+        SRC: "2001:db8::1"
+  negative:
+    - message: 'time="2025-06-24T15:50:00+02:00" level=info msg="Successful 1FA authentication attempt by user ''example''" method=POST path=/api/firstfactor remote_ip=192.0.2.4'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # a remote_ip planted in the account, inside the quoted message, ahead of
+    # the real one
+    - message: 'time="2025-06-24T15:47:41+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''x remote_ip=198.51.100.66''" method=POST path=/api/firstfactor remote_ip=192.0.2.5'
+      data:
+        SRC: "192.0.2.5"
+    # and one that tries to close the quoted message early... logfmt escapes
+    # the quote, so it stays inside
+    - message: 'time="2025-06-24T15:47:42+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''x\" remote_ip=198.51.100.66 y''" method=POST path=/api/firstfactor remote_ip=192.0.2.6'
+      data:
+        SRC: "192.0.2.6"

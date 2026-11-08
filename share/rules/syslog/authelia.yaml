@@ -1,0 +1,43 @@
+---
+# Matches Authelia authentication failures delivered through syslog or the
+# journal, where its default text (logfmt) line is the message:
+#
+#   authelia[1234]: time="..." level=error msg="Unsuccessful 1FA authentication attempt by user 'neti'" ... remote_ip=192.0.2.4
+#
+# Based on the fail2ban authelia filter. The regexp is raw/authelia's, which
+# reads Authelia's own log file, verbatim... see that rule for how the account
+# inside msg="..." is kept from planting a remote_ip. Keep the two in step.
+rev: 1
+msg: "[AUTHELIA] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - authelia
+message_regexp:
+  - '^\s*(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*msg="Unsuccessful (?<METHOD>\S+) authentication attempt by user ''(?<USER>(?:[^\\'']|\\.)*)''[^"]*"\s+(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*remote_ip=%%%%SRC%%%%(?:\s|$)'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Jun 24 15:47:29 server authelia[1234]: time="2025-06-24T15:47:29+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''example''" method=POST path=/api/firstfactor remote_ip=192.0.2.4'
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+        USER: "example"
+  negative:
+    - message: 'Jun 24 15:50:00 server authelia[1234]: time="2025-06-24T15:50:00+02:00" level=info msg="Successful 1FA authentication attempt by user ''example''" method=POST path=/api/firstfactor remote_ip=192.0.2.4'
+      found: 0
+      undefed: ["SRC"]
+    # right message, wrong daemon
+    - message: 'Jun 24 15:47:29 server sshd[1234]: time="2025-06-24T15:47:29+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''example''" remote_ip=192.0.2.4'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    - message: 'Jun 24 15:47:41 server authelia[1234]: time="2025-06-24T15:47:41+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''x remote_ip=198.51.100.66''" method=POST path=/api/firstfactor remote_ip=192.0.2.5'
+      data:
+        SRC: "192.0.2.5"

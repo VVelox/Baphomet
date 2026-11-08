@@ -105,6 +105,7 @@ share/rules/http_error/nginx-botsearch.yaml
 share/rules/http_error/nginx-http-auth.yaml
 share/rules/http_error/nginx-limit-req.yaml
 share/rules/http_error/zoneminder.yaml
+share/rules/json/authelia.yaml
 share/rules/json/caddy-botsearch.yaml
 share/rules/json/gitlab.yaml
 share/rules/json/mongodb-auth.yaml
@@ -158,6 +159,7 @@ share/rules/json/suricata.yaml
 share/rules/raw/3proxy.yaml
 share/rules/raw/assp.yaml
 share/rules/raw/asterisk.yaml
+share/rules/raw/authelia.yaml
 share/rules/raw/bitwarden.yaml
 share/rules/raw/centreon.yaml
 share/rules/raw/cisco-asa-auth-bruteforce.yaml
@@ -260,6 +262,8 @@ share/rules/raw/traefik-auth.yaml
 share/rules/raw/znc-adminlog.yaml
 share/rules/syslog/asterisk.yaml
 share/rules/syslog/asterisk_errors.yaml
+share/rules/syslog/authelia.yaml
+share/rules/syslog/authelia-json.yaml
 share/rules/syslog/kernel_errors.yaml
 share/rules/syslog/linux-apparmor-denied.yaml
 share/rules/syslog/linux-auditd-abend.yaml
