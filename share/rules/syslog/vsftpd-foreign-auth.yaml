@@ -4,7 +4,8 @@
 # rule, and the traveler risk, all of which apply here unchanged.
 #
 # Like courier, vsftpd logs the verdict as a word on one shape... "OK LOGIN:
-# Client" against "FAIL LOGIN: Client"... so one pattern takes both halves.
+# Client" against "FAIL LOGIN: Client". They take a pattern each, the
+# FAIL's account being the client's to write and the OK's a real one.
 # syslog/vsftpd reads the FAIL, syslog/vsftpd-breach the OK. The pam failure
 # shape syslog/vsftpd also counts is carried verbatim beside it.
 #
@@ -14,7 +15,7 @@
 #
 # The mungers are syslog/vsftpd's, for the same reason... vsftpd names the
 # account on the LOGIN shape, pam on the pam_unix one.
-rev: 2
+rev: 3
 msg: "[VSFTPD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -24,10 +25,14 @@ mungers:
   - vsftpd
   - pam
 message_regexp:
-  # success and failure in one shape
-  - '^(?:\[pid \d+\] )?\[[^\]]+\] (?:OK|FAIL) LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+  # the success... the account is a real one, so it holds no "]" and the
+  # first marker is vsftpd's own, whatever the anon password after it says
+  - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+  # the failure... the account is whatever the client typed, so the last
+  # marker is taken and only vsftpd's own refusal reason may follow it
+  - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
   # and the pam failure syslog/vsftpd counts, verbatim
-  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
+  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
 country:
   isnot:
     - "%%%country_codes{home}%%%"
@@ -104,3 +109,26 @@ tests:
           home: [ US ]
       found: 0
       undefed: ["SRC"]
+    # an anon password forging a second OK LOGIN marker after the real one...
+    # the real account holds no "]", so the first marker is vsftpd's and the
+    # domestic address is the one judged
+    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftp] OK LOGIN: Client "198.51.100.5", anon password "x] OK LOGIN: Client "203.0.113.9", "z"'
+      geo:
+        countries:
+          "198.51.100.5": US
+          "203.0.113.9": NL
+        lists:
+          home: [ US ]
+      found: 0
+  injection:
+    # a forged domestic address in the typed account must not stand in for
+    # the foreign one that actually connected
+    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [x] FAIL LOGIN: Client "198.51.100.5", y] FAIL LOGIN: Client "203.0.113.15"'
+      geo:
+        countries:
+          "198.51.100.5": US
+          "203.0.113.15": NL
+        lists:
+          home: [ US ]
+      data:
+        SRC: "203.0.113.15"

@@ -7,7 +7,7 @@
 # pam_unix(vsftpd:auth) shape beside it. The address stays the rule's own SRC
 # capture: vsftpd hands its client address over with any ::ffff: prefix
 # intact, and SRC strips it.
-rev: 3
+rev: 4
 msg: "[VSFTPD] login failure"
 severity: high
 classtype: brute-force
@@ -20,8 +20,12 @@ mungers:
   - vsftpd
   - pam
 message_regexp:
-  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
-  - '^(?:\[pid \d+\] )?\[[^\]]+\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
+  # The bracketed account is whatever the client typed, so it may carry a whole
+  # forged "] FAIL LOGIN: Client "<addr>"" of its own. Greedy takes the last
+  # one, and only vsftpd's own refusal reason may follow it, so nothing the
+  # client wrote can come after the real address.
+  - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
 src_ip_var: SRC
 user_var: vsftpd_user
 ban_var:
@@ -44,6 +48,16 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.1"
+    # an account with a space in it, which vsftpd hands pam as ruser
+    - message: "Nov  7 10:00:00 ftp vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=a b rhost=192.0.2.9"
+      found: 1
+      data:
+        SRC: "192.0.2.9"
+    # a known account, so pam names it in user= after the address
+    - message: "Nov  7 10:00:00 ftp vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=neti rhost=192.0.2.10  user=neti"
+      found: 1
+      data:
+        SRC: "192.0.2.10"
   negative:
     - message: "Feb 6 12:02:29 server vsftpd(pam_unix)[15522]: authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=64.168.103.1 user=user1"
       found: 0
@@ -51,3 +65,19 @@ tests:
     - message: "Jul 12 08:15:50 vixen42 vsftpd[123]: [pid 15019] [kitsune] OK LOGIN: Client \"192.0.2.1\""
       found: 0
       undefed: ["SRC"]
+  injection:
+    # the typed account carrying a whole forged FAIL LOGIN marker
+    - message: 'Nov  7 10:00:00 ftp vsftpd[123]: [pid 124] [x] FAIL LOGIN: Client "8.8.8.8", y] FAIL LOGIN: Client "192.0.2.9"'
+      data:
+        SRC: "192.0.2.9"
+    - message: 'Nov  7 10:00:00 ftp vsftpd[123]: [pid 124] [x] FAIL LOGIN: Client "8.8.8.8"] FAIL LOGIN: Client "::ffff:192.0.2.9", "User is not in the allow user list."'
+      data:
+        SRC: "192.0.2.9"
+    # a forged rhost= in ruser, which pam writes ahead of the real one
+    # (fail2ban 789571aa)
+    - message: "Jul 19 18:11:50 srv2 vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=test rhost=192.0.2.100 rhost=192.0.2.200"
+      data:
+        SRC: "192.0.2.200"
+    - message: "Jul 19 18:11:52 srv2 vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser= rhost=192.0.2.101 user=test rhost=192.0.2.201"
+      data:
+        SRC: "192.0.2.201"
