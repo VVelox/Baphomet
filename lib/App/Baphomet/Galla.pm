@@ -3442,14 +3442,6 @@ sub _rdns_forward {
 	return $self->_rdns_cached( 'fwd:' . $hostname, sub { $self->{dns_forward}->($hostname); } );
 }
 
-# compares two addresses by packed value, so IPv6 spelling differences do
-# not defeat forward confirmation
-sub _rdns_addr_eq {
-	my ( $self, $left, $right ) = @_;
-
-	return App::Baphomet::RDNS::rdns_addr_eq( $left, $right );
-}
-
 # loads one namtar list slot into the galla's cache, keyed by (type, nocase,
 # path) so a file read as cidr and as strings stay independent... one entry
 # per line, # comments and blanks skipped. a cidr slot compiles to a bitmask
@@ -3754,17 +3746,6 @@ sub _bound_expiring_store {
 	my ( $self, $store, $key_value, $now ) = @_;
 
 	App::Baphomet::Marks::bound_expiring_store( $store, $key_value, $now );
-
-	return;
-}
-
-# brands a key into a mark name's store via the core, gossiping the brand
-# to the fleet when a bus is up... best-effort and after the local set, so
-# a failed publish never unmakes the brand that just happened
-sub _mark_set {
-	my ( $self, $name, $key, $value, $ttl, $now ) = @_;
-
-	App::Baphomet::Marks::mark_set( $self->{marks}, $name, $key, $value, $ttl, $now, $self->_mark_publish_set );
 
 	return;
 }
