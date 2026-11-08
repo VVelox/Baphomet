@@ -7,7 +7,7 @@
 # address harvested from the connect announcement. Run this beside
 # syslog/sshd, not instead... and see syslog/sshd-aggressive for this and
 # syslog/sshd-ddos as one rule.
-rev: 3
+rev: 4
 msg: "[SSHD] algorithm negotiation probe"
 severity: medium
 classtype: attempted-recon
@@ -26,7 +26,7 @@ capture_regexp:
 message_regexp:
   - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
   - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
-  - '^Disconnected(?: from)? (?:invalid|authenticating) user .*? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]'
+  - '^Disconnected(?: from)? (?:invalid|authenticating) user .*? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]\s*$'
   # the older log shapes name no address... the session's is used
   - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
     key: [ syslog.host, syslog.daemon, syslog.pid ]
@@ -91,3 +91,9 @@ tests:
     - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
       found: 0
       undefed: ["SRC"]
+  injection:
+    # a whole forged close carried in the account name, [preauth] and all...
+    # only the one sshd wrote ends the line
+    - message: "Jun  6 04:17:10 host sshd[1189075]: Disconnected from invalid user x 203.0.113.222 port 1 [preauth] y 192.0.2.77 port 4444 [preauth]"
+      data:
+        SRC: "192.0.2.77"

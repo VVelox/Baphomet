@@ -7,7 +7,7 @@
 # syslog/sshd-spray, which reads these marks. List sshd-spray BEFORE this
 # in the watcher so the gate sees the source that established the account,
 # not the one this line would re-brand it with.
-rev: 5
+rev: 6
 msg: "[SSHD] brand account with source"
 severity: info
 classtype: not-suspicious
@@ -17,10 +17,10 @@ daemons:
 mungers:
   - sshd
 message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?<USER>\S+) from %%%%SRC%%%%'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: USER
@@ -114,3 +114,11 @@ tests:
     - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
       found: 0
       undefed: ["SRC", "USER"]
+    # a forged "from <addr>" carried in the account name... the account is one
+    # word here, so the forged line is not read at all rather than read wrong
+    - message: "Jul 12 08:15:50 host01 sshd[123]: Invalid user x from 203.0.113.222 port 1 y from 192.0.2.77 port 4444"
+      found: 0
+      undefed: ["USER", "SRC"]
+    - message: "Jul 12 08:15:50 host01 sshd[123]: Failed password for invalid user x from 203.0.113.222 port 1: y from 192.0.2.77 port 4444 ssh2"
+      found: 0
+      undefed: ["USER", "SRC"]

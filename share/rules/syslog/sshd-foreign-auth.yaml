@@ -31,7 +31,7 @@
 # Read the traveler risk before turning this on: an admin logging in from
 # abroad is banished by their own successful login, mid-session. Stand it up
 # with eve_only first and watch what it would have caught.
-rev: 3
+rev: 4
 msg: "[SSHD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -44,15 +44,23 @@ message_regexp:
   # the success... the same line sshd-foreign-login reads
   - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
   # and everything syslog/sshd counts, verbatim
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?::\s.*?)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
+  # the account may not hold " from ", so the first one is sshd's own... and
+  # what may follow "sshN: " is only what sshd writes there, a key type and
+  # fingerprint plus, for hostbased, the quoted client user and host
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?:(?! from ).)*? from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
+  # an account that does hold " from "... the last one wins, and nothing may
+  # follow the port and protocol for a forgery to hide in
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.* from %%%%SRC%%%% port \d+ ssh\d*(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?User not known to the underlying authentication module for .*? from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^Disconnecting(?: from)? (?:invalid|authenticating) user \S+ %%%%SRC%%%%(?: port \d+)?:\s*Change of username or service not allowed:\s*.*\[preauth\]\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?User \S+ from %%%%SRC%%%% not allowed because'
   - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%(?: (?:port \d+|\[preauth\])){0,2}\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?refused connect from \S+ \(%%%%SRC%%%%\)'
   - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
-  - '^Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
+  - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
   - '^Did not receive identification string from %%%%SRC%%%%'
   - '^Bad protocol version identification .* from %%%%SRC%%%%(?: port \d+)?\s*$'
   - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
@@ -195,6 +203,25 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.39"
+    # the PAM unknown-user and change-of-username shapes (fail2ban normal mode)
+    - message: "Dec 12 20:04:39 aragorn sshd[1328]: error: PAM: User not known to the underlying authentication module for illegal user kernelitshell from 203.0.113.40 "
+      geo:
+        countries:
+          "203.0.113.40": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.40"
+    - message: "Mar 19 16:47:49 test sshd[5672]: Disconnecting invalid user admin 203.0.113.41 port 44004: Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection) [preauth]"
+      geo:
+        countries:
+          "203.0.113.41": CN
+        lists:
+          home: [ US ]
+      found: 1
+      data:
+        SRC: "203.0.113.41"
   negative:
     # a domestic success... vetoed here, and the line falls through untouched
     - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"
@@ -224,3 +251,15 @@ tests:
     - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Server listening on 0.0.0.0 port 22."
       found: 0
       undefed: ["SRC"]
+  injection:
+    # a forged domestic address in the account name must not stand in for the
+    # foreign one that actually connected
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user x from 203.0.113.222 port 1: y from 198.51.100.77 port 4444 ssh2"
+      geo:
+        countries:
+          "203.0.113.222": US
+          "198.51.100.77": DE
+        lists:
+          home: [ US ]
+      data:
+        SRC: "198.51.100.77"

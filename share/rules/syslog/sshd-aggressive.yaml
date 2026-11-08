@@ -5,7 +5,7 @@
 # should accrue to one count. See those two rules for the annotated
 # regexps... this file only unions them. Noisy by nature, so opt in
 # knowingly.
-rev: 4
+rev: 5
 msg: "[SSHD] pre-auth abuse / negotiation probe (aggressive)"
 severity: medium
 classtype: network-scan
@@ -25,7 +25,11 @@ capture_regexp:
     key: [ syslog.host, syslog.daemon, syslog.pid ]
     ttl: 120
 message_regexp:
-  - '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]'
+  - '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]\s*$'
+  # session-ending protocol faults and the login grace timeout, which carry
+  # their own address (fail2ban ddos mode)
+  - '^(?:(?:error|fatal): )?ssh_dispatch_run_fatal: Connection from %%%%SRC%%%%(?: port \d+)?: (?:message authentication code incorrect|[cC]onnection corrupted) \[preauth\]\s*$'
+  - '^(?:(?:error|fatal): )?Timeout before authentication for(?: connection from)? %%%%SRC%%%%(?: port \d+\s*$| to )'
   - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
   - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
   - regexp: '^(?:(?:error|fatal): )?kex_exchange_identification: (?:read: )?(?:[cC]lient sent invalid protocol identifier|[cC]onnection (?:closed by remote host|reset by peer))'
@@ -93,6 +97,23 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.23"
+    # protocol faults and the grace timeout carry their own address
+    - message: "Mar  1 18:59:50 hostname sshd[71905]: ssh_dispatch_run_fatal: Connection from 192.0.2.13 port 33738: message authentication code incorrect [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.13"
+    - message: "Mar  1 18:59:50 hostname sshd[80348]: ssh_dispatch_run_fatal: Connection from 192.0.2.13 port 52452: Connection corrupted [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.13"
+    - message: "Mar  1 18:59:52 srv sshd[12345]: fatal: Timeout before authentication for 192.0.2.14 port 55555"
+      found: 1
+      data:
+        SRC: "192.0.2.14"
+    - message: "Jun 10 09:43:06 host sshd[3801]: Timeout before authentication for connection from 192.0.2.17 to 127.0.0.1, pid = 29098"
+      found: 1
+      data:
+        SRC: "192.0.2.17"
   negative:
     - message: "Jun  7 04:29:10 host sshd[649921]: Connection reset by 192.0.2.16 port 51280"
       found: 0
@@ -102,3 +123,9 @@ tests:
     - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
       found: 0
       undefed: ["SRC"]
+  injection:
+    # a whole forged close carried in the account name, [preauth] and all...
+    # only the one sshd wrote ends the line
+    - message: "Jun  6 04:17:10 host sshd[1189075]: Connection closed by invalid user x 203.0.113.222 port 1 [preauth] y 192.0.2.77 port 4444 [preauth]"
+      data:
+        SRC: "192.0.2.77"

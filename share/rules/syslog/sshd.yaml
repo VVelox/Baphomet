@@ -3,7 +3,7 @@
 # normal mode, translated to Baphomet and simplified... the multi-line
 # machinery, the mode switching, and the nofail/forget tagging are all
 # dropped, so only lines that are themselves failures match.
-rev: 4
+rev: 5
 msg: "[SSHD] authentication failure / brute force"
 severity: high
 classtype: brute-force
@@ -16,15 +16,23 @@ daemons:
 mungers:
   - sshd
 message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?::\s.*?)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
+  # the account may not hold " from ", so the first one is sshd's own... and
+  # what may follow "sshN: " is only what sshd writes there, a key type and
+  # fingerprint plus, for hostbased, the quoted client user and host
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?:(?! from ).)*? from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
+  # an account that does hold " from "... the last one wins, and nothing may
+  # follow the port and protocol for a forgery to hide in
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.* from %%%%SRC%%%% port \d+ ssh\d*(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for .* from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?User not known to the underlying authentication module for .*? from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^Disconnecting(?: from)? (?:invalid|authenticating) user \S+ %%%%SRC%%%%(?: port \d+)?:\s*Change of username or service not allowed:\s*.*\[preauth\]\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?User \S+ from %%%%SRC%%%% not allowed because'
   - '^(?:(?:error|fatal): (?:PAM: )?)?ROOT LOGIN REFUSED.* FROM %%%%SRC%%%%(?: (?:port \d+|\[preauth\])){0,2}\s*$'
   - '^(?:(?:error|fatal): (?:PAM: )?)?refused connect from \S+ \(%%%%SRC%%%%\)'
   - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
-  - '^Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
+  - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*3: .*Auth fail'
   - '^Did not receive identification string from %%%%SRC%%%%'
   - '^Bad protocol version identification .* from %%%%SRC%%%%(?: port \d+)?\s*$'
   - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
@@ -93,6 +101,24 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.7"
+    # hostbased auth-info, the longest tail sshd writes after "ssh2: "
+    - message: 'Sep 29 17:15:02 spaceman sshd[12946]: Failed hostbased for dan from 192.0.2.80 port 45785 ssh2: RSA 8c:e3:aa:0f:64:51:02:f7:14:79:89:3f:65:84:7c:30, client user "dan", client host "localhost.localdomain"'
+      found: 1
+      data:
+        SRC: "192.0.2.80"
+    # older sshd puts error: ahead of the disconnect
+    - message: "Jan  2 01:18:41 host sshd[11808]: error: Received disconnect from 10.0.0.1 port 7736:3: com.jcraft.jsch.JSchException: Auth fail [preauth]"
+      found: 1
+      data:
+        SRC: "10.0.0.1"
+    - message: "Dec 12 20:04:39 aragorn sshd[1328]: error: PAM: User not known to the underlying authentication module for illegal user kernelitshell from 10.215.4.227 "
+      found: 1
+      data:
+        SRC: "10.215.4.227"
+    - message: "Mar 19 16:47:49 test sshd[5672]: Disconnecting invalid user admin 192.0.2.117 port 44004: Change of username or service not allowed: (admin,ssh-connection) -> (user,ssh-connection) [preauth]"
+      found: 1
+      data:
+        SRC: "192.0.2.117"
     # a IPv4 mapped IPv6 offender is captured whole, not clipped at "::ffff:1"
     - message: "Jul 12 08:15:50 mail01 sshd[1643]: ROOT LOGIN REFUSED FROM ::ffff:1.2.3.4"
       found: 1
@@ -112,6 +138,11 @@ tests:
       found: 0
       undefed: ["SRC"]
     - message: "Jul 12 08:25:49 vixen42 cron[1234]: Invalid user moth3r from 216.137.179.214 port 34640"
+      found: 0
+      undefed: ["SRC"]
+    # an account name forging a whole "from <addr> port N ssh2: <key>" ahead of a
+    # real publickey tail... neither address can be trusted, so neither is taken
+    - message: "Jul 12 08:15:50 mail01 sshd[4669]: Failed publickey for x from 203.0.113.222 port 1 ssh2: RSA SHA256:a from 192.0.2.77 port 4444 ssh2: RSA SHA256:v3dpapGleDaUKf4V1vKyR9ZyUgjaJAmoCTcb2PLljI"
       found: 0
       undefed: ["SRC"]
   injection:
@@ -137,3 +168,16 @@ tests:
     - message: "Jul 12 08:15:50 mail01 sshd[2278]: Invalid user moth3r from 203.0.113.222 from 216.137.179.214 port 34640"
       data:
         SRC: "216.137.179.214"
+    # the forged copy followed by a ": " tail, which the old lazy auth-info
+    # suffix let swallow the real address
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user x from 203.0.113.222 port 1: y from 192.0.2.77 port 4444 ssh2"
+      data:
+        SRC: "192.0.2.77"
+    # "on <addr>" is no longer a tail sshd writes, so it can not end a forgery
+    # (fail2ban ddd879d2)
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Invalid user x 203.0.113.222 on from 192.0.2.77 port 4444"
+      data:
+        SRC: "192.0.2.77"
+    - message: "Jul 12 08:15:50 mail01 sshd[1328]: error: PAM: User not known to the underlying authentication module for illegal user x from 203.0.113.222 from 192.0.2.77 "
+      data:
+        SRC: "192.0.2.77"

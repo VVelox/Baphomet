@@ -14,7 +14,7 @@
 # allow_per_rule_thresholds... without that consent it counts like any
 # other hit, just under this rule's name. It re-brands as it counts, so
 # the branding never lapses by being read.
-rev: 4
+rev: 5
 msg: "[SSHD] the condemned returns... auth failure from a branded brute forcer"
 severity: critical
 classtype: brute-force
@@ -27,9 +27,15 @@ daemons:
 mungers:
   - sshd
 message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: (?:port \d+|on \S+|\[preauth\])){0,3}\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.*? from %%%%SRC%%%%(?: (?:port \d+|on \S+)){0,2}(?: ssh\d*)?(?::\s.*?)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for .* from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
+  # the account may not hold " from ", so the first one is sshd's own... and
+  # what may follow "sshN: " is only what sshd writes there, a key type and
+  # fingerprint plus, for hostbased, the quoted client user and host
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?:(?! from ).)*? from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
+  # an account that does hold " from "... the last one wins, and nothing may
+  # follow the port and protocol for a forgery to hide in
+  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.* from %%%%SRC%%%% port \d+ ssh\d*(?: \[preauth\])?\s*$'
   - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
 marked:
   - name: brute_force
@@ -90,3 +96,12 @@ tests:
     # the line falls through to syslog/sshd
     - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
       found: 0
+  injection:
+    # a forged "from <addr>" in the account name, followed by a ": " tail the
+    # old lazy auth-info suffix let swallow the real address
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user x from 203.0.113.222 port 1: y from 192.0.2.77 port 4444 ssh2"
+      marks_before:
+        - name: brute_force
+          key: "192.0.2.77"
+      data:
+        SRC: "192.0.2.77"
