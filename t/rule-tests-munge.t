@@ -42,7 +42,7 @@ my $sshd = App::Baphomet::Rules::Syslog->new(
 			positive => [
 				{
 					message =>
-						'Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2',
+						'Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2',
 					found => 1,
 					data  => {
 						SRC         => '192.0.2.7',    # the rule's own capture
@@ -76,7 +76,7 @@ my $collide = App::Baphomet::Rules::Syslog->new(
 			positive => [
 				{
 					message =>
-						'Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2',
+						'Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2',
 					found => 1,
 					data  => {
 						ssh_user   => '4711',         # the rule's capture wins over the munger's "admin"
@@ -168,9 +168,9 @@ my $staged = App::Baphomet::Rules::Syslog->new(
 			positive => [
 				{
 					messages => [
-						'Jul 12 08:15:50 vixen42 sshd[1]: Failed password for root from 192.0.2.7 port 4711 ssh2',
-						'Jul 12 08:15:51 vixen42 sshd[2]: Failed password for root from 192.0.2.7 port 4712 ssh2',
-						'Jul 12 08:15:57 vixen42 sshd[3]: Accepted password for root from 192.0.2.7 port 4716 ssh2',
+						'Jul 12 08:15:50 mail01 sshd[1]: Failed password for root from 192.0.2.7 port 4711 ssh2',
+						'Jul 12 08:15:51 mail01 sshd[2]: Failed password for root from 192.0.2.7 port 4712 ssh2',
+						'Jul 12 08:15:57 mail01 sshd[3]: Accepted password for root from 192.0.2.7 port 4716 ssh2',
 					],
 					found => 1,
 					data  => {

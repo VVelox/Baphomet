@@ -30,7 +30,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -48,7 +48,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: something else"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: something else"
       found: 1
 EOR
 close($fh);
@@ -162,7 +162,7 @@ $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',
 	[
 		'test_line',           '--rules-dir', $dir . '/rules', '--rule',
-		'syslog/good',         'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4'
+		'syslog/good',         'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4'
 	]
 );
 is( $result->exit_code, 0, 'test_line on a matching line exits 0' );
@@ -199,7 +199,7 @@ $result = App::Cmd::Tester->test_app(
 	'App::Baphomet::App',
 	[
 		'test_line',   '--rules-dir', $dir . '/rules', '--rule',
-		'syslog/good', 'Jul 12 08:15:50 vixen42 sshd[1]: nothing of note'
+		'syslog/good', 'Jul 12 08:15:50 mail01 sshd[1]: nothing of note'
 	]
 );
 is( $result->exit_code, 0, 'test_line on a non-matching line exits 0' );

@@ -47,7 +47,7 @@ detection_var:
 tests:
   positive:
     # no printk prefix... the kernel munger matches and the enrichment rides along
-    - message: "Nov 14 12:20:00 vixen42 kernel: audit: type=1400 audit(1626345600.123:456): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+    - message: "Nov 14 12:20:00 mail01 kernel: audit: type=1400 audit(1626345600.123:456): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
       found: 1
       data:
         PROFILE: "/usr/bin/foo"
@@ -56,32 +56,32 @@ tests:
         kernel_apparmor_operation: "open"
         kernel_audit_id: "1626345600.123:456"
     # the 1500-range numeric types, not just 1400
-    - message: "Nov 14 12:20:01 vixen42 kernel: audit: type=1502 audit(1700000000.000:102): apparmor=\"DENIED\" operation=\"mkdir\" profile=\"/usr/bin/foo\" name=\"/tmp/x\" pid=77 comm=\"foo\" requested_mask=\"c\" denied_mask=\"c\" fsuid=0 ouid=0"
+    - message: "Nov 14 12:20:01 mail01 kernel: audit: type=1502 audit(1700000000.000:102): apparmor=\"DENIED\" operation=\"mkdir\" profile=\"/usr/bin/foo\" name=\"/tmp/x\" pid=77 comm=\"foo\" requested_mask=\"c\" denied_mask=\"c\" fsuid=0 ouid=0"
       found: 1
       data:
         PROFILE: "/usr/bin/foo"
         kernel_apparmor_operation: "mkdir"
     # with the printk uptime rsyslog's klog reader leaves on, the shape a
     # Debian or Ubuntu kern.log actually holds
-    - message: "Nov 14 12:20:02 vixen42 kernel: [ 1234.567890] audit: type=1400 audit(1700000001.000:103): apparmor=\"DENIED\" operation=\"exec\" profile=\"/usr/sbin/nginx\" name=\"/bin/sh\" pid=4321 comm=\"nginx\" requested_mask=\"x\" denied_mask=\"x\" fsuid=33 ouid=0"
+    - message: "Nov 14 12:20:02 mail01 kernel: [ 1234.567890] audit: type=1400 audit(1700000001.000:103): apparmor=\"DENIED\" operation=\"exec\" profile=\"/usr/sbin/nginx\" name=\"/bin/sh\" pid=4321 comm=\"nginx\" requested_mask=\"x\" denied_mask=\"x\" fsuid=33 ouid=0"
       found: 1
       data:
         PROFILE: "/usr/sbin/nginx"
     # info= first, no operation= at all
-    - message: "Nov 14 12:20:03 vixen42 kernel: audit: type=1400 audit(1700000002.000:104): apparmor=\"DENIED\" info=\"Failed name lookup - disconnected path\" error=-13 profile=\"snap.foo\" name=\"/\" pid=1 comm=\"foo\""
+    - message: "Nov 14 12:20:03 mail01 kernel: audit: type=1400 audit(1700000002.000:104): apparmor=\"DENIED\" info=\"Failed name lookup - disconnected path\" error=-13 profile=\"snap.foo\" name=\"/\" pid=1 comm=\"foo\""
       found: 1
       data:
         PROFILE: "snap.foo"
   negative:
     # complain mode is not a denial
-    - message: "Nov 14 12:20:04 vixen42 kernel: audit: type=1400 audit(1700000003.000:105): apparmor=\"ALLOWED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1236 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+    - message: "Nov 14 12:20:04 mail01 kernel: audit: type=1400 audit(1700000003.000:105): apparmor=\"ALLOWED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1236 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
       found: 0
       undefed: ["PROFILE"]
     # a SELinux AVC on the same ring buffer is not AppArmor's
-    - message: "Nov 14 12:20:05 vixen42 kernel: audit: type=1400 audit(1700000004.000:106): avc:  denied  { read } for  pid=4444 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
+    - message: "Nov 14 12:20:05 mail01 kernel: audit: type=1400 audit(1700000004.000:106): avc:  denied  { read } for  pid=4444 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
       found: 0
       undefed: ["PROFILE"]
     # an ordinary kernel line carrying none of this
-    - message: "Nov 14 12:20:06 vixen42 kernel: usb 1-1: new high-speed USB device number 5 using ehci-hcd"
+    - message: "Nov 14 12:20:06 mail01 kernel: usb 1-1: new high-speed USB device number 5 using ehci-hcd"
       found: 0
       undefed: ["PROFILE"]

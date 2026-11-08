@@ -281,7 +281,7 @@ is_deeply( \@sent, [], 'a gate over a missing feed fails closed' );
 feed( $galla, 'baitw', event => 'fail', user => 'root', src_ip => '8.8.8.8' );
 is_deeply( \@sent, ['8.8.8.8'], 'a string gate bans the src when the checked field is a listed name' );
 @sent = ();
-feed( $galla, 'baitw', event => 'fail', user => 'kitsune', src_ip => '1.2.3.4' );
+feed( $galla, 'baitw', event => 'fail', user => 'neti', src_ip => '1.2.3.4' );
 is_deeply( \@sent, [], 'a string gate vetoes when the field is not a listed name' );
 @sent = ();
 feed( $galla, 'baitw', event => 'fail', user => 'ROOT', src_ip => '1.2.3.4' );

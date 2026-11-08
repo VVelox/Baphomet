@@ -34,7 +34,7 @@ sub found {
 }
 sub matches { return defined( found(@_) ) ? 1 : 0; }
 
-my $stamp = 'Jul 16 08:15:50 vixen42';
+my $stamp = 'Jul 16 08:15:50 mail01';
 
 # --- gate over json fields, no message_regexp ---
 write_rule( 'syslog/jgate', <<'EOR' );

@@ -7,14 +7,14 @@ use Test::More;
 use App::Baphomet::Parser ();
 
 my $line
-	= '{"__CURSOR":"s=abc;i=1;b=2;m=3;t=4;x=5","__REALTIME_TIMESTAMP":"1783948550123456","_HOSTNAME":"vixen42","SYSLOG_IDENTIFIER":"sshd-session","_COMM":"sshd-session","_PID":"66891","PRIORITY":"6","SYSLOG_FACILITY":"4","MESSAGE":"Invalid user moth3r from 216.137.179.214 port 34640"}';
+	= '{"__CURSOR":"s=abc;i=1;b=2;m=3;t=4;x=5","__REALTIME_TIMESTAMP":"1783948550123456","_HOSTNAME":"mail01","SYSLOG_IDENTIFIER":"sshd-session","_COMM":"sshd-session","_PID":"66891","PRIORITY":"6","SYSLOG_FACILITY":"4","MESSAGE":"Invalid user moth3r from 216.137.179.214 port 34640"}';
 
 my $parsed = App::Baphomet::Parser::parse( 'journal', $line );
 ok( defined($parsed), 'journal line parsed' ) || BAIL_OUT('the most basic line did not parse');
 is( $parsed->{format},   'journal',            'format' );
 is( $parsed->{daemon},   'sshd-session',       'daemon from SYSLOG_IDENTIFIER' );
 is( $parsed->{pid},      '66891',              'pid from _PID' );
-is( $parsed->{hostname}, 'vixen42',            'hostname' );
+is( $parsed->{hostname}, 'mail01',            'hostname' );
 is( $parsed->{time},     '1783948550123456',   'time from __REALTIME_TIMESTAMP' );
 is( $parsed->{severity}, 6,                    'severity from PRIORITY' );
 is( $parsed->{level},    'info',               'level from PRIORITY' );
@@ -52,7 +52,7 @@ is( App::Baphomet::Parser::parse( 'journal', '{"SYSLOG_IDENTIFIER":"sshd"}' ), u
 }
 
 # garbage
-is( App::Baphomet::Parser::parse( 'journal', 'Jul 12 08:15:50 vixen42 sshd[1]: foo' ), undef, 'syslog line undef' );
+is( App::Baphomet::Parser::parse( 'journal', 'Jul 12 08:15:50 mail01 sshd[1]: foo' ), undef, 'syslog line undef' );
 is( App::Baphomet::Parser::parse( 'journal', '{"truncated":' ), undef, 'truncated JSON undef' );
 is( App::Baphomet::Parser::parse( 'journal', undef ),           undef, 'undef undef' );
 

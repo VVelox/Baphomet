@@ -7,11 +7,11 @@ use Test::More;
 use App::Baphomet::Parser ();
 
 my $parsed = App::Baphomet::Parser::parse( 'ietf_syslog',
-	'<38>1 2026-07-12T08:15:50.313437-05:00 vixen42 sshd-session 66891 - - Invalid user moth3r from 216.137.179.214 port 34640'
+	'<38>1 2026-07-12T08:15:50.313437-05:00 mail01 sshd-session 66891 - - Invalid user moth3r from 216.137.179.214 port 34640'
 );
 ok( defined($parsed), 'standard line parsed' ) || BAIL_OUT('the most basic line did not parse');
 is( $parsed->{time},     '2026-07-12T08:15:50.313437-05:00', 'time' );
-is( $parsed->{hostname}, 'vixen42',                          'hostname' );
+is( $parsed->{hostname}, 'mail01',                          'hostname' );
 is( $parsed->{daemon},   'sshd-session',                     'daemon' );
 is( $parsed->{pid},      '66891',                            'pid' );
 is( $parsed->{facility}, 4,                                  'facility' );
@@ -52,7 +52,7 @@ is( App::Baphomet::Parser::parse( 'ietf_syslog', '<999>1 2026-07-12T08:15:50Z ho
 	undef, 'out of range PRI returns undef' );
 
 # garbage
-is( App::Baphomet::Parser::parse( 'ietf_syslog', 'Jul 12 08:15:50 vixen42 sshd[123]: foo' ),
+is( App::Baphomet::Parser::parse( 'ietf_syslog', 'Jul 12 08:15:50 mail01 sshd[123]: foo' ),
 	undef, 'bsd line returns undef' );
 is( App::Baphomet::Parser::parse( 'ietf_syslog', undef ), undef, 'undef returns undef' );
 

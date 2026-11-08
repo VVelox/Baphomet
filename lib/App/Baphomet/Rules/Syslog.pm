@@ -46,12 +46,12 @@ A syslog rule is a YAML hash with the keys below.
       - SRC
     tests:
       positive:
-        - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+        - message: "Jul 12 08:15:50 mail01 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
           found: 1
           data:
             SRC: "216.137.179.214"
       negative:
-        - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+        - message: "Jul 12 08:25:49 mail01 sshd-session[36748]: Accepted publickey for neti from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
           found: 0
           undefed: ["SRC"]
 

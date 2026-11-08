@@ -157,7 +157,7 @@ baphomet check_rules --rules-dir ./share/rules syslog/sshd
 
 # feed one line through a parser and a rule and see what comes of it
 baphomet test_line --rule syslog/sshd \
-    'Jul 12 08:15:50 vixen42 sshd[1]: Invalid user foo from 1.2.3.4'
+    'Jul 12 08:15:50 mail01 sshd[1]: Invalid user foo from 1.2.3.4'
 ```
 
 See [rules](rules.md) for the rule format.

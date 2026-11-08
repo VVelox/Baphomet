@@ -30,7 +30,7 @@ our $VERSION = '0.0.1';
 
 Parses RFC 5424 style syslog lines.
 
-    <38>1 2026-07-12T08:15:50.313437-05:00 vixen42 sshd-session 66891 - - Invalid user moth3r from 216.137.179.214 port 34640
+    <38>1 2026-07-12T08:15:50.313437-05:00 mail01 sshd-session 66891 - - Invalid user moth3r from 216.137.179.214 port 34640
 
 The PRI is required by the RFC, so facility and severity are always
 available for lines this parses. Fields given as the nil value, C<->, come

@@ -23,7 +23,7 @@ detection_var:
   - DEV
 tests:
   positive:
-    - message: "Nov 14 10:00:00 vixen42 audisp-syslog[1400]: type=ANOM_PROMISCUOUS msg=audit(1700000003.1:903): dev=eth0 prom=256 old_prom=0 auid=1000 uid=0 ses=3"
+    - message: "Nov 14 10:00:00 mail01 audisp-syslog[1400]: type=ANOM_PROMISCUOUS msg=audit(1700000003.1:903): dev=eth0 prom=256 old_prom=0 auid=1000 uid=0 ses=3"
       found: 1
       data:
         DEV: "eth0"
@@ -31,6 +31,6 @@ tests:
         audit_prom: "256"
   negative:
     # dropping back out of promiscuous mode is not the alarm
-    - message: "Nov 14 10:00:01 vixen42 audisp-syslog[1401]: type=ANOM_PROMISCUOUS msg=audit(1700000004.1:904): dev=eth0 prom=0 old_prom=256 auid=1000 uid=0 ses=3"
+    - message: "Nov 14 10:00:01 mail01 audisp-syslog[1401]: type=ANOM_PROMISCUOUS msg=audit(1700000004.1:904): dev=eth0 prom=0 old_prom=256 auid=1000 uid=0 ses=3"
       found: 0
       undefed: ["DEV"]

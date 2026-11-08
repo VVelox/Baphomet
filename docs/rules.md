@@ -147,12 +147,12 @@ severity: high
 classtype: brute-force
 tests:                         # common... proven every load
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+    - message: "Jul 12 08:15:50 mail01 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 1
       data:
         SRC: "216.137.179.214"
   negative:
-    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+    - message: "Jul 12 08:25:49 mail01 sshd-session[36748]: Accepted publickey for neti from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
       found: 0
       undefed: ["SRC"]
 ```
@@ -863,17 +863,17 @@ The discipline that makes a test suite worth carrying:
 ```yaml
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
       found: 1
       data:
         SRC: "192.0.2.7"
   negative:
     # the success right beside the failures... the classic near-miss
-    - message: "Jul 12 08:25:49 vixen42 sshd[36748]: Accepted publickey for kitsune from 192.0.2.7 port 21680 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[36748]: Accepted publickey for neti from 192.0.2.7 port 21680 ssh2"
       found: 0
       undefed: ["SRC"]
     # right message, wrong daemon
-    - message: "Jul 12 08:25:49 vixen42 cron[1234]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 cron[1234]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
       found: 0
       undefed: ["SRC"]
 ```
@@ -888,7 +888,7 @@ edit that shifts which capture feeds the brand:
 # syslog/sshd-mark-users... brand the account with the source that hit it
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+    - message: "Jul 12 08:15:50 mail01 sshd[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 1
       marks_expected:
         - name: sshd-account-src
@@ -911,14 +911,14 @@ marked:
     var: SRC
 tests:
   positive:
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
       marks_before:
         - name: honeypot          # any listed brand... vary it across tests
           key: "192.0.2.7"
       found: 1
   negative:
     # the same line, no seed... the gate must veto
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
       found: 0
 ```
 
@@ -981,7 +981,7 @@ tests:
           key: "192.0.2.9"
           ttl: 21600
       messages:
-        - message: "Jul 12 14:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.9 port 4711 ssh2"
+        - message: "Jul 12 14:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.9 port 4711 ssh2"
           advance: 21601
       found: 0
 ```
@@ -1042,7 +1042,7 @@ country:
 tests:
   positive:
     # a login from abroad... the isnot gate lets it count
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 203.0.113.9 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 203.0.113.9 port 4711 ssh2"
       geo:
         countries:
           "203.0.113.9": NL
@@ -1052,7 +1052,7 @@ tests:
   negative:
     # at home, spared... and an unplaceable address fails closed, so a
     # database gap misses rather than false-alarms
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.66 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.66 port 4711 ssh2"
       geo:
         countries:
           "192.0.2.66": unknown

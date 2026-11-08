@@ -42,9 +42,9 @@ tests:
       data:
         SRC: "192.0.2.5"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 imapd: LOGIN, user=kitsune, ip=[::ffff:192.0.2.5], port=[38542], protocol=IMAP"
+    - message: "Jul 12 08:15:50 mail01 imapd: LOGIN, user=neti, ip=[::ffff:192.0.2.5], port=[38542], protocol=IMAP"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:15:50 vixen42 dovecot: LOGIN FAILED, user=kitsune, ip=[::ffff:192.0.2.5]"
+    - message: "Jul 12 08:15:50 mail01 dovecot: LOGIN FAILED, user=neti, ip=[::ffff:192.0.2.5]"
       found: 0
       undefed: ["SRC"]

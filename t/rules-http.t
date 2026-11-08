@@ -93,7 +93,7 @@ ok( defined( $rule->check( parsed_line( '203.0.113.9', 'GET /.env HTTP/1.1', 499
 	'status gate regexp entry matches' );
 
 # a syslog-parsed line is never an offense to a http rule
-my $syslog_parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen42 sshd[1]: foo' );
+my $syslog_parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: foo' );
 ok( !defined( $rule->check($syslog_parsed) ), 'syslog shaped lines are refused' );
 
 #

@@ -31,9 +31,9 @@ tests:
       data:
         SRC: "14.200.251.155"
   negative:
-    - message: "Jul 12 08:25:49 vixen42 webmin[29544]: Successful login as root from 86.0.6.217"
+    - message: "Jul 12 08:25:49 mail01 webmin[29544]: Successful login as root from 86.0.6.217"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:25:49 vixen42 sshd[29544]: Invalid login as root from 86.0.6.217"
+    - message: "Jul 12 08:25:49 mail01 sshd[29544]: Invalid login as root from 86.0.6.217"
       found: 0
       undefed: ["SRC"]

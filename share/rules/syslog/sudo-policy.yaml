@@ -21,19 +21,19 @@ detection_var:
   - USER
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sudo[4092]: kitsune : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/bash"
+    - message: "Jul 12 08:15:50 mail01 sudo[4092]: neti : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/bash"
       found: 1
       data:
-        USER: "kitsune"
-    - message: "Jul 12 08:15:51 vixen42 sudo[4093]: eve : command not allowed ; TTY=pts/1 ; PWD=/tmp ; USER=root ; COMMAND=/usr/bin/id"
+        USER: "neti"
+    - message: "Jul 12 08:15:51 mail01 sudo[4093]: eve : command not allowed ; TTY=pts/1 ; PWD=/tmp ; USER=root ; COMMAND=/usr/bin/id"
       found: 1
       data:
         USER: "eve"
-    - message: "Jul 12 08:15:52 vixen42 sudo[4094]: mallory : 3 incorrect password attempts ; TTY=pts/2 ; PWD=/ ; USER=root ; COMMAND=/bin/sh"
+    - message: "Jul 12 08:15:52 mail01 sudo[4094]: mallory : 3 incorrect password attempts ; TTY=pts/2 ; PWD=/ ; USER=root ; COMMAND=/bin/sh"
       found: 1
       data:
         USER: "mallory"
   negative:
-    - message: "Jul 12 08:15:53 vixen42 sudo[4095]: kitsune : TTY=pts/0 ; PWD=/home/kitsune ; USER=root ; COMMAND=/bin/ls"
+    - message: "Jul 12 08:15:53 mail01 sudo[4095]: neti : TTY=pts/0 ; PWD=/home/neti ; USER=root ; COMMAND=/bin/ls"
       found: 0
       undefed: ["USER"]

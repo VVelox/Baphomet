@@ -26,19 +26,19 @@ detection_var:
 tests:
   positive:
     # the file itself being written, seen as a PATH record
-    - message: "Nov 14 11:10:00 vixen42 audisp-syslog[2100]: type=PATH msg=audit(1700000030.1:930): item=0 name=\"/etc/ld.so.preload\" inode=1 dev=fd:00 mode=0100644 ouid=0 ogid=0 nametype=NORMAL"
+    - message: "Nov 14 11:10:00 mail01 audisp-syslog[2100]: type=PATH msg=audit(1700000030.1:930): item=0 name=\"/etc/ld.so.preload\" inode=1 dev=fd:00 mode=0100644 ouid=0 ogid=0 nametype=NORMAL"
       found: 1
       data:
         TARGET: "/etc/ld.so.preload"
         audit_nametype: "NORMAL"
     # the program that touched it, seen through an operator watch key
-    - message: "Nov 14 11:10:01 vixen42 audisp-syslog[2101]: type=SYSCALL msg=audit(1700000031.1:931): arch=c000003e syscall=257 success=yes exit=3 ppid=1 pid=4500 auid=1000 uid=0 comm=\"tee\" exe=\"/usr/bin/tee\" key=\"ldpreload\""
+    - message: "Nov 14 11:10:01 mail01 audisp-syslog[2101]: type=SYSCALL msg=audit(1700000031.1:931): arch=c000003e syscall=257 success=yes exit=3 ppid=1 pid=4500 auid=1000 uid=0 comm=\"tee\" exe=\"/usr/bin/tee\" key=\"ldpreload\""
       found: 1
       data:
         TARGET: "/usr/bin/tee"
         audit_key: "ldpreload"
   negative:
     # an unrelated config file is not the linker preload
-    - message: "Nov 14 11:10:02 vixen42 audisp-syslog[2102]: type=PATH msg=audit(1700000032.1:932): item=0 name=\"/etc/passwd\" inode=2 dev=fd:00 mode=0100644 ouid=0 ogid=0 nametype=NORMAL"
+    - message: "Nov 14 11:10:02 mail01 audisp-syslog[2102]: type=PATH msg=audit(1700000032.1:932): item=0 name=\"/etc/passwd\" inode=2 dev=fd:00 mode=0100644 ouid=0 ogid=0 nametype=NORMAL"
       found: 0
       undefed: ["TARGET"]

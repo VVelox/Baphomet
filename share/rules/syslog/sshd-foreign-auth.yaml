@@ -78,7 +78,7 @@ max_score: 1
 tests:
   positive:
     # a success from abroad... banished, traveler or thief alike
-    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 203.0.113.9 port 21680 ssh2: ED25519 SHA256:hjUf"
+    - message: "Jul 12 08:25:49 mail01 sshd-session[36748]: Accepted publickey for neti from 203.0.113.9 port 21680 ssh2: ED25519 SHA256:hjUf"
       geo:
         countries:
           "203.0.113.9": NL
@@ -87,9 +87,9 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-        USER: "kitsune"
+        USER: "neti"
     # a failure from abroad... the drive-by this rule exists for
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 198.51.100.23 port 4711 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from 198.51.100.23 port 4711 ssh2"
       geo:
         countries:
           "198.51.100.23": DE
@@ -98,7 +98,7 @@ tests:
       found: 1
       data:
         SRC: "198.51.100.23"
-    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 203.0.113.14 port 34640"
+    - message: "Jul 12 08:15:50 mail01 sshd-session[66891]: Invalid user moth3r from 203.0.113.14 port 34640"
       geo:
         countries:
           "203.0.113.14": CN
@@ -108,7 +108,7 @@ tests:
       data:
         SRC: "203.0.113.14"
     # not a credential, still a touch from abroad, still counted
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Did not receive identification string from 203.0.113.77"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Did not receive identification string from 203.0.113.77"
       geo:
         countries:
           "203.0.113.77": RU
@@ -224,7 +224,7 @@ tests:
         SRC: "203.0.113.41"
   negative:
     # a domestic success... vetoed here, and the line falls through untouched
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"
       geo:
         countries:
           "198.51.100.5": US
@@ -232,7 +232,7 @@ tests:
           home: [ US ]
       found: 0
     # a domestic failure... syslog/sshd's business, at syslog/sshd's pace
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for root from 198.51.100.5 port 4711 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for root from 198.51.100.5 port 4711 ssh2"
       geo:
         countries:
           "198.51.100.5": US
@@ -240,7 +240,7 @@ tests:
           home: [ US ]
       found: 0
     # unplaceable... fails closed rather than banishing on a database gap
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for root from 192.0.2.66 port 4711 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for root from 192.0.2.66 port 4711 ssh2"
       geo:
         countries:
           "192.0.2.66": unknown
@@ -248,7 +248,7 @@ tests:
           home: [ US ]
       found: 0
     # nothing to do with authentication at all
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Server listening on 0.0.0.0 port 22."
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Server listening on 0.0.0.0 port 22."
       found: 0
       undefed: ["SRC"]
   injection:

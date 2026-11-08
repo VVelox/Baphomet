@@ -85,7 +85,7 @@ make_path( $dir . '/syslog' );
 
 sub syslog_matches {
 	my ( $name, $message ) = @_;
-	my $parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen42 sshd[123]: ' . $message );
+	my $parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[123]: ' . $message );
 	my $rule   = $rules->load($name);
 	return defined( $rule->check($parsed) ) ? 1 : 0;
 }

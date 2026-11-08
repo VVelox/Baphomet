@@ -35,7 +35,7 @@ along the lines of...
 
 ...which is one JSON object per line...
 
-    {"PROGRAM":"sshd-session","PRIORITY":"info","PID":"66891","MESSAGE":"Invalid user moth3r from 216.137.179.214 port 34640","HOST":"vixen42","FACILITY":"auth","DATE":"Jul 12 08:15:50"}
+    {"PROGRAM":"sshd-session","PRIORITY":"info","PID":"66891","MESSAGE":"Invalid user moth3r from 216.137.179.214 port 34640","HOST":"mail01","FACILITY":"auth","DATE":"Jul 12 08:15:50"}
 
 The fields map onto the same shape the other syslog parsers hand back, so
 this is a peer in the syslog family and C<syslog/*> rules work over JSON

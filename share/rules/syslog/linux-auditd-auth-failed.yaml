@@ -31,7 +31,7 @@ ban_var:
 tests:
   positive:
     # a remote ssh login failure recorded by auditd, enriched from the same line
-    - message: "Nov 14 10:00:00 vixen42 audisp-syslog[1234]: type=USER_LOGIN msg=audit(1700000000.123:456): pid=1234 uid=0 auid=4294967295 ses=4294967295 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=failed'"
+    - message: "Nov 14 10:00:00 mail01 audisp-syslog[1234]: type=USER_LOGIN msg=audit(1700000000.123:456): pid=1234 uid=0 auid=4294967295 ses=4294967295 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=failed'"
       found: 1
       data:
         SRC: "192.0.2.5"
@@ -39,21 +39,21 @@ tests:
         audit_msg_acct: "root"
         audit_msg_res: "failed"
     # a USER_AUTH PAM failure, other forwarder ident
-    - message: "Nov 14 10:00:01 vixen42 audispd[1235]: type=USER_AUTH msg=audit(1700000001.222:457): pid=1235 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:authentication grantors=? acct=\"admin\" exe=\"/usr/sbin/sshd\" hostname=badhost addr=203.0.113.9 terminal=ssh res=failed'"
+    - message: "Nov 14 10:00:01 mail01 audispd[1235]: type=USER_AUTH msg=audit(1700000001.222:457): pid=1235 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:authentication grantors=? acct=\"admin\" exe=\"/usr/sbin/sshd\" hostname=badhost addr=203.0.113.9 terminal=ssh res=failed'"
       found: 1
       data:
         SRC: "203.0.113.9"
     # USER_ERR with a bad ident, no SELinux subj required
-    - message: "Nov 14 10:00:02 vixen42 audit[1236]: type=USER_ERR msg=audit(1700000002.1:458): pid=1236 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:bad_ident acct=\"?\" exe=\"/usr/sbin/sshd\" hostname=? addr=198.51.100.7 terminal=ssh res=failed'"
+    - message: "Nov 14 10:00:02 mail01 audit[1236]: type=USER_ERR msg=audit(1700000002.1:458): pid=1236 uid=0 auid=4294967295 ses=4294967295 msg='op=PAM:bad_ident acct=\"?\" exe=\"/usr/sbin/sshd\" hostname=? addr=198.51.100.7 terminal=ssh res=failed'"
       found: 1
       data:
         SRC: "198.51.100.7"
   negative:
     # a successful login is not this rule's business
-    - message: "Nov 14 10:00:03 vixen42 audisp-syslog[1237]: type=USER_LOGIN msg=audit(1700000003.1:459): pid=1237 uid=0 auid=0 ses=5 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.9 terminal=ssh res=success'"
+    - message: "Nov 14 10:00:03 mail01 audisp-syslog[1237]: type=USER_LOGIN msg=audit(1700000003.1:459): pid=1237 uid=0 auid=0 ses=5 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.9 terminal=ssh res=success'"
       found: 0
       undefed: ["SRC"]
     # a local failure carries no address... nothing to banish
-    - message: "Nov 14 10:00:04 vixen42 audisp-syslog[1238]: type=USER_AUTH msg=audit(1700000004.1:460): pid=1238 uid=0 auid=1000 ses=6 msg='op=PAM:authentication acct=\"kitsune\" exe=\"/usr/bin/login\" hostname=? addr=? terminal=tty1 res=failed'"
+    - message: "Nov 14 10:00:04 mail01 audisp-syslog[1238]: type=USER_AUTH msg=audit(1700000004.1:460): pid=1238 uid=0 auid=1000 ses=6 msg='op=PAM:authentication acct=\"neti\" exe=\"/usr/bin/login\" hostname=? addr=? terminal=tty1 res=failed'"
       found: 0
       undefed: ["SRC"]

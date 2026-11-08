@@ -88,7 +88,7 @@ tests:
     - message: "Jul 12 08:25:49 host sshd[8232]: Received disconnect from 192.0.2.55 port 48372: 11: disconnected by user"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
+    - message: "Jul 12 08:25:49 host sshd-session[36748]: Accepted publickey for neti from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUfLIEAIR3ueytAg+XlbiVHmCQSQ6MCEdo2xYbyJ48"
       found: 0
       undefed: ["SRC"]
   injection:

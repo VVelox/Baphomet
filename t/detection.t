@@ -34,12 +34,12 @@ detection_var:
 msg: "[POLICY] tripwire tripped"
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 audit[1]: policy tripwire tripped by alice"
+    - message: "Jul 12 08:15:50 mail01 audit[1]: policy tripwire tripped by alice"
       found: 1
       data:
         USER: "alice"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 audit[1]: all is well"
+    - message: "Jul 12 08:15:50 mail01 audit[1]: all is well"
       found: 0
 EOR
 close($fh);
@@ -56,7 +56,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -109,7 +109,7 @@ my @sent;
 sub feed {
 	my ( $galla, $watcher, $daemon, $log, $msg, $times ) = @_;
 	foreach ( 1 .. $times ) {
-		$galla->_handle_line( $watcher, 'Jul 12 08:15:50 vixen42 ' . $daemon . '[1]: ' . $msg, $dir . '/' . $log );
+		$galla->_handle_line( $watcher, 'Jul 12 08:15:50 mail01 ' . $daemon . '[1]: ' . $msg, $dir . '/' . $log );
 	}
 	return;
 }

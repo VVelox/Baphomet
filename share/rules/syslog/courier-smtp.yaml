@@ -36,9 +36,9 @@ tests:
       data:
         SRC: "192.0.2.3"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 courieresmtpd[123]: error,relay=::ffff:192.0.2.3,from=<a@example.com>,to=<b@example.net>: 517 Down for maintenance."
+    - message: "Jul 12 08:15:50 mail01 courieresmtpd[123]: error,relay=::ffff:192.0.2.3,from=<a@example.com>,to=<b@example.net>: 517 Down for maintenance."
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:15:50 vixen42 courieresmtpd[123]: started,ip=[::ffff:192.0.2.3]"
+    - message: "Jul 12 08:15:50 mail01 courieresmtpd[123]: started,ip=[::ffff:192.0.2.3]"
       found: 0
       undefed: ["SRC"]

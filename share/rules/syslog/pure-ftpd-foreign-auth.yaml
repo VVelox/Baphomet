@@ -37,7 +37,7 @@ max_score: 1
 tests:
   positive:
     # a foreign login that worked
-    - message: "Jul 12 08:25:49 vixen42 pure-ftpd: (?@203.0.113.9) [INFO] kitsune is now logged in"
+    - message: "Jul 12 08:25:49 mail01 pure-ftpd: (?@203.0.113.9) [INFO] neti is now logged in"
       geo:
         countries:
           "203.0.113.9": NL
@@ -46,9 +46,9 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-        USER: "kitsune"
+        USER: "neti"
     # a foreign failure
-    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@198.51.100.23) [WARNING] Authentication failed for user [moth3r]"
+    - message: "Jul 12 08:15:50 mail01 pure-ftpd: (?@198.51.100.23) [WARNING] Authentication failed for user [moth3r]"
       geo:
         countries:
           "198.51.100.23": DE
@@ -58,7 +58,7 @@ tests:
       data:
         SRC: "198.51.100.23"
     # a localized failure is still a failure
-    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@203.0.113.14) [WARNING] Godkendelse mislykkedes for [moth3r]"
+    - message: "Jul 12 08:15:50 mail01 pure-ftpd: (?@203.0.113.14) [WARNING] Godkendelse mislykkedes for [moth3r]"
       geo:
         countries:
           "203.0.113.14": CN
@@ -69,7 +69,7 @@ tests:
         SRC: "203.0.113.14"
   negative:
     # domestic success... vetoed, falls through
-    - message: "Jul 12 08:25:49 vixen42 pure-ftpd: (?@198.51.100.5) [INFO] kitsune is now logged in"
+    - message: "Jul 12 08:25:49 mail01 pure-ftpd: (?@198.51.100.5) [INFO] neti is now logged in"
       geo:
         countries:
           "198.51.100.5": US
@@ -77,7 +77,7 @@ tests:
           home: [ US ]
       found: 0
     # domestic failure... syslog/pure-ftpd's business
-    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@198.51.100.5) [WARNING] Authentication failed for user [moth3r]"
+    - message: "Jul 12 08:15:50 mail01 pure-ftpd: (?@198.51.100.5) [WARNING] Authentication failed for user [moth3r]"
       geo:
         countries:
           "198.51.100.5": US
@@ -85,7 +85,7 @@ tests:
           home: [ US ]
       found: 0
     # unplaceable... fails closed
-    - message: "Jul 12 08:15:50 vixen42 pure-ftpd: (?@192.0.2.66) [WARNING] Authentication failed for user [moth3r]"
+    - message: "Jul 12 08:15:50 mail01 pure-ftpd: (?@192.0.2.66) [WARNING] Authentication failed for user [moth3r]"
       geo:
         countries:
           "192.0.2.66": unknown
@@ -93,7 +93,7 @@ tests:
           home: [ US ]
       found: 0
     # a transfer notice is not an authentication event
-    - message: "Jul 12 08:25:49 vixen42 pure-ftpd: (?@203.0.113.9) [NOTICE] /home/kitsune/x.txt downloaded (1 bytes, 1.00KB/sec)"
+    - message: "Jul 12 08:25:49 mail01 pure-ftpd: (?@203.0.113.9) [NOTICE] /home/neti/x.txt downloaded (1 bytes, 1.00KB/sec)"
       geo:
         countries:
           "203.0.113.9": NL

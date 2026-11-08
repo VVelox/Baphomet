@@ -56,7 +56,7 @@ baphomet ledger --since 7d
 baphomet check_rules
 
 # poke a single log line at a rule while writing one
-baphomet test_line --rule syslog/sshd 'Jul 12 08:15:50 vixen42 sshd[1]: Invalid user foo from 1.2.3.4'
+baphomet test_line --rule syslog/sshd 'Jul 12 08:15:50 mail01 sshd[1]: Invalid user foo from 1.2.3.4'
 ```
 
 Rules are YAML files carrying their own positive and negative tests, which

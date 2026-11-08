@@ -46,7 +46,7 @@ max_score: 1
 tests:
   positive:
     # a foreign login that worked
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:203.0.113.9"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:203.0.113.9"'
       geo:
         countries:
           "203.0.113.9": NL
@@ -56,7 +56,7 @@ tests:
       data:
         SRC: "203.0.113.9"
     # a foreign login that failed
-    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "198.51.100.23"'
+    - message: 'Jul 12 08:15:50 mail01 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "198.51.100.23"'
       geo:
         countries:
           "198.51.100.23": DE
@@ -77,7 +77,7 @@ tests:
         SRC: "203.0.113.14"
   negative:
     # domestic success... vetoed, falls through to syslog/vsftpd-breach
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:198.51.100.5"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:198.51.100.5"'
       geo:
         countries:
           "198.51.100.5": US
@@ -85,7 +85,7 @@ tests:
           home: [ US ]
       found: 0
     # domestic failure... syslog/vsftpd's business
-    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "198.51.100.5"'
+    - message: 'Jul 12 08:15:50 mail01 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "198.51.100.5"'
       geo:
         countries:
           "198.51.100.5": US
@@ -93,7 +93,7 @@ tests:
           home: [ US ]
       found: 0
     # unplaceable... fails closed
-    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "192.0.2.66"'
+    - message: 'Jul 12 08:15:50 mail01 vsftpd[12345]: [pid 27202] [anonymous] FAIL LOGIN: Client "192.0.2.66"'
       geo:
         countries:
           "192.0.2.66": unknown
@@ -101,7 +101,7 @@ tests:
           home: [ US ]
       found: 0
     # another daemon''s OK LOGIN is not vsftpd''s... the gate stops it
-    - message: 'Jul 12 08:25:49 vixen42 proftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:203.0.113.9"'
+    - message: 'Jul 12 08:25:49 mail01 proftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:203.0.113.9"'
       geo:
         countries:
           "203.0.113.9": NL
@@ -112,7 +112,7 @@ tests:
     # an anon password forging a second OK LOGIN marker after the real one...
     # the real account holds no "]", so the first marker is vsftpd's and the
     # domestic address is the one judged
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftp] OK LOGIN: Client "198.51.100.5", anon password "x] OK LOGIN: Client "203.0.113.9", "z"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [pid 12345] [ftp] OK LOGIN: Client "198.51.100.5", anon password "x] OK LOGIN: Client "203.0.113.9", "z"'
       geo:
         countries:
           "198.51.100.5": US
@@ -123,7 +123,7 @@ tests:
   injection:
     # a forged domestic address in the typed account must not stand in for
     # the foreign one that actually connected
-    - message: 'Jul 12 08:15:50 vixen42 vsftpd[12345]: [pid 27202] [x] FAIL LOGIN: Client "198.51.100.5", y] FAIL LOGIN: Client "203.0.113.15"'
+    - message: 'Jul 12 08:15:50 mail01 vsftpd[12345]: [pid 27202] [x] FAIL LOGIN: Client "198.51.100.5", y] FAIL LOGIN: Client "203.0.113.15"'
       geo:
         countries:
           "198.51.100.5": US

@@ -72,7 +72,7 @@ my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 
 
 sub sshd_fail {
 	my ($ip) = @_;
-	return 'Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from ' . $ip
+	return 'Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from ' . $ip
 		. ' port 4711 ssh2';
 }
 
@@ -146,7 +146,7 @@ is_deeply( \@sent, [], 'exploited-then-scanned does not read as escalation' );
 
 sub sshd_accept {
 	my ($ip) = @_;
-	return 'Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from ' . $ip . ' port 4711 ssh2';
+	return 'Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from ' . $ip . ' port 4711 ssh2';
 }
 
 @sent    = ();

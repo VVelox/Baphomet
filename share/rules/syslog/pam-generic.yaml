@@ -55,7 +55,7 @@ tests:
     - message: "Nov 25 17:12:13 webmail pop(pam_unix)[4920]: authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=192.168.10.3 user=mailuser"
       found: 0
       undefed: ["HOST"]
-    - message: "Jul 19 18:11:27 srv2 vsftpd: pam_unix(vsftpd:auth): session opened for user kitsune by (uid=0)"
+    - message: "Jul 19 18:11:27 srv2 vsftpd: pam_unix(vsftpd:auth): session opened for user neti by (uid=0)"
       found: 0
       undefed: ["HOST"]
   injection:

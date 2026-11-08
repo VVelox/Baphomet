@@ -70,7 +70,7 @@ tests:
       data:
         SRC: "192.0.2.22"
   negative:
-    - message: "2013-06-02 09:22:06 [19592] 1UhErCG-000657-Vd <= kitsune@example.com H=mail.example.com [192.0.2.44] P=esmtp S=2938"
+    - message: "2013-06-02 09:22:06 [19592] 1UhErCG-000657-Vd <= neti@example.com H=mail.example.com [192.0.2.44] P=esmtp S=2938"
       found: 0
       undefed: ["SRC"]
     - message: "2013-06-02 09:22:07 Start queue run: pid=19599"

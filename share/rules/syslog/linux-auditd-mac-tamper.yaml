@@ -47,38 +47,38 @@ detection_var:
   - PROFILE
 tests:
   positive:
-    - message: "Nov 14 10:10:00 vixen42 audisp-syslog[1500]: type=MAC_STATUS msg=audit(1700000005.1:905): enforcing=0 old_enforcing=1 auid=1000 ses=3"
+    - message: "Nov 14 10:10:00 mail01 audisp-syslog[1500]: type=MAC_STATUS msg=audit(1700000005.1:905): enforcing=0 old_enforcing=1 auid=1000 ses=3"
       found: 1
       data:
         AUID: "1000"
         audit_enforcing: "0"
-    - message: "Nov 14 10:10:01 vixen42 audisp-syslog[1501]: type=MAC_CONFIG_CHANGE msg=audit(1700000006.1:906): op=setenforce lsm=selinux enforcing=0 old_enforcing=1 auid=1000 ses=3"
+    - message: "Nov 14 10:10:01 mail01 audisp-syslog[1501]: type=MAC_CONFIG_CHANGE msg=audit(1700000006.1:906): op=setenforce lsm=selinux enforcing=0 old_enforcing=1 auid=1000 ses=3"
       found: 1
       data:
         AUID: "1000"
         audit_lsm: "selinux"
     # AppArmor: a profile unloaded, counted by the profile since no auid rides it
-    - message: "Nov 14 10:10:03 vixen42 audisp-syslog[1503]: type=AVC msg=audit(1700000008.1:908): apparmor=\"STATUS\" operation=\"profile_remove\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2200 comm=\"apparmor_parser\""
+    - message: "Nov 14 10:10:03 mail01 audisp-syslog[1503]: type=AVC msg=audit(1700000008.1:908): apparmor=\"STATUS\" operation=\"profile_remove\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2200 comm=\"apparmor_parser\""
       found: 1
       data:
         PROFILE: "/usr/bin/foo"
         audit_operation: "profile_remove"
     # the same, filed under a 1500-range APPARMOR_* type
-    - message: "Nov 14 10:10:04 vixen42 audisp-syslog[1504]: type=APPARMOR_STATUS msg=audit(1700000009.1:909): apparmor=\"STATUS\" operation=\"profile_remove\" profile=\"unconfined\" name=\"snap.foo.bar\" pid=2201 comm=\"apparmor_parser\""
+    - message: "Nov 14 10:10:04 mail01 audisp-syslog[1504]: type=APPARMOR_STATUS msg=audit(1700000009.1:909): apparmor=\"STATUS\" operation=\"profile_remove\" profile=\"unconfined\" name=\"snap.foo.bar\" pid=2201 comm=\"apparmor_parser\""
       found: 1
       data:
         PROFILE: "snap.foo.bar"
   negative:
     # re-enabling enforcement is not the alarm
-    - message: "Nov 14 10:10:02 vixen42 audisp-syslog[1502]: type=MAC_STATUS msg=audit(1700000007.1:907): enforcing=1 old_enforcing=0 auid=1000 ses=3"
+    - message: "Nov 14 10:10:02 mail01 audisp-syslog[1502]: type=MAC_STATUS msg=audit(1700000007.1:907): enforcing=1 old_enforcing=0 auid=1000 ses=3"
       found: 0
       undefed: ["AUID"]
     # a profile reload is indistinguishable from a switch to complain mode, so
     # it is left alone rather than alerted on at every package upgrade
-    - message: "Nov 14 10:10:05 vixen42 audisp-syslog[1505]: type=AVC msg=audit(1700000010.1:910): apparmor=\"STATUS\" operation=\"profile_replace\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2202 comm=\"apparmor_parser\""
+    - message: "Nov 14 10:10:05 mail01 audisp-syslog[1505]: type=AVC msg=audit(1700000010.1:910): apparmor=\"STATUS\" operation=\"profile_replace\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2202 comm=\"apparmor_parser\""
       found: 0
       undefed: ["PROFILE"]
     # an AppArmor denial belongs to linux-auditd-apparmor-denied
-    - message: "Nov 14 10:10:06 vixen42 audisp-syslog[1506]: type=AVC msg=audit(1700000011.1:911): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=2203 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+    - message: "Nov 14 10:10:06 mail01 audisp-syslog[1506]: type=AVC msg=audit(1700000011.1:911): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=2203 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
       found: 0
       undefed: ["PROFILE"]

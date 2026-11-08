@@ -33,7 +33,7 @@ max_score: 1
 tests:
   positive:
     # a foreign login that worked
-    - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN, user=moth3r, ip=[::ffff:203.0.113.9], port=[41842], protocol=IMAP"
+    - message: "Jul 12 08:25:49 mail01 imapd: LOGIN, user=moth3r, ip=[::ffff:203.0.113.9], port=[41842], protocol=IMAP"
       geo:
         countries:
           "203.0.113.9": NL
@@ -42,7 +42,7 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-    - message: "Jul 12 08:25:49 vixen42 pop3d-ssl: LOGIN, user=moth3r, ip=[198.51.100.23], port=[41843]"
+    - message: "Jul 12 08:25:49 mail01 pop3d-ssl: LOGIN, user=moth3r, ip=[198.51.100.23], port=[41843]"
       geo:
         countries:
           "198.51.100.23": DE
@@ -63,7 +63,7 @@ tests:
         SRC: "203.0.113.14"
   negative:
     # domestic success... vetoed, falls through to syslog/courier-breach
-    - message: "Jul 12 08:25:49 vixen42 imapd: LOGIN, user=moth3r, ip=[::ffff:198.51.100.5], port=[41842], protocol=IMAP"
+    - message: "Jul 12 08:25:49 mail01 imapd: LOGIN, user=moth3r, ip=[::ffff:198.51.100.5], port=[41842], protocol=IMAP"
       geo:
         countries:
           "198.51.100.5": US

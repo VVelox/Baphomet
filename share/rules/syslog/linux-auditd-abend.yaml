@@ -23,7 +23,7 @@ detection_var:
   - COMM
 tests:
   positive:
-    - message: "Nov 14 10:30:00 vixen42 audisp-syslog[1700]: type=ANOM_ABEND msg=audit(1700000010.1:910): auid=1000 uid=1000 ses=3 pid=4000 comm=\"nginx\" exe=\"/usr/sbin/nginx\" sig=11 res=1"
+    - message: "Nov 14 10:30:00 mail01 audisp-syslog[1700]: type=ANOM_ABEND msg=audit(1700000010.1:910): auid=1000 uid=1000 ses=3 pid=4000 comm=\"nginx\" exe=\"/usr/sbin/nginx\" sig=11 res=1"
       found: 1
       data:
         COMM: "nginx"
@@ -31,6 +31,6 @@ tests:
         audit_exe: "/usr/sbin/nginx"
   negative:
     # a normal SIGTERM shutdown is not a fault
-    - message: "Nov 14 10:30:01 vixen42 audisp-syslog[1701]: type=ANOM_ABEND msg=audit(1700000011.1:911): auid=1000 uid=1000 ses=3 pid=4001 comm=\"myapp\" exe=\"/usr/bin/myapp\" sig=15 res=1"
+    - message: "Nov 14 10:30:01 mail01 audisp-syslog[1701]: type=ANOM_ABEND msg=audit(1700000011.1:911): auid=1000 uid=1000 ses=3 pid=4001 comm=\"myapp\" exe=\"/usr/bin/myapp\" sig=15 res=1"
       found: 0
       undefed: ["COMM"]

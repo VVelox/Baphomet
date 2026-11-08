@@ -51,7 +51,7 @@ tests:
       data:
         SRC: "1.2.3.4"
   negative:
-    - message: "Jul 27 01:20:00 fail2ban-test dropbear[1477]: Password auth succeeded for 'kitsune' from 192.0.2.9:60794"
+    - message: "Jul 27 01:20:00 fail2ban-test dropbear[1477]: Password auth succeeded for 'neti' from 192.0.2.9:60794"
       found: 0
       undefed: ["SRC"]
     - message: "Jul 27 01:20:01 fail2ban-test sshd[1477]: Bad password attempt for 'root' from 1.2.3.4:60588"

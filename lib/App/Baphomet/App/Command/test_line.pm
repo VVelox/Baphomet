@@ -23,7 +23,7 @@ our $VERSION = '0.0.1';
 
 =head1 SYNOPSIS
 
-    baphomet test_line --rule syslog/sshd 'Jul 12 08:15:50 vixen42 sshd[1]: Invalid user foo from 1.2.3.4'
+    baphomet test_line --rule syslog/sshd 'Jul 12 08:15:50 mail01 sshd[1]: Invalid user foo from 1.2.3.4'
     baphomet test_line --rule syslog/sshd --parser ietf_syslog '<38>1 ...'
 
 =head1 METHODS

@@ -41,11 +41,11 @@ tests:
       found: 1
       data:
         SRC: "223.252.23.219"
-    - message: "Jul 12 08:15:50 vixen42 named[2954]: error: client 1.2.3.4#52115: zone transfer 'domain.com/AXFR/IN' denied"
+    - message: "Jul 12 08:15:50 mail01 named[2954]: error: client 1.2.3.4#52115: zone transfer 'domain.com/AXFR/IN' denied"
       found: 1
       data:
         SRC: "1.2.3.4"
-    - message: "Jul 12 08:15:50 vixen42 named[2954]: client 82.207.95.42#40278 (redginseng.com.ua): query (cache) 'redginseng.com.ua/A/IN' denied"
+    - message: "Jul 12 08:15:50 mail01 named[2954]: client 82.207.95.42#40278 (redginseng.com.ua): query (cache) 'redginseng.com.ua/A/IN' denied"
       found: 1
       data:
         SRC: "82.207.95.42"

@@ -31,7 +31,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -50,7 +50,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -122,7 +122,7 @@ my @sent;
 sub feed {
 	my ( $galla, $watcher, $log, $ip, $times ) = @_;
 	foreach ( 1 .. $times ) {
-		$galla->_handle_line( $watcher, 'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from ' . $ip, $dir . '/' . $log );
+		$galla->_handle_line( $watcher, 'Jul 12 08:15:50 mail01 sshd[1]: bad thing from ' . $ip, $dir . '/' . $log );
 	}
 	return;
 }

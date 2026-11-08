@@ -88,7 +88,7 @@ ok( !defined( $rule->check( apache_line( 'auth_basic', 'error', '1.2.3.4', 'some
 	'non-matching message not found' );
 
 # other parser shapes are refused
-my $syslog_parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen42 sshd[1]: foo' );
+my $syslog_parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: foo' );
 ok( !defined( $rule->check($syslog_parsed) ), 'syslog shaped lines are refused' );
 my $access_parsed = App::Baphomet::Parser::parse( 'http_access',
 	'1.2.3.4 - - [12/Jul/2026:08:15:50 -0500] "GET / HTTP/1.1" 200 5' );

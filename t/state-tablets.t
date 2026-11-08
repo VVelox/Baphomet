@@ -36,7 +36,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -82,7 +82,7 @@ $galla->{pending_bans}{'7.7.7.7'} = 300;
 
 # a deferred correlation... offense parked awaiting its end connection
 my $rule = $galla->{watchers}{authlog}{rule_objs}[0];
-$rule->check( App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen42 sshd[1]: [conn42] auth failed' ),
+$rule->check( App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: [conn42] auth failed' ),
 	'authlog' );
 
 # a log position... pretend we followed to a byte offset
@@ -128,7 +128,7 @@ ok( defined( $accused->{accused}{'9.9.9.9'}{first} ), 'accused carries the first
 # the restored deferred offense completes when its capture line arrives
 my $reborn_rule = $reborn->{watchers}{authlog}{rule_objs}[0];
 my $found = $reborn_rule->check(
-	App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:51 vixen42 sshd[1]: [conn42] end connection 5.5.5.5:1234' ),
+	App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:51 mail01 sshd[1]: [conn42] end connection 5.5.5.5:1234' ),
 	'authlog'
 );
 ok( defined($found), 'restored deferred correlation completes' );

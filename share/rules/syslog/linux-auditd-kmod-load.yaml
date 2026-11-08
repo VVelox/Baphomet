@@ -25,20 +25,20 @@ detection_var:
 tests:
   positive:
     # init_module by the standard loader
-    - message: "Nov 14 11:00:00 vixen42 audisp-syslog[2000]: type=SYSCALL msg=audit(1700000020.1:920): arch=c000003e syscall=175 success=yes exit=0 a0=7f a1=0 items=0 ppid=1 pid=4200 auid=0 uid=0 comm=\"insmod\" exe=\"/usr/bin/kmod\" key=\"modules\""
+    - message: "Nov 14 11:00:00 mail01 audisp-syslog[2000]: type=SYSCALL msg=audit(1700000020.1:920): arch=c000003e syscall=175 success=yes exit=0 a0=7f a1=0 items=0 ppid=1 pid=4200 auid=0 uid=0 comm=\"insmod\" exe=\"/usr/bin/kmod\" key=\"modules\""
       found: 1
       data:
         COMM: "insmod"
         audit_syscall: "175"
         audit_exe: "/usr/bin/kmod"
     # an operator-tagged module watch, whatever the syscall
-    - message: "Nov 14 11:00:01 vixen42 audisp-syslog[2001]: type=SYSCALL msg=audit(1700000021.1:921): arch=c000003e syscall=1 success=yes exit=0 ppid=1 pid=4300 auid=0 uid=0 comm=\"loader\" exe=\"/tmp/loader\" key=\"module_load\""
+    - message: "Nov 14 11:00:01 mail01 audisp-syslog[2001]: type=SYSCALL msg=audit(1700000021.1:921): arch=c000003e syscall=1 success=yes exit=0 ppid=1 pid=4300 auid=0 uid=0 comm=\"loader\" exe=\"/tmp/loader\" key=\"module_load\""
       found: 1
       data:
         COMM: "loader"
         audit_key: "module_load"
   negative:
     # an ordinary syscall on an unrelated watch is not a module load
-    - message: "Nov 14 11:00:02 vixen42 audisp-syslog[2002]: type=SYSCALL msg=audit(1700000022.1:922): arch=c000003e syscall=2 success=yes exit=3 ppid=1 pid=4400 auid=0 uid=0 comm=\"cat\" exe=\"/usr/bin/cat\" key=\"etcwatch\""
+    - message: "Nov 14 11:00:02 mail01 audisp-syslog[2002]: type=SYSCALL msg=audit(1700000022.1:922): arch=c000003e syscall=2 success=yes exit=3 ppid=1 pid=4400 auid=0 uid=0 comm=\"cat\" exe=\"/usr/bin/cat\" key=\"etcwatch\""
       found: 0
       undefed: ["COMM"]

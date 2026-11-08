@@ -37,7 +37,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"

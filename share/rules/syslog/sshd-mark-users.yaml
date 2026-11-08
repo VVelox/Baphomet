@@ -35,7 +35,7 @@ mark:
 tests:
   positive:
     # and the brand lands keyed by the account, carrying the source
-    - message: "Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
+    - message: "Jul 12 08:15:50 mail01 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 1
       data:
         USER: "moth3r"
@@ -44,7 +44,7 @@ tests:
         - name: sshd-account-src
           key: moth3r
           value: "216.137.179.214"
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
       found: 1
       data:
         USER: "admin"
@@ -53,12 +53,12 @@ tests:
         - name: sshd-account-src
           key: admin
           value: "192.0.2.7"
-    - message: "Jul 12 08:15:50 vixen42 sshd-session[2279]: Failed password for root from 2001:db8::badc:0ffe port 62022 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd-session[2279]: Failed password for root from 2001:db8::badc:0ffe port 62022 ssh2"
       found: 1
       data:
         USER: "root"
         SRC: "2001:db8::badc:0ffe"
-    - message: "Jul 12 08:15:50 vixen42 sshd[1094]: error: PAM: Authentication failure for root from 192.0.2.11"
+    - message: "Jul 12 08:15:50 mail01 sshd[1094]: error: PAM: Authentication failure for root from 192.0.2.11"
       found: 1
       data:
         USER: "root"
@@ -111,7 +111,7 @@ tests:
               value: "198.51.100.10"
       found: 2
   negative:
-    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
+    - message: "Jul 12 08:25:49 mail01 sshd-session[36748]: Accepted publickey for neti from 127.0.0.1 port 21680 ssh2: ED25519 SHA256:hjUf"
       found: 0
       undefed: ["SRC", "USER"]
     # a forged "from <addr>" carried in the account name... the account is one

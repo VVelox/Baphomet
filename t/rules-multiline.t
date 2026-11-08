@@ -182,16 +182,16 @@ tests:
   positive:
     # address first, the sshd shape
     - messages:
-        - "Jul 12 08:15:50 vixen42 sshd[100]: Connection from 192.0.2.70 port 40000"
-        - "Jul 12 08:15:52 vixen42 sshd[100]: Too many authentication failures"
+        - "Jul 12 08:15:50 mail01 sshd[100]: Connection from 192.0.2.70 port 40000"
+        - "Jul 12 08:15:52 mail01 sshd[100]: Too many authentication failures"
       found: 1
       data:
         SRC: "192.0.2.70"
   negative:
     # a different pid is a different session
     - messages:
-        - "Jul 12 08:15:50 vixen42 sshd[100]: Connection from 192.0.2.70 port 40000"
-        - "Jul 12 08:15:52 vixen42 sshd[200]: Too many authentication failures"
+        - "Jul 12 08:15:50 mail01 sshd[100]: Connection from 192.0.2.70 port 40000"
+        - "Jul 12 08:15:52 mail01 sshd[200]: Too many authentication failures"
       found: 0
 EOR
 
@@ -199,20 +199,20 @@ my $session = $rules->load('syslog/session');
 ok( defined($session), 'envelope keyed rule loaded, embedded sequence tests passed' );
 
 # offense first resolves through defer when the capture line lands
-$found = $session->check( syslog_line('Jul 12 08:15:52 vixen42 sshd[300]: Too many authentication failures'), 'e' );
+$found = $session->check( syslog_line('Jul 12 08:15:52 mail01 sshd[300]: Too many authentication failures'), 'e' );
 ok( !defined($found), 'envelope keyed offense defers awaiting its session capture' );
 $found
-	= $session->check( syslog_line('Jul 12 08:15:53 vixen42 sshd[300]: Connection from 192.0.2.71 port 41000'), 'e' );
+	= $session->check( syslog_line('Jul 12 08:15:53 mail01 sshd[300]: Connection from 192.0.2.71 port 41000'), 'e' );
 ok( defined($found), 'session capture completes the deferred offense' );
 is( $found->{data}{SRC}, '192.0.2.71', 'completion carries the session address' );
 
 # a different host sharing the log is a different session
-$session->check( syslog_line('Jul 12 08:16:00 vixen42 sshd[400]: Connection from 192.0.2.72 port 42000'), 'e' );
+$session->check( syslog_line('Jul 12 08:16:00 mail01 sshd[400]: Connection from 192.0.2.72 port 42000'), 'e' );
 $found = $session->check( syslog_line('Jul 12 08:16:02 otherhost sshd[400]: Too many authentication failures'), 'e' );
 ok( !defined($found), 'the same pid on a different host does not correlate' );
 
 # a pid-less line can not resolve the session key... judged a plain offense
-$found = $session->check( syslog_line('Jul 12 08:16:10 vixen42 sshd: Too many authentication failures'), 'e' );
+$found = $session->check( syslog_line('Jul 12 08:16:10 mail01 sshd: Too many authentication failures'), 'e' );
 ok( defined($found),                 'a line missing a key component is judged a plain unkeyed offense' );
 ok( !defined( $found->{data}{SRC} ), 'and carries no correlated address' );
 

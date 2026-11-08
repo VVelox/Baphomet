@@ -45,7 +45,7 @@ max_score: 1
 tests:
   positive:
     # a mailbox login from abroad... counted
-    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=203.0.113.9, lip=192.0.2.1, TLS"
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<neti>, method=PLAIN, rip=203.0.113.9, lip=192.0.2.1, TLS"
       geo:
         countries:
           "203.0.113.9": NL
@@ -54,7 +54,7 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-        USER: "kitsune"
+        USER: "neti"
     - message: "Jun 13 21:48:07 platypus dovecot: pop3-login: Login: user=<moth3r>, method=PLAIN, rip=198.51.100.23, lip=192.0.2.1"
       geo:
         countries:
@@ -67,7 +67,7 @@ tests:
         USER: "moth3r"
   negative:
     # a login from home... vetoed
-    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=198.51.100.5, lip=192.0.2.1, TLS"
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<neti>, method=PLAIN, rip=198.51.100.5, lip=192.0.2.1, TLS"
       geo:
         countries:
           "198.51.100.5": US
@@ -75,11 +75,11 @@ tests:
           home: [ US ]
       found: 0
     # an aborted login is not a Login: line... nothing to gate
-    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Disconnected (auth failed, 1 attempts): user=<kitsune>, rip=203.0.113.9, lip=192.0.2.1"
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Disconnected (auth failed, 1 attempts): user=<neti>, rip=203.0.113.9, lip=192.0.2.1"
       found: 0
       undefed: ["SRC"]
     # unplaceable fails closed
-    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=192.0.2.66, lip=192.0.2.1, TLS"
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<neti>, method=PLAIN, rip=192.0.2.66, lip=192.0.2.1, TLS"
       geo:
         countries:
           "192.0.2.66": unknown

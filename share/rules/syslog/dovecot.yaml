@@ -65,12 +65,12 @@ tests:
       found: 1
       data:
         SRC: "192.51.100.13"
-    - message: "Jul 12 08:15:50 vixen42 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=web rhost=176.61.140.224"
+    - message: "Jul 12 08:15:50 mail01 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=web rhost=176.61.140.224"
       found: 1
       data:
         SRC: "176.61.140.224"
     # a rhost injected into ruser must not be what gets captured
-    - message: "Jul 12 08:15:50 vixen42 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=rhost=1.2.3.4 rhost=192.0.43.10"
+    - message: "Jul 12 08:15:50 mail01 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=rhost=1.2.3.4 rhost=192.0.43.10"
       found: 1
       data:
         SRC: "192.0.43.10"
@@ -133,7 +133,7 @@ tests:
     - message: "Jun 13 21:48:06 platypus dovecot: pop3-login: Disconnected: Inactivity (no auth attempts): rip=180.200.180.81, lip=113.212.99.194, TLS"
       found: 0
       undefed: ["SRC"]
-    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<kitsune>, method=PLAIN, rip=192.0.2.99, lip=113.212.99.194, TLS"
+    - message: "Jun 13 21:48:07 platypus dovecot: imap-login: Login: user=<neti>, method=PLAIN, rip=192.0.2.99, lip=113.212.99.194, TLS"
       found: 0
       undefed: ["SRC"]
   injection:

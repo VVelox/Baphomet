@@ -22,7 +22,7 @@ sub write_rule {
 sub parsed_line {
 	my ( $daemon, $message ) = @_;
 	return App::Baphomet::Parser::parse( 'bsd_syslog',
-		'Jul 12 08:15:50 vixen42 ' . $daemon . '[123]: ' . $message );
+		'Jul 12 08:15:50 mail01 ' . $daemon . '[123]: ' . $message );
 }
 
 #
@@ -42,12 +42,12 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: good thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: good thing from 1.2.3.4"
       found: 0
       undefed: ["SRC"]
 EOR
@@ -157,12 +157,12 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4 whom we like"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4 whom we like"
       found: 0
       undefed: ["SRC"]
 EOR
@@ -202,7 +202,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: something else entirely"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: something else entirely"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -230,7 +230,7 @@ ban_var:
   - SRC
 tests:
   postive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
 EOR
 ok( !eval { $rules->load('syslog/typotests'); 1 }, 'a misspelled tests section refuses to load' );

@@ -36,7 +36,7 @@ max_score: 1
 tests:
   positive:
     # a foreign login that worked
-    - message: "Jul 12 08:25:49 vixen42 proftpd[12345]: vixen42.example.com (mail.example.com[203.0.113.9]): USER kitsune: Login successful."
+    - message: "Jul 12 08:25:49 mail01 proftpd[12345]: mail01.example.com (mail.example.com[203.0.113.9]): USER neti: Login successful."
       geo:
         countries:
           "203.0.113.9": NL
@@ -45,7 +45,7 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-        USER: "kitsune"
+        USER: "neti"
     # a foreign failure, from the corpus
     - message: "Jun 09 07:30:58 platypus.ace-hosting.com.au proftpd[11864]: platypus.ace-hosting.com.au (mail.bloodymonster.net[::ffff:198.51.100.23]): USER username (Login failed): Incorrect password."
       geo:
@@ -77,7 +77,7 @@ tests:
         SRC: "203.0.113.57"
   negative:
     # domestic success... vetoed, falls through
-    - message: "Jul 12 08:25:49 vixen42 proftpd[12345]: vixen42.example.com (mail.example.com[198.51.100.5]): USER kitsune: Login successful."
+    - message: "Jul 12 08:25:49 mail01 proftpd[12345]: mail01.example.com (mail.example.com[198.51.100.5]): USER neti: Login successful."
       geo:
         countries:
           "198.51.100.5": US
@@ -101,7 +101,7 @@ tests:
           home: [ US ]
       found: 0
     # a data transfer is not an authentication event
-    - message: "Jul 12 08:25:49 vixen42 proftpd[12345]: vixen42.example.com (mail.example.com[203.0.113.9]): FTP session closed."
+    - message: "Jul 12 08:25:49 mail01 proftpd[12345]: mail01.example.com (mail.example.com[203.0.113.9]): FTP session closed."
       geo:
         countries:
           "203.0.113.9": NL

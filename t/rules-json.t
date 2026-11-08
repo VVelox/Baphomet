@@ -80,7 +80,7 @@ ok( !defined( $rule->check( json_line('{"c":"ACCESS","msg":"nothing of note"}') 
 	'no match entry hit means not found' );
 
 # other parser shapes are refused
-my $syslog_parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 vixen42 sshd[1]: foo' );
+my $syslog_parsed = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: foo' );
 ok( !defined( $rule->check($syslog_parsed) ), 'syslog shaped lines are refused' );
 
 #

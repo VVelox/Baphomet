@@ -31,7 +31,7 @@ our $VERSION = '0.0.1';
 Parses RFC 3164 style syslog lines, such as what is commonly found in
 C</var/log/auth.log> and friends.
 
-    Jul 12 08:15:50 vixen42 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640
+    Jul 12 08:15:50 mail01 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640
 
 Handled variations...
 

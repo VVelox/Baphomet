@@ -49,9 +49,9 @@ tests:
       data:
         SRC: "192.0.2.9"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 sm-mta[123]: 14NNwaRl065696: from=<a@example.com>, size=0, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=example.com [192.0.2.1]"
+    - message: "Jul 12 08:15:50 mail01 sm-mta[123]: 14NNwaRl065696: from=<a@example.com>, size=0, class=0, nrcpts=1, proto=ESMTP, daemon=MTA, relay=example.com [192.0.2.1]"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:15:50 vixen42 sm-mta[123]: 14NNwaRl065697: AUTH=server, relay=example.com [192.0.2.1], authid=kitsune, mech=PLAIN, bits=0"
+    - message: "Jul 12 08:15:50 mail01 sm-mta[123]: 14NNwaRl065697: AUTH=server, relay=example.com [192.0.2.1], authid=neti, mech=PLAIN, bits=0"
       found: 0
       undefed: ["SRC"]

@@ -43,7 +43,7 @@ max_score: 1
 tests:
   positive:
     # a login from abroad... the isnot gate lets it count
-    - message: "Jul 12 08:25:49 vixen42 sshd-session[36748]: Accepted publickey for kitsune from 203.0.113.9 port 21680 ssh2: ED25519 SHA256:hjUf"
+    - message: "Jul 12 08:25:49 mail01 sshd-session[36748]: Accepted publickey for neti from 203.0.113.9 port 21680 ssh2: ED25519 SHA256:hjUf"
       geo:
         countries:
           "203.0.113.9": NL
@@ -52,8 +52,8 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-        USER: "kitsune"
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 198.51.100.23 port 4711 ssh2"
+        USER: "neti"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 198.51.100.23 port 4711 ssh2"
       geo:
         countries:
           "198.51.100.23": DE
@@ -65,7 +65,7 @@ tests:
         USER: "root"
   negative:
     # a login from home... the gate vetoes, and the line falls through
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 198.51.100.5 port 4711 ssh2"
       geo:
         countries:
           "198.51.100.5": US
@@ -73,11 +73,11 @@ tests:
           home: [ US ]
       found: 0
     # a failure is not this rule's business... syslog/sshd owns that
-    - message: "Jul 12 08:15:50 vixen42 sshd[2278]: Failed password for invalid user admin from 203.0.113.9 port 4711 ssh2"
+    - message: "Jul 12 08:15:50 mail01 sshd[2278]: Failed password for invalid user admin from 203.0.113.9 port 4711 ssh2"
       found: 0
       undefed: ["SRC"]
     # an unplaceable address fails closed... no false alarm on a database gap
-    - message: "Jul 12 08:25:49 vixen42 sshd[2278]: Accepted password for root from 192.0.2.66 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.66 port 4711 ssh2"
       geo:
         countries:
           "192.0.2.66": unknown

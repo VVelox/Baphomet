@@ -54,7 +54,7 @@ max_score: 1
 tests:
   positive:
     # a foreign SASL login that worked... a relay about to be abused
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9], sasl_method=LOGIN, sasl_username=sender@example.com"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9], sasl_method=LOGIN, sasl_username=sender@example.com"
       geo:
         countries:
           "203.0.113.9": NL
@@ -64,7 +64,7 @@ tests:
       data:
         SRC: "203.0.113.9"
         USER: "sender@example.com"
-    - message: "Jul 12 08:15:50 vixen42 postfix/submission/smtpd[9182]: D4E5F6: client=unknown[198.51.100.23], sasl_method=PLAIN, sasl_username=moth3r"
+    - message: "Jul 12 08:15:50 mail01 postfix/submission/smtpd[9182]: D4E5F6: client=unknown[198.51.100.23], sasl_method=PLAIN, sasl_username=moth3r"
       geo:
         countries:
           "198.51.100.23": DE
@@ -117,7 +117,7 @@ tests:
         SRC: "203.0.113.14"
   negative:
     # domestic success... vetoed, falls through to syslog/postfix-sasl
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"
       geo:
         countries:
           "198.51.100.5": US
@@ -133,7 +133,7 @@ tests:
           home: [ US ]
       found: 0
     # unplaceable... fails closed
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[192.0.2.66], sasl_method=LOGIN, sasl_username=sender@example.com"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[192.0.2.66], sasl_method=LOGIN, sasl_username=sender@example.com"
       geo:
         countries:
           "192.0.2.66": unknown
@@ -168,7 +168,7 @@ tests:
           home: [ US ]
       found: 0
     # an unauthenticated client is not an authentication event
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9]"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9]"
       geo:
         countries:
           "203.0.113.9": NL

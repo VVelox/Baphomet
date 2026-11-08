@@ -35,7 +35,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -119,7 +119,7 @@ write_config('false');
 my $off = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'sshd' );
 is( $off->{eve_log},    $dir . '/eve/eve.json', 'eve_log has its default even when off' );
 is( $off->{eve_enable}, 0,                      'eve_enable off' );
-$off->_handle_line( 'authlog', 'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 5.5.5.5', $dir . '/log' );
+$off->_handle_line( 'authlog', 'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 5.5.5.5', $dir . '/log' );
 ok( !-f $dir . '/eve/eve.json', 'nothing written while disabled' );
 
 #
@@ -135,7 +135,7 @@ ok( -d $dir . '/eve', 'the eve dir was created' );
 # crosses and banishes. the banishing line emits only the banish, which
 # stands for the match, not a found beside it
 foreach ( 1 .. 3 ) {
-	$galla->_handle_line( 'authlog', 'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', $dir . '/log' );
+	$galla->_handle_line( 'authlog', 'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 9.9.9.9', $dir . '/log' );
 }
 
 my @events = read_events();
@@ -151,7 +151,7 @@ is( $f->{kur},        'sshd',     'kur' );
 ok( defined( $f->{hostname} ), 'hostname present' );
 like( $f->{timestamp}, qr/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'ISO8601 timestamp' );
 is( $f->{path},           $dir . '/log',                                             'path is the source file' );
-is( $f->{raw},            'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'raw line' );
+is( $f->{raw},            'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 9.9.9.9', 'raw line' );
 is( $f->{found}{SRC},     '9.9.9.9',                                                 'found carries the check data' );
 is( $f->{parsed}{daemon}, 'sshd', 'parsed carries the parser output' );
 is( $f->{score},          1,      'score on the first found is 1' );
@@ -192,7 +192,7 @@ is( $c->{ban_time},                 300,       'banish ban_time' );
 is( $c->{score},                    3,         'banish score' );
 is( $c->{threshold},                3,         'banish threshold, the score it had to reach' );
 is( $c->{found}{SRC},               '9.9.9.9', 'banish carries the triggering found' );
-is( $c->{raw},         'Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 9.9.9.9', 'banish carries the raw line' );
+is( $c->{raw},         'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 9.9.9.9', 'banish carries the raw line' );
 is( $c->{path},        $dir . '/log',                                             'banish carries the source path' );
 is( $found[-1]{score}, 2, 'the last found is the second hit, not the banishing third' );
 

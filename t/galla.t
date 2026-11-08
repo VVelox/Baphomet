@@ -30,7 +30,7 @@ ban_var:
   - SRC
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         SRC: "1.2.3.4"
@@ -49,7 +49,7 @@ ban_var:
   - ADDR
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 otherd[1]: worse thing involving 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 otherd[1]: worse thing involving 1.2.3.4"
       found: 1
       data:
         ADDR: "1.2.3.4"
@@ -67,7 +67,7 @@ ban_var:
   - ADDR
 tests:
   positive:
-    - message: "Jul 12 08:15:50 vixen42 sshd[1]: bad thing from 1.2.3.4"
+    - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
       found: 1
       data:
         ADDR: "1.2.3.4"
@@ -217,7 +217,7 @@ my $send_error;
 
 sub feed {
 	my ($message) = @_;
-	$galla->_handle_line( 'authlog', 'Jul 12 08:15:50 vixen42 sshd[1]: ' . $message );
+	$galla->_handle_line( 'authlog', 'Jul 12 08:15:50 mail01 sshd[1]: ' . $message );
 	return;
 }
 
@@ -261,14 +261,14 @@ is_deeply( $galla->{watchers}{multilog}{rules}, [ 'syslog/sshd', 'syslog/other' 
 is( $galla->{watchers}{multilog}{parser}, 'syslog', 'parser defaults to syslog when unspecified' );
 
 # a otherd line passes through sshd's daemon gate untouched and matches the second rule
-$galla->_handle_line( 'multilog', 'Jul 12 08:15:50 vixen42 otherd[9]: worse thing involving 7.7.7.7' );
-$galla->_handle_line( 'multilog', 'Jul 12 08:15:50 vixen42 otherd[9]: worse thing involving 7.7.7.7' );
+$galla->_handle_line( 'multilog', 'Jul 12 08:15:50 mail01 otherd[9]: worse thing involving 7.7.7.7' );
+$galla->_handle_line( 'multilog', 'Jul 12 08:15:50 mail01 otherd[9]: worse thing involving 7.7.7.7' );
 is( $sent[-1]{ip}, '7.7.7.7', 'second rule in the list matched and banned via its own ban_var' );
 
 # a line matching both rules of the sshd rule counts once... matched went up by
 # exactly 2 for the 2 lines above
 my $matched_before = $galla->{stats}{matched};
-$galla->_handle_line( 'multilog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 8.8.8.8' );
+$galla->_handle_line( 'multilog', 'Jul 12 08:15:50 mail01 sshd[9]: bad thing from 8.8.8.8' );
 is( $galla->{stats}{matched}, $matched_before + 1, 'a line is counted once across the rule list' );
 
 #
@@ -280,13 +280,13 @@ is( $galla->{watchers}{multilog}{settings}{overlap},  'first',  'overlap default
 is( $galla->{watchers}{shadowlog}{settings}{overlap}, 'shadow', 'watcher overlap override' );
 
 # under first, only the winner deposits... the second rule never sees the line
-$galla->_handle_line( 'firstlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.8' );
+$galla->_handle_line( 'firstlog', 'Jul 12 08:15:50 mail01 sshd[9]: bad thing from 6.6.6.8' );
 is( scalar( @{ $galla->{counters}{'6.6.6.8'} } ), 1, 'under first only the winner deposited' );
 ok( !defined( $galla->{shadow_counters}{'6.6.6.8'} ), 'and nothing was shadow counted' );
 
 # under shadow, the winner deposits real and the demoted second rule shadow
 my $matched_before_overlap = $galla->{stats}{matched};
-$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.6' );
+$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 mail01 sshd[9]: bad thing from 6.6.6.6' );
 is( scalar( @{ $galla->{counters}{'6.6.6.6'} } ),        1, 'the winner deposited real' );
 is( scalar( @{ $galla->{shadow_counters}{'6.6.6.6'} } ), 1, 'the demoted rule deposited shadow' );
 is( $galla->{stats}{matched}, $matched_before_overlap + 2, 'both firing rules matched' );
@@ -296,7 +296,7 @@ is( $galla->{stats}{demoted}, 1, 'the demotion counted' );
 # line, the demoted rule's shadow crossing raising a alert instead, just as
 # observe mode would
 my $overlap_sent_before = scalar(@sent);
-$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.6' );
+$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 mail01 sshd[9]: bad thing from 6.6.6.6' );
 is( scalar(@sent), $overlap_sent_before + 1, 'the winner banned at max_score, the demoted rule banned nothing' );
 is( $sent[-1]{ip}, '6.6.6.6', 'and banned the right IP' );
 is( $galla->{stats}{alerts}, 1, 'the demoted crossing raised a alert' );
@@ -304,14 +304,14 @@ ok( !defined( $galla->{shadow_counters}{'6.6.6.6'} ), 'shadow counter reset by t
 
 # a demoted rule honors ignore_ips as a real judgment would
 my $overlap_ignored_before = $galla->{stats}{ignored};
-$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 127.0.0.6' );
+$galla->_handle_line( 'shadowlog', 'Jul 12 08:15:50 mail01 sshd[9]: bad thing from 127.0.0.6' );
 is( $galla->{stats}{ignored}, $overlap_ignored_before + 2, 'winner and demoted rule both honored ignore_ips' );
 ok( !defined( $galla->{shadow_counters}{'127.0.0.6'} ), 'no shadow deposit for a ignored IP' );
 
 # under all, every firing rule deposits real... two rules, one line, and the
 # max_score of 2 crossed with in the one record
 my $all_sent_before = scalar(@sent);
-$galla->_handle_line( 'alllog', 'Jul 12 08:15:50 vixen42 sshd[9]: bad thing from 6.6.6.7' );
+$galla->_handle_line( 'alllog', 'Jul 12 08:15:50 mail01 sshd[9]: bad thing from 6.6.6.7' );
 is( scalar(@sent), $all_sent_before + 1, 'under all both rules deposited real and the one line banned' );
 is( $sent[-1]{ip}, '6.6.6.7', 'the right IP banned' );
 ok( !defined( $galla->{counters}{'6.6.6.7'} ), 'counter reset by the ban' );

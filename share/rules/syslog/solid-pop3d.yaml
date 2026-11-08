@@ -55,6 +55,6 @@ tests:
     - message: "Nov 17 23:17:50 emf1pt2-2-35-70 solid-pop3d[17176]: pam_unix(solid-pop3d:auth): authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=  user=jacques"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:25:49 vixen42 solid-pop3d[3822]: authentication succeeded for user adrian - 123.33.44.45"
+    - message: "Jul 12 08:25:49 mail01 solid-pop3d[3822]: authentication succeeded for user adrian - 123.33.44.45"
       found: 0
       undefed: ["SRC"]

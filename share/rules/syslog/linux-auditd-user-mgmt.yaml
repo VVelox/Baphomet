@@ -24,19 +24,19 @@ detection_var:
   - AUID
 tests:
   positive:
-    - message: "Nov 14 11:00:00 vixen42 audisp-syslog[2000]: type=ADD_USER msg=audit(1700000200.1:600): pid=2000 uid=0 auid=1000 ses=2 msg='op=adding-user id=1001 exe=\"/usr/sbin/useradd\" hostname=box addr=? terminal=pts/0 res=success'"
+    - message: "Nov 14 11:00:00 mail01 audisp-syslog[2000]: type=ADD_USER msg=audit(1700000200.1:600): pid=2000 uid=0 auid=1000 ses=2 msg='op=adding-user id=1001 exe=\"/usr/sbin/useradd\" hostname=box addr=? terminal=pts/0 res=success'"
       found: 1
       data:
         AUID: "1000"
         audit_type: "ADD_USER"
         audit_msg_op: "adding-user"
-    - message: "Nov 14 11:00:01 vixen42 audisp-syslog[2001]: type=USER_MGMT msg=audit(1700000201.1:601): pid=2001 uid=0 auid=1000 ses=2 msg='op=add-shadow-group grp=\"wheel\" acct=\"mallory\" exe=\"/usr/sbin/usermod\" hostname=box addr=? terminal=pts/0 res=success'"
+    - message: "Nov 14 11:00:01 mail01 audisp-syslog[2001]: type=USER_MGMT msg=audit(1700000201.1:601): pid=2001 uid=0 auid=1000 ses=2 msg='op=add-shadow-group grp=\"wheel\" acct=\"mallory\" exe=\"/usr/sbin/usermod\" hostname=box addr=? terminal=pts/0 res=success'"
       found: 1
       data:
         AUID: "1000"
         audit_msg_acct: "mallory"
   negative:
     # not a management record
-    - message: "Nov 14 11:00:02 vixen42 audisp-syslog[2002]: type=USER_LOGIN msg=audit(1700000202.1:602): pid=2002 uid=0 auid=0 ses=3 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=success'"
+    - message: "Nov 14 11:00:02 mail01 audisp-syslog[2002]: type=USER_LOGIN msg=audit(1700000202.1:602): pid=2002 uid=0 auid=0 ses=3 msg='op=login acct=\"root\" exe=\"/usr/sbin/sshd\" hostname=? addr=192.0.2.5 terminal=ssh res=success'"
       found: 0
       undefed: ["AUID"]

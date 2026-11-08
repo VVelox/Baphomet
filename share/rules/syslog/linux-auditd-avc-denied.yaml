@@ -22,7 +22,7 @@ detection_var:
   - COMM
 tests:
   positive:
-    - message: "Nov 14 12:00:00 vixen42 audisp-syslog[3000]: type=AVC msg=audit(1700000300.1:700): avc:  denied  { read write } for  pid=3000 comm=\"nginx\" name=\"shadow\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
+    - message: "Nov 14 12:00:00 mail01 audisp-syslog[3000]: type=AVC msg=audit(1700000300.1:700): avc:  denied  { read write } for  pid=3000 comm=\"nginx\" name=\"shadow\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
       found: 1
       data:
         COMM: "nginx"
@@ -30,6 +30,6 @@ tests:
         audit_avc_perms: "read write"
   negative:
     # a granted decision is not a denial
-    - message: "Nov 14 12:00:01 vixen42 audisp-syslog[3001]: type=AVC msg=audit(1700000301.1:701): avc:  granted  { read } for  pid=3001 comm=\"httpd\" name=\"index.html\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:httpd_sys_content_t:s0 tclass=file"
+    - message: "Nov 14 12:00:01 mail01 audisp-syslog[3001]: type=AVC msg=audit(1700000301.1:701): avc:  granted  { read } for  pid=3001 comm=\"httpd\" name=\"index.html\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:httpd_sys_content_t:s0 tclass=file"
       found: 0
       undefed: ["COMM"]

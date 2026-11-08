@@ -50,7 +50,7 @@ detection_var:
 tests:
   positive:
     # a file denial under the old type=AVC filing
-    - message: "Nov 14 12:10:00 vixen42 audisp-syslog[3100]: type=AVC msg=audit(1700000012.000:468): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+    - message: "Nov 14 12:10:00 mail01 audisp-syslog[3100]: type=AVC msg=audit(1700000012.000:468): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1234 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
       found: 1
       data:
         PROFILE: "/usr/bin/foo"
@@ -59,20 +59,20 @@ tests:
         audit_operation: "open"
         audit_denied_mask: "r"
     # the same thing under a 1500-range APPARMOR_* type
-    - message: "Nov 14 12:10:01 vixen42 audisp-syslog[3101]: type=APPARMOR_DENIED msg=audit(1700000013.000:469): apparmor=\"DENIED\" operation=\"exec\" profile=\"/usr/sbin/nginx\" name=\"/bin/sh\" pid=4321 comm=\"nginx\" requested_mask=\"x\" denied_mask=\"x\" fsuid=33 ouid=0"
+    - message: "Nov 14 12:10:01 mail01 audisp-syslog[3101]: type=APPARMOR_DENIED msg=audit(1700000013.000:469): apparmor=\"DENIED\" operation=\"exec\" profile=\"/usr/sbin/nginx\" name=\"/bin/sh\" pid=4321 comm=\"nginx\" requested_mask=\"x\" denied_mask=\"x\" fsuid=33 ouid=0"
       found: 1
       data:
         PROFILE: "/usr/sbin/nginx"
         mac_result: "denied"
         audit_operation: "exec"
     # info= ahead of everything and no operation= at all
-    - message: "Nov 14 12:10:02 vixen42 audisp-syslog[3102]: type=AVC msg=audit(1700000014.000:470): apparmor=\"DENIED\" info=\"Failed name lookup - disconnected path\" error=-13 profile=\"snap.foo\" name=\"/\" pid=1 comm=\"foo\""
+    - message: "Nov 14 12:10:02 mail01 audisp-syslog[3102]: type=AVC msg=audit(1700000014.000:470): apparmor=\"DENIED\" info=\"Failed name lookup - disconnected path\" error=-13 profile=\"snap.foo\" name=\"/\" pid=1 comm=\"foo\""
       found: 1
       data:
         PROFILE: "snap.foo"
         mac_result: "denied"
     # the dbus form, the confined side named by label= inside the nested msg
-    - message: "Nov 14 12:10:03 vixen42 audisp-syslog[3103]: type=USER_AVC msg=audit(1700000015.000:471): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='apparmor=\"DENIED\" operation=\"dbus_method_call\" bus=\"system\" path=\"/org/freedesktop/systemd1\" interface=\"org.freedesktop.systemd1.Manager\" member=\"StartUnit\" mask=\"send\" name=\"org.freedesktop.systemd1\" pid=2222 label=\"snap.foo.bar\" peer_pid=1 peer_label=\"unconfined\" exe=\"/usr/bin/dbus-daemon\" sauid=0 hostname=? addr=? terminal=?'"
+    - message: "Nov 14 12:10:03 mail01 audisp-syslog[3103]: type=USER_AVC msg=audit(1700000015.000:471): pid=1 uid=0 auid=4294967295 ses=4294967295 msg='apparmor=\"DENIED\" operation=\"dbus_method_call\" bus=\"system\" path=\"/org/freedesktop/systemd1\" interface=\"org.freedesktop.systemd1.Manager\" member=\"StartUnit\" mask=\"send\" name=\"org.freedesktop.systemd1\" pid=2222 label=\"snap.foo.bar\" peer_pid=1 peer_label=\"unconfined\" exe=\"/usr/bin/dbus-daemon\" sauid=0 hostname=? addr=? terminal=?'"
       found: 1
       data:
         PROFILE: "snap.foo.bar"
@@ -81,14 +81,14 @@ tests:
         audit_msg_operation: "dbus_method_call"
   negative:
     # the SELinux prose is linux-auditd-avc-denied's, not this rule's
-    - message: "Nov 14 12:10:04 vixen42 audisp-syslog[3104]: type=AVC msg=audit(1700000016.000:472): avc:  denied  { read } for  pid=4444 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
+    - message: "Nov 14 12:10:04 mail01 audisp-syslog[3104]: type=AVC msg=audit(1700000016.000:472): avc:  denied  { read } for  pid=4444 comm=\"httpd\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"
       found: 0
       undefed: ["PROFILE"]
     # complain mode saying what it would have denied is not a denial
-    - message: "Nov 14 12:10:05 vixen42 audisp-syslog[3105]: type=AVC msg=audit(1700000017.000:473): apparmor=\"ALLOWED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1235 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
+    - message: "Nov 14 12:10:05 mail01 audisp-syslog[3105]: type=AVC msg=audit(1700000017.000:473): apparmor=\"ALLOWED\" operation=\"open\" profile=\"/usr/bin/foo\" name=\"/etc/shadow\" pid=1235 comm=\"foo\" requested_mask=\"r\" denied_mask=\"r\" fsuid=0 ouid=0"
       found: 0
       undefed: ["PROFILE"]
     # profile-load bookkeeping belongs to linux-auditd-mac-tamper
-    - message: "Nov 14 12:10:06 vixen42 audisp-syslog[3106]: type=APPARMOR_STATUS msg=audit(1700000018.000:474): apparmor=\"STATUS\" operation=\"profile_replace\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2200 comm=\"apparmor_parser\""
+    - message: "Nov 14 12:10:06 mail01 audisp-syslog[3106]: type=APPARMOR_STATUS msg=audit(1700000018.000:474): apparmor=\"STATUS\" operation=\"profile_replace\" profile=\"unconfined\" name=\"/usr/bin/foo\" pid=2200 comm=\"apparmor_parser\""
       found: 0
       undefed: ["PROFILE"]

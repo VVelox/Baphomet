@@ -34,14 +34,14 @@ max_score: 1
 tests:
   positive:
     # any one of the standard brands satisfies the any-of gate
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:192.0.2.60"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:192.0.2.60"'
       marks_before:
         - name: brute_force
           key: "192.0.2.60"
       found: 1
       data:
         SRC: "192.0.2.60"
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [ftpuser] OK LOGIN: Client "192.0.2.61"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [ftpuser] OK LOGIN: Client "192.0.2.61"'
       marks_before:
         - name: recon
           key: "192.0.2.61"
@@ -49,13 +49,13 @@ tests:
       data:
         SRC: "192.0.2.61"
   negative:
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [pid 12345] [ftpuser] FAIL LOGIN: Client "::ffff:192.0.2.60"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [pid 12345] [ftpuser] FAIL LOGIN: Client "::ffff:192.0.2.60"'
       found: 0
       undefed: ["SRC"]
-    - message: 'Jul 12 08:25:49 vixen42 proftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:192.0.2.60"'
+    - message: 'Jul 12 08:25:49 mail01 proftpd[12345]: [pid 12345] [ftpuser] OK LOGIN: Client "::ffff:192.0.2.60"'
       found: 0
       undefed: ["SRC"]
     # a login from a source holding no brand at all passes unremarked...
     # the gate vetoes
-    - message: 'Jul 12 08:25:49 vixen42 vsftpd[12345]: [ftpuser] OK LOGIN: Client "192.0.2.61"'
+    - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [ftpuser] OK LOGIN: Client "192.0.2.61"'
       found: 0

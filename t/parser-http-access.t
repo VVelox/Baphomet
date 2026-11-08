@@ -8,13 +8,13 @@ use App::Baphomet::Parser ();
 
 # combined
 my $parsed = App::Baphomet::Parser::parse( 'http_access',
-	'203.0.113.9 - kitsune [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 404 196 "http://example.com/" "zgrab/0.x"'
+	'203.0.113.9 - neti [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 404 196 "http://example.com/" "zgrab/0.x"'
 );
 ok( defined($parsed), 'combined line parsed' ) || BAIL_OUT('the most basic line did not parse');
 is( $parsed->{format},     'combined',            'format' );
 is( $parsed->{host},       '203.0.113.9',         'host' );
 is( $parsed->{ident},      undef,                 'ident undef for -' );
-is( $parsed->{user},       'kitsune',             'user' );
+is( $parsed->{user},       'neti',             'user' );
 is( $parsed->{time},       '12/Jul/2026:08:15:50 -0500', 'time' );
 is( $parsed->{request},    'GET /.env HTTP/1.1',  'request' );
 is( $parsed->{method},     'GET',                 'method' );
@@ -65,7 +65,7 @@ is( $parsed->{method}, undef, 'junk request method undef' );
 is( $parsed->{request}, '\x16\x03\x01', 'junk request kept raw' );
 
 # garbage
-is( App::Baphomet::Parser::parse( 'http_access', 'Jul 12 08:15:50 vixen42 sshd[123]: foo' ),
+is( App::Baphomet::Parser::parse( 'http_access', 'Jul 12 08:15:50 mail01 sshd[123]: foo' ),
 	undef, 'syslog line returns undef' );
 is( App::Baphomet::Parser::parse( 'http_access', undef ), undef, 'undef returns undef' );
 

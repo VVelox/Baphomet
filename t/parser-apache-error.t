@@ -75,7 +75,7 @@ is( $parsed->{client}, undef,  'client undef' );
 is( $parsed->{level},  'notice', 'clientless level' );
 
 # garbage
-is( App::Baphomet::Parser::parse( 'apache_error', 'Jul 12 08:15:50 vixen42 httpd[123]: foo' ),
+is( App::Baphomet::Parser::parse( 'apache_error', 'Jul 12 08:15:50 mail01 httpd[123]: foo' ),
 	undef, 'syslog line returns undef' );
 is( App::Baphomet::Parser::parse( 'apache_error', undef ), undef, 'undef returns undef' );
 

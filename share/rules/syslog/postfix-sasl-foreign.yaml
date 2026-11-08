@@ -39,7 +39,7 @@ max_score: 1
 tests:
   positive:
     # an authenticated relay from abroad... counted
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9], sasl_method=LOGIN, sasl_username=sender@example.com"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9], sasl_method=LOGIN, sasl_username=sender@example.com"
       geo:
         countries:
           "203.0.113.9": NL
@@ -49,7 +49,7 @@ tests:
       data:
         SRC: "203.0.113.9"
         USER: "sender@example.com"
-    - message: "Jul 12 08:15:50 vixen42 postfix/submission/smtpd[9182]: D4E5F6: client=unknown[198.51.100.23], sasl_method=PLAIN, sasl_username=moth3r"
+    - message: "Jul 12 08:15:50 mail01 postfix/submission/smtpd[9182]: D4E5F6: client=unknown[198.51.100.23], sasl_method=PLAIN, sasl_username=moth3r"
       geo:
         countries:
           "198.51.100.23": GB
@@ -72,7 +72,7 @@ tests:
         USER: "neti"
   negative:
     # a relay from home... vetoed
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[198.51.100.5], sasl_method=LOGIN, sasl_username=sender@example.com"
       geo:
         countries:
           "198.51.100.5": US
@@ -80,11 +80,11 @@ tests:
           home: [ US ]
       found: 0
     # an unauthenticated client... no sasl_username, not this rule's line
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9]"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=mail.example[203.0.113.9]"
       found: 0
       undefed: ["SRC"]
     # unplaceable fails closed
-    - message: "Jul 12 08:15:50 vixen42 postfix/smtpd[2278]: A1B2C3: client=unknown[192.0.2.66], sasl_method=LOGIN, sasl_username=sender@example.com"
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[2278]: A1B2C3: client=unknown[192.0.2.66], sasl_method=LOGIN, sasl_username=sender@example.com"
       geo:
         countries:
           "192.0.2.66": unknown

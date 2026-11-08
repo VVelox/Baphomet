@@ -54,11 +54,11 @@ ban_var:
   - SRC
 EOR
 
-is( matches( 'syslog/cmd', 'bsd_syslog', "Jul 16 08:15:50 vixen42 myapp[1]: ran command $b64_evil as 1.2.3.4" ),
+is( matches( 'syslog/cmd', 'bsd_syslog', "Jul 16 08:15:50 mail01 myapp[1]: ran command $b64_evil as 1.2.3.4" ),
 	1, 'syslog gate: a base64 capture decodes and the needle is found' );
-is( matches( 'syslog/cmd', 'bsd_syslog', "Jul 16 08:15:50 vixen42 myapp[1]: ran command $b64_ok as 1.2.3.4" ),
+is( matches( 'syslog/cmd', 'bsd_syslog', "Jul 16 08:15:50 mail01 myapp[1]: ran command $b64_ok as 1.2.3.4" ),
 	0, 'syslog gate: the offense is dropped when the decoded capture misses' );
-is( matches( 'syslog/cmd', 'bsd_syslog', 'Jul 16 08:15:50 vixen42 myapp[1]: some other line entirely' ),
+is( matches( 'syslog/cmd', 'bsd_syslog', 'Jul 16 08:15:50 mail01 myapp[1]: some other line entirely' ),
 	0, 'syslog gate: a non-matching message is not an offense either' );
 
 #
@@ -81,9 +81,9 @@ ban_var:
   - SRC
 EOR
 
-is( matches( 'syslog/msg', 'bsd_syslog', 'Jul 16 08:15:50 vixen42 sshd[1]: login from 10.1.2.3' ),
+is( matches( 'syslog/msg', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: login from 10.1.2.3' ),
 	1, 'syslog gate: MESSAGE contains and SRC cidr both pass' );
-is( matches( 'syslog/msg', 'bsd_syslog', 'Jul 16 08:15:50 vixen42 sshd[1]: login from 8.8.8.8' ),
+is( matches( 'syslog/msg', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: login from 8.8.8.8' ),
 	0, 'syslog gate: the SRC cidr fails and drops it' );
 
 #
@@ -98,7 +98,7 @@ message_regexp:
 ban_var:
   - SRC
 EOR
-is( matches( 'syslog/plain', 'bsd_syslog', 'Jul 16 08:15:50 vixen42 sshd[1]: bad from 1.2.3.4' ),
+is( matches( 'syslog/plain', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: bad from 1.2.3.4' ),
 	1, 'a gateless syslog rule matches as before' );
 
 #
@@ -135,11 +135,11 @@ condition: "admin and not office"
 ban_var:
   - SRC
 EOR
-is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 vixen42 sshd[1]: user=root from 8.8.8.8" ),
+is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 mail01 sshd[1]: user=root from 8.8.8.8" ),
 	1, 'syslog selections: admin and not office holds' );
-is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 vixen42 sshd[1]: user=root from 10.1.2.3" ),
+is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 mail01 sshd[1]: user=root from 10.1.2.3" ),
 	0, 'syslog selections: from the office is filtered out' );
-is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 vixen42 sshd[1]: user=guest from 8.8.8.8" ),
+is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 mail01 sshd[1]: user=guest from 8.8.8.8" ),
 	0, 'syslog selections: a non-admin user does not match' );
 
 #

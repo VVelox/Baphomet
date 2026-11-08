@@ -32,7 +32,7 @@ tests:
       data:
         SRC: "2001:db8::7"
   negative:
-    - message: '{"t":{"$date":"2026-07-12T08:15:52.789+00:00"},"s":"I","c":"ACCESS","id":20250,"ctx":"conn125","msg":"Successfully authenticated","attr":{"principalName":"kitsune","authenticationDatabase":"admin","remote":"192.0.2.9:54322"}}'
+    - message: '{"t":{"$date":"2026-07-12T08:15:52.789+00:00"},"s":"I","c":"ACCESS","id":20250,"ctx":"conn125","msg":"Successfully authenticated","attr":{"principalName":"neti","authenticationDatabase":"admin","remote":"192.0.2.9:54322"}}'
       found: 0
       undefed: ["SRC"]
     - message: '{"t":{"$date":"2026-07-12T08:15:53.012+00:00"},"s":"I","c":"NETWORK","id":22943,"ctx":"listener","msg":"Connection accepted","attr":{"remote":"192.0.2.9:54323","connectionCount":3}}'

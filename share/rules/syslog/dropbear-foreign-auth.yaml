@@ -44,7 +44,7 @@ max_score: 1
 tests:
   positive:
     # a foreign login that worked
-    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'kitsune' from 203.0.113.9:5543"
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'neti' from 203.0.113.9:5543"
       geo:
         countries:
           "203.0.113.9": NL
@@ -53,7 +53,7 @@ tests:
       found: 1
       data:
         SRC: "203.0.113.9"
-        USER: "kitsune"
+        USER: "neti"
     - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Pubkey auth succeeded for 'moth3r' with ssh-ed25519 key SHA256:hjUf from ::ffff:198.51.100.23:5544"
       geo:
         countries:
@@ -96,7 +96,7 @@ tests:
         SRC: "203.0.113.55"
   negative:
     # domestic success... vetoed, falls through
-    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'kitsune' from 198.51.100.5:5543"
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Password auth succeeded for 'neti' from 198.51.100.5:5543"
       geo:
         countries:
           "198.51.100.5": US
@@ -120,6 +120,6 @@ tests:
           home: [ US ]
       found: 0
     # an exit with no auth verdict
-    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Exit (kitsune): Disconnect received"
+    - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: Exit (neti): Disconnect received"
       found: 0
       undefed: ["SRC"]
