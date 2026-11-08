@@ -4645,13 +4645,32 @@ sub _ban_ips {
 		return;
 	}
 
-	# the record, at determination... then the send, whose outcome only
-	# pends or clears, never touching EVE or the ledger
+	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
+	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
+
+	# the record, at determination... one EVE event for the whole banishment,
+	# then the tick, ledger chisel, and recidive gate per address, each being
+	# banished in its own right. the ledger counts how often this address has
+	# been banished across all kurs and the recidive gate reads that count
 	$self->_emit_banish( \@banishing, $ban_time, $context, $score );
 	foreach my $ip (@banishing) {
-		$self->_record_banish( $ip, $context );
-		$self->_deliver_ban( $ip, $ban_time );
-	}
+		$self->_tick( 'bans', $watcher_name, $rule_name );
+		my $ledger_count = $self->_ledger_append_and_count( $ip, $context );
+		$self->_recidive_check( $ip, $ledger_count );
+
+		# then the send, async under POE... its outcome only pends or
+		# clears, never touching EVE or the ledger
+		$self->_kur_ban(
+			$ip,
+			$ban_time,
+			undef,
+			sub {
+				my ($error) = @_;
+				$self->_ban_delivered( $ip, $ban_time, $error );
+				return;
+			}
+		);
+	} ## end foreach my $ip (@banishing)
 
 	return;
 } ## end sub _ban_ips
@@ -4699,57 +4718,6 @@ sub _emit_banish {
 
 	return;
 } ## end sub _emit_banish
-
-# the per-address half of the banish record... the tick, the ledger chisel,
-# and the recidive gate, written at the determination. the EVE event was
-# written once for the whole determination over in _emit_banish, but these are
-# each address's own: the ledger counts how often this address has been
-# banished across all kurs, and the recidive gate reads that count.
-#
-# args:
-#   $ip      :: the address being banished
-#   $context :: the match context, or undef when there is no match behind it
-#
-# returns nothing. does not send and does not pend... the audit of a decision,
-# independent of its delivery.
-#
-#   $self->_record_banish( '1.2.3.4', $context );
-sub _record_banish {
-	my ( $self, $ip, $context ) = @_;
-
-	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
-	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
-
-	$self->_tick( 'bans', $watcher_name, $rule_name );
-
-	# chisel the banishment into the shared ledger and, if this IP has
-	# been banished too many times across all kurs, drag it through a
-	# further gate to the recidive kur
-	my $ledger_count = $self->_ledger_append_and_count( $ip, $context );
-	$self->_recidive_check( $ip, $ledger_count );
-
-	return;
-} ## end sub _record_banish
-
-# the send, decoupled from the record... rides Kur, pending the IP for the
-# sweeper to retry if the manager could not be reached, logging the outcome.
-# the send completes async under POE, so this tail runs from the answer
-sub _deliver_ban {
-	my ( $self, $ip, $ban_time ) = @_;
-
-	$self->_kur_ban(
-		$ip,
-		$ban_time,
-		undef,
-		sub {
-			my ($error) = @_;
-			$self->_ban_delivered( $ip, $ban_time, $error );
-			return;
-		}
-	);
-
-	return;
-} ## end sub _deliver_ban
 
 # the delivery bookkeeping, shared by the determination-time send and the
 # sweeper's batched retry... the record already happened, so this only
@@ -4849,17 +4817,8 @@ sub _ban_subnet {
 	}
 	$self->{inflight_bans}{ 'net:' . $network } = 1;
 
-	$self->_record_subnet_banish( $network, $ban_time, $context, $score, $info );
-	$self->_deliver_subnet_ban( $network, $ban_time );
-
-	return;
-} ## end sub _ban_subnet
-
-# the CIDR banish record, the twin of _record_banish... written at the
-# determination with the full bucket, independent of delivery
-sub _record_subnet_banish {
-	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
-
+	# the record, at determination with the full bucket, independent of
+	# delivery
 	my $watcher_name = defined($context) ? $context->{watcher}   : undef;
 	my $rule_name    = defined($context) ? $context->{rule_name} : undef;
 
@@ -4880,13 +4839,7 @@ sub _record_subnet_banish {
 	my $ledger_count = $self->_ledger_append_and_count( $network, $context );
 	$self->_recidive_check( $network, $ledger_count, 1 );
 
-	return;
-} ## end sub _record_subnet_banish
-
-# the CIDR send, decoupled from its record, the twin of _deliver_ban
-sub _deliver_subnet_ban {
-	my ( $self, $network, $ban_time ) = @_;
-
+	# then the send, async under POE... its outcome only pends or clears
 	$self->_kur_cidr_ban(
 		$network,
 		$ban_time,
@@ -4899,7 +4852,7 @@ sub _deliver_subnet_ban {
 	);
 
 	return;
-} ## end sub _deliver_subnet_ban
+} ## end sub _ban_subnet
 
 # the CIDR delivery bookkeeping, the twin of _ban_delivered... the record
 # already happened, so this only clears inflight and pends or drops the CIDR
