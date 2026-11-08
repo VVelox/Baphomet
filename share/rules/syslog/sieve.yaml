@@ -1,7 +1,11 @@
 ---
 # Matches sieve (cyrus timsieved) login failures. Based on the fail2ban
 # sieve filter, translated to Baphomet.
-rev: 2
+#
+# The cyrus munger names the SASL mechanism (cyrus_mech) and the reverse
+# lookup (cyrus_client_host). timsieved names no account, so there is no
+# user_var.
+rev: 3
 msg: "[SIEVE] login failure"
 severity: high
 classtype: brute-force
@@ -10,6 +14,8 @@ mark:
     ttl: 21600
 daemons:
   - '//^(?:cyrus/)?(?:tim)?sieved?$//'
+mungers:
+  - cyrus
 message_regexp:
   - '^badlogin: \S+ ?\[(?:::ffff:)?%%%%SRC%%%%\] \S+ authentication failure$'
 src_ip_var: SRC
@@ -21,6 +27,8 @@ tests:
       found: 1
       data:
         SRC: "1.2.3.4"
+        cyrus_mech: "PLAIN"
+        cyrus_client_host: "example.com"
     - message: "Jul 18 17:21:58 ophelia cyrus/timsieved[12305]: badlogin: example.com[1.2.3.4] PLAIN authentication failure"
       found: 1
       data:
@@ -30,9 +38,9 @@ tests:
       data:
         SRC: "1.2.3.4"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 sieve[123]: login: example.com[192.0.2.1] PLAIN User logged in"
+    - message: "Jul 12 08:15:50 mail01 sieve[123]: login: example.com[192.0.2.1] PLAIN User logged in"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:15:50 vixen42 dovecot[123]: badlogin: example.com[192.0.2.1] PLAIN authentication failure"
+    - message: "Jul 12 08:15:50 mail01 dovecot[123]: badlogin: example.com[192.0.2.1] PLAIN authentication failure"
       found: 0
       undefed: ["SRC"]

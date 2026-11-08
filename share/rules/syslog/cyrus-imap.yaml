@@ -1,7 +1,10 @@
 ---
 # Matches cyrus imap/pop3 login failures. Based on the fail2ban cyrus-imap
 # filter, translated to Baphomet.
-rev: 2
+#
+# The cyrus munger names the account a plaintext login tried (cyrus_user),
+# the SASL mechanism (cyrus_mech) and the reverse lookup (cyrus_client_host).
+rev: 3
 msg: "[CYRUS] IMAP/POP3 login failure"
 severity: high
 classtype: brute-force
@@ -10,9 +13,12 @@ mark:
     ttl: 21600
 daemons:
   - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
+mungers:
+  - cyrus
 message_regexp:
   - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
 src_ip_var: SRC
+user_var: cyrus_user
 ban_var:
   - SRC
 tests:
@@ -21,6 +27,8 @@ tests:
       found: 1
       data:
         SRC: "127.0.0.1"
+        cyrus_user: "cyrus@localdomain"
+        cyrus_mech: "plaintext"
     - message: "Feb 20 17:23:32 cyrus/pop3[4297]: badlogin: example.com [1.2.3.4] plaintext mail0001 SASL(-13): authentication failure: checkpass failed"
       found: 1
       data:
@@ -42,9 +50,9 @@ tests:
       data:
         SRC: "192.0.2.4"
   negative:
-    - message: "Jul 12 08:15:50 vixen42 cyrus/imap[123]: login: example.com [192.0.2.1] kitsune PLAIN+TLS User logged in"
+    - message: "Jul 12 08:15:50 mail01 cyrus/imap[123]: login: example.com [192.0.2.1] neti PLAIN+TLS User logged in"
       found: 0
       undefed: ["SRC"]
-    - message: "Jul 12 08:15:50 vixen42 dovecot[123]: badlogin: example.com [192.0.2.1] plaintext kitsune SASL(-13): authentication failure: checkpass failed"
+    - message: "Jul 12 08:15:50 mail01 dovecot[123]: badlogin: example.com [192.0.2.1] plaintext neti SASL(-13): authentication failure: checkpass failed"
       found: 0
       undefed: ["SRC"]
