@@ -504,6 +504,9 @@ field instead, the type being the same either way.
 Currently ported as raw rules and really need cleaned up/checked and made proper syslog
 rules.
 
+- MikroTik RouterOS (remote syslog, topic list in the program slot) ::
+  `routeros-auth` (banning), login failures over web, Winbox, ssh and the
+  rest
 - Cisco ASA/PIX (`%ASA-` syslog) :: `cisco-asa-auth-bruteforce`,
   `-auth-failed`, `-vpn-auth`, `-exploit`, `-scan`, `-spoof` (banning);
   `-auth-user`, `-rapid-grants`, `-system` (detection-only); `-breach`

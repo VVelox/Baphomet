@@ -243,6 +243,7 @@ share/rules/raw/palo-alto-threat-virus.yaml
 share/rules/raw/palo-alto-vpn-bruteforce.yaml
 share/rules/raw/portsentry.yaml
 share/rules/raw/roundcube-auth.yaml
+share/rules/raw/routeros-auth.yaml
 share/rules/raw/selinux-ssh.yaml
 share/rules/raw/softethervpn.yaml
 share/rules/raw/sogo-auth.yaml

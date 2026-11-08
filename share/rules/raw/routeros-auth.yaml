@@ -1,0 +1,67 @@
+---
+# Matches MikroTik RouterOS login failures... the web UI, Winbox, ssh,
+# telnet, ftp, the API... from a router logging to a remote syslog host.
+# Based on the fail2ban routeros-auth filter, translated to Baphomet.
+#
+#   Feb 15 11:25:46 gw.local system,error,critical login failure for user admin from 192.0.2.6 via web
+#
+# A raw rule because RouterOS puts its topic list ("system,error,critical")
+# where a syslog program would go, with no "daemon:" for the syslog parsers to
+# take, which is also why fail2ban reads it as a plain file. Point a watcher
+# at the file the syslog server writes the router's lines to.
+#
+# The account is whatever was typed and may hold spaces, so the " from <addr>
+# via <service>" taken is the one that ends the line... an account of
+# "x from <addr> via ssh" can not stand in for the real one, which always
+# comes last.
+rev: 1
+msg: "[ROUTEROS] login failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '^(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \S+ )?system,error,critical login failure for user (?<USER>.*) from %%%%SRC%%%% via (?<SERVICE>\S+)$'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Feb 15 11:25:46 gw.local system,error,critical login failure for user admin from 192.0.2.6 via web'
+      found: 1
+      data:
+        SRC: "192.0.2.6"
+        USER: "admin"
+        SERVICE: "web"
+    # an empty account
+    - message: 'Feb 15 11:57:42 gw.example.net system,error,critical login failure for user  from 2001:db8::24 via ssh'
+      found: 1
+      data:
+        SRC: "2001:db8::24"
+        USER: ""
+        SERVICE: "ssh"
+    - message: 'Mar  2 09:09:46 gw.local system,error,critical login failure for user user with space from 192.0.2.7 via ssh'
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+        USER: "user with space"
+    # the router's own line without the syslog server's stamp and host
+    - message: 'system,error,critical login failure for user admin from 192.0.2.8 via winbox'
+      found: 1
+      data:
+        SRC: "192.0.2.8"
+        SERVICE: "winbox"
+  negative:
+    - message: 'Feb 15 11:26:15 gw.local system,info log rule changed by admin'
+      found: 0
+      undefed: ["SRC"]
+    - message: 'Feb 15 11:26:16 gw.local system,info,account user admin logged in from 192.0.2.6 via web'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # an address typed into the account, ahead of the real one
+    - message: 'Mar  2 09:09:47 gw.local system,error,critical login failure for user x from 198.51.100.66 via ssh from 192.0.2.9 via ssh'
+      data:
+        SRC: "192.0.2.9"
