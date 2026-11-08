@@ -326,6 +326,7 @@ share/rules/syslog/postgresql.yaml
 share/rules/syslog/postgresql_errors.yaml
 share/rules/syslog/proftpd.yaml
 share/rules/syslog/proftpd-foreign-auth.yaml
+share/rules/syslog/proxmox.yaml
 share/rules/syslog/pure-ftpd.yaml
 share/rules/syslog/pure-ftpd-foreign-auth.yaml
 share/rules/syslog/qmail.yaml

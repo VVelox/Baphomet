@@ -14,6 +14,9 @@
   failures delivered through syslog (`USE_SYSLOG=true`),
   `raw/vaultwarden`'s regexp behind a daemon gate
   - daemon gate :: `vaultwarden`
+- `syslog/proxmox` :: Proxmox VE web interface and API login failures, as
+  pvedaemon logs them, naming the account with its realm
+  - daemon gate :: `pvedaemon`
 - `syslog/asterisk` :: Asterisk auth/registration failures
   - daemon gate :: `asterisk`
 - `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,

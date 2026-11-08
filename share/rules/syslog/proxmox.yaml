@@ -1,0 +1,67 @@
+---
+# Matches Proxmox VE web interface (and API) login failures, which pvedaemon
+# logs through syslog:
+#
+#   pvedaemon[12021]: authentication failure; rhost=192.0.2.123 user=root@pam msg=Authentication failure
+#
+# Based on the fail2ban proxmox filter, translated to Baphomet. The account
+# names its realm ("@pam", "@pve"), and msg= says why it was refused.
+#
+# The address is held to the place pvedaemon writes it, straight after
+# "authentication failure; ", and the account the client typed comes after
+# it... an account of "x rhost=<addr>" can not stand in for the real one. A v4
+# client through a dual-stack listener is written "::ffff:192.0.2.123", which
+# SRC unwraps.
+rev: 1
+msg: "[PROXMOX] web interface login failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - pvedaemon
+message_regexp:
+  - '^authentication failure; rhost=(?:::ffff:)?%%%%SRC%%%% user=(?<USER>.*?)(?: msg=(?<REASON>.*))?$'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+# fail2ban's suggested jail for this filter, honored when the kur allows
+# per-rule thresholds
+max_score: 3
+tests:
+  positive:
+    - message: 'Mar  8 09:37:44 pve01 pvedaemon[12021]: authentication failure; rhost=192.0.2.123 user=root@pam msg=Authentication failure'
+      found: 1
+      data:
+        SRC: "192.0.2.123"
+        USER: "root@pam"
+        REASON: "Authentication failure"
+    - message: 'Mar  9 03:32:27 pve01 pvedaemon[8961]: authentication failure; rhost=192.0.2.124 user=jose@pve msg=invalid credentials'
+      found: 1
+      data:
+        SRC: "192.0.2.124"
+        USER: "jose@pve"
+        REASON: "invalid credentials"
+    - message: 'Mar  9 03:32:28 pve01 pvedaemon[8961]: authentication failure; rhost=::ffff:192.0.2.125 user=root@pam msg=Authentication failure'
+      found: 1
+      data:
+        SRC: "192.0.2.125"
+    - message: 'Mar  9 03:32:29 pve01 pvedaemon[8961]: authentication failure; rhost=2001:db8::125 user=root@pam msg=Authentication failure'
+      found: 1
+      data:
+        SRC: "2001:db8::125"
+  negative:
+    - message: 'Mar  9 03:32:30 pve01 pvedaemon[8961]: <root@pam> successful auth for user ''root@pam'''
+      found: 0
+      undefed: ["SRC"]
+    # right message, wrong daemon
+    - message: 'Mar  9 03:32:31 pve01 sshd[8961]: authentication failure; rhost=192.0.2.126 user=root@pam msg=Authentication failure'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # an address typed into the account, after the real one
+    - message: 'Mar  9 03:32:32 pve01 pvedaemon[8961]: authentication failure; rhost=192.0.2.127 user=x rhost=198.51.100.66 user=root@pam msg=Authentication failure'
+      data:
+        SRC: "192.0.2.127"
