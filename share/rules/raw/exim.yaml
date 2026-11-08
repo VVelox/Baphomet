@@ -4,7 +4,12 @@
 # translated to Baphomet and simplified... exim writes its own log
 # format, so this is a raw rule and every regexp leads with the mainlog
 # timestamp shape.
-rev: 3
+#
+# A mainlog that went through syslog on its way to the file carries a
+# "<host> exim[<pid>]:" as well, after exim's timestamp or ahead of it
+# depending on how the syslog daemon writes the line. Both are taken. Either
+# way it comes before anything the client sent, so it can not hide an address.
+rev: 4
 msg: "[EXIM] auth failure / SMTP abuse"
 severity: high
 classtype: brute-force
@@ -12,11 +17,11 @@ mark:
   - name: brute_force
     ttl: 21600
 message_regexp:
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? \w+ authenticator failed for (?:[^\[\( ]* )?(?:\(\S*\) )?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?: 535 Incorrect authentication data(?: \(set_id=.*\)|: \d+ Time\(s\))?\s*$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? sender verify fail for <\S+>: (?:Unknown user|Unrouteable address|all relevant MX records point to non-existent hosts)\s*$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? rejected RCPT [^@]+@\S+: (?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? SMTP protocol synchronization error \([^)]*\): rejected (?:connection from|"\S+") (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? (?:next )?input=".*"\s*$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: \[\d+\])? SMTP call from (?:[^\[\( ]* )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? dropped: too many (?:nonmail commands|syntax or protocol errors) \(last (?:command )?was "[^"]*"\)\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? \w+ authenticator failed for (?:[^\[\( ]* )?(?:\(\S*\) )?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?: 535 Incorrect authentication data(?: \(set_id=.*\)|: \d+ Time\(s\))?\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? sender verify fail for <\S+>: (?:Unknown user|Unrouteable address|all relevant MX records point to non-existent hosts)\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? rejected RCPT [^@]+@\S+: (?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol synchronization error \([^)]*\): rejected (?:connection from|"\S+") (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? (?:next )?input=".*"\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[^\[\( ]* )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? dropped: too many (?:nonmail commands|syntax or protocol errors) \(last (?:command )?was "[^"]*"\)\s*$'
 src_ip_var: SRC
 ban_var:
   - SRC
@@ -69,6 +74,20 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.22"
+    # a syslog "<host> exim[<pid>]:" after exim's timestamp
+    - message: "2019-10-22 03:39:17 mx1.example.net exim[29786]: dovecot_login authenticator failed for (User) [192.0.2.37]: 535 Incorrect authentication data (set_id=test@example.com)"
+      found: 1
+      data:
+        SRC: "192.0.2.37"
+    # and ahead of it
+    - message: "mail.example.com exim[3751842]: 2021-07-17 23:20:49 plain_server authenticator failed for ([192.0.2.17]) [192.0.2.27]: 535 Incorrect authentication data"
+      found: 1
+      data:
+        SRC: "192.0.2.27"
+    - message: "mail.example.com exim[3751843]: 2021-07-17 23:20:50 H=(example) [192.0.2.28]:3755 I=[192.0.2.4]:25 F=a@example.org rejected RCPT b@example.ru: relay not permitted"
+      found: 1
+      data:
+        SRC: "192.0.2.28"
   negative:
     - message: "2013-06-02 09:22:06 [19592] 1UhErCG-000657-Vd <= neti@example.com H=mail.example.com [192.0.2.44] P=esmtp S=2938"
       found: 0

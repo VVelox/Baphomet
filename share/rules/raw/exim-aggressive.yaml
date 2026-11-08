@@ -23,7 +23,10 @@
 # The protocol error quotes the command the client sent, which may hold a
 # whole forged ' H=(x) [<addr>]', so there the quoted part is greedy and the
 # line has to end on exim's own verdict... the last address on it is exim's.
-rev: 1
+#
+# A syslog "<host> exim[<pid>]:", after exim's timestamp or ahead of it, is
+# taken as raw/exim takes it. Keep the two prefixes in step.
+rev: 2
 msg: "[EXIM] SMTP abuse (aggressive)"
 severity: medium
 classtype: network-scan
@@ -32,23 +35,23 @@ mark:
     ttl: 86400
 message_regexp:
   # no MAIL in SMTP connection from [host] (helo) [addr]:port I=... D=... C=...
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no MAIL in SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no MAIL in SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\s*$'
   # SMTP protocol error in "<the client's command>" H=... [addr] AUTH command used when not advertised
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol error in ".*" H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* [A-Za-z]+ (?:command used when not advertised|authentication mechanism not supported)\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol error in ".*" H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* [A-Za-z]+ (?:command used when not advertised|authentication mechanism not supported)\s*$'
   # [msgid] SMTP connection from ... closed by DROP in ACL
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])?(?: [0-9A-Za-z]{6,}-[0-9A-Za-z]{6,}-[0-9A-Za-z]{2,})? SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* closed by DROP in ACL\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])?(?: [0-9A-Za-z]{6,}-[0-9A-Za-z]{6,}-[0-9A-Za-z]{2,})? SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* closed by DROP in ACL\s*$'
   # SMTP call from ... dropped: too many unrecognized commands, and the
   # nonmail / syntax drops with a ", C=..." after the last command, which
   # raw/exim does not read
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[\w.-]+ )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped: too many (?:unrecognized commands|(?:nonmail commands|syntax or protocol errors) \(last (?:command )?was ".*",\s+C=\S+\))'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[\w.-]+ )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped: too many (?:unrecognized commands|(?:nonmail commands|syntax or protocol errors) \(last (?:command )?was ".*",\s+C=\S+\))'
   # a RCPT rejected for any reason raw/exim does not count
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* rejected RCPT [^@]+@\S+: (?!(?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$).+$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* rejected RCPT [^@]+@\S+: (?!(?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$).+$'
   # no reverse DNS for the peer
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no host name found for IP address %%%%SRC%%%%\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no host name found for IP address %%%%SRC%%%%\s*$'
   # a reverse name that does not resolve forward
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no IP address found for host \S+ \(during SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\)\s*$'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no IP address found for host \S+ \(during SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\)\s*$'
   # H=[addr]:port dropped by 'connect' ACL: <reason>
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped by ''[^'']+'' ACL:'
+  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped by ''[^'']+'' ACL:'
 src_ip_var: SRC
 ban_var:
   - SRC
@@ -117,6 +120,15 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.101"
+    # a syslog "<host> exim[<pid>]:" ahead of exim's timestamp
+    - message: 'mail.example.com exim[3751844]: 2021-07-17 23:20:51 [8004] no MAIL in SMTP connection from (User) [192.0.2.30]:20043 I=[192.0.2.1]:25 D=1s'
+      found: 1
+      data:
+        SRC: "192.0.2.30"
+    - message: 'mail.example.com exim[3751845]: 2021-07-17 23:20:52 SMTP protocol error in "AUTH LOGIN" H=(User) [192.0.2.31] AUTH command used when not advertised'
+      found: 1
+      data:
+        SRC: "192.0.2.31"
   negative:
     # raw/exim's, so not this rule's... the two never take the same line
     - message: '2013-06-10 18:33:32 [10099] H=(yakult.example.tw) [192.0.2.178]:3755 I=[192.0.2.4]:25 F=a@example.org rejected RCPT b@example.ru: relay not permitted'
