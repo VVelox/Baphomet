@@ -294,6 +294,7 @@ share/rules/syslog/cyrus-imap.yaml
 share/rules/syslog/cyrus-imap-foreign-auth.yaml
 share/rules/syslog/dovecot-foreign-login.yaml
 share/rules/syslog/daemonlogger_errors.yaml
+share/rules/syslog/dante.yaml
 share/rules/syslog/dovecot.yaml
 share/rules/syslog/dovecot_errors.yaml
 share/rules/syslog/dovecot-foreign-auth.yaml

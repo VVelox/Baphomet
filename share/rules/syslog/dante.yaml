@@ -1,0 +1,72 @@
+---
+# Matches the Dante SOCKS proxy refusing a login: an unknown account, a wrong
+# system password, or PAM turning it away. Based on the fail2ban dante filter,
+# translated to Baphomet. Needs "log: error" in the "client pass" (or "socks
+# pass") block that does the authenticating, or danted logs none of it.
+#
+#   danted[1846]: info: block(1): tcp/accept ]: 192.0.2.4.57178 0.0.0.0.1080: error after reading 18 bytes in 0 seconds: system password authentication failed for user "neti"
+#
+# Dante joins an address and its port with a dot. The client's comes first,
+# straight after "tcp/accept ]: ", ahead of the account it sent, so a name of
+# the client's choosing can not stand in for it. A v4 client through a
+# dual-stack socket is written "::ffff:192.0.2.4", which SRC unwraps.
+rev: 1
+msg: "[DANTE] SOCKS login failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  # danted, and sockd as older Dante releases named the daemon
+  - danted
+  - sockd
+message_regexp:
+  - '^info: block\(\d+\): tcp/accept \]: (?:::ffff:)?%%%%SRC%%%%\.\d+ \S+: error after reading \d+ bytes? in \d+ seconds?: (?<REASON>could not access|system password authentication failed for|pam_authenticate\(\) for) user "(?<USER>[^"]+)"'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    # an account the system password file does not have
+    - message: 'Apr 14 15:35:03 proxy01 danted[17969]: info: block(1): tcp/accept ]: 192.0.2.4.50550 0.0.0.0.1080: error after reading 35 bytes in 0 seconds: could not access user "roooooooot"''s records in the system password file: no system error'
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+        USER: "roooooooot"
+        REASON: "could not access"
+    - message: 'Apr 14 15:44:26 proxy01 danted[1846]: info: block(1): tcp/accept ]: 192.0.2.4.57178 0.0.0.0.1080: error after reading 18 bytes in 0 seconds: system password authentication failed for user "aland"'
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+        USER: "aland"
+    # the singular byte and second
+    - message: 'Apr 14 15:44:26 proxy01 danted[1846]: info: block(1): tcp/accept ]: 192.0.2.4.57178 0.0.0.0.1080: error after reading 1 byte in 1 second: system password authentication failed for user "aland"'
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+    - message: 'Apr 14 15:44:27 proxy01 danted[3374579]: info: block(1): tcp/accept ]: 192.0.2.169.8490 192.0.2.83.52483: error after reading 31 bytes in 2 seconds: pam_authenticate() for user "socks5_user" failed: Authentication failure'
+      found: 1
+      data:
+        SRC: "192.0.2.169"
+        USER: "socks5_user"
+    # an older Dante, as sockd
+    - message: 'Apr 14 15:44:28 proxy01 sockd[1846]: info: block(1): tcp/accept ]: 192.0.2.5.57179 0.0.0.0.1080: error after reading 18 bytes in 0 seconds: system password authentication failed for user "neti"'
+      found: 1
+      data:
+        SRC: "192.0.2.5"
+  negative:
+    # a client that went through
+    - message: 'Apr 14 15:44:29 proxy01 danted[1846]: info: pass(1): tcp/accept ]: 192.0.2.6.57180 0.0.0.0.1080: accepted'
+      found: 0
+      undefed: ["SRC"]
+    # right message, wrong daemon
+    - message: 'Apr 14 15:44:30 proxy01 sshd[1846]: info: block(1): tcp/accept ]: 192.0.2.7.57181 0.0.0.0.1080: error after reading 18 bytes in 0 seconds: system password authentication failed for user "neti"'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # an address-and-port typed as the account, after the real one
+    - message: 'Apr 14 15:44:31 proxy01 danted[1846]: info: block(1): tcp/accept ]: 192.0.2.8.57182 0.0.0.0.1080: error after reading 18 bytes in 0 seconds: system password authentication failed for user "198.51.100.66.4444"'
+      data:
+        SRC: "192.0.2.8"

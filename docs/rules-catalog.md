@@ -20,6 +20,9 @@
 - `syslog/xrdp` :: xrdp remote-desktop login failures from the session
   manager through syslog, `raw/xrdp`'s regexp behind a daemon gate
   - daemon gate :: `xrdp-sesman`
+- `syslog/dante` :: the Dante SOCKS proxy refusing a login (needs `log: error`
+  in the authenticating pass block)
+  - daemon gate :: `danted`, `sockd`
 - `syslog/asterisk` :: Asterisk auth/registration failures
   - daemon gate :: `asterisk`
 - `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,
