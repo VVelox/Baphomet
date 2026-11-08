@@ -3,7 +3,10 @@
 # fail2ban nginx-http-auth filter in its normal mode, translated to
 # Baphomet and simplified... the aggressive mode SSL handshake fallback is
 # dropped.
-rev: 2
+#
+# auth_pam's refusal is matched too, written with or without the "PAM: "
+# its module name puts ahead of it.
+rev: 3
 msg: "[NGINX] basic auth failure"
 severity: high
 classtype: unsuccessful-user
@@ -12,6 +15,7 @@ level:
   - error
 message_regexp:
   - '^user "(?:[^"]+|.*?)":? (?:password mismatch|was not found in "[^"]*")'
+  - '^(?:PAM: )?user ''(?:[^'']+|.*?)'' - not authenticated: Authentication failure$'
 tests:
   positive:
     - message: '2012/04/09 11:53:29 [error] 2865#0: *66647 user "xyz" was not found in "/var/www/.htpasswd", client: 192.0.43.10, server: www.myhost.com, request: "GET / HTTP/1.1", host: "www.myhost.com"'
@@ -32,6 +36,11 @@ tests:
       found: 1
       data:
         client: "192.0.2.1"
+    # auth_pam refusing the account
+    - message: '2025/09/07 21:20:40 [error] 23141#23141: *24470 PAM: user ''username'' - not authenticated: Authentication failure, client: 192.0.2.120, server: webdav.sub.domain, request: "GET / HTTP/2.0", host: "webdav.sub.domain"'
+      found: 1
+      data:
+        client: "192.0.2.120"
   negative:
     # a whole tail forged in the account name, ahead of the real one... with
     # two tails on the line the nginx_error parser names no client, rather

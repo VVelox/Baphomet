@@ -3,15 +3,20 @@
 # limiting requests lines. Based on the fail2ban nginx-limit-req filter,
 # translated to Baphomet and simplified... all zones match, as with the
 # fail2ban default.
-rev: 1
+#
+# limit_conn's "limiting connections" is matched as well, and limit_req's
+# "delaying request" for a request held back rather than refused. nginx logs
+# the delay at warn, so warn is let through beside error.
+rev: 2
 msg: "[NGINX] limit_req rate-limit rejection"
 severity: medium
 classtype: denial-of-service
 test_parser: nginx_error
 level:
   - error
+  - warn
 message_regexp:
-  - '^limiting requests, excess: [\d.]+ by zone "[^"]+"'
+  - '^(?:limiting|delaying) (?:request|connection)s?(?:, excess: [\d.]+,?)? by zone "[^"]+"$'
 tests:
   positive:
     - message: '2015/10/29 20:01:02 [error] 256554#0: *99927 limiting requests, excess: 1.852 by zone "one", client: 1.2.3.4, server: example.com, request: "POST /index.htm HTTP/1.0", host: "exmaple.com"'
@@ -32,7 +37,21 @@ tests:
       found: 1
       data:
         client: "2606:2800:220:1:248:1893:25c8:1946"
+    # limit_req holding a request back rather than refusing it, at warn
+    - message: '2025/08/01 04:24:17 [warn] 4772#4772: *68 delaying request, excess: 0.841, by zone "req_limit", client: 192.0.2.97, server: myserver.net, request: "GET /ab2h HTTP/1.1", host: "192.0.2.49"'
+      found: 1
+      data:
+        client: "192.0.2.97"
+    # limit_conn refusing a connection
+    - message: '2025/08/03 03:17:28 [error] 25808#25808: *598 limiting connections by zone "conn_limit", client: 192.0.2.141, server: myserver.net, request: "GET /favicon.ico HTTP/1.1", host: "192.0.2.49", referrer: "https://example.com/"'
+      found: 1
+      data:
+        client: "192.0.2.141"
   negative:
+    # warn is let through for the delay, not for anything else
+    - message: '2015/10/29 20:01:04 [warn] 256554#0: *99928 an upstream response is buffered to a temporary file /var/cache/nginx/1/00/0000000001 while reading upstream, client: 192.0.2.98, server: example.com, request: "GET / HTTP/1.1", host: "example.com"'
+      found: 0
+      undefed: ["client"]
     # an ordinary missing file is not rate limiting
     - message: '2012/04/09 11:53:37 [error] 2865#0: *66648 open() "/var/www/favicon.ico" failed (2: No such file or directory), client: 192.0.43.11, server: www.myhost.com, request: "GET /favicon.ico HTTP/1.1", host: "www.myhost.com"'
       found: 0
