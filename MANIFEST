@@ -260,6 +260,7 @@ share/rules/raw/squirrelmail.yaml
 share/rules/raw/stunnel.yaml
 share/rules/raw/tine20.yaml
 share/rules/raw/traefik-auth.yaml
+share/rules/raw/vaultwarden.yaml
 share/rules/raw/znc-adminlog.yaml
 share/rules/syslog/asterisk.yaml
 share/rules/syslog/asterisk_errors.yaml
@@ -356,6 +357,7 @@ share/rules/syslog/syslogd_errors.yaml
 share/rules/syslog/systemd-flap.yaml
 share/rules/syslog/uwimap-auth.yaml
 share/rules/syslog/uwimap-foreign-auth.yaml
+share/rules/syslog/vaultwarden.yaml
 share/rules/syslog/vsftpd-breach-upload.yaml
 share/rules/syslog/vsftpd-breach.yaml
 share/rules/syslog/vsftpd.yaml

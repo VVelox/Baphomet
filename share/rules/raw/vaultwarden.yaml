@@ -1,0 +1,74 @@
+---
+# Matches Vaultwarden authentication failures... a wrong password, a wrong
+# TOTP code, and a wrong admin-panel token... in its own log file
+# (LOG_FILE, /var/log/vaultwarden.log). Based on the fail2ban vaultwarden
+# filter, translated to Baphomet. With USE_SYSLOG=true the same lines are
+# syslog/vaultwarden's. The Bitwarden server's own log is raw/bitwarden's.
+#
+#   [2024-08-31 02:11:22.129][vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 192.0.2.4. Username: neti@example.com.
+#
+# The account the client typed comes after the address, so the FIRST " IP: "
+# is the one taken: the words between the reason and it are Vaultwarden's own
+# ("Try again.", "Server time: ... UTC") and may not be an "IP:", so an
+# account of "x IP: <addr>" can not stand in for the real one.
+#
+# The timestamp is optional so the regexp reads the syslog form verbatim too.
+rev: 1
+msg: "[VAULTWARDEN] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{4})?\])?\[vaultwarden::api::(?:identity|admin|core::two_factor::authenticator)\]\[ERROR\] (?<REASON>Invalid admin token|Invalid TOTP code|Username or password is incorrect)[.!](?:\s+(?!IP:)\S+)* IP: %%%%SRC%%%%(?:\. Username: (?<USER>.*?)\.?)?\s*$'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '[2024-08-31 02:11:22.129][vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 2001:db8::b6d3:95d7:1425:766d. Username: test@example.com.'
+      found: 1
+      data:
+        SRC: "2001:db8::b6d3:95d7:1425:766d"
+        USER: "test@example.com"
+        REASON: "Username or password is incorrect"
+    - message: '[2024-08-31 02:11:28.562][vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 192.0.2.94. Username: test@example.com.'
+      found: 1
+      data:
+        SRC: "192.0.2.94"
+        USER: "test@example.com"
+    - message: '[2024-08-31 02:11:28.725][vaultwarden::api::admin][ERROR] Invalid admin token. IP: 192.0.2.94'
+      found: 1
+      data:
+        SRC: "192.0.2.94"
+        REASON: "Invalid admin token"
+    - message: '[2024-08-31 02:11:28.892][vaultwarden::api::core::two_factor::authenticator][ERROR] Invalid TOTP code! Server time: 2024-08-31 02:11:28 UTC IP: 192.0.2.94'
+      found: 1
+      data:
+        SRC: "192.0.2.94"
+        REASON: "Invalid TOTP code"
+    # with the timezone offset Vaultwarden adds when LOG_TIMESTAMP_FORMAT asks
+    - message: '[2024-08-31 02:11:28.892+0800][vaultwarden::api::core::two_factor::authenticator][ERROR] Invalid TOTP code! Server time: 2024-08-30 18:11:28 UTC IP: 2001:db8::b6d3:95d7:1425:766d'
+      found: 1
+      data:
+        SRC: "2001:db8::b6d3:95d7:1425:766d"
+    - message: '[2024-08-31 02:11:30.123+0800][vaultwarden::api::admin][ERROR] Invalid admin token! IP: 192.0.2.7. Username: alice'
+      found: 1
+      data:
+        SRC: "192.0.2.7"
+        USER: "alice"
+  negative:
+    - message: '[2024-08-31 02:11:40.000][vaultwarden::api::identity][INFO] User test@example.com logged in successfully. IP: 192.0.2.8'
+      found: 0
+      undefed: ["SRC"]
+    - message: '[2024-08-31 02:11:41.000][rocket::server][ERROR] Invalid TOTP code! IP: 192.0.2.9'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # an address typed into the account, after the real one... the first
+    # " IP: " is Vaultwarden's
+    - message: '[2024-08-31 02:11:42.000][vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 192.0.2.10. Username: x IP: 198.51.100.66.'
+      data:
+        SRC: "192.0.2.10"

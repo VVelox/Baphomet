@@ -10,6 +10,10 @@
   syslog or the journal, `raw/mysqld-auth`'s regexp behind a daemon gate
   (HOST token... may be a hostname)
   - daemon gate :: `mysqld`, `mariadbd`
+- `syslog/vaultwarden` :: Vaultwarden password, TOTP and admin-token
+  failures delivered through syslog (`USE_SYSLOG=true`),
+  `raw/vaultwarden`'s regexp behind a daemon gate
+  - daemon gate :: `vaultwarden`
 - `syslog/asterisk` :: Asterisk auth/registration failures
   - daemon gate :: `asterisk`
 - `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,
@@ -476,6 +480,8 @@ field instead, the type being the same either way.
   `raw/znc-adminlog`, `raw/monitorix`, `raw/bitwarden`,
   `raw/selinux-ssh` :: VPN, scan detectors, game/IRC/monitor servers,
   SELinux audit
+- `raw/vaultwarden` :: Vaultwarden password, TOTP and admin-token failures
+  in its own log file... `raw/bitwarden` reads the Bitwarden server's
 - `raw/ejabberd-auth`, `raw/guacamole` :: XMPP and Guacamole auth
   failures
 - `raw/traefik-auth`, `raw/nginx-bad-request` :: web access logs whose

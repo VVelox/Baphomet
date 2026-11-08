@@ -1,0 +1,45 @@
+---
+# Matches Vaultwarden authentication failures delivered through syslog
+# (USE_SYSLOG=true), where syslog stamps the line and Vaultwarden's own
+# timestamp is left off:
+#
+#   vaultwarden[1234]: [vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 192.0.2.4. Username: neti@example.com.
+#
+# Based on the fail2ban vaultwarden filter. The regexp is raw/vaultwarden's,
+# which reads Vaultwarden's own log file, verbatim... see that rule for why
+# the first " IP: " is the one taken. Keep the two in step.
+rev: 1
+msg: "[VAULTWARDEN] authentication failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - vaultwarden
+message_regexp:
+  - '^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{4})?\])?\[vaultwarden::api::(?:identity|admin|core::two_factor::authenticator)\]\[ERROR\] (?<REASON>Invalid admin token|Invalid TOTP code|Username or password is incorrect)[.!](?:\s+(?!IP:)\S+)* IP: %%%%SRC%%%%(?:\. Username: (?<USER>.*?)\.?)?\s*$'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Aug 31 02:11:22 vault01 vaultwarden[1234]: [vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 192.0.2.4. Username: neti@example.com.'
+      found: 1
+      data:
+        SRC: "192.0.2.4"
+        USER: "neti@example.com"
+    - message: 'Aug 31 02:11:28 vault01 vaultwarden[1234]: [vaultwarden::api::core::two_factor::authenticator][ERROR] Invalid TOTP code! Server time: 2024-08-31 02:11:28 UTC IP: 2001:db8::5'
+      found: 1
+      data:
+        SRC: "2001:db8::5"
+  negative:
+    # right message, wrong daemon
+    - message: 'Aug 31 02:11:29 vault01 sshd[1234]: [vaultwarden::api::admin][ERROR] Invalid admin token. IP: 192.0.2.5'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    - message: 'Aug 31 02:11:30 vault01 vaultwarden[1234]: [vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 192.0.2.6. Username: x IP: 198.51.100.66.'
+      data:
+        SRC: "192.0.2.6"
