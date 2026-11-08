@@ -3249,7 +3249,7 @@ sub _country_of {
 		$iso = defined( $record->{country}{iso_code} ) ? uc( $record->{country}{iso_code} ) : undef;
 	}
 
-	$self->_bound_expiring_store( $self->{country_cache}, $ip, $now );
+	App::Baphomet::Marks::bound_expiring_store( $self->{country_cache}, $ip, $now );
 	$self->{country_cache}{$ip} = { 'iso' => $iso, 'expires' => $now + 60 };
 
 	return $iso;
@@ -3309,10 +3309,16 @@ sub _rdns_resolver {
 	}
 	if ( !defined( $self->{rdns_gate_resolver} ) ) {
 		$self->{rdns_gate_resolver} = {
-			'reverse' => sub { return $self->_rdns_names( $_[0] ); },
-			'forward' => sub { return $self->_rdns_forward( $_[0] ); },
+			'reverse' => sub {
+				my ($address) = @_;
+				return $self->_rdns_cached( 'ptr:' . $address, sub { $self->{dns_reverse}->($address); } );
+			},
+			'forward' => sub {
+				my ($hostname) = @_;
+				return $self->_rdns_cached( 'fwd:' . $hostname, sub { $self->{dns_forward}->($hostname); } );
+			},
 		};
-	}
+	} ## end if ( !defined( $self->{rdns_gate_resolver}...))
 	return $self->{rdns_gate_resolver};
 } ## end sub _rdns_resolver
 
@@ -3355,7 +3361,7 @@ sub _rdns_cached {
 	}
 
 	# bound the cache the way the other stores are bounded
-	$self->_bound_expiring_store( $self->{rdns_cache}, $cache_key, $now );
+	App::Baphomet::Marks::bound_expiring_store( $self->{rdns_cache}, $cache_key, $now );
 	$self->{rdns_cache}{$cache_key} = { 'answer' => $answer, 'expires' => $now + 60 };
 
 	return $answer;
@@ -3371,7 +3377,7 @@ sub _rdns_fire {
 
 	my ( $kind_prefix, $subject ) = split( /:/, $cache_key, 2 );
 
-	$self->_bound_expiring_store( $self->{rdns_cache}, $cache_key, $now );
+	App::Baphomet::Marks::bound_expiring_store( $self->{rdns_cache}, $cache_key, $now );
 	$self->{rdns_cache}{$cache_key} = {
 		'inflight' => 1,
 		'expires'  => $now + ( $self->{rdns_timeout} * 2 ) + 1,
@@ -3429,18 +3435,6 @@ sub _rdns_fire {
 
 	return;
 } ## end sub _rdns_fire
-
-sub _rdns_names {
-	my ( $self, $address ) = @_;
-
-	return $self->_rdns_cached( 'ptr:' . $address, sub { $self->{dns_reverse}->($address); } );
-}
-
-sub _rdns_forward {
-	my ( $self, $hostname ) = @_;
-
-	return $self->_rdns_cached( 'fwd:' . $hostname, sub { $self->{dns_forward}->($hostname); } );
-}
 
 # loads one namtar list slot into the galla's cache, keyed by (type, nocase,
 # path) so a file read as cidr and as strings stay independent... one entry
@@ -3738,16 +3732,6 @@ sub _mark_gates_pass {
 	my ( $self, $gates, $data, $ip, $now ) = @_;
 
 	return App::Baphomet::Marks::mark_gates_pass( $self->{marks}, $gates, $data, $ip, $now );
-}
-
-# the shared expiring-store bound... also used by the DNS, rDNS, and geo
-# caches, being nothing mark-specific
-sub _bound_expiring_store {
-	my ( $self, $store, $key_value, $now ) = @_;
-
-	App::Baphomet::Marks::bound_expiring_store( $store, $key_value, $now );
-
-	return;
 }
 
 # the on_set callback the core calls per landed brand... undef with no bus
@@ -4404,7 +4388,7 @@ sub _resolve_hostname_fence {
 	}
 
 	# bound the cache the way the other stores are bounded
-	$self->_bound_expiring_store( $self->{dns_cache}, $hostname, $now );
+	App::Baphomet::Marks::bound_expiring_store( $self->{dns_cache}, $hostname, $now );
 	$self->{dns_cache}{$hostname} = { 'addrs' => $addrs, 'expires' => $now + 60 };
 
 	return $addrs;
@@ -4434,7 +4418,7 @@ sub _resolve_hostname_async {
 		return;
 	}
 
-	$self->_bound_expiring_store( $self->{dns_cache}, $hostname, $now );
+	App::Baphomet::Marks::bound_expiring_store( $self->{dns_cache}, $hostname, $now );
 	my $entry = $self->{dns_cache}{$hostname} = {
 		'inflight' => 1,
 		'waiters'  => [$done],
@@ -5183,20 +5167,11 @@ sub _send_ban {
 	return;
 } ## end sub _send_ban
 
-# drains the pending ban queues, IP and CIDR alike... the pendings are
-# grouped by owed ban_time and each group goes out as one batched request,
-# so a down Ereshkigal costs the sweep one timeout per group rather than
-# one per subject. a non-IP subject restored off an old tablet falls back
-# through _ban_ip, which resolves-or-drops it as always
-sub _drain_pending_bans {
-	my ($self) = @_;
-
-	$self->_drain_pending_group( $self->{pending_bans},      0 );
-	$self->_drain_pending_group( $self->{pending_cidr_bans}, 1 );
-
-	return;
-}
-
+# drains one pending ban queue, IP or CIDR... the pendings are grouped by
+# owed ban_time and each group goes out as one batched request, so a down
+# Ereshkigal costs the sweep one timeout per group rather than one per
+# subject. a non-IP subject restored off an old tablet falls back through
+# _ban_ip, which resolves-or-drops it as always
 sub _drain_pending_group {
 	my ( $self, $pending, $subnet ) = @_;
 
@@ -5531,7 +5506,8 @@ sub _ledger_compact {
 sub _sweep {
 	my ($self) = @_;
 
-	$self->_drain_pending_bans;
+	$self->_drain_pending_group( $self->{pending_bans},      0 );
+	$self->_drain_pending_group( $self->{pending_cidr_bans}, 1 );
 
 	# so counters for IPs never seen again don't linger forever... any
 	# still-relevant entry gets re-pruned properly on its next hit. the
