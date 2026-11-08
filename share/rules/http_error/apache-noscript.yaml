@@ -2,7 +2,12 @@
 # Matches Apache requests for scripts that do not exist, php, asp, exe, pl,
 # and cgi-bin things, including the php-fpm "Primary script unknown" shape.
 # Based on the fail2ban apache-noscript filter, translated to Baphomet.
-rev: 2
+#
+# cgi-bin needs no trailing slash, so a request for the directory itself
+# counts, and newer mod_cgi words the miss as "stderr from <script>: script
+# not found or unable to stat" (fail2ban a511f9e3). The script path has to end
+# on a word boundary, so cgi-binary and the like are not taken for it.
+rev: 3
 msg: "[APACHE] request for missing script"
 severity: medium
 classtype: web-application-attack
@@ -12,8 +17,9 @@ mark:
 level:
   - error
 message_regexp:
-  - '^(?:[Ff]ile|script|[Gg]ot) (?:does not exist|not found or unable to stat): /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin/)\b'
-  - '^script ''/\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin/)\S*'' not found or unable to stat'
+  - '^(?:[Ff]ile does not exist|[Ss]cript not found or unable to stat): /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b'
+  - '^script ''/\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b\S*'' (?:script )?(?:does not exist|not found or unable to stat)'
+  - '^stderr from /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b\S* (?:script )?(?:does not exist|not found or unable to stat)'
   - '^[Gg]ot error ''[Pp]rimary script unknown(?:\\n)?'''
 tests:
   positive:
@@ -42,7 +48,25 @@ tests:
       found: 1
       data:
         client: "127.0.0.1"
+    # newer mod_cgi's "stderr from", with a script and with only the directory
+    - message: '[Wed Dec 18 23:58:03.148113 2024] [cgi:error] [pid 16720:tid 1878] [client 192.0.2.74:35092] AH02811: stderr from /usr/lib/cgi-bin/luci: script not found or unable to stat'
+      found: 1
+      data:
+        client: "192.0.2.74"
+    - message: '[Wed Jul 30 16:43:26.968908 2025] [cgi:error] [pid 147397:tid 147442] [client 192.0.2.5:33570] AH02811: stderr from /srv/http/cgi-bin: script not found or unable to stat'
+      found: 1
+      data:
+        client: "192.0.2.5"
+    # cgi-bin with no trailing slash
+    - message: '[Wed Jul 30 16:43:27.000000 2025] [cgi:error] [pid 147397:tid 147442] [client 192.0.2.6:33571] AH02811: script not found or unable to stat: /usr/lib/cgi-bin'
+      found: 1
+      data:
+        client: "192.0.2.6"
   negative:
+    # cgi-bin as only the start of a word is not the directory
+    - message: '[Wed Jul 30 16:43:28.000000 2025] [core:error] [pid 1:tid 2] [client 192.0.2.7:33572] AH00128: File does not exist: /var/www/cgi-binary'
+      found: 0
+      undefed: ["client"]
     # not a script, just a plain missing file
     - message: '[Sat Jun 01 02:17:42 2013] [error] [client 192.168.33.1] File does not exist: /var/www/html/index.html'
       found: 0
