@@ -14,7 +14,7 @@
 #
 # List AHEAD of syslog/dovecot: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 4
+rev: 5
 msg: "[DOVECOT] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -47,7 +47,7 @@ message_regexp:
   - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*\brip=%%%%SRC%%%%(?:, lip=|\s*$)'
   # and everything syslog/dovecot counts, verbatim
   - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?:.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
-  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
+  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
   # auth-worker naming the account and address in its own prefix, with the

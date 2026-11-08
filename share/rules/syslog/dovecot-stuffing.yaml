@@ -38,7 +38,7 @@
 # it the watcher's max_score applies, still counting DISTINCT MAILBOXES. Behind a
 # busy NAT five mailboxes failing in an hour is reachable without an attacker, so
 # raise it or put the range in `internal`, and stand it up eve_only first.
-rev: 2
+rev: 3
 msg: "[DOVECOT] credential stuffing... many accounts from one source"
 severity: high
 classtype: brute-force
@@ -54,7 +54,7 @@ mungers:
   - dovecot
 message_regexp:
   - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?: user=<(?<USER>[^>]+)>,.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
-  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?<USER>\S+) rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
+  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?<USER>\S+|.+?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\((?<USER>\S+),%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed:'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\((?<USER>\S+),%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
   - '^(?:dovecot: )?auth(?:-worker)?\((?<USER>\S+),%%%%SRC%%%%(?:,\S*)?\)(?:<[^>]+>){0,2}: (?:request \[\d+\]: )?(?:Info: )?(?:[a-z\-]+: )?(?:\w+_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)|[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
@@ -97,6 +97,11 @@ tests:
       data:
         USER: "eric"
         SRC: "192.0.2.51"
+    # a typed account with a space in it, as ruser
+    - message: "Jul 12 08:15:50 mail01 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=a b rhost=192.0.43.12"
+      data:
+        USER: "a b"
+        SRC: "192.0.43.12"
   negative:
     # a success is no part of this
     - message: "Jun 13 21:48:07 mail01 dovecot: imap-login: Login: user=<bob>, method=PLAIN, rip=192.0.2.99, lip=10.0.0.1, TLS"

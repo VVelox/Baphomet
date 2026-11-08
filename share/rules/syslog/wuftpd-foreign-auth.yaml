@@ -10,7 +10,7 @@
 #
 # List AHEAD of syslog/wuftpd: a domestic event is vetoed here without being
 # consumed, and falls through to be counted there exactly as before.
-rev: 1
+rev: 2
 msg: "[WU-FTPD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
@@ -21,7 +21,7 @@ message_regexp:
   - '^FTP LOGIN FROM \S+ \[%%%%SRC%%%%\], (?<USER>\S+)'
   # and everything syslog/wuftpd counts, verbatim
   - '^failed login from \S+ \[%%%%SRC%%%%\]\s*$'
-  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
+  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
 country:
   isnot:
     - "%%%country_codes{home}%%%"

@@ -2,7 +2,7 @@
 # Matches dovecot auth failures. Based on the fail2ban dovecot filter in
 # its normal mode, translated to Baphomet and simplified... the aggressive
 # mode no-auth-attempt matching is dropped.
-rev: 5
+rev: 6
 msg: "[DOVECOT] authentication failure"
 severity: high
 classtype: brute-force
@@ -35,7 +35,7 @@ message_regexp:
   # address, comma separated, and an account may hold a comma... "x,8.8.8.8"
   # plants an address ahead of the real one. Greedy takes the last there too.
   - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?:.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
-  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
+  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
   - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
   # auth-worker naming the account and address in its own prefix, with the
@@ -160,3 +160,7 @@ tests:
     - message: "Aug 30 09:48:53 mail01 dovecot[2623853]: auth-worker(x,8.8.8.8,192.0.2.51)<566595><SESSION2>: request [3]: pam: pam_authenticate() failed: Authentication failure (Password mismatch?)"
       data:
         SRC: "192.0.2.51"
+    # a forged rhost= in ruser (fail2ban 789571aa)
+    - message: "Jul 12 08:15:50 mail01 dovecot-auth: pam_unix(dovecot:auth): authentication failure; logname= uid=0 euid=0 tty=dovecot ruser=a rhost=8.8.8.8 rhost=192.0.43.11"
+      data:
+        SRC: "192.0.43.11"

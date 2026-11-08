@@ -1,7 +1,7 @@
 ---
 # Matches wu-ftpd failed logins and PAM authentication failures. Based on
 # the fail2ban wuftpd filter, translated to Baphomet.
-rev: 2
+rev: 3
 msg: "[WUFTPD] login failure"
 severity: high
 classtype: brute-force
@@ -12,7 +12,7 @@ daemons:
   - wu-ftpd
 message_regexp:
   - '^failed login from \S+ \[%%%%SRC%%%%\]\s*$'
-  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=\S* rhost=%%%%SRC%%%%(?:\s+user=.*)?\s*$'
+  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
 src_ip_var: SRC
 ban_var:
   - SRC
@@ -34,3 +34,9 @@ tests:
     - message: "Oct  6 09:59:30 myserver wu-ftpd[18761]: successful login from example.com [202.108.145.173]"
       found: 0
       undefed: ["SRC"]
+  injection:
+    # a forged rhost= in ruser, which pam writes ahead of the real one
+    # (fail2ban 789571aa)
+    - message: "Oct 11 16:45:08 ubuntu wu-ftpd[2361]: pam_unix(wu-ftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=a rhost=8.8.8.8 rhost=198.51.100.72"
+      data:
+        SRC: "198.51.100.72"

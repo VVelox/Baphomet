@@ -11,7 +11,7 @@
 # its way to the rhost. It reads the modern pam_unix(service:type) phrasing
 # only, so the older `(pam_unix)` and bare `pam_unix:` forms the regexp still
 # matches arrive with the offender alone.
-rev: 3
+rev: 4
 msg: "[PAM] authentication failure"
 severity: high
 classtype: brute-force
@@ -23,7 +23,7 @@ daemons:
 mungers:
   - pam
 message_regexp:
-  - '^\(?pam_[a-z0-9_]+(?:\(\S+\))?\)?:? authentication failure;(?:\s*(?:logname|e?uid|tty)=\S*){0,4}\s+ruser=\S* rhost=%%%%HOST%%%%(?:\s+user=\S*)?\s*$'
+  - '^\(?pam_[a-z0-9_]+(?:\(\S+\))?\)?:? authentication failure;(?:\s*(?:logname|e?uid|tty)=\S*){0,4}\s+ruser=(?:\S*|.*?) rhost=%%%%HOST%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
 user_var: pam_user
 ban_var:
   - HOST
@@ -45,6 +45,11 @@ tests:
       found: 1
       data:
         HOST: "www.google.com"
+    # an account with a space in it, as ruser
+    - message: "Jul 19 18:11:30 srv2 vsftpd: pam_unix(vsftpd:auth): authentication failure; logname= uid=0 euid=0 tty=ftp ruser=a b rhost=192.0.2.9"
+      found: 1
+      data:
+        HOST: "192.0.2.9"
   negative:
     # pam in the daemon position rather than leading the message
     - message: "Nov 25 17:12:13 webmail pop(pam_unix)[4920]: authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=192.168.10.3 user=mailuser"
@@ -53,3 +58,21 @@ tests:
     - message: "Jul 19 18:11:27 srv2 vsftpd: pam_unix(vsftpd:auth): session opened for user kitsune by (uid=0)"
       found: 0
       undefed: ["HOST"]
+  injection:
+    # A forged rhost= in ruser, which pam writes ahead of the real one, and in
+    # user= after it. Following fail2ban (789571aa), user= may not hold
+    # " rhost=" and ruser may hold anything, so a forgery on both sides is
+    # read as ruser's... pam_unix names user= only for an account that exists,
+    # so it is not the client's to write.
+    - message: "Jul 19 18:11:50 srv2 daemon: pam_unix(auth): authentication failure; logname= uid=0 euid=0 tty=xxx ruser=test rhost=192.0.2.100 rhost=192.0.2.200"
+      data:
+        HOST: "192.0.2.200"
+    - message: "Jul 19 18:11:52 srv2 daemon: pam_unix(auth): authentication failure; logname= uid=0 euid=0 tty=xxx ruser= rhost=192.0.2.101 user=test rhost=192.0.2.201"
+      data:
+        HOST: "192.0.2.201"
+    - message: "Jul 19 18:11:54 host auth[4242]: pam_unix(someservice:auth): authentication failure; logname= uid=0 euid=0 tty=someservice ruser=a rhost=192.0.2.102 user=a rhost=192.0.2.103 user=a rhost=192.0.2.202 user="
+      data:
+        HOST: "192.0.2.202"
+    - message: "Jul 19 18:11:54 host auth[4242]: pam_unix(someservice:auth): authentication failure; logname= uid=0 euid=0 tty=someservice ruser=a rhost=192.0.2.102 user=a rhost=192.0.2.103 user=a rhost=192.0.2.202"
+      data:
+        HOST: "192.0.2.202"
