@@ -1,13 +1,21 @@
 ---
-# Matches OpenVPN authentication and TLS handshake failures. No fail2ban
-# filter exists for this, so it is modelled on Sagan's openvpn.rules and
-# OpenVPN's own server output. Requires OpenVPN to log through syslog
+# Matches OpenVPN authentication and TLS handshake failures. Modelled on
+# Sagan's openvpn.rules and OpenVPN's own server output, with the forms
+# fail2ban's openvpn filter counts. Requires OpenVPN to log through syslog
 # (`--syslog openvpn`, or a systemd unit with SyslogIdentifier=openvpn).
-# Multi-client server lines are prefixed with the peer's <ip>:<port>; the
-# username/password verify failure carries the offender only in that prefix,
-# so those patterns anchor on it. The pre-auth TLS error names the address
-# after `from [AF_INET]` instead.
-rev: 3
+#
+# Multi-client server lines are prefixed with the peer's <ip>:<port>, or
+# <cn>/<ip>:<port> once a certificate has been verified, and most failures
+# carry the offender only in that prefix, so those patterns anchor on it. The
+# cn may hold no ":" or "/", which keeps the optional cn from reaching past
+# the real <ip>:<port> to a "/" later in the line... a VERIFY ERROR names the
+# client's unverified certificate subject, and that is the client's to write.
+# The pre-auth TLS errors name the address after `from [AF_INET]` instead.
+#
+# SIGUSR1[soft,connection-reset] is any TCP client dropping mid-session, so a
+# roaming laptop raises it too. fail2ban counts it for the bad-packet-length
+# attack that ends in it; leave max_score with room for honest reconnects.
+rev: 4
 msg: "[OPENVPN] auth / TLS handshake failure"
 severity: high
 classtype: brute-force
@@ -19,9 +27,8 @@ daemons:
   # on Debian. The bare default would have missed every one of those in silence.
   - //^(?:openvpn|ovpn)(?:[-_@]\w+)?$//
 message_regexp:
-  - '^%%%%SRC%%%%:\d+ TLS Auth Error: Auth Username/Password verification failed for peer'
-  - '^%%%%SRC%%%%:\d+ Decrypt packet error'
-  - 'TLS Error: incoming packet authentication failed from \[AF_INET\]%%%%SRC%%%%:\d+'
+  - '^(?:[^/:]+/)?%%%%SRC%%%%:\d+ (?:TLS Auth Error:|VERIFY ERROR:|TLS Error: TLS handshake failed\b|SIGUSR1\[soft,connection-reset\] received\b|Decrypt packet error)'
+  - 'TLS Error: (?:incoming packet authentication failed|cannot locate HMAC in incoming packet|tls-crypt unwrapping failed) from \[AF_INET6?\]\s*%%%%SRC%%%%:\d+'
 src_ip_var: SRC
 ban_var:
   - SRC
@@ -48,6 +55,36 @@ tests:
       found: 1
       data:
         SRC: "198.51.100.8"
+    # the forms fail2ban's openvpn filter counts
+    - message: "Apr 25 11:19:00 vpngw ovpn-server[13818]: 192.0.2.251:55329 VERIFY ERROR: depth=2, error=unable to get issuer certificate: <ROOT CA>"
+      found: 1
+      data:
+        SRC: "192.0.2.251"
+    - message: "Apr 25 11:19:00 vpngw ovpn-server[13819]: 192.0.2.252:55330 TLS Error: TLS handshake failed"
+      found: 1
+      data:
+        SRC: "192.0.2.252"
+    - message: "Apr 25 11:19:00 vpngw ovpn-server[13820]: TLS Error: cannot locate HMAC in incoming packet from [AF_INET]192.0.2.253:55340"
+      found: 1
+      data:
+        SRC: "192.0.2.253"
+    - message: "Apr 25 10:57:36 vpngw ovpn-server[901]: 198.51.100.30:10107 SIGUSR1[soft,connection-reset] received, client-instance restarting"
+      found: 1
+      data:
+        SRC: "198.51.100.30"
+    # a verified peer, named by its certificate cn
+    - message: "Apr 25 11:19:22 vpngw ovpn-server[13821]: neti/192.0.2.254:64480 TLS Auth Error: Auth Username/Password verification failed for peer"
+      found: 1
+      data:
+        SRC: "192.0.2.254"
+    - message: "Jul 14 08:15:52 vpngw openvpn[1234]: TLS Error: incoming packet authentication failed from [AF_INET6]2001:db8::1:55340"
+      found: 1
+      data:
+        SRC: "2001:db8::1"
+    - message: "Jul 14 08:15:53 vpngw openvpn[1234]: TLS Error: tls-crypt unwrapping failed from [AF_INET]198.51.100.31:1194"
+      found: 1
+      data:
+        SRC: "198.51.100.31"
   negative:
     - message: "Jul 14 08:16:00 vpngw openvpn[1234]: 203.0.113.10:56010 [client1] Peer Connection Initiated with [AF_INET]203.0.113.10:56010"
       found: 0
@@ -58,3 +95,10 @@ tests:
     - message: "Jul 14 08:16:00 vpngw sshd[1]: 203.0.113.10:56010 Decrypt packet error: packet HMAC authentication failed"
       found: 0
       undefed: ["SRC"]
+  injection:
+    # the client's unverified certificate subject, which a VERIFY ERROR names
+    # after the real address, forging a "/<ip>:<port> <failure>" of its own...
+    # the optional cn can not reach past the real <ip>:<port> to it
+    - message: "Apr 25 11:19:01 vpngw ovpn-server[13822]: 192.0.2.250:55331 VERIFY ERROR: depth=0, error=self-signed certificate: C=US/8.8.8.8:1 VERIFY ERROR: x"
+      data:
+        SRC: "192.0.2.250"
