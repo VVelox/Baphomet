@@ -89,19 +89,6 @@ sub _rule_from_path {
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
-	# an explicit --rules-dir means "check exactly this dir", so the shipped
-	# rules are left out; with out it the config's override dir is searched
-	# ahead of the shipped rules, just as at run time
-	my $rules;
-	my $isolated = 0;
-	if ( defined( $opt->rules_dir ) ) {
-		$rules    = App::Baphomet::Rules->new( 'rules_dir' => $opt->rules_dir, 'shipped' => 0 );
-		$isolated = 1;
-	} else {
-		my $config = load_config( $opt->config );
-		$rules = App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
-	}
-
 	# --file names a path outright, so each gets its own resolver rooted above
 	# its type dir and nothing is searched for... which is the way to be certain
 	# WHICH copy of a rule is under test, the resolved shipped dir in a source
@@ -121,16 +108,33 @@ sub execute {
 		);
 	}
 
-	# a named arg may be a %group%, which expands to its members... with no
+	# Named rules, or no --file at all, need the ordinary resolver. It is only
+	# built then, since building it needs a usable rules dir and a run that
+	# names nothing but --file paths has no use for one... with no rules dir on
+	# the host, the config's nor an installed share dir, --file still works.
+	#
+	# An explicit --rules-dir means "check exactly this dir", so the shipped
+	# rules are left out; with out it the config's override dir is searched
+	# ahead of the shipped rules, just as at run time.
+	#
+	# A named arg may be a %group%, which expands to its members... with no
 	# args, and no --file to stand in for them, the whole shipped-plus-override
-	# rule set is walked
+	# rule set is walked.
 	my @names = @{$args};
-	if (@names) {
-		@names = $rules->expand_rules(@names);
-	} elsif ( !@todo ) {
-		@names = $rules->rule_names;
+	if ( @names || !@todo ) {
+		my $rules;
+		my $isolated = 0;
+		if ( defined( $opt->rules_dir ) ) {
+			$rules    = App::Baphomet::Rules->new( 'rules_dir' => $opt->rules_dir, 'shipped' => 0 );
+			$isolated = 1;
+		} else {
+			my $config = load_config( $opt->config );
+			$rules
+				= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
+		}
+		@names = @names ? $rules->expand_rules(@names) : $rules->rule_names;
+		push( @todo, map { { 'name' => $_, 'rules' => $rules, 'isolated' => $isolated } } @names );
 	}
-	push( @todo, map { { 'name' => $_, 'rules' => $rules, 'isolated' => $isolated } } @names );
 
 	if ( !@todo ) {
 		die("No rules found to check\n");

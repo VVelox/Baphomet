@@ -107,6 +107,13 @@ is( $result->exit_code, 0, 'check_rules --file on a good rule exits 0' );
 like( $result->stdout, qr/syslog\/good \.\.\. ok/, '--file derives the rule name from the path' );
 like( $result->stdout, qr/1 rules checked/,          'and checks only that one' );
 
+# --file alone needs neither a config nor a rules dir... a config that does not
+# exist would die the moment either were reached for
+$result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
+	[ 'check_rules', '--config', $dir . '/no-such-config.toml', '--file', $dir . '/rules/syslog/good.yaml' ] );
+is( $result->exit_code, 0, 'check_rules --file reads no config and needs no rules dir' );
+like( $result->stdout, qr/syslog\/good \.\.\. ok/, 'and still checks the rule' );
+
 $result = App::Cmd::Tester->test_app( 'App::Baphomet::App',
 	[ 'check_rules', @config, '--file', $dir . '/rules/syslog/nope.yaml' ] );
 isnt( $result->exit_code, 0, '--file on a path that is not there exits non-zero' );
