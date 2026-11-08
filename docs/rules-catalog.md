@@ -356,6 +356,9 @@ built from the documented output shapes.
 
 - `json/authelia` :: Authelia authentication failures in its own log file
   with `log.format: json`
+- `json/cowrie` :: connections to a Cowrie SSH/telnet honeypot, from its
+  JSON log... one is the verdict (max_score 1), and the source is branded
+  `honeypot` and `recon`
 - `json/gitlab` :: GitLab web portal login failures in the JSON
   `application_json.log`, the default since 15.10... `raw/gitlab` reads the
   plain-text `application.log`

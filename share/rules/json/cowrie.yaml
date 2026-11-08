@@ -1,0 +1,65 @@
+---
+# Matches connections to a Cowrie SSH/telnet honeypot, from its JSON log
+# (var/log/cowrie/cowrie.json). Based on the fail2ban cowrie filter,
+# translated to Baphomet.
+#
+# Nothing has any business connecting to a honeypot, so the connect itself is
+# the offense, and one is the verdict... max_score 1, honored when the kur
+# allows per-rule thresholds (fail2ban's own jail leaves it at its default 5).
+# The source is branded honeypot, which the -condemned and -breach rules
+# elsewhere read, so the trap's catch is known across every watcher sharing
+# the marks.
+#
+# The offender is the src_ip field of the cowrie.session.connect event. The
+# events that follow it in the session (client version, kex, the login and the
+# commands) carry what the client sent, but each in a field of its own, so
+# none can stand in for src_ip.
+rev: 1
+msg: "[COWRIE] connection to the honeypot"
+severity: medium
+classtype: attempted-recon
+mark:
+  - name: recon
+    ttl: 86400
+  - name: honeypot
+    ttl: 86400
+gate:
+  - field: eventid
+    values: [ cowrie.session.connect ]
+match:
+  - field: src_ip
+    regexp: '^%%%%SRC%%%%$'
+src_ip_var: SRC
+src_port_var: src_port
+ban_var:
+  - SRC
+max_score: 1
+tests:
+  positive:
+    - message: '{"session":"2a5e755afa79","protocol":"ssh","src_ip":"192.0.2.9","src_port":37416,"dst_ip":"172.18.0.2","dst_port":2222,"eventid":"cowrie.session.connect","sensor":"580d0186ebeb","uuid":"8c5b1af2-8fc4-11f1-9350-ee70fe9b2de3","timestamp":"2026-08-13T00:00:34.803989Z","message":"New connection: 192.0.2.9:37416 (172.18.0.2:2222) [session: 2a5e755afa79]"}'
+      found: 1
+      data:
+        SRC: "192.0.2.9"
+    - message: '{"session":"9f8e7d6c5b4a","protocol":"telnet","src_ip":"203.0.113.9","src_port":52344,"dst_ip":"172.18.0.2","dst_port":23,"eventid":"cowrie.session.connect","sensor":"580d0186ebeb","uuid":"9f8e7d6c-8fc4-11f1-9350-ee70fe9b2de3","timestamp":"2026-08-13T00:05:00.000000Z","message":"New connection: 203.0.113.9:52344 (172.18.0.2:23) [session: 9f8e7d6c5b4a]"}'
+      found: 1
+      data:
+        SRC: "203.0.113.9"
+    - message: '{"session":"1a2b3c4d5e6f","protocol":"ssh","src_ip":"2001:db8::9","src_port":40000,"dst_ip":"2001:db8::2","dst_port":2222,"eventid":"cowrie.session.connect","timestamp":"2026-08-13T00:06:00.000000Z","message":"New connection: [2001:db8::9]:40000"}'
+      found: 1
+      data:
+        SRC: "2001:db8::9"
+  negative:
+    # the rest of a session is not a second connect
+    - message: '{"session":"2a5e755afa79","protocol":"ssh","src_ip":"192.0.2.9","src_port":37416,"dst_ip":"172.18.0.2","dst_port":2222,"version":"SSH-2.0-Go","eventid":"cowrie.client.version","sensor":"580d0186ebeb","timestamp":"2026-08-13T00:00:34.808236Z","message":"Remote SSH version: SSH-2.0-Go"}'
+      found: 0
+      undefed: ["SRC"]
+    - message: '{"session":"2a5e755afa79","protocol":"ssh","src_ip":"192.0.2.9","src_port":37416,"dst_ip":"172.18.0.2","dst_port":2222,"hassh":"16443846184eafde36765c9bab2f4397","kexAlgs":["mlkem768x25519-sha256","curve25519-sha256"],"eventid":"cowrie.client.kex","sensor":"580d0186ebeb","timestamp":"2026-08-13T00:00:34.810000Z","message":"SSH client hassh fingerprint: 16443846184eafde36765c9bab2f4397"}'
+      found: 0
+      undefed: ["SRC"]
+    - message: '{"session":"2a5e755afa79","protocol":"ssh","src_ip":"192.0.2.9","src_port":37416,"dst_ip":"172.18.0.2","dst_port":2222,"username":"brun","password":"brun","eventid":"cowrie.login.success","sensor":"580d0186ebeb","timestamp":"2026-08-13T00:00:35.273750Z","message":"login attempt [brun/brun] succeeded"}'
+      found: 0
+      undefed: ["SRC"]
+    # a login attempt whose username is an address is still no connect
+    - message: '{"session":"2a5e755afa79","protocol":"ssh","src_ip":"192.0.2.9","src_port":37416,"dst_ip":"172.18.0.2","dst_port":2222,"username":"198.51.100.66","password":"x","eventid":"cowrie.login.failed","sensor":"580d0186ebeb","timestamp":"2026-08-13T00:00:35.400000Z","message":"login attempt [198.51.100.66/x] failed"}'
+      found: 0
+      undefed: ["SRC"]

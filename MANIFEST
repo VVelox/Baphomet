@@ -107,6 +107,7 @@ share/rules/http_error/nginx-limit-req.yaml
 share/rules/http_error/zoneminder.yaml
 share/rules/json/authelia.yaml
 share/rules/json/caddy-botsearch.yaml
+share/rules/json/cowrie.yaml
 share/rules/json/gitlab.yaml
 share/rules/json/mongodb-auth.yaml
 share/rules/json/suricata-attempted-admin.yaml

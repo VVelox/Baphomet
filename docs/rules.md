@@ -1258,7 +1258,7 @@ wired into the same mesh:
 | `brute_force` | 21600 | every shipped rule of classtype `brute-force`... sshd and its variants, the mail/FTP/VoIP auth rules, the panel and database logins |
 | `recon` | 86400 | the scanning classes, classtypes `attempted-recon`, `network-scan`, and the successful-recon pair... scanlogd and portsentry through the fake Googlebot and the matching Suricata classes |
 | `exploit_attempt` | 86400 | the exploit classes, classtypes `web-application-attack`, `attempted-admin`, `attempted-user`, and `shellcode-detect`... the bot searches, shellshock, suhosin, mod_security, and the matching Suricata classes |
-| `honeypot` | 86400 | `raw/portsentry`, a trap by nature... otherwise reserved for your own decoy rules |
+| `honeypot` | 86400 | `raw/portsentry` and `json/cowrie`, a trap by nature... otherwise reserved for your own decoy rules |
 
 The mapping is classtype-driven, so a site rule joins the mesh by carrying
 the classtype's `mark` entry itself... the names are convention, not
