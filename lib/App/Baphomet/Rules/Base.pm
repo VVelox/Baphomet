@@ -1942,15 +1942,18 @@ sub run_tests {
 			next;
 		}
 
+		# any failure below records itself and moves on with next TEST... the
+		# entry is done the moment one check fails, and reaching the bottom is
+		# a pass
 		my $test_int = 0;
-		foreach my $test ( @{ $tests->{$sort} } ) {
+	TEST: foreach my $test ( @{ $tests->{$sort} } ) {
 			my $where = $sort . ' test ' . $test_int;
 			$test_int++;
 
 			if ( ref($test) ne 'HASH' || ( !defined( $test->{message} ) && ref( $test->{messages} ) ne 'ARRAY' ) ) {
 				$results->{fail}++;
 				push( @{ $results->{failures} }, $where . ' is not a hash with a message or a messages array' );
-				next;
+				next TEST;
 			}
 
 			# a injection test with no data block asserts only that the forged
@@ -1962,32 +1965,25 @@ sub run_tests {
 					@{ $results->{failures} },
 					$where . ' has no data block naming the offender the forged line must still aim at'
 				);
-				next;
+				next TEST;
 			}
 
 			# a typo'd assertion key would otherwise be a assertion that
 			# never runs... the very silence this machinery exists to end
-			my $bad_key = 0;
-			foreach my $test_key ( keys( %{$test} ) ) {
-				if ( $test_key
-					!~ /^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo)$/
-					)
-				{
+			my @unknown_keys = grep {
+				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo)$/
+			} keys( %{$test} );
+			if (@unknown_keys) {
+				foreach my $test_key (@unknown_keys) {
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
-					$bad_key = 1;
 				}
-			} ## end foreach my $test_key ( keys( %{$test} ) )
-			if ($bad_key) {
-				next;
+				next TEST;
 			}
 
 			my @messages = defined( $test->{message} ) ? ( $test->{message} ) : @{ $test->{messages} };
 
-			my $parser
-				= defined( $test->{parser} )           ? $test->{parser}
-				: defined( $self->{def}{test_parser} ) ? $self->{def}{test_parser}
-				:                                        $self->default_test_parser;
+			my $parser = $test->{parser} // $self->{def}{test_parser} // $self->default_test_parser;
 
 			# each test entry gets a throwaway correlation scope of its own,
 			# a throwaway mark store, and a virtual clock... the galla state
@@ -2000,13 +1996,13 @@ sub run_tests {
 			if ( defined( $test->{marks_before} )
 				&& $self->_test_marks_seed( \%marks_store, $test->{marks_before}, $clock, $where, $results ) )
 			{
-				next;
+				next TEST;
 			}
 
 			if ( defined( $test->{tracked_before} )
 				&& $self->_test_tracked_seed( \%tracked_store, $test->{tracked_before}, $clock, $where, $results ) )
 			{
-				next;
+				next TEST;
 			}
 
 			# the dns fixture, when the test carries one... a resolver the
@@ -2016,7 +2012,7 @@ sub run_tests {
 			if ( defined( $test->{dns} ) ) {
 				$dns_resolver = $self->_test_dns_resolver( $test->{dns}, $where, $results );
 				if ( !defined($dns_resolver) ) {
-					next;
+					next TEST;
 				}
 			}
 
@@ -2028,48 +2024,101 @@ sub run_tests {
 				my $geo_lists;
 				( $geo_locator, $geo_lists ) = $self->_test_geo_locator( $test->{geo}, $where, $results );
 				if ( !defined($geo_locator) ) {
-					next;
+					next TEST;
 				}
 				eval { $geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where ); };
 				if ($@) {
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $@ );
-					next;
+					next TEST;
 				}
 			} ## end if ( defined( $test->{geo} ) )
 
-			my $gates            = $self->mark_gates;
-			my $marks            = $self->marks;
-			my $unmarks          = $self->unmarks;
-			my $is_detection     = $self->is_detection;
-			my $rdns_gate        = defined($dns_resolver) ? $self->reverse_dns : undef;
+			my $gates        = $self->mark_gates;
+			my $marks        = $self->marks;
+			my $unmarks      = $self->unmarks;
+			my $is_detection = $self->is_detection;
+			my $rdns_gate    = defined($dns_resolver) ? $self->reverse_dns : undef;
+
+			# the data-level gates that vet each result once, in the galla's
+			# order and through the same shared App::Baphomet::Offense pass...
+			# the mark gates always, the reverse_dns and vars country gates when
+			# a fixture stands in. namtar and active_time are galla-only, not
+			# fixtured here. each takes the result's data
+			my @data_gates = (
+				sub {
+					my ($data) = @_;
+					return App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $data, undef, $clock );
+				}
+			);
+			if ( defined($rdns_gate) ) {
+				push(
+					@data_gates,
+					sub {
+						my ($data) = @_;
+						return App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, undef );
+					}
+				);
+			}
+			if ( defined($geo_gate) ) {
+				push(
+					@data_gates,
+					sub {
+						my ($data) = @_;
+						return App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, undef );
+					}
+				);
+			}
+
+			# the per-offender gates a rule file can fixture... the var-less
+			# reverse_dns and country gates. a var-less mark gate is
+			# offender-time, not provable here, as the tests section documents,
+			# so it is not among them. takes the result's data and the offender,
+			# undef when no fixtured gate is var-less
 			my $rdns_has_varless = defined($rdns_gate) && grep { !defined( $_->{var} ) } @{$rdns_gate};
 			my $geo_varless      = defined($geo_gate)  && !defined( $geo_gate->{vars} );
+			my $offender_gate;
+			if ( $rdns_has_varless || $geo_varless ) {
+				$offender_gate = sub {
+					my ( $data, $ip ) = @_;
+					if ( $rdns_has_varless
+						&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
+					{
+						return 0;
+					}
+					if ( $geo_varless
+						&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
+					{
+						return 0;
+					}
+					return 1;
+				}; ## end $offender_gate = sub
+			} ## end if ( $rdns_has_varless || $geo_varless )
 
 			my @found_all;
-			my $entry_failed = 0;
-			my $message_int  = 0;
+			my $message_index = -1;
 			foreach my $message_entry (@messages) {
+				$message_index++;
 				my $message = $message_entry;
 				my ( $found_after, $marks_after, $tracked_after );
 				if ( ref($message_entry) eq 'HASH' ) {
-					foreach my $entry_key ( keys( %{$message_entry} ) ) {
-						if ( $entry_key !~ /^(?:message|advance|at|found_after|marks_after|tracked_after)$/ ) {
+					my @unknown_entry_keys
+						= grep { !/^(?:message|advance|at|found_after|marks_after|tracked_after)$/ }
+						keys( %{$message_entry} );
+					if (@unknown_entry_keys) {
+						foreach my $entry_key (@unknown_entry_keys) {
 							$results->{fail}++;
 							push(
 								@{ $results->{failures} },
 								$where . ' has a messages entry with the unknown key "' . $entry_key . '"'
 							);
-							$entry_failed = 1;
 						}
-					} ## end foreach my $entry_key ( keys( %{$message_entry}...))
-					if ( !$entry_failed && !defined( $message_entry->{message} ) ) {
+						next TEST;
+					} ## end if (@unknown_entry_keys)
+					if ( !defined( $message_entry->{message} ) ) {
 						$results->{fail}++;
 						push( @{ $results->{failures} }, $where . ' has a messages entry hash with no message' );
-						$entry_failed = 1;
-					}
-					if ($entry_failed) {
-						last;
+						next TEST;
 					}
 					$message = $message_entry->{message};
 					# the clock steered ahead of the line, absolute or relative
@@ -2088,8 +2137,7 @@ sub run_tests {
 				if ($@) {
 					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has a unusable parser... ' . $@ );
-					$entry_failed = 1;
-					last;
+					next TEST;
 				}
 				if ( !defined($parsed) ) {
 					$results->{fail}++;
@@ -2097,8 +2145,7 @@ sub run_tests {
 						@{ $results->{failures} },
 						$where . ' message did not parse via ' . $parser . '... "' . $message . '"'
 					);
-					$entry_failed = 1;
-					last;
+					next TEST;
 				}
 
 				# the line context a staged rule's skip bound reads... the
@@ -2108,7 +2155,7 @@ sub run_tests {
 					$parsed,
 					$test_scope,
 					{
-						'seq'    => $message_int,
+						'seq'    => $message_index,
 						'source' => '',
 						'now'    => $clock,
 						# the throwaway record store, the seam the tracked
@@ -2117,95 +2164,57 @@ sub run_tests {
 						'tracked' => \%tracked_store,
 					}
 				);
-				$message_int++;
-				if ( defined($found) ) {
-					foreach my $one ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () ) {
-						# the data-level gates vet the whole result once, through
-						# the same shared App::Baphomet::Offense pass the galla
-						# uses... the mark gates always, the reverse_dns and
-						# vars country gates when a fixture stands in. namtar
-						# and active_time are galla-only, not fixtured here
-						if (
-							!App::Baphomet::Offense::data_gate_pass(
-								[
-									sub {
-										return App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates,
-											$one->{data}, undef, $clock );
-									},
-									sub {
-										return 1 if !defined($rdns_gate);
-										return App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate,
-											$one->{data}, undef );
-									},
-									sub {
-										return 1 if !defined($geo_gate);
-										return App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate,
-											$one->{data}, undef );
-									},
-								]
-							)
-							)
-						{
-							next;
-						} ## end if ( !App::Baphomet::Offense::data_gate_pass...)
-						# offenders as the galla resolves them, sans the
-						# usedns/internal filtering no test needs... a
-						# detection rule has none
-						my @offenders;
-						if ( !$is_detection ) {
-							foreach my $ban_var ( $self->ban_var ) {
-								my $offender = $one->{data}{$ban_var};
-								if ( defined($offender) ) {
-									push( @offenders, $offender );
-								}
-							}
-						}
-						# the per-offender gates a rule file can fixture... the
-						# reverse_dns and the vars country. a var-less mark gate
-						# is offender-time, not provable here, as the tests
-						# section documents, so it is not among them
-						my $data = $one->{data};
-						my $gate;
-						if ( $rdns_has_varless || $geo_varless ) {
-							$gate = sub {
-								my ($ip) = @_;
-								if ( $rdns_has_varless
-									&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip )
-									)
-								{
-									return 0;
-								}
-								if ( $geo_varless
-									&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip )
-									)
-								{
-									return 0;
-								}
-								return 1;
-							}; ## end $gate = sub
-						} ## end if ( $rdns_has_varless || $geo_varless )
 
-						# the survivor filter and the branding of survivors run
-						# through the shared App::Baphomet::Offense core, the
-						# same the galla uses, so the self-test can not drift
-						# from the engine
-						my $offense = App::Baphomet::Offense::resolve_offense(
-							'store'     => \%marks_store,
-							'marks'     => $marks,
-							'unmarks'   => $unmarks,
-							'data'      => $data,
-							'offenders' => \@offenders,
-							'now'       => $clock,
-							'gate'      => $gate,
-						);
-						if ( !$offense->{fired} ) {
-							next;
-						}
+				# a capture line may have completed several deferred offenses
+				my @results_of_line;
+				if ( defined($found) ) {
+					@results_of_line = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
+				}
+				foreach my $one (@results_of_line) {
+					my $data = $one->{data};
+
+					# data_gate_pass takes argument-less checks, so each gate
+					# is bound to this result's data
+					my @data_checks = map {
+						my $gate_check = $_;
+						sub { return $gate_check->($data); }
+					} @data_gates;
+					if ( !App::Baphomet::Offense::data_gate_pass( \@data_checks ) ) {
+						next;
+					}
+
+					# offenders as the galla resolves them, sans the
+					# usedns/internal filtering no test needs... a detection
+					# rule has none
+					my @offenders;
+					if ( !$is_detection ) {
+						@offenders = grep { defined($_) } map { $data->{$_} } $self->ban_var;
+					}
+
+					# the survivor filter and the branding of survivors run
+					# through the shared App::Baphomet::Offense core, the same
+					# the galla uses, so the self-test can not drift from the
+					# engine
+					my $result_offender_gate;
+					if ( defined($offender_gate) ) {
+						$result_offender_gate = sub { return $offender_gate->( $data, $_[0] ); };
+					}
+					my $offense = App::Baphomet::Offense::resolve_offense(
+						'store'     => \%marks_store,
+						'marks'     => $marks,
+						'unmarks'   => $unmarks,
+						'data'      => $data,
+						'offenders' => \@offenders,
+						'now'       => $clock,
+						'gate'      => $result_offender_gate,
+					);
+					if ( $offense->{fired} ) {
 						push( @found_all, $one );
-					} ## end foreach my $one ( $found, ref( $found->{more} )...)
-				} ## end if ( defined($found) )
+					}
+				} ## end foreach my $one (@results_of_line)
 
 				# the mid-run assertions a hash entry carries
+				my $after_where = $where . ' after message ' . $message_index;
 				if ( defined($found_after) && scalar(@found_all) != $found_after ) {
 					$results->{fail}++;
 					push(
@@ -2216,37 +2225,22 @@ sub run_tests {
 							. ' but had found='
 							. scalar(@found_all)
 							. ' after message '
-							. ( $message_int - 1 )
+							. $message_index
 					);
-					$entry_failed = 1;
-					last;
+					next TEST;
 				} ## end if ( defined($found_after) && scalar(@found_all...))
-				if (
-					defined($marks_after)
-					&& $self->_test_marks_assert(
-						\%marks_store, $marks_after, $clock,
-						$where . ' after message ' . ( $message_int - 1 ), $results
-					)
-					)
+				if ( defined($marks_after)
+					&& $self->_test_marks_assert( \%marks_store, $marks_after, $clock, $after_where, $results ) )
 				{
-					$entry_failed = 1;
-					last;
-				} ## end if ( defined($marks_after) && $self->_test_marks_assert...)
-				if (
-					defined($tracked_after)
-					&& $self->_test_tracked_assert(
-						\%tracked_store, $tracked_after, $clock,
-						$where . ' after message ' . ( $message_int - 1 ), $results
-					)
-					)
+					next TEST;
+				}
+				if ( defined($tracked_after)
+					&& $self->_test_tracked_assert( \%tracked_store, $tracked_after, $clock, $after_where,
+						$results ) )
 				{
-					$entry_failed = 1;
-					last;
-				} ## end if ( defined($tracked_after) && $self->_test_tracked_assert...)
+					next TEST;
+				}
 			} ## end foreach my $message_entry (@messages)
-			if ($entry_failed) {
-				next;
-			}
 
 			# a injection test is a positive by default, and deliberately so: the
 			# thing being proven is that a forged line STILL MATCHES and merely
@@ -2256,8 +2250,12 @@ sub run_tests {
 			# plants the right bytes simply goes uncounted, and silently. That
 			# happened once already, to syslog/dovecot, and this default is what
 			# would have caught it
-			my $expected_found
-				= defined( $test->{found} ) ? $test->{found} : ( $sort eq 'negative' ? 0 : 1 );
+			my $expected_found = 1;
+			if ( defined( $test->{found} ) ) {
+				$expected_found = $test->{found};
+			} elsif ( $sort eq 'negative' ) {
+				$expected_found = 0;
+			}
 			my $got_found = scalar(@found_all);
 
 			if ( $got_found != $expected_found ) {
@@ -2273,13 +2271,12 @@ sub run_tests {
 						. ' for "'
 						. $last_message . '"'
 				);
-				next;
+				next TEST;
 			} ## end if ( $got_found != $expected_found )
 
 			my $found = @found_all ? $found_all[-1] : undef;
 
-			my $data_failed = 0;
-			if ( defined( $test->{data} ) && ref( $test->{data} ) eq 'HASH' ) {
+			if ( ref( $test->{data} ) eq 'HASH' ) {
 				foreach my $key ( sort( keys( %{ $test->{data} } ) ) ) {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( !defined($got) || $got ne $test->{data}{$key} ) {
@@ -2293,13 +2290,12 @@ sub run_tests {
 								. '" but got '
 								. ( defined($got) ? '"' . $got . '"' : 'undef' )
 						);
-						$data_failed = 1;
-						last;
+						next TEST;
 					} ## end if ( !defined($got) || $got ne $test->{data...})
 				} ## end foreach my $key ( sort( keys( %{ $test->{data} ...})))
-			} ## end if ( defined( $test->{data} ) && ref( $test...))
+			} ## end if ( ref( $test->{data} ) eq 'HASH' )
 
-			if ( defined( $test->{undefed} ) && ref( $test->{undefed} ) eq 'ARRAY' && !$data_failed ) {
+			if ( ref( $test->{undefed} ) eq 'ARRAY' ) {
 				foreach my $key ( @{ $test->{undefed} } ) {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( defined($got) ) {
@@ -2308,31 +2304,26 @@ sub run_tests {
 							@{ $results->{failures} },
 							$where . ' expected ' . $key . ' to be undef but got "' . $got . '"'
 						);
-						$data_failed = 1;
-						last;
+						next TEST;
 					}
 				} ## end foreach my $key ( @{ $test->{undefed} } )
-			} ## end if ( defined( $test->{undefed} ) && ref( $test...))
+			} ## end if ( ref( $test->{undefed} ) eq 'ARRAY' )
 
-			if (   !$data_failed
-				&& defined( $test->{marks_expected} )
+			if ( defined( $test->{marks_expected} )
 				&& $self->_test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results ) )
 			{
-				$data_failed = 1;
+				next TEST;
 			}
 
-			if (   !$data_failed
-				&& defined( $test->{tracked_expected} )
+			if ( defined( $test->{tracked_expected} )
 				&& $self->_test_tracked_assert( \%tracked_store, $test->{tracked_expected}, $clock, $where,
 					$results ) )
 			{
-				$data_failed = 1;
+				next TEST;
 			}
 
-			if ( !$data_failed ) {
-				$results->{pass}++;
-			}
-		} ## end foreach my $test ( @{ $tests->{$sort} } )
+			$results->{pass}++;
+		} ## end TEST: foreach my $test ( @{ $tests->{$sort} } )
 	} ## end foreach my $sort ( 'positive', 'negative', 'injection')
 
 	return $results;
