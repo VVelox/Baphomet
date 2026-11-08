@@ -1,0 +1,57 @@
+---
+# Matches xrdp remote-desktop login failures in the session manager's own log
+# (/var/log/xrdp-sesman.log). Based on the fail2ban xrdp filter, translated
+# to Baphomet. Through syslog the same lines are syslog/xrdp's. Needs xrdp
+# 0.9.19 or later, with sesman.ini's log level at INFO or higher.
+#
+#   [20220407-12:11:06] [INFO ] AUTHFAIL: user=neti ip=::ffff:192.0.2.151 time=1649351466
+#
+# The account the client typed comes ahead of the address and may hold
+# anything, a whole second "AUTHFAIL: user=x ip=<addr> time=N" included. What
+# it can not do is follow the real one, so the " ip=" taken is the one that
+# ends the line, before the time= sesman writes last. A v4 client through a
+# dual-stack listener is written "::ffff:192.0.2.151", which SRC unwraps.
+#
+# The timestamp is optional so the regexp reads the syslog form verbatim too.
+rev: 1
+msg: "[XRDP] remote desktop login failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+message_regexp:
+  - '^(?:\[\d{8}-\d{2}:\d{2}:\d{2}\] )?\[INFO ?\] AUTHFAIL: user=(?<USER>.+) ip=(?:::ffff:)?%%%%SRC%%%% time=\d+$'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: '[20220407-12:11:06] [INFO ] AUTHFAIL: user=badtypist ip=::ffff:192.0.2.151 time=1649351466'
+      found: 1
+      data:
+        SRC: "192.0.2.151"
+        USER: "badtypist"
+    - message: '[20220407-12:11:07] [INFO ] AUTHFAIL: user=neti ip=2001:db8::151 time=1649351467'
+      found: 1
+      data:
+        SRC: "2001:db8::151"
+  negative:
+    # xrdp itself, not the session manager, and no address of its own
+    - message: '[20220407-12:22:02] [INFO ] xrdp_wm_log_msg: login failed for user neti'
+      found: 0
+      undefed: ["SRC"]
+    # a forged AUTHFAIL with nothing after it to anchor on
+    - message: '[20220407-12:22:03] [INFO ] n[20220407-12:16:59] [INFO ] AUTHFAIL: user=endinjection'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    # an address typed as the account
+    - message: '[20220407-12:11:24] [INFO ] AUTHFAIL: user=198.51.100.1 ip=::ffff:192.0.2.151 time=1649351484'
+      data:
+        SRC: "192.0.2.151"
+    # a whole forged AUTHFAIL in the account, ahead of the real one
+    - message: '[20220407-12:22:02] [INFO ] AUTHFAIL: user=loginjector ip=198.51.100.4 time=123456789\n[20220407-12:16:59] [INFO ] AUTHFAIL: user=endinjection ip=::ffff:192.0.2.151 time=1649352122'
+      data:
+        SRC: "192.0.2.151"

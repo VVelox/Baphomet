@@ -262,6 +262,7 @@ share/rules/raw/stunnel.yaml
 share/rules/raw/tine20.yaml
 share/rules/raw/traefik-auth.yaml
 share/rules/raw/vaultwarden.yaml
+share/rules/raw/xrdp.yaml
 share/rules/raw/znc-adminlog.yaml
 share/rules/syslog/asterisk.yaml
 share/rules/syslog/asterisk_errors.yaml
@@ -368,6 +369,7 @@ share/rules/syslog/webmin-auth.yaml
 share/rules/syslog/wuftpd.yaml
 share/rules/syslog/wuftpd-foreign-auth.yaml
 share/rules/syslog/xinetd-fail.yaml
+share/rules/syslog/xrdp.yaml
 src_bin/baphomet
 src_bin/galla
 t/00-load.t

@@ -17,6 +17,9 @@
 - `syslog/proxmox` :: Proxmox VE web interface and API login failures, as
   pvedaemon logs them, naming the account with its realm
   - daemon gate :: `pvedaemon`
+- `syslog/xrdp` :: xrdp remote-desktop login failures from the session
+  manager through syslog, `raw/xrdp`'s regexp behind a daemon gate
+  - daemon gate :: `xrdp-sesman`
 - `syslog/asterisk` :: Asterisk auth/registration failures
   - daemon gate :: `asterisk`
 - `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,
@@ -489,6 +492,8 @@ field instead, the type being the same either way.
   SELinux audit
 - `raw/vaultwarden` :: Vaultwarden password, TOTP and admin-token failures
   in its own log file... `raw/bitwarden` reads the Bitwarden server's
+- `raw/xrdp` :: xrdp remote-desktop login failures in
+  `/var/log/xrdp-sesman.log` (xrdp 0.9.19+, sesman at INFO)
 - `raw/ejabberd-auth`, `raw/guacamole` :: XMPP and Guacamole auth
   failures
 - `raw/traefik-auth`, `raw/nginx-bad-request` :: web access logs whose

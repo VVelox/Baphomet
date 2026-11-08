@@ -1,0 +1,44 @@
+---
+# Matches xrdp remote-desktop login failures from the session manager through
+# syslog, where syslog stamps the line and xrdp's own timestamp is left off:
+#
+#   xrdp-sesman[41441]: [INFO ] AUTHFAIL: user=neti ip=::ffff:192.0.2.151 time=1649351466
+#
+# Based on the fail2ban xrdp filter. The regexp is raw/xrdp's, which reads
+# /var/log/xrdp-sesman.log, verbatim... see that rule for why the " ip=" that
+# ends the line is the one taken. Keep the two in step.
+rev: 1
+msg: "[XRDP] remote desktop login failure"
+severity: high
+classtype: brute-force
+mark:
+  - name: brute_force
+    ttl: 21600
+daemons:
+  - xrdp-sesman
+message_regexp:
+  - '^(?:\[\d{8}-\d{2}:\d{2}:\d{2}\] )?\[INFO ?\] AUTHFAIL: user=(?<USER>.+) ip=(?:::ffff:)?%%%%SRC%%%% time=\d+$'
+src_ip_var: SRC
+user_var: USER
+ban_var:
+  - SRC
+tests:
+  positive:
+    - message: 'Apr  7 12:11:06 rdp01 xrdp-sesman[41441]: [INFO ] AUTHFAIL: user=badtypist ip=::ffff:192.0.2.151 time=1649351466'
+      found: 1
+      data:
+        SRC: "192.0.2.151"
+        USER: "badtypist"
+  negative:
+    # xrdp itself rather than the session manager... the gate turns it away
+    # even with a forged AUTHFAIL in it
+    - message: 'Apr  7 12:22:02 rdp01 xrdp[52415]: [INFO ] xrdp_wm_log_msg: login failed for user loginjector ip=198.51.100.4 time=12345\n[20220407-12:16:59] [INFO ] AUTHFAIL: user=endinjection'
+      found: 0
+      undefed: ["SRC"]
+  injection:
+    - message: 'Apr  7 12:11:24 rdp01 xrdp-sesman[41441]: [INFO ] AUTHFAIL: user=198.51.100.1 ip=::ffff:192.0.2.151 time=1649351484'
+      data:
+        SRC: "192.0.2.151"
+    - message: 'Apr  7 12:22:02 rdp01 xrdp-sesman[41441]: [INFO ] AUTHFAIL: user=loginjector ip=198.51.100.4 time=123456789\n[20220407-12:16:59] [INFO ] AUTHFAIL: user=endinjection ip=::ffff:192.0.2.151 time=1649352122'
+      data:
+        SRC: "192.0.2.151"
