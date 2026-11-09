@@ -5315,6 +5315,95 @@ sub _compile_boolean {
 	return;
 } ## end sub _compile_boolean
 
+# compiles the fixed-field gates of the http and http_error types... each gate
+# key the def sets becomes a matcher set that the parsed field of the same name
+# must hit.
+#
+# args:
+#   $def    :: the rule's def
+#   $name   :: the rule's name, for the die messages
+#   $fields :: arrayref of the def keys that are field gates, each named for
+#              the parsed field it gates, as status and method are
+#
+# returns nothing. the compiled gates land in $self->{field_gates}, keyed by
+# field. a gate key that is set but is not a non-empty array dies.
+#
+#   $self->_compile_field_gates( $def, $name, [ 'status', 'method' ] );
+sub _compile_field_gates {
+	my ( $self, $def, $name, $fields ) = @_;
+
+	foreach my $field ( @{$fields} ) {
+		if ( !defined( $def->{$field} ) ) {
+			next;
+		}
+		if ( ref( $def->{$field} ) ne 'ARRAY' || !@{ $def->{$field} } ) {
+			die( 'The ' . $field . ' of the rule "' . $name . '" is not a array or is empty' );
+		}
+		$self->{field_gates}{$field}
+			= $self->_compile_matchers( $def->{$field}, 'The ' . $field . ' of the rule "' . $name . '"' );
+	} ## end foreach my $field ( @{$fields} )
+
+	return;
+} ## end sub _compile_field_gates
+
+# whether a parsed line passes the fixed-field gates _compile_field_gates
+# built... every gate's field must hit one of its matchers.
+#
+# args:
+#   $parsed :: the parsed line's hash
+#
+# returns 1 when every gate holds, which it does with none, else 0.
+#
+#   if ( !$self->_field_gates_pass($parsed) ) { return undef; }
+sub _field_gates_pass {
+	my ( $self, $parsed ) = @_;
+
+	foreach my $field ( keys( %{ $self->{field_gates} } ) ) {
+		if ( !$self->_matchers_hit( $self->{field_gates}{$field}, $parsed->{$field} ) ) {
+			return 0;
+		}
+	}
+
+	return 1;
+} ## end sub _field_gates_pass
+
+# the shared middle of the http and http_error checks... the tracked clause and
+# the generic gate, selections, or keywords over the line's field space, then
+# the track harvest, which runs whether or not the line passed. the field space
+# is the type's own _field_space of the line, and is only built here when the
+# boolean, a tracked gate, or a harvest needs it.
+#
+# args:
+#   $parsed   :: the parsed line's hash
+#   $line_ctx :: the line context, for the tracked store and the clock
+#
+# returns the two item list ( $passed, $field_space )... passed 1 when the
+# boolean holds or there is none, else 0, and field_space the hash ref built,
+# or undef when nothing here needed it, for the caller to build once the line
+# has matched.
+#
+#   my ( $passed, $field_space ) = $self->_boolean_and_harvest( $parsed, $line_ctx );
+sub _boolean_and_harvest {
+	my ( $self, $parsed, $line_ctx ) = @_;
+
+	my $field_space;
+	if ( $self->{has_boolean} || defined( $self->{tracks} ) || defined( $self->{track_gates} ) ) {
+		$field_space = $self->_field_space($parsed);
+	}
+
+	# held rather than returned on, as the harvest below runs either way
+	my $passed = 1;
+	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
+		$passed = $self->_offense_boolean_pass( $field_space, undef, $line_ctx ) ? 1 : 0;
+	}
+
+	if ( defined( $self->{tracks} ) ) {
+		$self->_track_sweep( [$field_space], $line_ctx );
+	}
+
+	return ( $passed, $field_space );
+} ## end sub _boolean_and_harvest
+
 # compiles the keywords shorthand into a keyword gate list, ANDed ahead of the
 # gate or selections by _boolean_pass. a plain list searches every field via
 # %%%ANY%%%; the { in, values } form searches a named path, a %%%ANY:prefix%%%

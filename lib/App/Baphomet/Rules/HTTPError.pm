@@ -141,16 +141,7 @@ sub new {
 	# makes it detection-only, counting by that instead
 	$self->_check_detection_var( $def, $name );
 
-	foreach my $gate ( 'level', 'module' ) {
-		if ( !defined( $def->{$gate} ) ) {
-			next;
-		}
-		if ( ref( $def->{$gate} ) ne 'ARRAY' || !@{ $def->{$gate} } ) {
-			die( 'The ' . $gate . ' of the rule "' . $name . '" is not a array or is empty' );
-		}
-		$self->{field_gates}{$gate}
-			= $self->_compile_matchers( $def->{$gate}, 'The ' . $gate . ' of the rule "' . $name . '"' );
-	} ## end foreach my $gate ( 'level', 'module' )
+	$self->_compile_field_gates( $def, $name, [ 'level', 'module' ] );
 
 	# the generic gate / selections / keywords over the parsed fields, the same
 	# machinery the json type uses, ANDed ahead of the message_regexp match
@@ -160,6 +151,8 @@ sub new {
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
 	}
 
+	# each def list compiles into its own slot on the object
+	my %slot_of = ( 'message_regexp' => 'regexps', 'ignore_regexp' => 'ignore_regexps' );
 	foreach my $sort ( 'message_regexp', 'ignore_regexp' ) {
 		if ( !defined( $def->{$sort} ) ) {
 			next;
@@ -168,9 +161,9 @@ sub new {
 			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array' );
 		}
 
-		my $entry_int = 0;
-		foreach my $regexp ( @{ $def->{$sort} } ) {
-			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
+		foreach my $entry_int ( 0 .. $#{ $def->{$sort} } ) {
+			my $regexp = $def->{$sort}[$entry_int];
+			my $where  = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
 			if ( !defined($regexp) || ref($regexp) ne '' ) {
 				die( $where . ' is not a string' );
 			}
@@ -181,9 +174,8 @@ sub new {
 				die( $where . ', "' . $regexp . '", does not compile... ' . $@ );
 			}
 
-			push( @{ $self->{ $sort eq 'message_regexp' ? 'regexps' : 'ignore_regexps' } }, $compiled );
-			$entry_int++;
-		} ## end foreach my $regexp ( @{ $def->{$sort} } )
+			push( @{ $self->{ $slot_of{$sort} } }, $compiled );
+		} ## end foreach my $entry_int ( 0 .. $#{ $def->{$sort} ...})
 	} ## end foreach my $sort ( 'message_regexp', 'ignore_regexp')
 
 	return $self;
@@ -212,10 +204,8 @@ sub check {
 		return undef;
 	}
 
-	foreach my $gate ( keys( %{ $self->{field_gates} } ) ) {
-		if ( !$self->_matchers_hit( $self->{field_gates}{$gate}, $parsed->{$gate} ) ) {
-			return undef;
-		}
+	if ( !$self->_field_gates_pass($parsed) ) {
+		return undef;
 	}
 
 	# a ignore hit vetoes the line entirely, the track harvest included, so it
@@ -227,40 +217,21 @@ sub check {
 		}
 	}
 
-	# the generic gate / selections / keywords over the parsed scalar fields
-	# (the message included, so keywords search the error text), a pre-filter
-	# ANDed ahead of the message_regexp match, with the tracked clause first
-	# among them... the field space is only built when the rule carries a
-	# boolean filter, a tracked gate, or a harvest, and reused for the matched
-	# data below rather than rebuilt
-	my $field_data;
-	my $tracking = defined( $self->{tracks} ) || defined( $self->{track_gates} );
-	if ( $self->{has_boolean} || $tracking ) {
-		$field_data = _scalar_fields($parsed);
-	}
-
-	# the verdict is held rather than returned on, as the harvest below runs
-	# whether or not the line was a offense
-	my $passed = 1;
-	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
-		$passed = $self->_offense_boolean_pass( $field_data, undef, $line_ctx );
-	}
-
-	if ( defined( $self->{tracks} ) ) {
-		$self->_track_sweep( [$field_data], $line_ctx );
-	}
-
+	# the tracked clause and then the generic gate / selections / keywords over
+	# the parsed scalar fields (the message included, so keywords search the
+	# error text), a pre-filter ANDed ahead of the message_regexp match, with
+	# the harvest run either way
+	my ( $passed, $field_space ) = $self->_boolean_and_harvest( $parsed, $line_ctx );
 	if ( !$passed ) {
 		return undef;
 	}
 
-	my $entry_int = 0;
-	foreach my $regexp ( @{ $self->{regexps} } ) {
-		if ( $parsed->{message} =~ $regexp ) {
+	foreach my $entry_int ( 0 .. $#{ $self->{regexps} } ) {
+		if ( $parsed->{message} =~ $self->{regexps}[$entry_int] ) {
 			my %caps = %+;
 
-			my %data = %{ defined($field_data) ? $field_data : _scalar_fields($parsed) };
 			# the parsed fields are authoritative over captures
+			my %data = %{ $field_space // $self->_field_space($parsed) };
 			foreach my $cap ( keys(%caps) ) {
 				if ( !exists( $data{$cap} ) ) {
 					$data{$cap} = $caps{$cap};
@@ -268,16 +239,24 @@ sub check {
 			}
 
 			return { 'data' => \%data, 'regexp' => $entry_int };
-		} ## end if ( $parsed->{message} =~ $regexp )
-		$entry_int++;
-	} ## end foreach my $regexp ( @{ $self->{regexps} } )
+		} ## end if ( $parsed->{message} =~ $self->{regexps...})
+	} ## end foreach my $entry_int ( 0 .. $#{ $self->{regexps...}})
 
 	return undef;
 } ## end sub check
 
-# the defined scalar fields of a parsed line as a fresh hashref
-sub _scalar_fields {
-	my ($parsed) = @_;
+# the field space a http_error rule's gates, harvest, and found data read...
+# every defined scalar field the parser gave the line, the message included.
+#
+# args:
+#   $parsed :: the parsed error-log line's hash
+#
+# returns a fresh hash ref of field to value, undefined and reference values
+# left out.
+#
+#   my $field_space = $self->_field_space($parsed);
+sub _field_space {
+	my ( $self, $parsed ) = @_;
 
 	my %fields;
 	foreach my $field ( keys( %{$parsed} ) ) {
@@ -287,7 +266,7 @@ sub _scalar_fields {
 	}
 
 	return \%fields;
-} ## end sub _scalar_fields
+} ## end sub _field_space
 
 =head2 ban_var
 

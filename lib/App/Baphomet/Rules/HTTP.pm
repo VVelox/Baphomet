@@ -155,16 +155,7 @@ sub new {
 	# a user-agent) makes it detection-only, counting by that instead
 	$self->_check_detection_var( $def, $name );
 
-	foreach my $gate ( 'status', 'method' ) {
-		if ( !defined( $def->{$gate} ) ) {
-			next;
-		}
-		if ( ref( $def->{$gate} ) ne 'ARRAY' || !@{ $def->{$gate} } ) {
-			die( 'The ' . $gate . ' of the rule "' . $name . '" is not a array or is empty' );
-		}
-		$self->{field_gates}{$gate}
-			= $self->_compile_matchers( $def->{$gate}, 'The ' . $gate . ' of the rule "' . $name . '"' );
-	} ## end foreach my $gate ( 'status', 'method' )
+	$self->_compile_field_gates( $def, $name, [ 'status', 'method' ] );
 
 	# the generic gate / selections / keywords over the parsed fields, the same
 	# operator, decode, and boolean machinery the json type uses
@@ -218,10 +209,8 @@ sub check {
 		return undef;
 	}
 
-	foreach my $gate ( keys( %{ $self->{field_gates} } ) ) {
-		if ( !$self->_matchers_hit( $self->{field_gates}{$gate}, $parsed->{$gate} ) ) {
-			return undef;
-		}
+	if ( !$self->_field_gates_pass($parsed) ) {
+		return undef;
 	}
 
 	# a ignore hit vetoes the line entirely, the track harvest included, so it
@@ -234,57 +223,41 @@ sub check {
 		}
 	}
 
-	# the field space, the parsed access-log fields, for the generic gate and
-	# for the returned data... only built ahead of the vetoes when a boolean
-	# filter, a tracked gate, or a harvest needs it, else deferred until the
-	# line has actually matched
-	my $data;
-	my $tracking = defined( $self->{tracks} ) || defined( $self->{track_gates} );
-	if ( $self->{has_boolean} || $tracking ) {
-		$data = $self->_field_data($parsed);
-	}
-
 	# the tracked clause and then the generic gate / selections / keywords,
-	# ANDed ahead of the matches. the verdict is held rather than returned on,
-	# as the harvest below runs whether or not the line was a offense
-	my $passed = 1;
-	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
-		$passed = $self->_offense_boolean_pass( $data, undef, $line_ctx );
-	}
-
-	if ( defined( $self->{tracks} ) ) {
-		$self->_track_sweep( [$data], $line_ctx );
-	}
-
+	# ANDed ahead of the matches, with the harvest run either way
+	my ( $passed, $data ) = $self->_boolean_and_harvest( $parsed, $line_ctx );
 	if ( !$passed ) {
 		return undef;
 	}
 
+	# with match entries the first to match makes the offense, else the gates
+	# alone did
 	my $matched;
-	if ( @{ $self->{matches} } ) {
-		my $entry_int = 0;
-		foreach my $match ( @{ $self->{matches} } ) {
-			my $value = $parsed->{ $match->{field} };
-			if ( defined($value) && $value =~ $match->{regexp} ) {
-				$matched = $entry_int;
-				last;
-			}
-			$entry_int++;
+	foreach my $entry_int ( 0 .. $#{ $self->{matches} } ) {
+		my $match = $self->{matches}[$entry_int];
+		my $value = $parsed->{ $match->{field} };
+		if ( defined($value) && $value =~ $match->{regexp} ) {
+			$matched = $entry_int;
+			last;
 		}
-		if ( !defined($matched) ) {
-			return undef;
-		}
-	} ## end if ( @{ $self->{matches} } )
-
-	if ( !defined($data) ) {
-		$data = $self->_field_data($parsed);
+	}
+	if ( @{ $self->{matches} } && !defined($matched) ) {
+		return undef;
 	}
 
-	return { 'data' => $data, 'regexp' => $matched };
+	return { 'data' => $data // $self->_field_space($parsed), 'regexp' => $matched };
 } ## end sub check
 
-# the known access-log fields of a parsed line as a fresh hashref
-sub _field_data {
+# the field space a http rule's gates, harvest, and found data read... the
+# parsed access-log fields this type knows, those the line carries.
+#
+# args:
+#   $parsed :: the parsed access-log line's hash
+#
+# returns a fresh hash ref of field to value, the undefined fields left out.
+#
+#   my $field_space = $self->_field_space($parsed);
+sub _field_space {
 	my ( $self, $parsed ) = @_;
 
 	my %data;
@@ -295,7 +268,7 @@ sub _field_data {
 	}
 
 	return \%data;
-} ## end sub _field_data
+} ## end sub _field_space
 
 =head2 ban_var
 
