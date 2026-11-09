@@ -6,7 +6,7 @@ use warnings;
 use Exporter   qw( import );
 use List::Util qw( any );
 
-our @EXPORT_OK = qw( mark_key mark_gates_pass mark_set apply_marks bound_expiring_store );
+our @EXPORT_OK = qw( mark_key entry_in_pass mark_gates_pass mark_set apply_marks bound_expiring_store );
 
 =head1 NAME
 
@@ -75,18 +75,21 @@ sub mark_key {
 	return $ip;
 } ## end sub mark_key
 
-# whether a gate entry belongs to the pass being run... a data-keyed entry,
-# one with a var or vars, to the data pass ran with a undef $ip, and a
-# var-less entry to the offender pass ran with one.
-#
-# args:
-#   $entry :: a marked, not_marked, or sequence gate entry
-#   $ip    :: the offender of the offender pass, or undef for the data pass
-#
-# returns 1 when the entry is judged in this pass, else 0.
-#
-#   next if !_entry_in_pass( $entry, $ip );
-sub _entry_in_pass {
+=head2 entry_in_pass
+
+Whether a gate entry belongs to the pass being run. Every gate kind, the mark,
+reverse_dns, and country gates alike, is judged in two passes... once per
+found result with a undef C<$ip>, the data pass, and once per candidate
+offender with that C<$ip>, the offender pass. A data-keyed entry, one naming a
+C<var> or C<vars>, belongs to the data pass, and a var-less one, keyed by the
+offender, to the offender pass. Returns 1 when the entry is judged in this
+pass, else 0.
+
+    foreach my $entry ( grep { entry_in_pass( $_, $ip ) } @{$gate} ) { ... }
+
+=cut
+
+sub entry_in_pass {
 	my ( $entry, $ip ) = @_;
 
 	my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
@@ -175,7 +178,7 @@ sub mark_gates_pass {
 	# a marked gate holds when one of its brands is live for the key and its
 	# value compares all hold... a names entry on any of its listed brands, a
 	# name entry on its one, so a any-of never rides a value it did not prove
-	foreach my $entry ( grep { _entry_in_pass( $_, $ip ) } @{ $gates->{marked} } ) {
+	foreach my $entry ( grep { entry_in_pass( $_, $ip ) } @{ $gates->{marked} } ) {
 		my $key = mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			return 0;
@@ -188,13 +191,13 @@ sub mark_gates_pass {
 		if ( !$held ) {
 			return 0;
 		}
-	} ## end foreach my $entry ( grep { _entry_in_pass( $_, ...)})
+	} ## end foreach my $entry ( grep { entry_in_pass( $_, $ip...)})
 
 	# a not_marked gate is vetoed by a live brand, unless a value compare
 	# provably fails... "not marked with this value" spares a brand whose
 	# stored value differs (value_is) or agrees (value_not), while a compare
 	# with either side missing still vetoes
-	foreach my $entry ( grep { _entry_in_pass( $_, $ip ) } @{ $gates->{not_marked} } ) {
+	foreach my $entry ( grep { entry_in_pass( $_, $ip ) } @{ $gates->{not_marked} } ) {
 		my $key = mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			next;
@@ -203,14 +206,14 @@ sub mark_gates_pass {
 		if ( defined($mark) && _value_verdict( $entry, $mark, $data ) ne 'fails' ) {
 			return 0;
 		}
-	} ## end foreach my $entry ( grep { _entry_in_pass( $_, ...)})
+	} ## end foreach my $entry ( grep { entry_in_pass( $_, $ip...)})
 
 	# the sequence gate... ordered temporal correlation. every named mark must
 	# be live for the key and their first-seen times non-decreasing in the
 	# listed order, so "stage a then b then c" only holds when a fired no later
 	# than b and b no later than c. keyed like the marked gate, by a var's
 	# capture, a vars compound, or, var-less, by the offender
-	foreach my $entry ( grep { _entry_in_pass( $_, $ip ) } @{ $gates->{sequence} } ) {
+	foreach my $entry ( grep { entry_in_pass( $_, $ip ) } @{ $gates->{sequence} } ) {
 		my $key = mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			return 0;
@@ -231,7 +234,7 @@ sub mark_gates_pass {
 				$prev_set = $set;
 			}
 		} ## end foreach my $mark_name ( @{ $entry->{marks} } )
-	} ## end foreach my $entry ( grep { _entry_in_pass( $_, ...)})
+	} ## end foreach my $entry ( grep { entry_in_pass( $_, $ip...)})
 
 	return 1;
 } ## end sub mark_gates_pass

@@ -7,6 +7,7 @@ use Exporter              qw( import );
 use List::Util            qw( any );
 use Socket                qw( AF_INET AF_INET6 inet_pton );
 use App::Baphomet::Config qw( ip_family );
+use App::Baphomet::Marks  qw( entry_in_pass );
 
 our @EXPORT_OK = qw( rdns_gate_pass rdns_entry_pass rdns_addr_eq );
 
@@ -63,27 +64,15 @@ sub rdns_gate_pass {
 		return 1;
 	}
 
-	foreach my $entry ( @{$gate} ) {
-		if ( defined( $entry->{var} ) ) {
-			# a var entry belongs to the data pass... let the offender pass by
-			if ( defined($ip) ) {
-				next;
-			}
-			my $value = $data->{ $entry->{var} };
-			if ( !defined($value) || !rdns_entry_pass( $resolver, $entry, $value, $data ) ) {
-				return 0;
-			}
-		} else {
-			# a var-less entry belongs to the offender pass... let the data
-			# pass by
-			if ( !defined($ip) ) {
-				next;
-			}
-			if ( !rdns_entry_pass( $resolver, $entry, $ip, $data ) ) {
-				return 0;
-			}
-		} ## end else [ if ( defined( $entry->{var} ) ) ]
-	} ## end foreach my $entry ( @{$gate} )
+	# a var entry is judged in the data pass on the var's value, a var-less
+	# one in the offender pass on the offender... a var the result does not
+	# carry fails
+	foreach my $entry ( grep { entry_in_pass( $_, $ip ) } @{$gate} ) {
+		my $address = defined( $entry->{var} ) ? $data->{ $entry->{var} } : $ip;
+		if ( !defined($address) || !rdns_entry_pass( $resolver, $entry, $address, $data ) ) {
+			return 0;
+		}
+	}
 
 	return 1;
 } ## end sub rdns_gate_pass

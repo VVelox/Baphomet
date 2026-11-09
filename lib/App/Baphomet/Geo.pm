@@ -3,7 +3,8 @@ package App::Baphomet::Geo;
 use 5.006;
 use strict;
 use warnings;
-use Exporter qw( import );
+use Exporter             qw( import );
+use App::Baphomet::Marks qw( entry_in_pass );
 
 our @EXPORT_OK = qw( resolve_country_gate country_gate_pass );
 
@@ -101,22 +102,12 @@ sub country_gate_pass {
 		return 1;
 	}
 
-	my @check;
-	if ( defined( $gate->{vars} ) ) {
-		# a vars gate belongs to the data pass... let the offender pass by
-		if ( defined($ip) ) {
-			return 1;
-		}
-		foreach my $var ( @{ $gate->{vars} } ) {
-			push( @check, $data->{$var} );
-		}
-	} else {
-		# a var-less gate belongs to the offender pass... let the data pass by
-		if ( !defined($ip) ) {
-			return 1;
-		}
-		@check = ($ip);
+	# a vars gate is judged in the data pass on each var's value, a var-less
+	# one in the offender pass on the offender... the other pass lets it by
+	if ( !entry_in_pass( $gate, $ip ) ) {
+		return 1;
 	}
+	my @check = defined( $gate->{vars} ) ? ( map { $data->{$_} } @{ $gate->{vars} } ) : ($ip);
 
 	if ( !defined($locator) ) {
 		return 0;
