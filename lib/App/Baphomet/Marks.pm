@@ -3,7 +3,8 @@ package App::Baphomet::Marks;
 use 5.006;
 use strict;
 use warnings;
-use Exporter qw( import );
+use Exporter   qw( import );
+use List::Util qw( any );
 
 our @EXPORT_OK = qw( mark_key mark_gates_pass mark_set apply_marks bound_expiring_store );
 
@@ -74,6 +75,85 @@ sub mark_key {
 	return $ip;
 } ## end sub mark_key
 
+# whether a gate entry belongs to the pass being run... a data-keyed entry,
+# one with a var or vars, to the data pass ran with a undef $ip, and a
+# var-less entry to the offender pass ran with one.
+#
+# args:
+#   $entry :: a marked, not_marked, or sequence gate entry
+#   $ip    :: the offender of the offender pass, or undef for the data pass
+#
+# returns 1 when the entry is judged in this pass, else 0.
+#
+#   next if !_entry_in_pass( $entry, $ip );
+sub _entry_in_pass {
+	my ( $entry, $ip ) = @_;
+
+	my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
+	if ($data_keyed) {
+		return defined($ip) ? 0 : 1;
+	}
+	return defined($ip) ? 1 : 0;
+}
+
+# looks a brand up in the store, live ones only.
+#
+# args:
+#   $store_all :: the mark store, per mark name a hash of branded keys
+#   $mark_name :: the mark name
+#   $key       :: the branded key, as mark_key gives it
+#   $now       :: the current time
+#
+# returns the mark's hash ref, { expires, set?, value? }, or undef when the
+# key carries no such brand or it has expired.
+#
+#   my $mark = _live_mark( $store_all, 'brute_force', '192.0.2.7', $now );
+sub _live_mark {
+	my ( $store_all, $mark_name, $key, $now ) = @_;
+
+	my $mark = $store_all->{$mark_name}{$key};
+	if ( !defined($mark) || $mark->{expires} <= $now ) {
+		return undef;
+	}
+	return $mark;
+}
+
+# judges a gate entry's value compares against a live mark... value_is wants
+# the mark's value to equal the named data var, value_not wants it to differ.
+#
+# args:
+#   $entry :: the gate entry, whose value_is and value_not, either optional,
+#             name the data var to compare against
+#   $mark  :: the live mark's hash ref
+#   $data  :: the result's data hash
+#
+# returns 'fails' when a compare provably fails, both sides present and
+# disagreeing, else 'unknown' when a compare could not be judged for a side
+# missing, else 'holds', which is also the answer with no compares at all.
+#
+#   if ( _value_verdict( $entry, $mark, $data ) eq 'holds' ) { ... }
+sub _value_verdict {
+	my ( $entry, $mark, $data ) = @_;
+
+	my $verdict = 'holds';
+	foreach my $compare ( 'value_is', 'value_not' ) {
+		if ( !defined( $entry->{$compare} ) ) {
+			next;
+		}
+		my $against = $data->{ $entry->{$compare} };
+		if ( !defined( $mark->{value} ) || !defined($against) ) {
+			$verdict = 'unknown';
+			next;
+		}
+		my $same = $mark->{value} eq $against;
+		if ( ( $compare eq 'value_is' && !$same ) || ( $compare eq 'value_not' && $same ) ) {
+			return 'fails';
+		}
+	} ## end foreach my $compare ( 'value_is', 'value_not' )
+
+	return $verdict;
+} ## end sub _value_verdict
+
 =head2 mark_gates_pass
 
 Evaluates a rule's marked/not_marked/sequence gates against a store, in
@@ -81,8 +161,9 @@ one of two modes... with a undef C<$ip> the data-keyed entries (a C<var>
 or C<vars>), ran once per found result, with a C<$ip> the var-less
 entries, offender-keyed and ran once per candidate. Returns true when
 every applicable gate holds. A marked gate with nothing to look up fails,
-a not_marked one passes, and a value compare with either side missing
-counts as holding... conservative on every count.
+a not_marked one passes, and a value compare with either side missing can
+not be proven... so a marked gate does not hold on it, and a not_marked
+brand still vetoes. Conservative on every count.
 
     if ( mark_gates_pass( $store, $gates, $data, $ip, $now ) ) { ... }
 
@@ -91,98 +172,53 @@ counts as holding... conservative on every count.
 sub mark_gates_pass {
 	my ( $store_all, $gates, $data, $ip, $now ) = @_;
 
-	foreach my $entry ( @{ $gates->{marked} } ) {
-		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
-		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
-			next;
-		}
+	# a marked gate holds when one of its brands is live for the key and its
+	# value compares all hold... a names entry on any of its listed brands, a
+	# name entry on its one, so a any-of never rides a value it did not prove
+	foreach my $entry ( grep { _entry_in_pass( $_, $ip ) } @{ $gates->{marked} } ) {
 		my $key = mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			return 0;
 		}
-		# a names entry holds on any of its listed brands, a name entry on
-		# its one... whichever brand is live must also pass the value
-		# compares, so a any-of never rides a value it did not prove
 		my @names = defined( $entry->{names} ) ? @{ $entry->{names} } : ( $entry->{name} );
-		my $held;
-	NAME: foreach my $mark_name (@names) {
-			my $mark = $store_all->{$mark_name}{$key};
-			if ( !defined($mark) || $mark->{expires} <= $now ) {
-				next NAME;
-			}
-			foreach my $compare ( 'value_is', 'value_not' ) {
-				if ( !defined( $entry->{$compare} ) ) {
-					next;
-				}
-				my $against = $data->{ $entry->{$compare} };
-				if ( !defined( $mark->{value} ) || !defined($against) ) {
-					next NAME;
-				}
-				if ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) {
-					next NAME;
-				}
-			} ## end foreach my $compare ( 'value_is', 'value_not' )
-			$held = 1;
-			last NAME;
-		} ## end NAME: foreach my $mark_name (@names)
+		my $held  = any {
+			my $mark = _live_mark( $store_all, $_, $key, $now );
+			defined($mark) && _value_verdict( $entry, $mark, $data ) eq 'holds';
+		} @names;
 		if ( !$held ) {
 			return 0;
 		}
-	} ## end foreach my $entry ( @{ $gates->{marked} } )
+	} ## end foreach my $entry ( grep { _entry_in_pass( $_, ...)})
 
-	foreach my $entry ( @{ $gates->{not_marked} } ) {
-		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
-		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
-			next;
-		}
+	# a not_marked gate is vetoed by a live brand, unless a value compare
+	# provably fails... "not marked with this value" spares a brand whose
+	# stored value differs (value_is) or agrees (value_not), while a compare
+	# with either side missing still vetoes
+	foreach my $entry ( grep { _entry_in_pass( $_, $ip ) } @{ $gates->{not_marked} } ) {
 		my $key = mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			next;
 		}
-		my $mark = $store_all->{ $entry->{name} }{$key};
-		if ( !defined($mark) || $mark->{expires} <= $now ) {
-			next;
-		}
-		# a live brand vetoes, unless a value compare provably fails to
-		# hold... "not marked with this value" spares a brand whose stored
-		# value differs (value_is) or agrees (value_not), while a compare
-		# with either side missing still vetoes
-		my $vetoes = 1;
-		foreach my $compare ( 'value_is', 'value_not' ) {
-			if ( !defined( $entry->{$compare} ) ) {
-				next;
-			}
-			my $against = $data->{ $entry->{$compare} };
-			if (   defined( $mark->{value} )
-				&& defined($against)
-				&& ( $compare eq 'value_is' ? $mark->{value} ne $against : $mark->{value} eq $against ) )
-			{
-				$vetoes = 0;
-			}
-		} ## end foreach my $compare ( 'value_is', 'value_not' )
-		if ($vetoes) {
+		my $mark = _live_mark( $store_all, $entry->{name}, $key, $now );
+		if ( defined($mark) && _value_verdict( $entry, $mark, $data ) ne 'fails' ) {
 			return 0;
 		}
-	} ## end foreach my $entry ( @{ $gates->{not_marked} } )
+	} ## end foreach my $entry ( grep { _entry_in_pass( $_, ...)})
 
 	# the sequence gate... ordered temporal correlation. every named mark must
 	# be live for the key and their first-seen times non-decreasing in the
 	# listed order, so "stage a then b then c" only holds when a fired no later
 	# than b and b no later than c. keyed like the marked gate, by a var's
 	# capture, a vars compound, or, var-less, by the offender
-	foreach my $entry ( @{ $gates->{sequence} } ) {
-		my $data_keyed = defined( $entry->{var} ) || defined( $entry->{vars} );
-		if ( $data_keyed ? defined($ip) : !defined($ip) ) {
-			next;
-		}
+	foreach my $entry ( grep { _entry_in_pass( $_, $ip ) } @{ $gates->{sequence} } ) {
 		my $key = mark_key( $entry, $data, $ip );
 		if ( !defined($key) ) {
 			return 0;
 		}
 		my $prev_set;
 		foreach my $mark_name ( @{ $entry->{marks} } ) {
-			my $mark = $store_all->{$mark_name}{$key};
-			if ( !defined($mark) || $mark->{expires} <= $now ) {
+			my $mark = _live_mark( $store_all, $mark_name, $key, $now );
+			if ( !defined($mark) ) {
 				return 0;
 			}
 			my $set = $mark->{set};
@@ -195,7 +231,7 @@ sub mark_gates_pass {
 				$prev_set = $set;
 			}
 		} ## end foreach my $mark_name ( @{ $entry->{marks} } )
-	} ## end foreach my $entry ( @{ $gates->{sequence} } )
+	} ## end foreach my $entry ( grep { _entry_in_pass( $_, ...)})
 
 	return 1;
 } ## end sub mark_gates_pass
