@@ -471,18 +471,7 @@ sub check {
 			next;
 		}
 		$self->_context_store( $scope, $key_value, \%context, $capture->{ttl}, $now );
-
-		my $pendings = delete( $self->{pending}{$scope}{$key_value} );
-		if ( defined($pendings) ) {
-			foreach my $pending ( @{$pendings} ) {
-				if ( $pending->{expires} <= $now ) {
-					next;
-				}
-				# the offense's own data is authoritative
-				my %data = ( %context, %{ $pending->{caps} } );
-				push( @completions, { 'data' => \%data, 'regexp' => $pending->{regexp} } );
-			}
-		} ## end if ( defined($pendings) )
+		push( @completions, $self->_complete_pendings( $scope, $key_value, \%context, $now ) );
 	} ## end foreach my $capture ( @{ $self->{captures} } )
 
 	# the offense itself... the tracked clause and the boolean pre-filter,
@@ -500,33 +489,27 @@ sub check {
 		$self->_track_sweep( [$gate_fields], $line_ctx );
 	}
 
+	# with no match entries the boolean alone makes the offense... with them
+	# the first entry that matches does, its index the found's regexp
 	my $found;
 	if ( $tracked_pass && $self->_boolean_pass( $gate_fields, undef ) ) {
 		my $matched;
-		my $caps   = {};
-		my $missed = 0;
-		if ( @{ $self->{matches} } ) {
-			my $entry_int = 0;
-			foreach my $match ( @{ $self->{matches} } ) {
-				my $match_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
-				if ( defined($match_caps) ) {
-					$matched = $entry_int;
-					$caps    = $match_caps;
-					last;
-				}
-				$entry_int++;
+		my $caps = {};
+		foreach my $entry_int ( 0 .. $#{ $self->{matches} } ) {
+			my $match      = $self->{matches}[$entry_int];
+			my $match_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
+			if ( defined($match_caps) ) {
+				$matched = $entry_int;
+				$caps    = $match_caps;
+				last;
 			}
-			if ( !defined($matched) ) {
-				$missed = 1;
-			}
-		} ## end if ( @{ $self->{matches} } )
+		}
 
-		if ( !$missed ) {
+		if ( !@{ $self->{matches} } || defined($matched) ) {
 			# the flattened fields merged with the captures, fields
 			# authoritative... and any lifted record fields with them, those
 			# having landed in the copy underneath the event's own
-			my %data = ( %{$caps}, %{$gate_fields} );
-			$found = { 'data' => \%data, 'regexp' => $matched };
+			$found = { 'data' => { %{$caps}, %{$gate_fields} }, 'regexp' => $matched };
 		}
 	} ## end if ( $tracked_pass && $self->_boolean_pass...)
 
@@ -538,41 +521,20 @@ sub check {
 		if ( defined($key_value) ) {
 			my $stored = $self->{context}{$scope}{$key_value};
 			if ( defined($stored) && $stored->{expires} > $now ) {
-				my %data = ( %{ $stored->{data} }, %{ $found->{data} } );
-				$found->{data} = \%data;
-			} elsif ( $self->{defer} ) {
-				# park it awaiting a capture with this key... the line was a
-				# offense, just one that can not be resolved yet
-				my $pendings = $self->{pending}{$scope}{$key_value};
-				if ( !defined($pendings) ) {
-					$pendings = $self->{pending}{$scope}{$key_value} = [];
-				}
-				push(
-					@{$pendings},
-					{ 'caps' => $found->{data}, 'regexp' => $found->{regexp}, 'expires' => $now + $self->{defer} }
-				);
-				# bound runaway pendings per key
-				if ( scalar( @{$pendings} ) > 100 ) {
-					shift( @{$pendings} );
-				}
-				$found = undef;
+				$found->{data} = { %{ $stored->{data} }, %{ $found->{data} } };
 			} else {
-				# unresolved and undeferred... not judged an offense, the
-				# syslog type's fall-through
+				# unresolved, so not a offense on this line... parked to
+				# await a capture with this key when the rule defers, else
+				# simply dropped, the syslog type's fall-through
+				if ( $self->{defer} ) {
+					$self->_park_pending( $scope, $key_value, $found->{data}, $found->{regexp}, $self->{defer}, $now );
+				}
 				$found = undef;
 			}
 		} ## end if ( defined($key_value) )
 	} ## end if ( defined($found) && defined( $self->{correlation_key...}))
 
-	my $primary = $found;
-	if ( !defined($primary) && @completions ) {
-		$primary = shift(@completions);
-	}
-	if ( defined($primary) && @completions ) {
-		$primary->{more} = \@completions;
-	}
-
-	return $primary;
+	return $self->_primary_found( $found, \@completions );
 } ## end sub check
 
 =head2 ban_var

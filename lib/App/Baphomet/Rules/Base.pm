@@ -4325,6 +4325,101 @@ sub _track_sweep {
 	return;
 } ## end sub _track_sweep
 
+# the most deferred offenses held per correlation key... past it the oldest
+# is dropped, so a key whose capture line never comes can not grow forever
+my $PENDING_PER_KEY_MAX = 100;
+
+# completes the offenses deferred under a key, now that a capture line has
+# brought its context... the pendings come off the key whether or not they
+# complete, a expired one simply being dropped.
+#
+# args:
+#   $scope     :: the correlation scope, the watcher name
+#   $key_value :: the joined correlation key the capture line produced
+#   $context   :: hash ref of the capture line's data, which each completion
+#                 takes beneath the deferred offense's own, those winning
+#   $now       :: the current time, against which the pendings expire
+#
+# returns a list of completions, each a found hash of data and regexp, the
+# regexp being what the deferred offense carried. empty when nothing was
+# waiting or all of it had expired.
+#
+#   push( @completions, $self->_complete_pendings( $scope, $key_value, $caps, $now ) );
+sub _complete_pendings {
+	my ( $self, $scope, $key_value, $context, $now ) = @_;
+
+	my $pendings = delete( $self->{pending}{$scope}{$key_value} );
+	if ( !defined($pendings) ) {
+		return ();
+	}
+
+	my @completions;
+	foreach my $pending ( @{$pendings} ) {
+		if ( $pending->{expires} <= $now ) {
+			next;
+		}
+		push( @completions, { 'data' => { %{$context}, %{ $pending->{caps} } }, 'regexp' => $pending->{regexp} } );
+	}
+
+	return @completions;
+} ## end sub _complete_pendings
+
+# parks a offense that can not be resolved yet under its correlation key, to
+# await a capture line with the same key... the line was a offense, just one
+# whose context has not arrived.
+#
+# args:
+#   $scope     :: the correlation scope, the watcher name
+#   $key_value :: the joined correlation key the offense produced
+#   $caps      :: hash ref of the offense's data, authoritative on completion
+#   $regexp    :: the index of the entry that matched, or undef for a json
+#                 rule with no match entries
+#   $defer     :: the seconds the offense waits before it is dropped
+#   $now       :: the current time
+#
+# returns nothing. at most $PENDING_PER_KEY_MAX wait per key, the oldest
+# dropped to make room.
+#
+#   $self->_park_pending( $scope, $key_value, $caps, 0, 60, $now );
+sub _park_pending {
+	my ( $self, $scope, $key_value, $caps, $regexp, $defer, $now ) = @_;
+
+	if ( !defined( $self->{pending}{$scope}{$key_value} ) ) {
+		$self->{pending}{$scope}{$key_value} = [];
+	}
+	my $pendings = $self->{pending}{$scope}{$key_value};
+	push( @{$pendings}, { 'caps' => $caps, 'regexp' => $regexp, 'expires' => $now + $defer } );
+	if ( scalar( @{$pendings} ) > $PENDING_PER_KEY_MAX ) {
+		shift( @{$pendings} );
+	}
+
+	return;
+} ## end sub _park_pending
+
+# folds a line's own offense and the completions its capture lines brought
+# into the one found a check returns... the offense leads, else the first
+# completion does, and the rest ride in its more.
+#
+# args:
+#   $found       :: the line's own found hash, or undef when it was not one
+#   $completions :: arrayref of completion found hashes, left untouched
+#
+# returns the leading found hash, carrying a more arrayref of the others when
+# there are any, or undef when there was neither.
+#
+#   return $self->_primary_found( $found, \@completions );
+sub _primary_found {
+	my ( $self, $found, $completions ) = @_;
+
+	my @rest    = @{$completions};
+	my $primary = $found // shift(@rest);
+	if ( defined($primary) && @rest ) {
+		$primary->{more} = \@rest;
+	}
+
+	return $primary;
+} ## end sub _primary_found
+
 # checks a message against the compiled capture, ignore, and message
 # regexps... returns undef or a found hash with the folded captures,
 # possibly carrying a more array of further completions when a capture
@@ -4360,18 +4455,7 @@ sub _check_message {
 		}
 
 		$self->_context_store( $scope, $key_value, $caps, $capture->{ttl}, $now );
-
-		my $pendings = delete( $self->{pending}{$scope}{$key_value} );
-		if ( defined($pendings) ) {
-			foreach my $pending ( @{$pendings} ) {
-				if ( $pending->{expires} <= $now ) {
-					next;
-				}
-				# the offense's own captures are authoritative
-				my %data = ( %{$caps}, %{ $pending->{caps} } );
-				push( @completions, { 'data' => \%data, 'regexp' => $pending->{regexp} } );
-			}
-		} ## end if ( defined($pendings) )
+		push( @completions, $self->_complete_pendings( $scope, $key_value, $caps, $now ) );
 	} ## end foreach my $capture ( @{ $self->{capture_regexps...}})
 
 	my $found;
@@ -4403,20 +4487,11 @@ sub _check_message {
 		}
 
 		if ( $entry->{defer} ) {
-			# park it awaiting a capture line with this key... the line was
-			# a offense, just one that can not be resolved yet, so further
-			# entries are not tried
-			my $pendings = $self->{pending}{$scope}{$key_value};
-			if ( !defined($pendings) ) {
-				$pendings = $self->{pending}{$scope}{$key_value} = [];
-			}
-			push( @{$pendings}, { 'caps' => $caps, 'regexp' => $entry_int, 'expires' => $now + $entry->{defer} } );
-			# bound runaway pendings per key
-			if ( scalar( @{$pendings} ) > 100 ) {
-				shift( @{$pendings} );
-			}
+			# park it awaiting a capture line with this key... it was the
+			# offense, so further entries are not tried
+			$self->_park_pending( $scope, $key_value, $caps, $entry_int, $entry->{defer}, $now );
 			last;
-		} ## end if ( $entry->{defer} )
+		}
 
 		# unresolved and undeferred, so this entry is not a offense here...
 		# fall through to the remaining entries
@@ -4471,15 +4546,7 @@ sub _check_message {
 		$self->_track_sweep( \@sweep, $line_ctx );
 	}
 
-	my $primary = $found;
-	if ( !defined($primary) && @completions ) {
-		$primary = shift(@completions);
-	}
-	if ( defined($primary) && @completions ) {
-		$primary->{more} = \@completions;
-	}
-
-	return $primary;
+	return $self->_primary_found( $found, \@completions );
 } ## end sub _check_message
 
 # flattens a message that is a JSON object into dotted-path fields, reusing
