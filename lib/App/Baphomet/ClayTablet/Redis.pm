@@ -117,22 +117,14 @@ sub new {
 	my $options = ref( $opts{options} ) eq 'HASH' ? $opts{options} : {};
 
 	my $self = {
-		'name'    => $opts{name},
-		'log_tag' => 'galla-' . ( defined( $opts{name} ) ? $opts{name} : '' ),
-		'prefix'  => defined( $options->{prefix} ) ? $options->{prefix} : 'baphomet',
-		'scope'   => defined( $options->{scope} )  ? $options->{scope}
-		: ( defined( $opts{name} ) ? $opts{name} : 'default' ),
-		'mark_max_ttl' => (
-				   defined( $options->{mark_max_ttl} )
-				&& $options->{mark_max_ttl} =~ /^[0-9]+$/
-				&& $options->{mark_max_ttl} > 0
-			) ? $options->{mark_max_ttl} + 0
-		: 604800,
-		'origin'     => defined( $options->{host} ) ? $options->{host} : Sys::Hostname::hostname(),
-		'outbox'     => [],
-		'outbox_max' => ( defined( $options->{outbox_max} ) && $options->{outbox_max} =~ /^[0-9]+$/ )
-		? $options->{outbox_max} + 0
-		: 10000,
+		'name'          => $opts{name},
+		'log_tag'       => 'galla-' . ( $opts{name} // '' ),
+		'prefix'        => $options->{prefix} // 'baphomet',
+		'scope'         => $options->{scope}  // $opts{name} // 'default',
+		'mark_max_ttl'  => _int_option( $options, 'mark_max_ttl', 1, 604800 ),
+		'origin'        => $options->{host} // Sys::Hostname::hostname(),
+		'outbox'        => [],
+		'outbox_max'    => _int_option( $options, 'outbox_max', 0, 10000 ),
 		'outbox_warned' => 0,
 		'options'       => $options,
 		'redis'         => undef,
@@ -163,9 +155,7 @@ sub new {
 	# bus is a quiet degradation rather than a hang
 	my %args = (
 		'reconnect'   => 0,
-		'cnx_timeout' => ( defined( $options->{cnx_timeout} ) && $options->{cnx_timeout} =~ /^[0-9]+$/ )
-		? $options->{cnx_timeout} + 0
-		: 1,
+		'cnx_timeout' => _int_option( $options, 'cnx_timeout', 0, 1 ),
 	);
 	if ( defined( $options->{sock} ) ) {
 		$args{sock} = $options->{sock};
@@ -182,16 +172,38 @@ sub new {
 		$args{name} = 'baphomet-galla-' . $opts{name};
 	}
 	$self->{redis_args} = \%args;
-	$self->{reconnect_throttle}
-		= ( defined( $options->{reconnect} ) && $options->{reconnect} =~ /^[0-9]+$/ )
-		? $options->{reconnect} + 0
-		: 5;
-	$self->{last_connect_try} = undef;
+
+	# our own reconnect throttle, Redis::Fast's being off
+	$self->{reconnect_throttle} = _int_option( $options, 'reconnect', 0, 5 );
+	$self->{last_connect_try}   = undef;
 
 	$self->_ensure_redis;
 
 	return $self;
 } ## end sub new
+
+# reads a whole number option, falling back to its default when it is unset
+# or unusable.
+#
+# args:
+#   $options :: the backend's options hash
+#   $key     :: the option's name
+#   $minimum :: the least value it may take, 0 or 1
+#   $default :: the value used in its place when it is not a plain digits
+#               string or number at least the minimum
+#
+# returns the option as a number, or the default.
+#
+#   my $outbox_max = _int_option( $options, 'outbox_max', 0, 10000 );
+sub _int_option {
+	my ( $options, $key, $minimum, $default ) = @_;
+
+	my $value = $options->{$key};
+	if ( !defined($value) || ref($value) ne '' || $value !~ /^[0-9]+$/ || $value < $minimum ) {
+		return $default;
+	}
+	return $value + 0;
+}
 
 # (re)connects the Redis if it is down, throttled so a persistent outage does
 # not mean a connect attempt on every call. sets connect_error and leaves redis
