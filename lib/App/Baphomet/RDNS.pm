@@ -3,8 +3,9 @@ package App::Baphomet::RDNS;
 use 5.006;
 use strict;
 use warnings;
-use Exporter qw( import );
-use Socket   qw( AF_INET AF_INET6 inet_pton );
+use Exporter              qw( import );
+use List::Util            qw( any );
+use Socket                qw( AF_INET AF_INET6 inet_pton );
 use App::Baphomet::Config qw( ip_family );
 
 our @EXPORT_OK = qw( rdns_gate_pass rdns_entry_pass rdns_addr_eq );
@@ -87,6 +88,49 @@ sub rdns_gate_pass {
 	return 1;
 } ## end sub rdns_gate_pass
 
+# the terminal verdict a lookup outcome knob gives... on_nxdomain or
+# on_servfail set to pass or fail settles the entry outright, the comparison
+# and negate never seeing it, while compare carries on over whatever names
+# there are.
+#
+# args:
+#   $knob :: the knob's value, 'pass', 'fail', or 'compare'
+#
+# returns 1 for pass, 0 for fail, or undef for compare, meaning no verdict yet.
+#
+#   my $verdict = _outcome_verdict( $entry->{on_servfail} );
+#   if ( defined($verdict) ) { return $verdict; }
+sub _outcome_verdict {
+	my ($knob) = @_;
+
+	if ( $knob eq 'pass' ) {
+		return 1;
+	}
+	if ( $knob eq 'fail' ) {
+		return 0;
+	}
+	return undef;
+} ## end sub _outcome_verdict
+
+# folds a host name the way matches_var compares them... case-insensitive and
+# with any trailing root dots off, so "Crawl.Example.com." equals
+# "crawl.example.com".
+#
+# args:
+#   $name :: the host name, a PTR answer or a found value
+#
+# returns the folded name.
+#
+#   my $folded = _fold_name('Crawl.Example.com.');    # 'crawl.example.com'
+sub _fold_name {
+	my ($name) = @_;
+
+	my $folded = lc($name);
+	$folded =~ s/\.+$//;
+
+	return $folded;
+}
+
 =head2 rdns_entry_pass
 
 Runs one reverse_dns entry against one address... the PTR names, forward
@@ -113,81 +157,62 @@ sub rdns_entry_pass {
 		return 0;
 	}
 
-	# the lookup outcome knobs... pass and fail are terminal verdicts the
-	# comparison and negate never touch, compare proceeds over whatever
-	# names there are
+	# a reverse lookup that failed, or answered no names, may settle the entry
+	# outright by its knob... a failure left to compare simply has no names
 	my $names = $resolver->{reverse}->($address);
 	if ( !defined($names) ) {
-		if ( $entry->{on_servfail} eq 'pass' ) {
-			return 1;
-		}
-		if ( $entry->{on_servfail} eq 'fail' ) {
-			return 0;
+		my $verdict = _outcome_verdict( $entry->{on_servfail} );
+		if ( defined($verdict) ) {
+			return $verdict;
 		}
 		$names = [];
 	} elsif ( !@{$names} ) {
-		if ( $entry->{on_nxdomain} eq 'pass' ) {
-			return 1;
-		}
-		if ( $entry->{on_nxdomain} eq 'fail' ) {
-			return 0;
+		my $verdict = _outcome_verdict( $entry->{on_nxdomain} );
+		if ( defined($verdict) ) {
+			return $verdict;
 		}
 	}
 
 	# forward confirmation... a name only participates when it resolves
-	# back to the address, a spoofed PTR being as good as absent
-	my @confirmed;
-	if ( !$entry->{forward_confirm} ) {
-		@confirmed = @{$names};
-	} else {
+	# back to the address, a spoofed PTR being as good as absent. a forward
+	# lookup that failed may settle the entry by on_servfail, else that name
+	# is simply unconfirmed
+	my @confirmed = @{$names};
+	if ( $entry->{forward_confirm} ) {
+		@confirmed = ();
 		foreach my $ptr_name ( @{$names} ) {
 			my $addrs = $resolver->{forward}->($ptr_name);
 			if ( !defined($addrs) ) {
-				if ( $entry->{on_servfail} eq 'pass' ) {
-					return 1;
+				my $verdict = _outcome_verdict( $entry->{on_servfail} );
+				if ( defined($verdict) ) {
+					return $verdict;
 				}
-				if ( $entry->{on_servfail} eq 'fail' ) {
-					return 0;
-				}
-				# compare... this name is simply unconfirmed
 				next;
-			} ## end if ( !defined($addrs) )
-			if ( grep { rdns_addr_eq( $_, $address ) } @{$addrs} ) {
+			}
+			if ( any { rdns_addr_eq( $_, $address ) } @{$addrs} ) {
 				push( @confirmed, $ptr_name );
 			}
 		} ## end foreach my $ptr_name ( @{$names} )
-	} ## end else [ if ( !$entry->{forward_confirm} ) ]
+	} ## end if ( $entry->{forward_confirm} )
 
-	my $hit = 0;
+	# the comparison, against the regexp or the named found value... a
+	# missing or empty value fails closed, before negate can flip it
+	my $hit;
 	if ( defined( $entry->{regexp} ) ) {
-		foreach my $ptr_name (@confirmed) {
-			if ( $ptr_name =~ $entry->{regexp} ) {
-				$hit = 1;
-				last;
-			}
-		}
+		$hit = any { $_ =~ $entry->{regexp} } @confirmed;
 	} else {
 		my $expected = $data->{ $entry->{matches_var} };
 		if ( !defined($expected) || $expected eq '' ) {
 			return 0;
 		}
-		$expected = lc($expected);
-		$expected =~ s/\.+$//;
-		foreach my $ptr_name (@confirmed) {
-			my $folded = lc($ptr_name);
-			$folded =~ s/\.+$//;
-			if ( $folded eq $expected ) {
-				$hit = 1;
-				last;
-			}
-		}
-	} ## end else [ if ( defined( $entry->{regexp} ) ) ]
-
-	if ( $entry->{negate} ) {
-		$hit = $hit ? 0 : 1;
+		$expected = _fold_name($expected);
+		$hit      = any { _fold_name($_) eq $expected } @confirmed;
 	}
 
-	return $hit;
+	if ( $entry->{negate} ) {
+		return $hit ? 0 : 1;
+	}
+	return $hit ? 1 : 0;
 } ## end sub rdns_entry_pass
 
 =head2 rdns_addr_eq
