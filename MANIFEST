@@ -94,6 +94,7 @@ share/rules/http/botsearch.yaml
 share/rules/http/fakegooglebot.yaml
 share/rules/http/openhab.yaml
 share/rules/http/php-url-fopen.yaml
+share/rules/http/path-scan.yaml
 share/rules/http_error/apache-auth.yaml
 share/rules/http_error/apache-botsearch.yaml
 share/rules/http_error/apache-modsecurity.yaml
@@ -158,6 +159,7 @@ share/rules/json/suricata-unusual-client-port-connection.yaml
 share/rules/json/suricata-web-application-activity.yaml
 share/rules/json/suricata-web-application-attack.yaml
 share/rules/json/suricata.yaml
+share/rules/json/suricata-breadth.yaml
 share/rules/raw/3proxy.yaml
 share/rules/raw/assp.yaml
 share/rules/raw/asterisk.yaml
@@ -266,6 +268,7 @@ share/rules/raw/traefik-auth.yaml
 share/rules/raw/vaultwarden.yaml
 share/rules/raw/xrdp.yaml
 share/rules/raw/znc-adminlog.yaml
+share/rules/raw/nsd.yaml
 share/rules/syslog/asterisk.yaml
 share/rules/syslog/asterisk_errors.yaml
 share/rules/syslog/authelia.yaml
@@ -373,6 +376,14 @@ share/rules/syslog/wuftpd.yaml
 share/rules/syslog/wuftpd-foreign-auth.yaml
 share/rules/syslog/xinetd-fail.yaml
 share/rules/syslog/xrdp.yaml
+share/rules/syslog/asterisk-foreign-auth.yaml
+share/rules/syslog/dovecot-stuffing.yaml
+share/rules/syslog/freeradius-auth.yaml
+share/rules/syslog/freeradius-unknown-client.yaml
+share/rules/syslog/postfix-harvest.yaml
+share/rules/syslog/sshd-stuffing.yaml
+share/rules/syslog/strongswan.yaml
+share/rules/syslog/unbound-refused.yaml
 src_bin/baphomet
 src_bin/galla
 t/00-load.t
@@ -402,6 +413,7 @@ t/manager-socket-live.t
 t/manager-stop-escalate.t
 t/manager-new.t
 t/manager-status.t
+t/manager-status.t
 t/manifest.t
 t/marks-vocabulary.t
 t/marks.t
@@ -420,6 +432,7 @@ t/parser-nginx-error.t
 t/parser-raw.t
 t/parser-syslog.t
 t/per-rule-thresholds.t
+t/promoted-vars.t
 t/rdns.t
 t/pod-coverage.t
 t/pod.t
@@ -454,6 +467,7 @@ t/rule-tests-rdns.t
 t/rules.t
 t/state-tablets.t
 t/stop-wait.t
+t/subject-vars.t
 t/subnet-bans.t
 t/tracked.t
 t/unit-marks.t
