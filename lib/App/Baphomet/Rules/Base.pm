@@ -1352,9 +1352,9 @@ sub _check_common {
 	$self->_check_thresholds($def);
 	$self->_check_marks($def);
 	$self->_check_tracks($def);
-	$self->_check_country($def);
+	$self->_check_is_isnot_gate( $def, 'country' );
 	$self->_check_namtar($def);
-	$self->_check_active_time($def);
+	$self->_check_is_isnot_gate( $def, 'active_time' );
 	$self->_check_reverse_dns($def);
 	$self->_check_distinct($def);
 	$self->_check_promoted_vars($def);
@@ -1403,6 +1403,27 @@ sub ban_var {
 	return @{ $self->{def}{ban_var} };
 }
 
+# the is/isnot gates, which share one shape... is xor isnot, each a entry or a
+# array of them, and vars an optional found var or list of them to check in
+# place of the offender or the clock. per gate, what its die messages call it,
+# the key its getter lists the entries under, and what a entry must look like
+my %IS_ISNOT_GATES = (
+	'country' => {
+		'label'       => 'country',
+		'list_key'    => 'entries',
+		'entry_re'    => qr/^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/,
+		'entry_noun'  => 'entry',
+		'entry_shape' => 'a 2-letter code or a %%%country_codes{name}%%% import',
+	},
+	'active_time' => {
+		'label'       => 'active_time',
+		'list_key'    => 'windows',
+		'entry_re'    => qr/^[a-zA-Z0-9_\-]+$/,
+		'entry_noun'  => 'window name',
+		'entry_shape' => 'a /^[a-zA-Z0-9_\-]+$/ string',
+	},
+);
+
 =head2 country
 
 Returns the rule's country gate normalized, or undef when it has none. The
@@ -1419,24 +1440,8 @@ galla resolves the imports and does the lookups. Cached.
 sub country {
 	my ($self) = @_;
 
-	if ( !exists( $self->{country_parsed} ) ) {
-		my $def = $self->{def}{country};
-		if ( ref($def) ne 'HASH' ) {
-			$self->{country_parsed} = undef;
-		} else {
-			my $mode = defined( $def->{is} ) ? 'is' : 'isnot';
-			$self->{country_parsed} = {
-				'mode'    => $mode,
-				'entries' => [ ref( $def->{$mode} ) eq 'ARRAY' ? @{ $def->{$mode} } : ( $def->{$mode} ) ],
-				'vars'    => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
-				: defined( $def->{vars} ) ? [ $def->{vars} ]
-				:                           undef,
-			};
-		} ## end else [ if ( ref($def) ne 'HASH' ) ]
-	} ## end if ( !exists( $self->{country_parsed} ) )
-
-	return $self->{country_parsed};
-} ## end sub country
+	return $self->_is_isnot_parsed('country');
+}
 
 =head2 reverse_dns
 
@@ -1511,24 +1516,47 @@ names to specs and does the time tests. Cached.
 sub active_time {
 	my ($self) = @_;
 
-	if ( !exists( $self->{active_parsed} ) ) {
-		my $def = $self->{def}{active_time};
-		if ( ref($def) ne 'HASH' ) {
-			$self->{active_parsed} = undef;
-		} else {
-			my $mode = defined( $def->{is} ) ? 'is' : 'isnot';
-			$self->{active_parsed} = {
-				'mode'    => $mode,
-				'windows' => [ ref( $def->{$mode} ) eq 'ARRAY' ? @{ $def->{$mode} } : ( $def->{$mode} ) ],
-				'vars'    => ref( $def->{vars} ) eq 'ARRAY' ? $def->{vars}
-				: defined( $def->{vars} ) ? [ $def->{vars} ]
-				:                           undef,
-			};
-		} ## end else [ if ( ref($def) ne 'HASH' ) ]
-	} ## end if ( !exists( $self->{active_parsed} ) )
+	return $self->_is_isnot_parsed('active_time');
+}
 
-	return $self->{active_parsed};
-} ## end sub active_time
+# normalizes a is/isnot gate for its getter, once per rule... the mode, its
+# entries as a list however the def wrote them, and vars as a list or undef.
+#
+# args:
+#   $gate_key :: the gate's def key, a key of %IS_ISNOT_GATES, country or
+#                active_time
+#
+# returns undef when the rule has no such gate, else a hash ref of mode (is
+# or isnot), the gate's list key (entries or windows) holding the arrayref of
+# its entries, and vars, a arrayref of the found vars to check or undef to
+# check the offender or the clock.
+#
+#   my $parsed = $self->_is_isnot_parsed('country');
+#   # { 'mode' => 'is', 'entries' => [ 'US' ], 'vars' => undef }
+sub _is_isnot_parsed {
+	my ( $self, $gate_key ) = @_;
+
+	if ( exists( $self->{is_isnot_parsed}{$gate_key} ) ) {
+		return $self->{is_isnot_parsed}{$gate_key};
+	}
+
+	my $gate_def = $self->{def}{$gate_key};
+	my $parsed;
+	if ( ref($gate_def) eq 'HASH' ) {
+		my $mode = defined( $gate_def->{is} ) ? 'is' : 'isnot';
+		my $vars;
+		if ( ref( $gate_def->{vars} ) eq 'ARRAY' ) {
+			$vars = $gate_def->{vars};
+		} elsif ( defined( $gate_def->{vars} ) ) {
+			$vars = [ $gate_def->{vars} ];
+		}
+		my @entries = ref( $gate_def->{$mode} ) eq 'ARRAY' ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
+		$parsed = { 'mode' => $mode, $IS_ISNOT_GATES{$gate_key}{list_key} => \@entries, 'vars' => $vars };
+	} ## end if ( ref($gate_def) eq 'HASH' )
+
+	$self->{is_isnot_parsed}{$gate_key} = $parsed;
+	return $parsed;
+} ## end sub _is_isnot_parsed
 
 =head2 distinct
 
@@ -3287,54 +3315,59 @@ sub _check_tracks {
 	return;
 } ## end sub _check_tracks
 
-# dies if the def's country gate is malformed... is xor isnot, each a 2-
-# letter code or a %%%country_codes{name}%%% import, vars an optional list
-# of found vars to check instead of the offender. the token names are
-# resolved against the config later, by the galla, per watcher
-sub _check_country {
-	my ( $self, $def ) = @_;
+# dies if the def's is/isnot gate of the named kind is malformed... the token
+# and window names are resolved against the config later, by the galla, per
+# watcher.
+#
+# args:
+#   $def      :: the rule's def
+#   $gate_key :: the gate's def key, a key of %IS_ISNOT_GATES, country or
+#                active_time
+#
+# returns nothing, dying on the first problem found. a def without the gate
+# passes.
+#
+#   $self->_check_is_isnot_gate( $def, 'country' );
+sub _check_is_isnot_gate {
+	my ( $self, $def, $gate_key ) = @_;
 
-	if ( !defined( $def->{country} ) ) {
+	my $gate_def = $def->{$gate_key};
+	if ( !defined($gate_def) ) {
 		return;
 	}
 
-	my $name  = $self->{name};
-	my $where = 'The country gate of the rule "' . $name . '"';
-	my $c     = $def->{country};
+	my $shape = $IS_ISNOT_GATES{$gate_key};
+	my $where = 'The ' . $shape->{label} . ' gate of the rule "' . $self->{name} . '"';
 
-	if ( ref($c) ne 'HASH' ) {
+	if ( ref($gate_def) ne 'HASH' ) {
 		die( $where . ' is not a hash' );
 	}
-	foreach my $key ( keys( %{$c} ) ) {
+	foreach my $key ( keys( %{$gate_def} ) ) {
 		if ( $key !~ /^(?:is|isnot|vars)$/ ) {
 			die( $where . ' has the unknown key "' . $key . '"' );
 		}
 	}
-	if ( defined( $c->{is} ) && defined( $c->{isnot} ) ) {
+	if ( defined( $gate_def->{is} ) && defined( $gate_def->{isnot} ) ) {
 		die( $where . ' carries both is and isnot' );
 	}
-	if ( !defined( $c->{is} ) && !defined( $c->{isnot} ) ) {
+	if ( !defined( $gate_def->{is} ) && !defined( $gate_def->{isnot} ) ) {
 		die( $where . ' has neither is nor isnot' );
 	}
 
-	my $mode    = defined( $c->{is} )           ? 'is'             : 'isnot';
-	my @entries = ref( $c->{$mode} ) eq 'ARRAY' ? @{ $c->{$mode} } : ( $c->{$mode} );
+	my $mode = defined( $gate_def->{is} ) ? 'is' : 'isnot';
+
+	my @entries = ref( $gate_def->{$mode} ) eq 'ARRAY' ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
 	if ( !@entries ) {
 		die( $where . ' ' . $mode . ' is empty' );
 	}
 	foreach my $entry (@entries) {
-		if (  !defined($entry)
-			|| ref($entry) ne ''
-			|| $entry !~ /^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/ )
-		{
-			die(      $where . ' '
-					. $mode
-					. ' has a entry that is not a 2-letter code or a %%%country_codes{name}%%% import' );
+		if ( !defined($entry) || ref($entry) ne '' || $entry !~ $shape->{entry_re} ) {
+			die( $where . ' ' . $mode . ' has a ' . $shape->{entry_noun} . ' that is not ' . $shape->{entry_shape} );
 		}
-	} ## end foreach my $entry (@entries)
+	}
 
-	if ( defined( $c->{vars} ) ) {
-		my @vars = ref( $c->{vars} ) eq 'ARRAY' ? @{ $c->{vars} } : ( $c->{vars} );
+	if ( defined( $gate_def->{vars} ) ) {
+		my @vars = ref( $gate_def->{vars} ) eq 'ARRAY' ? @{ $gate_def->{vars} } : ( $gate_def->{vars} );
 		if ( !@vars ) {
 			die( $where . ' vars is empty' );
 		}
@@ -3343,10 +3376,10 @@ sub _check_country {
 				die( $where . ' vars has a entry that is not a non-empty string' );
 			}
 		}
-	} ## end if ( defined( $c->{vars} ) )
+	} ## end if ( defined( $gate_def->{vars} ) )
 
 	return;
-} ## end sub _check_country
+} ## end sub _check_is_isnot_gate
 
 # dies if the def's reverse_dns gate is malformed, compiling it onto the
 # object... a array of entries, each comparing the PTR names of an address
@@ -3471,62 +3504,6 @@ sub _check_namtar {
 
 	return;
 } ## end sub _check_namtar
-
-# dies if the def's active_time gate is malformed... is xor isnot, each a
-# window name or a array of them, vars an optional list of found vars whose
-# times to check instead of now. the window names are resolved against the
-# config later, by the galla, per watcher
-sub _check_active_time {
-	my ( $self, $def ) = @_;
-
-	if ( !defined( $def->{active_time} ) ) {
-		return;
-	}
-
-	my $name  = $self->{name};
-	my $where = 'The active_time gate of the rule "' . $name . '"';
-	my $a     = $def->{active_time};
-
-	if ( ref($a) ne 'HASH' ) {
-		die( $where . ' is not a hash' );
-	}
-	foreach my $key ( keys( %{$a} ) ) {
-		if ( $key !~ /^(?:is|isnot|vars)$/ ) {
-			die( $where . ' has the unknown key "' . $key . '"' );
-		}
-	}
-	if ( defined( $a->{is} ) && defined( $a->{isnot} ) ) {
-		die( $where . ' carries both is and isnot' );
-	}
-	if ( !defined( $a->{is} ) && !defined( $a->{isnot} ) ) {
-		die( $where . ' has neither is nor isnot' );
-	}
-
-	my $mode    = defined( $a->{is} )           ? 'is'             : 'isnot';
-	my @windows = ref( $a->{$mode} ) eq 'ARRAY' ? @{ $a->{$mode} } : ( $a->{$mode} );
-	if ( !@windows ) {
-		die( $where . ' ' . $mode . ' is empty' );
-	}
-	foreach my $window (@windows) {
-		if ( !defined($window) || ref($window) ne '' || $window !~ /^[a-zA-Z0-9_\-]+$/ ) {
-			die( $where . ' ' . $mode . ' has a window name that is not a /^[a-zA-Z0-9_\-]+$/ string' );
-		}
-	}
-
-	if ( defined( $a->{vars} ) ) {
-		my @vars = ref( $a->{vars} ) eq 'ARRAY' ? @{ $a->{vars} } : ( $a->{vars} );
-		if ( !@vars ) {
-			die( $where . ' vars is empty' );
-		}
-		foreach my $var (@vars) {
-			if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
-				die( $where . ' vars has a entry that is not a non-empty string' );
-			}
-		}
-	} ## end if ( defined( $a->{vars} ) )
-
-	return;
-} ## end sub _check_active_time
 
 # checks the distinct-cardinality spec, dieing on anything unusable... a table
 # with a of naming the found var whose distinct values the galla counts
