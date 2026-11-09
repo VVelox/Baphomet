@@ -1309,11 +1309,45 @@ sub _check_detection_var {
 	return 1;
 } ## end sub _check_detection_var
 
-# the def checks every handler runs... the gate family, the thresholds,
-# and the tests shape, one call so a new gate check can not be forgotten
-# in one type
+# the def keys every rule type allows, the ones _check_common goes on to
+# vet... a type adds only its own matcher keys to these
+my @COMMON_DEF_KEYS = qw(
+	gate selections condition keywords
+	detection_var ban_not_internal src_ip_var src_port_var dest_ip_var dest_port_var user_var
+	max_score find_time ban_time weight eve_only distinct
+	msg severity classtype references attack rev
+	mark unmark marked not_marked mark_only sequence
+	track tracked not_tracked track_only
+	country namtar_list active_time reverse_dns
+	tests test_parser
+);
+
+# the def checks every handler runs, one call so a new key or gate check can
+# not be forgotten in one type... that the def is a hash, that it names only
+# the common keys and the type's own, then the gate family, the thresholds,
+# and the tests shape.
+#
+# args:
+#   $def       :: the rule's def, as read from its file
+#   $name      :: the rule's name, for the die messages
+#   $type_keys :: arrayref of the def keys this type allows past the common
+#                 ones, its matcher keys
+#
+# returns nothing, dying on the first problem found.
+#
+#   $self->_check_common( $def, $name, [ 'status', 'method', 'match', 'ignore' ] );
 sub _check_common {
-	my ( $self, $def, $name ) = @_;
+	my ( $self, $def, $name, $type_keys ) = @_;
+
+	if ( ref($def) ne 'HASH' ) {
+		die( 'The def for the rule "' . $name . '" is not a hash' );
+	}
+	my %allowed_keys = map { $_ => 1 } ( @COMMON_DEF_KEYS, @{$type_keys} );
+	foreach my $key ( keys( %{$def} ) ) {
+		if ( !$allowed_keys{$key} ) {
+			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
+		}
+	}
 
 	$self->_check_thresholds($def);
 	$self->_check_marks($def);

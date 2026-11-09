@@ -269,7 +269,7 @@ sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		name            => defined( $opts{name} ) ? $opts{name} : 'unnamed',
+		name            => $opts{name} // 'unnamed',
 		def             => $opts{def},
 		daemon_matchers => undef,
 		gates           => [],
@@ -280,19 +280,8 @@ sub new {
 	my $name = $self->{name};
 	my $def  = $opts{def};
 
-	if ( ref($def) ne 'HASH' ) {
-		die( 'The def for the rule "' . $name . '" is not a hash' );
-	}
-
-	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key
-			!~ /^(?:daemons|message_regexp|ignore_regexp|capture_regexp|message_json|stages|per|gate|selections|condition|keywords|ban_var|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|track|tracked|not_tracked|track_only|country|namtar_list|active_time|reverse_dns|distinct|mungers|test_parser|tests|src_ip_var|dest_ip_var|src_port_var|dest_port_var|user_var)$/
-			)
-		{
-			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
-		}
-	}
-	$self->_check_common( $def, $name );
+	$self->_check_common( $def, $name,
+		[qw( daemons message_regexp ignore_regexp capture_regexp message_json stages per ban_var mungers )] );
 
 	# the optional Log-Munger enrichment pass... validated and stored here,
 	# the processor built lazily (or prewarmed by the galla)

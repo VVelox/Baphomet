@@ -138,7 +138,7 @@ sub new {
 	my ( $blank, %opts ) = @_;
 
 	my $self = {
-		name        => defined( $opts{name} ) ? $opts{name} : 'unnamed',
+		name        => $opts{name} // 'unnamed',
 		def         => $opts{def},
 		field_gates => {},
 		matches     => [],
@@ -149,19 +149,7 @@ sub new {
 	my $name = $self->{name};
 	my $def  = $opts{def};
 
-	if ( ref($def) ne 'HASH' ) {
-		die( 'The def for the rule "' . $name . '" is not a hash' );
-	}
-
-	foreach my $key ( keys( %{$def} ) ) {
-		if ( $key
-			!~ /^(?:status|method|gate|selections|condition|keywords|match|ignore|detection_var|ban_not_internal|max_score|find_time|ban_time|weight|eve_only|msg|severity|classtype|references|attack|rev|mark|unmark|marked|not_marked|mark_only|sequence|track|tracked|not_tracked|track_only|country|namtar_list|active_time|reverse_dns|distinct|test_parser|tests|src_ip_var|dest_ip_var|src_port_var|dest_port_var|user_var)$/
-			)
-		{
-			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
-		}
-	}
-	$self->_check_common( $def, $name );
+	$self->_check_common( $def, $name, [qw( status method match ignore )] );
 
 	# an http rule banishes host by default, but naming a detection_var (a URI,
 	# a user-agent) makes it detection-only, counting by that instead
