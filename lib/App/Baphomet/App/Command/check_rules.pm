@@ -140,12 +140,15 @@ sub execute {
 				$gid_label = ' (site override dir)';
 			}
 			print '    gid       ' . $rule->gid . $gid_label . "\n";
+			# how many tests each section the rule carries holds
 			my $tests = ref( $rule->{def}{tests} ) eq 'HASH' ? $rule->{def}{tests} : {};
-			print '    tests     '
-				. join( ', ',
-				map { $_ . ' ' . scalar( @{ $tests->{$_} } ) }
-				grep { ref( $tests->{$_} ) eq 'ARRAY' } ( 'positive', 'negative', 'injection' ) )
-				. "\n";
+			my @section_counts;
+			foreach my $section ( 'positive', 'negative', 'injection' ) {
+				if ( ref( $tests->{$section} ) eq 'ARRAY' ) {
+					push( @section_counts, $section . ' ' . scalar( @{ $tests->{$section} } ) );
+				}
+			}
+			print '    tests     ' . join( ', ', @section_counts ) . "\n";
 			if ( my @mungers = $rule->mungers ) {
 				print '    mungers   ' . join( ', ', @mungers ) . "\n";
 			}

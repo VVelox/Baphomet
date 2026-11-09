@@ -3858,8 +3858,12 @@ sub _check_stages_core {
 	if ( !defined($scope) ) {
 		$scope = '';
 	}
-	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
-	my $seq = ref($line_ctx) eq 'HASH' && defined( $line_ctx->{seq} )     ? $line_ctx->{seq} : undef;
+	# a missing line context reads as a empty one
+	if ( ref($line_ctx) ne 'HASH' ) {
+		$line_ctx = {};
+	}
+	my $now = $line_ctx->{now} // time;
+	my $seq = $line_ctx->{seq};
 
 	my $stages = $self->{stages};
 	my $store  = $self->{stage_state}{$scope};
@@ -3889,7 +3893,7 @@ sub _check_stages_core {
 	my $slot_key = sub {
 		my ($caps) = @_;
 		if ( !defined( $self->{per_key} ) ) {
-			return ref($line_ctx) eq 'HASH' && defined( $line_ctx->{source} ) ? $line_ctx->{source} : '';
+			return $line_ctx->{source} // '';
 		}
 		return $self->_correlation_key_value( { 'key' => $self->{per_key} }, $caps, $envelope );
 	};
@@ -4228,8 +4232,13 @@ sub _tracked_pass {
 		return 1;
 	}
 
-	my $store = ( ref($line_ctx) eq 'HASH' && ref( $line_ctx->{tracked} ) eq 'HASH' ) ? $line_ctx->{tracked} : {};
-	my $now   = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) )           ? $line_ctx->{now}     : time;
+	# a missing line context reads as a empty one, and a missing store as a
+	# empty store
+	if ( ref($line_ctx) ne 'HASH' ) {
+		$line_ctx = {};
+	}
+	my $store = ref( $line_ctx->{tracked} ) eq 'HASH' ? $line_ctx->{tracked} : {};
+	my $now   = $line_ctx->{now} // time;
 
 	foreach my $gate ( @{ $gates->{tracked} } ) {
 		my $key = track_key( $gate, $data );
@@ -4327,11 +4336,12 @@ sub _track_sweep {
 		return;
 	}
 
-	my $store = ( ref($line_ctx) eq 'HASH' && ref( $line_ctx->{tracked} ) eq 'HASH' ) ? $line_ctx->{tracked} : undef;
-	if ( !defined($store) ) {
+	# nothing to harvest into with out a line context carrying a store
+	if ( ref($line_ctx) ne 'HASH' || ref( $line_ctx->{tracked} ) ne 'HASH' ) {
 		return;
 	}
-	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
+	my $store = $line_ctx->{tracked};
+	my $now   = $line_ctx->{now} // time;
 
 	foreach my $data ( @{$sources} ) {
 		foreach my $track ( @{$tracks} ) {
@@ -4467,7 +4477,11 @@ sub _check_message {
 	if ( !defined($scope) ) {
 		$scope = '';
 	}
-	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
+	# a missing line context reads as a empty one
+	if ( ref($line_ctx) ne 'HASH' ) {
+		$line_ctx = {};
+	}
+	my $now = $line_ctx->{now} // time;
 
 	# a ignore_regexp match vetoes the line entirely
 	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
@@ -4493,22 +4507,17 @@ sub _check_message {
 	} ## end foreach my $capture ( @{ $self->{capture_regexps...}})
 
 	my $found;
-	my $entry_int = 0;
-	foreach my $entry ( @{ $self->{regexps} } ) {
-		my $caps = $self->_match_tokened( $entry, $message );
+	foreach my $entry_int ( 0 .. $#{ $self->{regexps} } ) {
+		my $entry = $self->{regexps}[$entry_int];
+		my $caps  = $self->_match_tokened( $entry, $message );
 		if ( !defined($caps) ) {
-			$entry_int++;
 			next;
 		}
 
-		if ( !defined( $entry->{key} ) ) {
-			$found = { 'data' => $caps, 'regexp' => $entry_int };
-			last;
-		}
-
-		my $key_value = $self->_correlation_key_value( $entry, $caps, $envelope );
+		# a entry with no key, or a key component that did not participate,
+		# has nothing to correlate, so it is the offense as it stands
+		my $key_value = defined( $entry->{key} ) ? $self->_correlation_key_value( $entry, $caps, $envelope ) : undef;
 		if ( !defined($key_value) ) {
-			# a key component did not participate, so nothing to correlate
 			$found = { 'data' => $caps, 'regexp' => $entry_int };
 			last;
 		}
@@ -4529,8 +4538,7 @@ sub _check_message {
 
 		# unresolved and undeferred, so this entry is not a offense here...
 		# fall through to the remaining entries
-		$entry_int++;
-	} ## end foreach my $entry ( @{ $self->{regexps} } )
+	} ## end foreach my $entry_int ( 0 .. $#{ $self->{regexps...}})
 
 	# message_json... with no message_regexp the offense is the extra fields
 	# themselves (the json body and syslog envelope), synthesized here so the

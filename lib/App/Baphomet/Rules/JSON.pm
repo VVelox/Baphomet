@@ -418,7 +418,11 @@ sub check {
 	if ( !defined($scope) ) {
 		$scope = '';
 	}
-	my $now = ( ref($line_ctx) eq 'HASH' && defined( $line_ctx->{now} ) ) ? $line_ctx->{now} : time;
+	# a missing line context reads as a empty one
+	if ( ref($line_ctx) ne 'HASH' ) {
+		$line_ctx = {};
+	}
+	my $now = $line_ctx->{now} // time;
 
 	# a ignore hit vetoes the line entirely, context harvest included
 	foreach my $ignore ( @{ $self->{ignores} } ) {

@@ -297,10 +297,12 @@ sub mark_set {
 
 	bound_expiring_store( $store, $key, $now );
 
-	my $set
-		= ( defined( $store->{$key} ) && defined( $store->{$key}{set} ) && $store->{$key}{expires} > $now )
-		? $store->{$key}{set}
-		: $now;
+	# a live brand keeps when it was first set, a new or lapsed one starts now
+	my $held = $store->{$key};
+	my $set  = $now;
+	if ( defined($held) && defined( $held->{set} ) && $held->{expires} > $now ) {
+		$set = $held->{set};
+	}
 	$store->{$key} = { 'expires' => $now + $ttl, 'set' => $set, defined($value) ? ( 'value' => $value ) : () };
 
 	if ( defined($on_set) ) {
