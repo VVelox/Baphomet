@@ -206,7 +206,7 @@ Takes the following options.
 sub load {
 	my ( $self, $name, %opts ) = @_;
 
-	if ( !defined($name) || $name !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+	if ( !is_rule_name($name) ) {
 		die( 'The rule name, "' . ( defined($name) ? $name : 'undef' ) . '", is not in the form "type/name"' );
 	}
 
@@ -383,7 +383,7 @@ in C<type/name> form, or a group with no members at all.
 sub group_members {
 	my ( $self, $name ) = @_;
 
-	if ( !defined($name) || $name !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+	if ( !is_rule_name($name) ) {
 		die( 'The group name, "' . ( defined($name) ? $name : 'undef' ) . '", is not in the form "type/name"' );
 	}
 
@@ -403,7 +403,7 @@ sub group_members {
 		$line =~ s/^\s+//;
 		$line =~ s/\s+$//;
 		next if ( $line eq '' || $line =~ /^#/ );
-		if ( $line !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+		if ( !is_rule_name($line) ) {
 			close($fh);
 			die(      'The group "'
 					. $name . '", "'
@@ -411,7 +411,7 @@ sub group_members {
 					. '", has the invalid rule "'
 					. $line
 					. '"... should be like "syslog/sshd"' );
-		} ## end if ( $line !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/)
+		} ## end if ( !is_rule_name($line) )
 		push( @members, $line );
 	} ## end while ( my $line = <$fh> )
 	close($fh);
@@ -528,6 +528,33 @@ sub known_type {
 
 	return defined($type) && defined( $types{$type} ) ? 1 : 0;
 } ## end sub known_type
+
+=head2 is_rule_name
+
+Returns true if the passed string is spelled like a rule or group name, a
+C<type/name> of two or more C</> joined segments, each one or more letters,
+digits, C<_>, or C<->. Says nothing of whether such a rule exists or its
+type is known. Returns false for undef. Usable as a plain function.
+
+    if ( !App::Baphomet::Rules::is_rule_name($name) ) { die(...) }
+
+=cut
+
+sub is_rule_name {
+	my ($name) = @_;
+
+	# allow being called as a method as well
+	if ( ref($name) || ( defined($name) && $name eq __PACKAGE__ ) ) {
+		$name = $_[1];
+	}
+
+	if ( !defined($name) ) {
+		return 0;
+	}
+
+	# segments of [a-zA-Z0-9_-], at least two, joined by /
+	return $name =~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ? 1 : 0;
+} ## end sub is_rule_name
 
 =head2 type_accepts_parser
 

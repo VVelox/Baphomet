@@ -1032,12 +1032,12 @@ sub check_kur_def {
 			# loads them, the way a missing rule file is only caught at load
 			if ( $rule =~ /^%(.+)%$/ ) {
 				my $group = $1;
-				if ( $group !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+				if ( !App::Baphomet::Rules::is_rule_name($group) ) {
 					die( $where . 'has a invalid rule group, "' . $rule . '"... should be like "%json/suricata-all%"' );
 				}
 				next;
 			}
-			if ( $rule !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+			if ( !App::Baphomet::Rules::is_rule_name($rule) ) {
 				die( $where . 'has a invalid rule, "' . $rule . '"... should be like "syslog/sshd"' );
 			}
 			my ($rule_type) = split( /\//, $rule );
@@ -1965,6 +1965,9 @@ sub _rule_config_error {
 	if ( ref($rule_config) ne 'HASH' ) {
 		return $where . ' is not a hash of per-rule override tables';
 	}
+
+	require App::Baphomet::Rules;
+
 	foreach my $rule_name ( keys( %{$rule_config} ) ) {
 		# a key is either a rule name or, wrapped in percent signs, a group...
 		# the same spelling the watcher's own rule list uses
@@ -1972,7 +1975,7 @@ sub _rule_config_error {
 		if ( $bare =~ /^%(.*)%$/ ) {
 			$bare = $1;
 		}
-		if ( $bare !~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ) {
+		if ( !App::Baphomet::Rules::is_rule_name($bare) ) {
 			return
 				  $where
 				. ' names the invalid rule "'

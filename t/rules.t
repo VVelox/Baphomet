@@ -297,4 +297,17 @@ is_deeply( [ App::Baphomet::Rules::rule_from_path( $rules_dir . '/syslog/missing
 	[], 'rule_from_path gives nothing for a path that is not a file' );
 is_deeply( [ App::Baphomet::Rules::rule_from_path($rules_dir) ], [], 'rule_from_path gives nothing for a dir' );
 
+#
+# is_rule_name, the type/name spelling rules and groups share
+#
+ok( App::Baphomet::Rules::is_rule_name('syslog/sshd'),       'type/name is a rule name' );
+ok( App::Baphomet::Rules::is_rule_name('json/suricata-all'), 'a hyphen is allowed' );
+ok( App::Baphomet::Rules::is_rule_name('raw/a_b/c-1'),       'more than two segments are allowed' );
+ok( !App::Baphomet::Rules::is_rule_name('sshd'),             'a bare name with no type is not' );
+ok( !App::Baphomet::Rules::is_rule_name('syslog/'),          'a trailing slash is not' );
+ok( !App::Baphomet::Rules::is_rule_name('syslog/bad name'),  'a space is not' );
+ok( !App::Baphomet::Rules::is_rule_name('%syslog/sshd%'), 'a %group% spelling is not, the caller strips the percents' );
+ok( !App::Baphomet::Rules::is_rule_name(undef),           'undef is not' );
+ok( $rules->is_rule_name('syslog/sshd'),                  'is_rule_name works as a method too' );
+
 done_testing;
