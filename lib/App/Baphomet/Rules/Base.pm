@@ -1324,8 +1324,10 @@ my @COMMON_DEF_KEYS = qw(
 
 # the def checks every handler runs, one call so a new key or gate check can
 # not be forgotten in one type... that the def is a hash, that it names only
-# the common keys and the type's own, then the gate family, the thresholds,
-# and the tests shape.
+# the common keys and the type's own, then the scoring and triage keys, the
+# gate family, and the tests shape. the _check_ steps only validate, while the
+# _compile_ ones, the tracks and the reverse_dns gate, also compile what they
+# vet onto the object.
 #
 # args:
 #   $def       :: the rule's def, as read from its file
@@ -1349,13 +1351,13 @@ sub _check_common {
 		}
 	}
 
-	$self->_check_thresholds($def);
+	$self->_check_scoring_and_triage($def);
 	$self->_check_marks($def);
-	$self->_check_tracks($def);
+	$self->_compile_tracks($def);
 	$self->_check_is_isnot_gate( $def, 'country' );
 	$self->_check_namtar($def);
 	$self->_check_is_isnot_gate( $def, 'active_time' );
-	$self->_check_reverse_dns($def);
+	$self->_compile_reverse_dns($def);
 	$self->_check_distinct($def);
 	$self->_check_promoted_vars($def);
 
@@ -2941,12 +2943,15 @@ sub _check_string_list {
 	return;
 } ## end sub _check_string_list
 
-# dies if the def's threshold overrides, max_score, find_time, and
-# ban_time, or its weight or eve_only, hold unusable values... positive ints
-# for the thresholds (non-negative ban_time, 0 meaning eternal), a positive
-# number for weight, a boolean for eve_only... called by every handler's new,
-# as the keys are legal on every type
-sub _check_thresholds {
+# dies if the def's scoring knobs or triage metadata hold unusable values...
+# the scoring knobs being the threshold overrides, positive ints for
+# max_score and find_time and a non-negative one for ban_time (0 meaning
+# eternal), a positive number for weight, and a boolean for eve_only, and the
+# triage metadata a non-empty msg and classtype, a known severity, a
+# non-negative int rev, and references and attack as lists of non-empty
+# strings... called by every handler's new, as the keys are legal on every
+# type
+sub _check_scoring_and_triage {
 	my ( $self, $def ) = @_;
 
 	my $name = $self->{name};
@@ -2998,7 +3003,7 @@ sub _check_thresholds {
 	}
 
 	return;
-} ## end sub _check_thresholds
+} ## end sub _check_scoring_and_triage
 
 # dies if the def's mark keys, mark, unmark, marked, not_marked, and
 # mark_only, hold unusable values... called by every handler's new, as the
@@ -3163,7 +3168,7 @@ sub _check_marks {
 # declared no track for will not load, the declaration being what the read is
 # a read of. And a tracked entry carrying neither where nor into will not
 # load, doing nothing being worth saying out loud.
-sub _check_tracks {
+sub _compile_tracks {
 	my ( $self, $def ) = @_;
 
 	my $name = $self->{name};
@@ -3313,7 +3318,7 @@ sub _check_tracks {
 	}
 
 	return;
-} ## end sub _check_tracks
+} ## end sub _compile_tracks
 
 # dies if the def's is/isnot gate of the named kind is malformed... the token
 # and window names are resolved against the config later, by the galla, per
@@ -3387,7 +3392,7 @@ sub _check_is_isnot_gate {
 # or another found value (matches_var), optionally negated, with forward
 # confirmation on unless refused. the galla owns the lookups and the
 # fail-closed rules, this only the shape
-sub _check_reverse_dns {
+sub _compile_reverse_dns {
 	my ( $self, $def ) = @_;
 
 	if ( !defined( $def->{reverse_dns} ) ) {
@@ -3453,7 +3458,7 @@ sub _check_reverse_dns {
 	$self->{reverse_dns_gate} = \@compiled;
 
 	return;
-} ## end sub _check_reverse_dns
+} ## end sub _compile_reverse_dns
 
 # dies if the def's namtar_list gate is malformed... a array of entries,
 # each naming one or more lists (list or lists) and a optional var to check

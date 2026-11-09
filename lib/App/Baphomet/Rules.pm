@@ -533,8 +533,9 @@ sub known_type {
 
 Returns true if the passed string is spelled like a rule or group name, a
 C<type/name> of two or more C</> joined segments, each one or more letters,
-digits, C<_>, or C<->. Says nothing of whether such a rule exists or its
-type is known. Returns false for undef. Usable as a plain function.
+digits, C<_>, or C<->, and nothing else, not even a trailing newline. Says
+nothing of whether such a rule exists or its type is known. Returns false
+for undef. Usable as a plain function.
 
     if ( !App::Baphomet::Rules::is_rule_name($name) ) { die(...) }
 
@@ -552,8 +553,9 @@ sub is_rule_name {
 		return 0;
 	}
 
-	# segments of [a-zA-Z0-9_-], at least two, joined by /
-	return $name =~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+$/ ? 1 : 0;
+	# segments of [a-zA-Z0-9_-], at least two, joined by /... anchored with \z,
+	# as $ would let a trailing newline through
+	return $name =~ /^[a-zA-Z0-9_\-]+(?:\/[a-zA-Z0-9_\-]+)+\z/ ? 1 : 0;
 } ## end sub is_rule_name
 
 =head2 type_accepts_parser

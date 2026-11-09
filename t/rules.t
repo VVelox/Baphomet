@@ -308,6 +308,8 @@ ok( !App::Baphomet::Rules::is_rule_name('syslog/'),          'a trailing slash i
 ok( !App::Baphomet::Rules::is_rule_name('syslog/bad name'),  'a space is not' );
 ok( !App::Baphomet::Rules::is_rule_name('%syslog/sshd%'), 'a %group% spelling is not, the caller strips the percents' );
 ok( !App::Baphomet::Rules::is_rule_name(undef),           'undef is not' );
+ok( !App::Baphomet::Rules::is_rule_name("syslog/sshd\n"), 'a trailing newline is not' );
+ok( !App::Baphomet::Rules::is_rule_name("\nsyslog/sshd"), 'nor a leading one' );
 ok( $rules->is_rule_name('syslog/sshd'),                  'is_rule_name works as a method too' );
 
 done_testing;
