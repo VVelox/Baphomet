@@ -65,6 +65,25 @@ my $v4_only = compile_ignore_ips( ['10.0.0.0/8'], 't' );
 ok( !ip_ignored( $v4_only, '2001:db8::1' ),     'and a v4 network does not match a v6 address' );
 ok( ip_ignored( $v4_only,  '::ffff:10.1.2.3' ), 'though a v4 mapped v6 is matched as the v4 it is' );
 
+# a v4 mapped v6 entry, the ::ffff: form, is the v4 network it names... a
+# mapped address is matched as its v4 self, so the entry has to be too, its
+# prefix less the 96 bits of the mapped block
+my $mapped = compile_ignore_ips( [ '::ffff:192.0.2.0/120', '::FFFF:198.51.100.7' ], 't' );
+ok( ip_ignored( $mapped,  '192.0.2.7' ),          'a mapped /120 entry holds the v4 /24 it names' );
+ok( ip_ignored( $mapped,  '::ffff:192.0.2.200' ), 'and the same addresses written mapped' );
+ok( !ip_ignored( $mapped, '192.0.3.1' ),          'but nothing outside that /24' );
+ok( ip_ignored( $mapped,  '198.51.100.7' ),       'a bare mapped entry is the one v4 address' );
+ok( !ip_ignored( $mapped, '198.51.100.8' ),       'and only that one' );
+ok( ip_ignored( compile_ignore_ips( ['::ffff:0.0.0.0/96'], 't' ), '203.0.113.9' ),
+	'the whole mapped /96 holds every v4 address' );
+
+# a mapped looking entry shorter than /96 reaches past the mapped block into
+# v6 proper, so it stays a v6 network
+my $wide = compile_ignore_ips( ['::ffff:192.0.2.0/80'], 't' );
+ok( ip_ignored( $wide,  '::1' ),         'a /80 at the mapped block holds the v6 addresses it spans' );
+ok( !ip_ignored( $wide, '2001:db8::1' ), 'and not others' );
+ok( !eval { compile_ignore_ips( ['::ffff:192.0.2.0/129'], 't' ); 1 }, 'a overlong mapped prefix still dies' );
+
 # a non-boundary v6 prefix, the partial byte in the other family
 my $v6_odd = compile_ignore_ips( ['2001:db8:8000::/33'], 't' );
 ok( ip_ignored( $v6_odd,  '2001:db8:ffff::1' ), 'inside a v6 /33' );

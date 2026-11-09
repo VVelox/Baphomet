@@ -580,15 +580,15 @@ sub load_config {
 		die($times_error);
 	}
 
-	if ( $config->{timeout} !~ /^[0-9]+$/ || !$config->{timeout} ) {
+	if ( !_is_positive_int( $config->{timeout} ) ) {
 		die( 'timeout, "' . $config->{timeout} . '", is not a positive int of seconds' );
 	}
 
-	if ( $config->{checkpoint} !~ /^[0-9]+$/ ) {
+	if ( !_is_non_negative_int( $config->{checkpoint} ) ) {
 		die( 'checkpoint, "' . $config->{checkpoint} . '", is not a non-negative int of seconds' );
 	}
 
-	if ( $config->{ledger_keep} !~ /^[0-9]+$/ ) {
+	if ( !_is_non_negative_int( $config->{ledger_keep} ) ) {
 		die( 'ledger_keep, "' . $config->{ledger_keep} . '", is not a non-negative int of seconds' );
 	}
 
@@ -648,7 +648,7 @@ sub load_config {
 		die( 'The top level ' . $usedns_error );
 	}
 	foreach my $item ( 'usedns_timeout', 'usedns_max_addrs', 'rdns_timeout' ) {
-		if ( ref( $config->{$item} ) ne '' || $config->{$item} !~ /^[0-9]+$/ || !$config->{$item} ) {
+		if ( !_is_positive_int( $config->{$item} ) ) {
 			die( $item . ', "' . $config->{$item} . '", is not a positive int' );
 		}
 	}
@@ -728,13 +728,13 @@ sub _check_recidive {
 	if ( !defined( $recidive->{kur} ) || ref( $recidive->{kur} ) ne '' || $recidive->{kur} !~ /^[a-zA-Z0-9\-]+$/ ) {
 		die('recidive lacks a kur naming where recidivists are banished, matching /^[a-zA-Z0-9\-]+$/');
 	}
-	if ( defined( $recidive->{max_score} ) && ( $recidive->{max_score} !~ /^[0-9]+$/ || !$recidive->{max_score} ) ) {
+	if ( defined( $recidive->{max_score} ) && !_is_positive_int( $recidive->{max_score} ) ) {
 		die('recidive max_score is not a positive int');
 	}
-	if ( defined( $recidive->{find_time} ) && ( $recidive->{find_time} !~ /^[0-9]+$/ || !$recidive->{find_time} ) ) {
+	if ( defined( $recidive->{find_time} ) && !_is_positive_int( $recidive->{find_time} ) ) {
 		die('recidive find_time is not a positive int of seconds');
 	}
-	if ( defined( $recidive->{ban_time} ) && $recidive->{ban_time} !~ /^[0-9]+$/ ) {
+	if ( defined( $recidive->{ban_time} ) && !_is_non_negative_int( $recidive->{ban_time} ) ) {
 		die('recidive ban_time is not a non-negative int of seconds');
 	}
 
@@ -849,6 +849,19 @@ my @shared_setting_keys = qw(
 my %kur_setting_keys     = map { $_ => 1 } ( @shared_setting_keys, qw( ignore_ips internal ) );
 my %watcher_setting_keys = map { $_ => 1 } ( @shared_setting_keys, qw( log journal parser rule join ) );
 
+# the reference types a watcher key may hold in place of a plain scalar...
+# rule, log, and journal may be arrays, the layered tables hashes, and the
+# toggles TOML booleans, which come blessed. any other key is a scalar
+my %watcher_key_ref_types = (
+	( map { $_ => { 'ARRAY' => 1 } } qw( rule log ) ),
+	'journal' => { 'ARRAY' => 1, 'JSON::PP::Boolean' => 1 },
+	( map { $_ => { 'HASH' => 1 } } qw( join country_codes namtar_lists active_time rule_config ) ),
+	(
+		map { $_ => { 'JSON::PP::Boolean' => 1 } }
+			qw( allow_per_rule_thresholds eve_only track_only_eve_store observe_ignored )
+	),
+);
+
 # the severity levels a default_severity may name... matches the rule-side
 # set in App::Baphomet::Rules::Base, kept local to avoid a load-order coupling
 my %valid_severity = map { $_ => 1 } qw( info low medium high critical );
@@ -944,24 +957,11 @@ sub check_kur_def {
 			if ( !$watcher_setting_keys{$key} ) {
 				die( $where . 'has the unknown key "' . $key . '"' );
 			}
-			# rule, log, and journal may be arrays, join, country_codes,
-			# namtar_lists, and active_time hashes, TOML booleans are
-			# blessed... else a scalar
-			if (
-				   ref( $watcher->{$key} ) ne ''
-				&& !( $key =~ /^(?:rule|log|journal)$/ && ref( $watcher->{$key} ) eq 'ARRAY' )
-				&& !(
-					$key =~ /^(?:join|country_codes|namtar_lists|active_time|rule_config)$/
-					&& ref( $watcher->{$key} ) eq 'HASH'
-				)
-				&& !(
-					$key =~ /^(?:journal|allow_per_rule_thresholds|eve_only|track_only_eve_store|observe_ignored)$/
-					&& ref( $watcher->{$key} ) eq 'JSON::PP::Boolean'
-				)
-				)
-			{
+			# a scalar, or one of the ref types %watcher_key_ref_types allows
+			my $ref_type = ref( $watcher->{$key} );
+			if ( $ref_type ne '' && !( $watcher_key_ref_types{$key} || {} )->{$ref_type} ) {
 				die( $where . 'key "' . $key . '" is not a scalar' );
-			} ## end if ( ref( $watcher->{$key} ) ne '' && !( $key...))
+			}
 		} ## end foreach my $key ( keys( %{$watcher} ) )
 
 		my $watcher_settings_error = _settings_error( $watcher, \%watcher_setting_keys );
@@ -1149,6 +1149,11 @@ Compiles a ignore_ips list, a array of IPv4/IPv6 addresses and CIDRs,
 into the form L</ip_ignored> takes. Will die on anything unusable, with
 the passed $where leading the error message.
 
+A IPv4 mapped IPv6 entry, the ::ffff: form, at a prefix of 96 or more, or with
+none, is compiled as the IPv4 network it names, so C<::ffff:192.0.2.0/120>
+ignores C<192.0.2.0/24> whichever way an address in it is written. A shorter
+prefix reaches past the mapped block into IPv6 proper and stays a IPv6 network.
+
     my $compiled = compile_ignore_ips( $list, $where );
 
 Each entry comes back carrying the comparison L</ip_ignored> makes, already
@@ -1192,21 +1197,30 @@ sub compile_ignore_ips {
 		if ( !defined($prefix) ) {
 			$prefix = $bits;
 		}
-		if ( $prefix !~ /^[0-9]+$/ || $prefix > $bits ) {
+		if ( !_is_non_negative_int($prefix) || $prefix > $bits ) {
 			die( $where . ' entry "' . $entry . '" has a invalid prefix length' );
 		}
 
-		my $whole_bytes = int( $prefix / 8 );
-		my $spare_bits  = $prefix % 8;
-		my $net         = {
+		# a IPv4 mapped IPv6 network, the ::ffff: form, is really a IPv4 one,
+		# and ip_ignored matches a mapped address as its IPv4 self... so one at
+		# a prefix of 96 or more becomes the IPv4 network it names, the prefix
+		# less the mapped block's 96 bits. a shorter prefix reaches past the
+		# mapped block into IPv6 proper, so it stays a IPv6 network
+		if ( $bits == 128 && $prefix >= 96 && substr( $packed, 0, 12 ) eq $v4_mapped_prefix ) {
+			$packed = substr( $packed, 12 );
+			$bits   = 32;
+			$prefix = $prefix - 96;
+		}
+
+		my ( $whole_bytes, $mask ) = _prefix_split($prefix);
+		my $net = {
 			'packed' => $packed,
 			'prefix' => $prefix,
 			'bits'   => $bits,
 			'whole'  => $whole_bytes,
 			'head'   => substr( $packed, 0, $whole_bytes ),
 		};
-		if ($spare_bits) {
-			my $mask = chr( 0xFF << ( 8 - $spare_bits ) & 0xFF );
+		if ( defined($mask) ) {
 			$net->{mask}  = $mask;
 			$net->{spare} = substr( $packed, $whole_bytes, 1 ) & $mask;
 		}
@@ -1230,25 +1244,14 @@ like a hostname a rule captured, is never regarded as ignored.
 sub ip_ignored {
 	my ( $compiled, $ip ) = @_;
 
-	if ( !defined($ip) || ref($compiled) ne 'ARRAY' || !@{$compiled} ) {
+	if ( ref($compiled) ne 'ARRAY' || !@{$compiled} ) {
 		return 0;
 	}
 
-	my $packed = inet_pton( AF_INET, $ip );
-	my $bits   = 32;
+	my ( $packed, $bits ) = _pack_ip($ip);
 	if ( !defined($packed) ) {
-		my $packed6 = inet_pton( AF_INET6, $ip );
-		if ( !defined($packed6) ) {
-			return 0;
-		}
-		# IPv4 mapped IPv6 is really IPv4
-		if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
-			$packed = substr( $packed6, 12 );
-		} else {
-			$packed = $packed6;
-			$bits   = 128;
-		}
-	} ## end if ( !defined($packed) )
+		return 0;
+	}
 
 	# the byte and bit split each network is compared under was cut at
 	# compile, so this is a substr and a string compare per network with no
@@ -1284,21 +1287,12 @@ handing it to L</ip_network>, so a v4 prefix is never applied to a v6 address.
 sub ip_family {
 	my ($ip) = @_;
 
-	if ( !defined($ip) || ref($ip) ne '' ) {
+	my ( undef, $bits ) = _pack_ip($ip);
+	if ( !defined($bits) ) {
 		return undef;
 	}
-	if ( defined( inet_pton( AF_INET, $ip ) ) ) {
-		return 'v4';
-	}
-	my $packed6 = inet_pton( AF_INET6, $ip );
-	if ( !defined($packed6) ) {
-		return undef;
-	}
-	if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
-		return 'v4';
-	}
-	return 'v6';
-} ## end sub ip_family
+	return $bits == 32 ? 'v4' : 'v6';
+}
 
 =head2 ip_network
 
@@ -1318,50 +1312,83 @@ undef, so a family with no prefix configured simply does not bucket.
 sub ip_network {
 	my ( $ip, $prefix ) = @_;
 
-	if ( !defined($ip) || ref($ip) ne '' || !defined($prefix) || $prefix !~ /^[0-9]+$/ ) {
-		return undef;
-	}
-
-	my $packed = inet_pton( AF_INET, $ip );
-	my $family = AF_INET;
-	my $bits   = 32;
-	if ( !defined($packed) ) {
-		my $packed6 = inet_pton( AF_INET6, $ip );
-		if ( !defined($packed6) ) {
-			return undef;
-		}
-		# a IPv4 mapped IPv6 is really IPv4, so it nets under the v4 prefix
-		if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
-			$packed = substr( $packed6, 12 );
-		} else {
-			$packed = $packed6;
-			$family = AF_INET6;
-			$bits   = 128;
-		}
-	} ## end if ( !defined($packed) )
-
-	if ( $prefix < 1 || $prefix > $bits ) {
+	# a IPv4 mapped IPv6 is really IPv4, so it nets under the v4 prefix
+	my ( $packed, $bits ) = _pack_ip($ip);
+	if ( !defined($packed) || !_is_non_negative_int($prefix) || $prefix < 1 || $prefix > $bits ) {
 		return undef;
 	}
 
 	# mask the host bits off, whole bytes then the partial byte, the same
 	# byte and bit split ip_ignored uses to compare
-	my $whole_bytes = int( $prefix / 8 );
-	my $spare_bits  = $prefix % 8;
-	my $masked      = substr( $packed, 0, $whole_bytes );
-	if ($spare_bits) {
-		my $mask = chr( 0xFF << ( 8 - $spare_bits ) & 0xFF );
+	my ( $whole_bytes, $mask ) = _prefix_split($prefix);
+	my $masked = substr( $packed, 0, $whole_bytes );
+	if ( defined($mask) ) {
 		$masked .= ( substr( $packed, $whole_bytes, 1 ) & $mask );
 	}
 	$masked .= "\0" x ( length($packed) - length($masked) );
 
-	my $network = inet_ntop( $family, $masked );
+	my $network = inet_ntop( $bits == 32 ? AF_INET : AF_INET6, $masked );
 	if ( !defined($network) ) {
 		return undef;
 	}
 
 	return $network . '/' . $prefix;
 } ## end sub ip_network
+
+# packs a IP for comparing by value... a IPv4 as itself, a IPv6 as itself, and
+# a IPv4 mapped IPv6, the ::ffff: form, as the IPv4 it really is, so it is
+# matched, netted, and bucketed as one.
+#
+# args:
+#   $ip :: the address string
+#
+# returns the two item list ( $packed, $bits ), bits 32 or 128, or the empty
+# list for anything that is not a IP, a ref or undef included.
+#
+#   my ( $packed, $bits ) = _pack_ip('::ffff:192.0.2.7');    # 192.0.2.7's 4 bytes, 32
+sub _pack_ip {
+	my ($ip) = @_;
+
+	if ( !defined($ip) || ref($ip) ne '' ) {
+		return ();
+	}
+
+	my $packed = inet_pton( AF_INET, $ip );
+	if ( defined($packed) ) {
+		return ( $packed, 32 );
+	}
+
+	my $packed6 = inet_pton( AF_INET6, $ip );
+	if ( !defined($packed6) ) {
+		return ();
+	}
+	if ( substr( $packed6, 0, 12 ) eq $v4_mapped_prefix ) {
+		return ( substr( $packed6, 12 ), 32 );
+	}
+	return ( $packed6, 128 );
+} ## end sub _pack_ip
+
+# splits a prefix length into the whole bytes it covers and the mask of the
+# partial byte after them, the split both ignore_ips matching and network
+# masking work in.
+#
+# args:
+#   $prefix :: the prefix length in bits, already known to suit its family
+#
+# returns the two item list ( $whole_bytes, $mask ), mask a one byte string,
+# or undef when the prefix ends on a byte boundary.
+#
+#   my ( $whole_bytes, $mask ) = _prefix_split(20);    # 2, "\xf0"
+sub _prefix_split {
+	my ($prefix) = @_;
+
+	my $whole_bytes = int( $prefix / 8 );
+	my $spare_bits  = $prefix % 8;
+	if ( !$spare_bits ) {
+		return ( $whole_bytes, undef );
+	}
+	return ( $whole_bytes, chr( 0xFF << ( 8 - $spare_bits ) & 0xFF ) );
+} ## end sub _prefix_split
 
 =head2 watcher_journal
 
@@ -1498,9 +1525,7 @@ sub watcher_join {
 		die( $where . 'has a join continuation that does not compile... ' . $@ );
 	}
 	foreach my $key ( 'max_lines', 'flush_after' ) {
-		if ( defined( $join->{$key} )
-			&& ( ref( $join->{$key} ) ne '' || $join->{$key} !~ /^[0-9]+$/ || !$join->{$key} ) )
-		{
+		if ( defined( $join->{$key} ) && !_is_positive_int( $join->{$key} ) ) {
 			die( $where . 'has a join ' . $key . ' that is not a positive int' );
 		}
 	}
@@ -2022,50 +2047,70 @@ sub _rule_config_error {
 	return undef;
 } ## end sub _rule_config_error
 
-# returns a error string if any time-ish setting in the passed hash is
-# invalid, undef otherwise
+# whether a value is a whole number of zero or more, written as plain digits.
+#
+# args:
+#   $value :: the setting as the config gave it
+#
+# returns 1 when it is, else 0... a ref, undef, a sign, a point, or a space
+# all fail.
+#
+#   if ( !_is_non_negative_int( $config->{checkpoint} ) ) { die(...) }
+sub _is_non_negative_int {
+	my ($value) = @_;
+
+	return ( defined($value) && ref($value) eq '' && $value =~ /^[0-9]+$/ ) ? 1 : 0;
+}
+
+# whether a value is a whole number of one or more, written as plain digits.
+#
+# args:
+#   $value :: the setting as the config gave it
+#
+# returns 1 when it is, else 0. a value that is all zeros fails only when perl
+# reads it as false, so "0" fails and "00" passes, as it always has.
+#
+#   if ( !_is_positive_int( $config->{timeout} ) ) { die(...) }
+sub _is_positive_int {
+	my ($value) = @_;
+
+	return ( _is_non_negative_int($value) && $value ) ? 1 : 0;
+}
+
+# returns a error string if any count, time, or subnet prefix setting in the
+# passed hash is invalid, undef otherwise... the settings are checked in a
+# fixed order and the first bad one answers
 sub _times_error {
 	my ($settings) = @_;
 
-	if ( defined( $settings->{max_score} ) && ( $settings->{max_score} !~ /^[0-9]+$/ || !$settings->{max_score} ) ) {
-		return 'a max_score, "' . $settings->{max_score} . '", that is not a positive int';
-	}
-	if ( defined( $settings->{find_time} ) && ( $settings->{find_time} !~ /^[0-9]+$/ || !$settings->{find_time} ) ) {
-		return 'a find_time, "' . $settings->{find_time} . '", that is not a positive int of seconds';
-	}
-	if ( defined( $settings->{ban_time} ) && $settings->{ban_time} !~ /^[0-9]+$/ ) {
-		return 'a ban_time, "' . $settings->{ban_time} . '", that is not a non-negative int of seconds';
-	}
-	if ( defined( $settings->{subnet_max_score} )
-		&& ( $settings->{subnet_max_score} !~ /^[0-9]+$/ || !$settings->{subnet_max_score} ) )
-	{
-		return 'a subnet_max_score, "' . $settings->{subnet_max_score} . '", that is not a positive int';
-	}
-	if ( defined( $settings->{subnet_find_time} )
-		&& ( $settings->{subnet_find_time} !~ /^[0-9]+$/ || !$settings->{subnet_find_time} ) )
-	{
-		return 'a subnet_find_time, "' . $settings->{subnet_find_time} . '", that is not a positive int of seconds';
-	}
+	# each count or time setting and what it must be
+	my @int_settings = (
+		[ 'max_score',        'positive',     'a positive int' ],
+		[ 'find_time',        'positive',     'a positive int of seconds' ],
+		[ 'ban_time',         'non-negative', 'a non-negative int of seconds' ],
+		[ 'subnet_max_score', 'positive',     'a positive int' ],
+		[ 'subnet_find_time', 'positive',     'a positive int of seconds' ],
+	);
+	foreach my $int_setting (@int_settings) {
+		my ( $key, $kind, $what ) = @{$int_setting};
+		my $value = $settings->{$key};
+		if ( !defined($value) ) {
+			next;
+		}
+		my $valid = $kind eq 'positive' ? _is_positive_int($value) : _is_non_negative_int($value);
+		if ( !$valid ) {
+			return 'a ' . $key . ', "' . $value . '", that is not ' . $what;
+		}
+	} ## end foreach my $int_setting (@int_settings)
 
 	# the subnet prefix lengths gate which families bucket... a v4 prefix is
 	# 1..32, a v6 one 1..128, and naming neither leaves subnet bucketing off
-	if (
-		defined( $settings->{ban_subnet_v4} )
-		&& (   $settings->{ban_subnet_v4} !~ /^[0-9]+$/
-			|| $settings->{ban_subnet_v4} < 1
-			|| $settings->{ban_subnet_v4} > 32 )
-		)
-	{
-		return 'a ban_subnet_v4, "' . $settings->{ban_subnet_v4} . '", that is not a prefix length of 1..32';
-	}
-	if (
-		defined( $settings->{ban_subnet_v6} )
-		&& (   $settings->{ban_subnet_v6} !~ /^[0-9]+$/
-			|| $settings->{ban_subnet_v6} < 1
-			|| $settings->{ban_subnet_v6} > 128 )
-		)
-	{
-		return 'a ban_subnet_v6, "' . $settings->{ban_subnet_v6} . '", that is not a prefix length of 1..128';
+	foreach my $prefix_setting ( [ 'ban_subnet_v4', 32 ], [ 'ban_subnet_v6', 128 ] ) {
+		my ( $key, $bits ) = @{$prefix_setting};
+		my $value = $settings->{$key};
+		if ( defined($value) && !( _is_non_negative_int($value) && $value >= 1 && $value <= $bits ) ) {
+			return 'a ' . $key . ', "' . $value . '", that is not a prefix length of 1..' . $bits;
+		}
 	}
 
 	return undef;
