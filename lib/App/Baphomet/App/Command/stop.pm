@@ -6,6 +6,7 @@ use warnings;
 use App::Baphomet::App -command;
 use App::Baphomet::Config ();
 use JSON::MaybeXS         ();
+use Path::Tiny            qw( path );
 use Time::HiRes           qw( usleep );
 
 =head1 NAME
@@ -101,9 +102,7 @@ sub _config_timeout {
 
 	my $timeout;
 	eval {
-		open( my $fh, '<', $config_path ) || die($!);
-		my $raw = do { local $/; <$fh> };
-		close($fh);
+		my $raw = path($config_path)->slurp;
 		require TOML::Tiny;
 		$timeout = TOML::Tiny::from_toml($raw)->{timeout};
 	};

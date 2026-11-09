@@ -4,6 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use File::Path             qw( make_path );
+use Path::Tiny             qw( path );
 use App::Baphomet::LogDrek qw( log_drek );
 
 =head1 NAME
@@ -122,16 +123,11 @@ sub write {
 	my ( $self, $kind, $lines ) = @_;
 
 	my $path = $self->locator($kind);
+	# spew writes a uniquely-named temp file and renames it over the target,
+	# dying on a failed write or close, so a full disk never leaves a
+	# truncated tablet in place of the good one
 	eval {
-		my $tmp = $path . '.tmp';
-		open( my $fh, '>', $tmp ) || die( 'open failed... ' . $! );
-		foreach my $line ( @{$lines} ) {
-			print( $fh $line . "\n" ) || die( 'write failed... ' . $! );
-		}
-		# print is buffered, so a full disk often only surfaces here... an
-		# unchecked close would rename a truncated tablet over the good one
-		close($fh) || die( 'close failed... ' . $! );
-		rename( $tmp, $path ) || die( 'rename failed... ' . $! );
+		path($path)->spew( map { $_ . "\n" } @{$lines} );
 	};
 	if ($@) {
 		log_drek( 'err', 'writing the ' . $kind . ' tablet "' . $path . '" failed... ' . $@, undef, $self->{log_tag} );
@@ -167,18 +163,12 @@ sub read {
 		return ();
 	}
 
-	my @lines;
-	eval {
-		open( my $fh, '<', $path ) || die( 'open failed... ' . $! );
-		@lines = <$fh>;
-		close($fh);
-	};
+	my @lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
 	if ($@) {
 		log_drek( 'err', 'reading the ' . $kind . ' tablet "' . $path . '" failed... ' . $@, undef, $self->{log_tag} );
 		return ();
 	}
 
-	chomp(@lines);
 	return @lines;
 } ## end sub read
 

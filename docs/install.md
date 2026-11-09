@@ -15,6 +15,7 @@ configure there, as Baphomet's config targets them.
 | JSON::MaybeXS                        | p5-JSON-MaybeXS  | libjson-maybexs-perl  |
 | Log::Munger                          | (cpanm)          | (cpanm)               |
 | Net::Server (Net::Server::Daemonize) | p5-Net-Server    | libnet-server-perl    |
+| Path::Tiny                           | p5-Path-Tiny     | libpath-tiny-perl     |
 | POE                                  | p5-POE           | libpoe-perl           |
 | POE::Component::Server::JSONUnix     | (cpanm)          | (cpanm)               |
 | Regexp::IPv4                         | (cpanm)          | (cpanm)               |

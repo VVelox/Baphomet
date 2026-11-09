@@ -8,6 +8,7 @@ use Regexp::IPv6              qw( $IPv6_re );
 use MIME::Base64              qw( decode_base64 );
 use Digest::MD5               qw( md5 );
 use Encode                    ();
+use List::Util                qw( uniqstr );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Config     qw( compile_ignore_ips ip_ignored );
 use App::Baphomet::Marks      ();
@@ -1701,14 +1702,12 @@ sub _compile_mungers {
 	if ( ref( $def->{mungers} ) ne 'ARRAY' || !@{ $def->{mungers} } ) {
 		die( 'The mungers of the rule "' . $name . '" is not a non-empty array' );
 	}
-	my %seen;
 	foreach my $munger ( @{ $def->{mungers} } ) {
 		if ( !defined($munger) || ref($munger) ne '' || $munger eq '' ) {
 			die( 'The mungers of the rule "' . $name . '" contains a entry that is not a non-empty string' );
 		}
-		$seen{$munger} = 1;
 	}
-	$self->{mungers} = [ sort keys(%seen) ];
+	$self->{mungers} = [ sort( uniqstr( @{ $def->{mungers} } ) ) ];
 
 	return;
 } ## end sub _compile_mungers

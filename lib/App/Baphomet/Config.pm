@@ -4,6 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use Exporter   qw( import );
+use Path::Tiny qw( path );
 use Socket     qw( AF_INET AF_INET6 inet_pton inet_ntop );
 use TOML::Tiny qw( from_toml );
 
@@ -497,12 +498,9 @@ sub load_config {
 		die('No config path specified');
 	}
 
-	my $raw_config;
-	{
-		local $/ = undef;
-		open( my $fh, '<', $path ) || die( 'Failed to open the config, "' . $path . '"... ' . $! );
-		$raw_config = <$fh>;
-		close($fh);
+	my $raw_config = eval { path($path)->slurp; };
+	if ( !defined($raw_config) ) {
+		die( 'Failed to open the config, "' . $path . '"... ' . $@ );
 	}
 
 	my ( $parsed, $parse_error ) = from_toml($raw_config);

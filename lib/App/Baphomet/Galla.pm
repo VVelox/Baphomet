@@ -8,6 +8,7 @@ use POE                                      qw( Wheel::FollowTail Wheel::Run );
 use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
+use List::Util                               qw( uniqstr );
 use JSON::MaybeXS                            qw( encode_json decode_json );
 use Encode                                   ();
 use POSIX                                    qw( strftime );
@@ -1892,23 +1893,15 @@ sub _resolve_watcher_logs {
 	my ( $self, $watcher ) = @_;
 
 	my @files;
-	my %seen;
 	foreach my $entry ( @{ $watcher->{log_spec} } ) {
-		my @matched;
 		if ( $entry =~ /[*?\[{]/ ) {
-			@matched = bsd_glob($entry);
+			push( @files, bsd_glob($entry) );
 		} else {
-			@matched = ($entry);
+			push( @files, $entry );
 		}
-		foreach my $file (@matched) {
-			if ( !defined( $seen{$file} ) ) {
-				$seen{$file} = 1;
-				push( @files, $file );
-			}
-		}
-	} ## end foreach my $entry ( @{ $watcher->{log_spec} } )
+	}
 
-	return @files;
+	return uniqstr(@files);
 } ## end sub _resolve_watcher_logs
 
 # re-expands the globs of every watcher, following new matches and
@@ -4157,14 +4150,9 @@ sub _register_subnet_hit {
 
 	# the members that fed the CIDR, distinct and in first-seen order, with the
 	# window they spanned, for the eve bucket
-	my %seen;
-	my @members;
+	my @members = uniqstr( map { $_->[2] } @{ $bucket->{$network} } );
 	my ( $first, $last );
 	foreach my $entry ( @{ $bucket->{$network} } ) {
-		if ( !$seen{ $entry->[2] } ) {
-			$seen{ $entry->[2] } = 1;
-			push( @members, $entry->[2] );
-		}
 		if ( !defined($first) || $entry->[0] < $first ) { $first = $entry->[0]; }
 		if ( !defined($last)  || $entry->[0] > $last )  { $last  = $entry->[0]; }
 	}

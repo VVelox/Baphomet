@@ -4,7 +4,7 @@ use 5.006;
 use strict;
 use warnings;
 use JSON::MaybeXS ();
-use File::Temp    ();
+use Path::Tiny    qw( path );
 
 =head1 NAME
 
@@ -191,15 +191,10 @@ sub _read_cache {
 		return undef;
 	}
 
-	my $text;
-	eval {
-		open( my $fh, '<', $path ) || die("$!");
-		binmode($fh);
-		local $/;
-		$text = <$fh>;
-		close($fh);
-		1;
-	} or return undef;
+	my $text = eval { path($path)->slurp_raw; };
+	if ( !defined($text) ) {
+		return undef;
+	}
 
 	# the fragments are character strings (a primitive like MONTH carries a
 	# ä), so the cache is UTF-8 bytes read raw and decoded utf8, symmetric
@@ -220,13 +215,11 @@ sub _read_cache {
 # unwritable dir or a failed write is swallowed, the resolution having
 # already succeeded, so the only cost is the next galla resolving again.
 #
-# the write is atomic: the bytes go to a uniquely-named temp file in the
-# SAME directory (File::Temp, O_EXCL, so no two writers ever share a name
-# and no stale temp is reused), fully written and closed, then renamed
-# over the target. rename(2) within one filesystem is atomic, so a reader
-# ever opens the whole old file or the whole new one, never a half write,
-# and concurrent gallas just race to be last, each leaving a complete
-# file. any failure unlinks the temp and leaves the target as it was
+# the write is atomic: Path::Tiny's spew writes to a uniquely-named temp file
+# in the same directory, then renames it over the target. rename(2) within one
+# filesystem is atomic, so a reader opens the whole old file or the whole new
+# one, never a half write, and concurrent gallas just race to be last, each
+# leaving a complete file
 sub _write_cache {
 	my ( $cache_dir, $signature, $map ) = @_;
 
@@ -244,20 +237,7 @@ sub _write_cache {
 		return;
 	}
 
-	eval {
-		# UNLINK 0... the file is handed off by rename, so its lifetime is
-		# ours to manage, not File::Temp's at-exit reaping
-		my ( $fh, $tmp ) = File::Temp::tempfile( $cache_file . '.XXXXXXXX', 'DIR' => $cache_dir, 'UNLINK' => 0 );
-		binmode($fh);
-		print $fh $text or die( 'write failed... ' . $! );
-		close($fh)      or die( 'close failed... ' . $! );
-		if ( !rename( $tmp, $path ) ) {
-			my $error = $!;
-			unlink($tmp);
-			die( 'rename failed... ' . $error );
-		}
-		1;
-	};
+	eval { path($path)->spew_raw($text); };
 
 	return;
 } ## end sub _write_cache
