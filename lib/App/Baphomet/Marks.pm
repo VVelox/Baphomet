@@ -331,43 +331,57 @@ sub apply_marks {
 	my @set;
 	foreach my $entry ( @{$marks} ) {
 		my $value = defined( $entry->{value_var} ) ? $data->{ $entry->{value_var} } : undef;
-		my @keys;
-		if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
-			my $key = mark_key( $entry, $data, undef );
-			@keys = defined($key) ? ($key) : ();
-		} else {
-			@keys = @{$offenders};
-		}
-		foreach my $key (@keys) {
+		foreach my $key ( _entry_keys( $entry, $data, $offenders ) ) {
 			mark_set( $store_all, $entry->{name}, $key, $value, $entry->{ttl}, $now, $on_set );
 			push( @set, { 'name' => $entry->{name}, 'key' => $key } );
 		}
-	} ## end foreach my $entry ( @{$marks} )
+	}
 
+	# a lift deletes the brand, and the mark name's store with it once that
+	# leaves it empty... a key not branded under the name lifts nothing
 	my @lifted;
 	foreach my $entry ( @{$unmarks} ) {
-		my @keys;
-		if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
-			my $key = mark_key( $entry, $data, undef );
-			@keys = defined($key) ? ($key) : ();
-		} else {
-			@keys = @{$offenders};
-		}
-		foreach my $key (@keys) {
-			if ( defined( $store_all->{ $entry->{name} } ) && defined( $store_all->{ $entry->{name} }{$key} ) ) {
-				delete( $store_all->{ $entry->{name} }{$key} );
-				if ( !%{ $store_all->{ $entry->{name} } } ) {
-					delete( $store_all->{ $entry->{name} } );
-				}
-				push( @lifted, { 'name' => $entry->{name}, 'key' => $key } );
-				if ( defined($on_unset) ) {
-					$on_unset->( $entry->{name}, $key );
-				}
-			} ## end if ( defined( $store_all->{ $entry->{name}...}))
-		} ## end foreach my $key (@keys)
+		my $name = $entry->{name};
+		foreach my $key ( _entry_keys( $entry, $data, $offenders ) ) {
+			my $name_store = $store_all->{$name};
+			if ( !defined($name_store) || !defined( $name_store->{$key} ) ) {
+				next;
+			}
+			delete( $name_store->{$key} );
+			if ( !%{$name_store} ) {
+				delete( $store_all->{$name} );
+			}
+			push( @lifted, { 'name' => $name, 'key' => $key } );
+			if ( defined($on_unset) ) {
+				$on_unset->( $name, $key );
+			}
+		} ## end foreach my $key ( _entry_keys( $entry, $data, $offenders...))
 	} ## end foreach my $entry ( @{$unmarks} )
 
 	return ( \@set, \@lifted );
 } ## end sub apply_marks
+
+# the keys a mark or unmark entry applies to for one found result... a var
+# or vars entry its one capture key, a var-less entry every offender.
+#
+# args:
+#   $entry     :: the mark or unmark entry
+#   $data      :: the result's data hash, which a var or vars entry keys by
+#   $offenders :: arrayref of the result's offenders, which a var-less entry
+#                 keys by
+#
+# returns the list of keys... empty for a var or vars entry whose capture is
+# missing, as mark_key gives no partial key.
+#
+#   foreach my $key ( _entry_keys( $entry, $data, $offenders ) ) { ... }
+sub _entry_keys {
+	my ( $entry, $data, $offenders ) = @_;
+
+	if ( defined( $entry->{var} ) || defined( $entry->{vars} ) ) {
+		my $key = mark_key( $entry, $data, undef );
+		return defined($key) ? ($key) : ();
+	}
+	return @{$offenders};
+}
 
 1;
