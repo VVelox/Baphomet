@@ -2847,6 +2847,35 @@ my %tokens = (
 # the order canonical if anything ever wants to sort or compare
 our %SEVERITY = ( 'info' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical' => 4 );
 
+# dies unless a def value is a non-empty array whose every entry is a
+# defined, plain, non-empty string... the shape of references, attack, a mark
+# or sequence entry's vars, and a tracked gate's into.
+#
+# args:
+#   $value  :: the def value as the rule file wrote it
+#   $prefix :: the start of the die message, naming the rule and the key, such
+#              as 'The rule "syslog/sshd" has a references'... the message goes
+#              on with " that is not a non-empty array" for a bad list, or
+#              " entry that is not a non-empty string" for a bad entry
+#
+# returns nothing, dying on the first problem found.
+#
+#   _check_string_list( $def->{references}, 'The rule "' . $name . '" has a references' );
+sub _check_string_list {
+	my ( $value, $prefix ) = @_;
+
+	if ( ref($value) ne 'ARRAY' || !@{$value} ) {
+		die( $prefix . ' that is not a non-empty array' );
+	}
+	foreach my $item ( @{$value} ) {
+		if ( !defined($item) || ref($item) ne '' || $item eq '' ) {
+			die( $prefix . ' entry that is not a non-empty string' );
+		}
+	}
+
+	return;
+} ## end sub _check_string_list
+
 # dies if the def's threshold overrides, max_score, find_time, and
 # ban_time, or its weight or eve_only, hold unusable values... positive ints
 # for the thresholds (non-negative ban_time, 0 meaning eternal), a positive
@@ -2898,18 +2927,10 @@ sub _check_thresholds {
 		die( 'The rule "' . $name . '" has a rev that is not a non-negative integer' );
 	}
 	foreach my $listkey ( 'references', 'attack' ) {
-		if ( !defined( $def->{$listkey} ) ) {
-			next;
+		if ( defined( $def->{$listkey} ) ) {
+			_check_string_list( $def->{$listkey}, 'The rule "' . $name . '" has a ' . $listkey );
 		}
-		if ( ref( $def->{$listkey} ) ne 'ARRAY' || !@{ $def->{$listkey} } ) {
-			die( 'The rule "' . $name . '" has a ' . $listkey . ' that is not a non-empty array' );
-		}
-		foreach my $item ( @{ $def->{$listkey} } ) {
-			if ( !defined($item) || ref($item) ne '' || $item eq '' ) {
-				die( 'The rule "' . $name . '" has a ' . $listkey . ' entry that is not a non-empty string' );
-			}
-		}
-	} ## end foreach my $listkey ( 'references', 'attack' )
+	}
 
 	return;
 } ## end sub _check_thresholds
@@ -2998,15 +3019,8 @@ sub _check_marks {
 				if ( defined( $entry->{var} ) ) {
 					die( $where . ' entry "' . $entry_name . '" carries both var and vars' );
 				}
-				if ( ref( $entry->{vars} ) ne 'ARRAY' || !@{ $entry->{vars} } ) {
-					die( $where . ' entry "' . $entry_name . '" has a vars that is not a non-empty array' );
-				}
-				foreach my $var ( @{ $entry->{vars} } ) {
-					if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
-						die( $where . ' entry "' . $entry_name . '" has a vars entry that is not a non-empty string' );
-					}
-				}
-			} ## end if ( defined( $entry->{vars} ) )
+				_check_string_list( $entry->{vars}, $where . ' entry "' . $entry_name . '" has a vars' );
+			}
 			foreach my $string_key (
 				grep { defined( $shapes{$key}{$_} ) && $shapes{$key}{$_} eq 'string' }
 				keys( %{$entry} )
@@ -3061,15 +3075,8 @@ sub _check_marks {
 				if ( defined( $entry->{var} ) ) {
 					die( $where . ' entry carries both var and vars' );
 				}
-				if ( ref( $entry->{vars} ) ne 'ARRAY' || !@{ $entry->{vars} } ) {
-					die( $where . ' entry has a vars that is not a non-empty array' );
-				}
-				foreach my $var ( @{ $entry->{vars} } ) {
-					if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
-						die( $where . ' entry has a vars entry that is not a non-empty string' );
-					}
-				}
-			} ## end if ( defined( $entry->{vars} ) )
+				_check_string_list( $entry->{vars}, $where . ' entry has a vars' );
+			}
 		} ## end foreach my $entry ( @{ $def->{sequence} } )
 	} ## end if ( defined( $def->{sequence} ) )
 
@@ -3227,19 +3234,9 @@ sub _check_tracks {
 						= $self->_compile_gates( $entry->{where}, $where . ' entry "' . $entry->{name} . '" where' );
 				}
 				if ( defined( $entry->{into} ) ) {
-					if ( ref( $entry->{into} ) ne 'ARRAY' || !@{ $entry->{into} } ) {
-						die( $where . ' entry "' . $entry->{name} . '" has a into that is not a non-empty array' );
-					}
-					foreach my $field ( @{ $entry->{into} } ) {
-						if ( !defined($field) || ref($field) ne '' || $field eq '' ) {
-							die(      $where
-									. ' entry "'
-									. $entry->{name}
-									. '" has a into entry that is not a non-empty string' );
-						}
-					}
+					_check_string_list( $entry->{into}, $where . ' entry "' . $entry->{name} . '" has a into' );
 					$gate->{into} = [ @{ $entry->{into} } ];
-				} ## end if ( defined( $entry->{into} ) )
+				}
 			} ## end if ( $key eq 'tracked' )
 
 			push( @{ $gates->{$key} }, $gate );
