@@ -3,11 +3,12 @@ package App::Baphomet::Config;
 use 5.006;
 use strict;
 use warnings;
-use Ref::Util  qw( is_plain_arrayref is_plain_coderef is_plain_hashref );
-use Exporter   qw( import );
-use Path::Tiny qw( path );
-use Socket     qw( AF_INET AF_INET6 inet_pton inet_ntop );
-use TOML::Tiny qw( from_toml );
+use Ref::Util     qw( is_plain_arrayref is_plain_coderef is_plain_hashref );
+use Exporter      qw( import );
+use Net::Patricia ();
+use Path::Tiny    qw( path );
+use Socket        qw( AF_INET AF_INET6 inet_pton inet_ntop );
+use TOML::Tiny    qw( from_toml );
 
 =pod
 
@@ -1155,13 +1156,11 @@ prefix reaches past the mapped block into IPv6 proper and stays a IPv6 network.
 
     my $compiled = compile_ignore_ips( $list, $where );
 
-Each entry comes back carrying the comparison L</ip_ignored> makes, already
-cut: C<head>, the network's whole masked bytes, and for a prefix that does
-not land on a byte boundary C<mask> and C<spare>, the partial byte's mask
-and the network's value under it. The byte and bit arithmetic is the same
-either way, but it is a property of the CIDR and not of the address being
-tested, so it is done once at load rather than per network per address...
-and the list is walked several times for every offender.
+Comes back as a hash holding a L<Net::Patricia> trie per address family the
+list has entries for, under C<v4> and C<v6>. A lookup costs about the same
+however long the list is, which matters for namtar lists, as those can be
+whole threat feeds of tens of thousands of entries checked for every
+offending line. A empty list compiles to a empty hash, which ignores no one.
 
 =cut
 
@@ -1173,7 +1172,7 @@ sub compile_ignore_ips {
 		die( $where . ' is not a array' );
 	}
 
-	my @compiled;
+	my %compiled;
 	foreach my $entry ( @{$list} ) {
 		if ( !defined($entry) || ref($entry) ne '' || $entry eq '' ) {
 			die( $where . ' contains a empty or non-string entry' );
@@ -1207,23 +1206,15 @@ sub compile_ignore_ips {
 			$prefix = $prefix - 96;
 		}
 
-		my ( $whole_bytes, $mask ) = _prefix_split($prefix);
-		my $net = {
-			'packed' => $packed,
-			'prefix' => $prefix,
-			'bits'   => $bits,
-			'whole'  => $whole_bytes,
-			'head'   => substr( $packed, 0, $whole_bytes ),
-		};
-		if ( defined($mask) ) {
-			$net->{mask}  = $mask;
-			$net->{spare} = substr( $packed, $whole_bytes, 1 ) & $mask;
-		}
-
-		push( @compiled, $net );
+		# a trie per family, made on its first entry... the trie masks the
+		# host bits off itself, so 192.0.2.7/24 holds all of 192.0.2.0/24
+		my $af     = $bits == 32 ? AF_INET : AF_INET6;
+		my $family = $bits == 32 ? 'v4'    : 'v6';
+		$compiled{$family} //= Net::Patricia->new($af);
+		$compiled{$family}->add_string( inet_ntop( $af, $packed ) . '/' . $prefix, 1 );
 	} ## end foreach my $entry ( @{$list} )
 
-	return \@compiled;
+	return \%compiled;
 } ## end sub compile_ignore_ips
 
 =head2 ip_ignored
@@ -1239,7 +1230,7 @@ like a hostname a rule captured, is never regarded as ignored.
 sub ip_ignored {
 	my ( $compiled, $ip ) = @_;
 
-	if ( !is_plain_arrayref($compiled) || !@{$compiled} ) {
+	if ( !is_plain_hashref($compiled) ) {
 		return 0;
 	}
 
@@ -1248,24 +1239,17 @@ sub ip_ignored {
 		return 0;
 	}
 
-	# the byte and bit split each network is compared under was cut at
-	# compile, so this is a substr and a string compare per network with no
-	# arithmetic at all... see compile_ignore_ips
-	foreach my $net ( @{$compiled} ) {
-		if ( $net->{bits} != $bits ) {
-			next;
-		}
-		if ( substr( $packed, 0, $net->{whole} ) ne $net->{head} ) {
-			next;
-		}
-		if ( defined( $net->{mask} ) && ( substr( $packed, $net->{whole}, 1 ) & $net->{mask} ) ne $net->{spare} ) {
-			next;
-		}
+	my $af   = $bits == 32 ? AF_INET : AF_INET6;
+	my $trie = $compiled->{ $bits == 32 ? 'v4' : 'v6' };
+	if ( !defined($trie) ) {
+		return 0;
+	}
 
-		return 1;
-	} ## end foreach my $net ( @{$compiled} )
-
-	return 0;
+	# the trie is only ever handed the canonical form of a address already
+	# known to be one, never the raw value... its IPv4 lookup goes through
+	# inet_aton, which would look a hostname up, and it dies on anything it
+	# can not parse
+	return defined( $trie->match_string( inet_ntop( $af, $packed ) ) ) ? 1 : 0;
 } ## end sub ip_ignored
 
 =head2 ip_family
@@ -1313,8 +1297,7 @@ sub ip_network {
 		return undef;
 	}
 
-	# mask the host bits off, whole bytes then the partial byte, the same
-	# byte and bit split ip_ignored uses to compare
+	# mask the host bits off, whole bytes then the partial byte
 	my ( $whole_bytes, $mask ) = _prefix_split($prefix);
 	my $masked = substr( $packed, 0, $whole_bytes );
 	if ( defined($mask) ) {
@@ -1364,8 +1347,7 @@ sub _pack_ip {
 } ## end sub _pack_ip
 
 # splits a prefix length into the whole bytes it covers and the mask of the
-# partial byte after them, the split both ignore_ips matching and network
-# masking work in.
+# partial byte after them, the split ip_network masks a address under.
 #
 # args:
 #   $prefix :: the prefix length in bits, already known to suit its family

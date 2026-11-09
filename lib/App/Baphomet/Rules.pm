@@ -4,7 +4,6 @@ use 5.006;
 use strict;
 use warnings;
 use Ref::Util                       qw( is_plain_hashref );
-use File::Find                      ();
 use File::ShareDir                  ();
 use Path::Tiny                      qw( path );
 use YAML::XS                        ();
@@ -492,16 +491,14 @@ sub rule_names {
 	my %seen;
 	foreach my $dir ( @{ $self->{rules_dirs} } ) {
 		next if !-d $dir;
-		File::Find::find(
-			{
-				wanted => sub {
-					if ( $File::Find::name =~ /^\Q$dir\E\/(.+)\.yaml$/ ) {
-						$seen{$1} = 1;
-					}
-				},
-				no_chdir => 1,
+		path($dir)->visit(
+			sub {
+				my ($found) = @_;
+				if ( $found->is_file && $found =~ /\.yaml$/ ) {
+					$seen{ $found->relative($dir) =~ s/\.yaml$//r } = 1;
+				}
 			},
-			$dir
+			{ 'recurse' => 1 }
 		);
 	} ## end foreach my $dir ( @{ $self->{rules_dirs} } )
 

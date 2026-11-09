@@ -267,7 +267,7 @@ is_deeply( \@sent, ['198.51.100.7'], 'and banishes one the overridden list does 
 
 # a missing file loaded empty, so its gate matches nobody
 is_deeply( $galla->{namtar_files}{ slotkey( 'cidr', 0, $dir . '/missing.cidr' ) }{set},
-	[], 'a missing feed loads as a empty set' );
+	{}, 'a missing feed loads as a empty set' );
 @sent = ();
 feed( $galla, 'emptyw', event => 'fail', ip => '10.1.2.3' );
 is_deeply( \@sent, [], 'a gate over a missing feed fails closed' );

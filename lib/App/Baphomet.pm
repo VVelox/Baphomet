@@ -10,6 +10,7 @@ use POE::Component::Server::JSONUnix                 ();
 use POE::Component::Server::JSONUnix::Client         ();
 use POE::Component::Server::JSONUnix::BlockingClient ();
 use Ereshkigal::Client                               ();
+use Path::Tiny                                       qw( path );
 use App::Baphomet::Config                            qw( load_config check_kur_def kur_split watcher_rules );
 use App::Baphomet::Rules                             ();
 use App::Baphomet::LogDrek                           qw( log_drek );
@@ -237,10 +238,9 @@ sub new {
 	# create these here rather than in start_server as the PID file gets
 	# written prior to start_server being called
 	foreach my $dir ( $self->{run_base_dir}, $self->{run_base_dir} . '/galla' ) {
-		if ( !-e $dir ) {
-			# a failure here surfaces via the usability check below
-			mkdir($dir);
-		}
+		# makes any missing parents too, and is a no-op for a existing dir... a
+		# failure surfaces via the usability check below
+		eval { path($dir)->mkpath; };
 		# sockets and PID files land under here, so it must be traversable too
 		if ( !-d $dir || !-r $dir || !-w $dir || !-x $dir ) {
 			$self->{perror}      = 1;

@@ -14,6 +14,7 @@ configure there, as Baphomet's config targets them.
 | File::ShareDir                       | p5-File-ShareDir | libfile-sharedir-perl |
 | JSON::MaybeXS                        | p5-JSON-MaybeXS  | libjson-maybexs-perl  |
 | Log::Munger                          | (cpanm)          | (cpanm)               |
+| Net::Patricia                        | p5-Net-Patricia  | libnet-patricia-perl  |
 | Net::Server (Net::Server::Daemonize) | p5-Net-Server    | libnet-server-perl    |
 | Path::Tiny                           | p5-Path-Tiny     | libpath-tiny-perl     |
 | POE                                  | p5-POE           | libpoe-perl           |

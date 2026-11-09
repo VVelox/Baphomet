@@ -44,6 +44,20 @@ Version 0.0.1
 
 our $VERSION = '0.0.1';
 
+# the CSV writer and reader for the ledger and the positions and cursors
+# tablets... quotes a field only when it holds a comma or a quote, as
+# _ledger_fold splits the leading epoch,kur,ip on bare commas and the ledger
+# command expects that same plain form. all three are read line-wise, so a
+# newline is stripped from a field before it is written rather than quoted
+my $csv = Text::CSV_XS->new(
+	{
+		'binary'       => 1,
+		'eol'          => "\n",
+		'quote_space'  => 0,
+		'quote_binary' => 0,
+	}
+);
+
 =head1 SYNOPSIS
 
     use App::Baphomet::Galla;
@@ -252,10 +266,9 @@ sub new {
 	$self->{internal} = compile_ignore_ips( \@internal_entries, 'internal' );
 
 	foreach my $dir ( $self->{run_base_dir}, $self->{run_base_dir} . '/galla' ) {
-		if ( !-e $dir ) {
-			# don't need to check if this worked failed or not here as the next if statement will handle that
-			eval { mkdir($dir); };
-		}
+		# makes any missing parents too, and is a no-op for a existing dir... a
+		# failure surfaces via the checks below
+		eval { path($dir)->mkpath; };
 		if ( !-d $dir ) {
 			$self->{perror}      = 1;
 			$self->{error}       = 4;
@@ -789,7 +802,7 @@ sub checkpoint {
 			$self->_snapshot_positions;
 			foreach my $file ( sort( keys( %{ $self->{positions} } ) ) ) {
 				my $pos = $self->{positions}{$file};
-				print $fh _csv_escape($file) . ',' . $pos->{inode} . ',' . $pos->{offset} . "\n";
+				$csv->print( $fh, [ $file =~ s{[\r\n]}{}gr, $pos->{inode}, $pos->{offset} ] );
 			}
 		}
 	);
@@ -804,7 +817,7 @@ sub checkpoint {
 			foreach my $watcher_name ( sort( keys( %{ $self->{journal_cursors} } ) ) ) {
 				my $cursor = $self->{journal_cursors}{$watcher_name};
 				if ( defined($cursor) && $cursor ne '' ) {
-					print $fh _csv_escape($watcher_name) . ',' . _csv_escape($cursor) . "\n";
+					$csv->print( $fh, [ map { s{[\r\n]}{}gr } ( $watcher_name, $cursor ) ] );
 				}
 			}
 		}
@@ -1168,14 +1181,12 @@ sub _load_positions {
 		if ( ( $line_int == 1 && $line =~ /^file,/ ) || $line eq '' ) {
 			next;
 		}
-		# inode and offset are trailing digit columns, so pull them from
-		# the end and leave whatever is left as the file, which may carry
-		# a comma inside quotes
-		if ( $line !~ /^(.*),([0-9]+),([0-9]+)$/ ) {
+		if ( !$csv->parse($line) ) {
 			next;
 		}
-		my ( $file, $inode, $offset ) = ( _csv_unescape($1), $2, $3 );
-		if ( !defined($file) || $file eq '' ) {
+		my @fields = $csv->fields;
+		my ( $file, $inode, $offset ) = @fields;
+		if ( @fields != 3 || $file eq '' || $inode !~ /^[0-9]+$/ || $offset !~ /^[0-9]+$/ ) {
 			next;
 		}
 		$self->{positions}{$file} = { 'inode' => $inode + 0, 'offset' => $offset + 0 };
@@ -1195,15 +1206,13 @@ sub _load_cursors {
 		if ( ( $line_int == 1 && $line =~ /^watcher,/ ) || $line eq '' ) {
 			next;
 		}
-		# the watcher column may carry a comma inside quotes, so a plain
-		# first-comma split would shear a quoted name in half
-		if ( $line !~ /^("(?:[^"]|"")*"|[^,]*),(.*)$/ ) {
+		if ( !$csv->parse($line) ) {
 			next;
 		}
-		my ( $watcher_name, $cursor ) = ( _csv_unescape($1), _csv_unescape($2) );
+		my @fields = $csv->fields;
+		my ( $watcher_name, $cursor ) = @fields;
 		# only for a watcher that still exists and is still a journal one
-		if (   defined($watcher_name)
-			&& defined($cursor)
+		if (   @fields == 2
 			&& defined( $self->{watchers}{$watcher_name} )
 			&& $self->{watchers}{$watcher_name}{is_journal} )
 		{
@@ -1371,31 +1380,6 @@ sub _seek_for {
 	# rotated or truncated... start from the top of the new file
 	return 0;
 } ## end sub _seek_for
-
-sub _csv_escape {
-	my ($value) = @_;
-
-	# a newline can not survive the line-based tablets no matter the
-	# quoting, as the writer splits the buffer on them and the loaders
-	# read line-wise, so it is dropped rather than chiseled broken
-	$value =~ s/[\r\n]//g;
-	# file paths with a comma or quote would break the simple CSV
-	if ( $value =~ /[,"]/ ) {
-		$value =~ s/"/""/g;
-		return '"' . $value . '"';
-	}
-	return $value;
-} ## end sub _csv_escape
-
-sub _csv_unescape {
-	my ($value) = @_;
-
-	if ( defined($value) && $value =~ /^"(.*)"$/ ) {
-		$value = $1;
-		$value =~ s/""/"/g;
-	}
-	return $value;
-}
 
 # emits a event to the EVE log... a no-op unless eve_enable is on... the
 # passed fields are merged over the common envelope, and a banish or
@@ -3381,7 +3365,7 @@ sub _load_namtar_file {
 		if ($@) {
 			log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $@,
 				undef, 'galla-' . $self->{name} );
-			$set = [];
+			$set = compile_ignore_ips( [] );
 		}
 	}
 
@@ -5194,18 +5178,6 @@ sub _ledger_fold {
 	return;
 } ## end sub _ledger_fold
 
-# the ledger row writer... quotes a field only when it holds a comma or a
-# quote, as _ledger_fold splits the leading epoch,kur,ip on bare commas and
-# the ledger command expects that same plain form
-my $ledger_csv = Text::CSV_XS->new(
-	{
-		'binary'       => 1,
-		'eol'          => "\n",
-		'quote_space'  => 0,
-		'quote_binary' => 0,
-	}
-);
-
 # chisels a banishment row into the shared ledger under a exclusive lock
 # and returns how many times this IP appears with in the recidive window.
 # rows are epoch,kur,ip,rule,watcher. only rows appended since the last
@@ -5240,9 +5212,8 @@ sub _ledger_append_and_count {
 		}
 		# a newline in the rule or watcher would split the row for the
 		# line-wise readers, so it is dropped rather than quoted
-		my @row = ( $now, $self->{name}, $ip, $rule, $watcher );
-		s/[\r\n]//g foreach @row[ 3, 4 ];
-		$ledger_csv->print( $fh, \@row ) || die( 'write failed... ' . $! );
+		my @row = ( $now, $self->{name}, $ip, map { s{[\r\n]}{}gr } ( $rule, $watcher ) );
+		$csv->print( $fh, \@row ) || die( 'write failed... ' . $! );
 		if ($find_time) {
 			$self->{ledger_offset} = tell($fh);
 		}

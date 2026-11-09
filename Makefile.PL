@@ -33,6 +33,7 @@ my %WriteMakefileArgs = (
 		'JSON::MaybeXS'                    => '0',
 		'List::Util'                       => '1.45',
 		'Log::Munger'                      => '0.1.0',
+		'Net::Patricia'                    => '0',
 		'Net::Server::Daemonize'           => '0',
 		'Path::Tiny'                       => '0',
 		'POE'                              => '0',
