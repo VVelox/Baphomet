@@ -9,10 +9,6 @@ use Test::More;
 # Redis::Fast is installed and a server answers... set BAPHOMET_TEST_REDIS to a
 # host:port to point it somewhere other than 127.0.0.1:6379
 
-use FindBin ();
-use lib "$FindBin::Bin/lib";
-use BaphometTestRedis ();
-
 use App::Baphomet::ClayTablet         ();
 use App::Baphomet::ClayTablet::Redis ();
 
@@ -225,9 +221,14 @@ SKIP: {
 		};
 		skip( 'no redis reachable at ' . $server, 1 ) if !$reachable;
 	} else {
-		$guard = BaphometTestRedis->start;
-		skip( 'no redis-server to spin up and no BAPHOMET_TEST_REDIS', 1 ) if !defined($guard);
-		$server = $guard->server;
+		$guard = eval {
+			require Test::RedisServer;
+			require Net::EmptyPort;
+			Test::RedisServer->new( 'conf' => { 'bind' => '127.0.0.1', 'port' => Net::EmptyPort::empty_port() } );
+		};
+		skip( 'no Test::RedisServer and redis-server to spin up, and no BAPHOMET_TEST_REDIS', 1 ) if !defined($guard);
+		my %connect_info = $guard->connect_info;
+		$server = $connect_info{server};
 	}
 
 	my $prefix = 'baphomet-test-' . $$;

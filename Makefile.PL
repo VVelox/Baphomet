@@ -39,6 +39,7 @@ my %WriteMakefileArgs = (
 		'POE::Component::Server::JSONUnix' => '0.1.0',
 		'Regexp::IPv4'                     => '0',
 		'Regexp::IPv6'                     => '0',
+		'Text::CSV_XS'                     => '0',
 		'TOML::Tiny'                       => '0',
 		'YAML::XS'                         => '0',
 	},
@@ -60,6 +61,14 @@ my %WriteMakefileArgs = (
 				recommends => {
 					'IP::Geolocation::MMDB' => '0',
 					'Redis::Fast'           => '0',
+				},
+			},
+			# only for spinning up a throwaway redis-server for the live redis tests,
+			# which skip with out them
+			test => {
+				recommends => {
+					'Net::EmptyPort'    => '0',
+					'Test::RedisServer' => '0',
 				},
 			},
 		},

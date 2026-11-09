@@ -9,8 +9,11 @@ use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
 use List::Util                               qw( uniqstr );
+use Path::Tiny                               qw( path );
+use Text::CSV_XS                             ();
 use JSON::MaybeXS                            qw( encode_json decode_json );
 use Encode                                   ();
+use Fcntl                                    qw( :flock );
 use POSIX                                    qw( strftime );
 use Socket                                   qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                            ();
@@ -1433,7 +1436,7 @@ sub _eve_emit {
 	# sharing the one file and correct under a log rotation
 	eval {
 		open( my $fh, '>>', $self->{eve_log} ) || die( 'open failed... ' . $! );
-		flock( $fh, 2 )                        || die( 'lock failed... ' . $! );    # LOCK_EX
+		flock( $fh, LOCK_EX )                  || die( 'lock failed... ' . $! );
 		print $fh $line . "\n";
 		close($fh);
 	};
@@ -5248,6 +5251,18 @@ sub _ledger_fold {
 	return;
 } ## end sub _ledger_fold
 
+# the ledger row writer... quotes a field only when it holds a comma or a
+# quote, as _ledger_fold splits the leading epoch,kur,ip on bare commas and
+# the ledger command expects that same plain form
+my $ledger_csv = Text::CSV_XS->new(
+	{
+		'binary'       => 1,
+		'eol'          => "\n",
+		'quote_space'  => 0,
+		'quote_binary' => 0,
+	}
+);
+
 # chisels a banishment row into the shared ledger under a exclusive lock
 # and returns how many times this IP appears with in the recidive window.
 # rows are epoch,kur,ip,rule,watcher. only rows appended since the last
@@ -5267,7 +5282,7 @@ sub _ledger_append_and_count {
 	my $path = $self->ledger_path;
 	eval {
 		open( my $fh, '+>>', $path ) || die( 'open failed... ' . $! );
-		flock( $fh, 2 )              || die( 'lock failed... ' . $! );    # LOCK_EX
+		flock( $fh, LOCK_EX )        || die( 'lock failed... ' . $! );
 
 		# with recidive off nothing ever reads the tally, so the row is
 		# purely appended and the ledger is never even read here
@@ -5280,13 +5295,11 @@ sub _ledger_append_and_count {
 		if ( ( stat($fh) )[7] == 0 ) {
 			print( $fh "epoch,kur,ip,rule,watcher\n" ) || die( 'write failed... ' . $! );
 		}
-		print(    $fh $now . ','
-				. $self->{name} . ','
-				. $ip . ','
-				. _csv_escape($rule) . ','
-				. _csv_escape($watcher)
-				. "\n" )
-			|| die( 'write failed... ' . $! );
+		# a newline in the rule or watcher would split the row for the
+		# line-wise readers, so it is dropped rather than quoted
+		my @row = ( $now, $self->{name}, $ip, $rule, $watcher );
+		s/[\r\n]//g foreach @row[ 3, 4 ];
+		$ledger_csv->print( $fh, \@row ) || die( 'write failed... ' . $! );
 		if ($find_time) {
 			$self->{ledger_offset} = tell($fh);
 		}
@@ -5348,7 +5361,7 @@ sub _ledger_compact {
 	}
 	eval {
 		open( my $fh, '+<', $path ) || die( 'open failed... ' . $! );
-		flock( $fh, 2 )             || die( 'lock failed... ' . $! );    # LOCK_EX
+		flock( $fh, LOCK_EX )       || die( 'lock failed... ' . $! );
 
 		if ($find_time) {
 			$self->_ledger_fold( $fh, $now, $find_time, $recidive_kur );
@@ -5580,10 +5593,12 @@ sub _cmd_status {
 sub _ensure_eve_dir {
 	my ($self) = @_;
 
-	my $eve_dir = $self->{eve_log};
-	$eve_dir =~ s{/[^/]*$}{};
-	if ( $eve_dir ne '' && !-e $eve_dir ) {
-		mkdir($eve_dir);
+	# parent is "." for a bare filename, and mkpath makes every missing level
+	# and is a no-op for a dir that already exists
+	eval { path( $self->{eve_log} )->parent->mkpath; };
+	if ($@) {
+		log_drek( 'err', 'making the dir for the EVE log "' . $self->{eve_log} . '" failed... ' . $@,
+			undef, 'galla-' . $self->{name} );
 	}
 
 	return;

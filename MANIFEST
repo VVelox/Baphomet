@@ -406,7 +406,6 @@ t/dns-async-live.t
 t/galla.t
 t/ignore-ips.t
 t/kur-client-async.t
-t/lib/BaphometTestRedis.pm
 t/load-state-helpers.t
 t/manager-fanout-async.t
 t/manager-socket-live.t

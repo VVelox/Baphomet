@@ -17,10 +17,6 @@ BEGIN {
 	}
 }
 
-use FindBin ();
-use lib "$FindBin::Bin/lib";
-use BaphometTestRedis ();
-
 use JSON::MaybeXS ();
 use App::Baphomet::Galla ();
 
@@ -199,9 +195,14 @@ SKIP: {
 	if ( defined( $ENV{BAPHOMET_TEST_REDIS} ) ) {
 		$server = $ENV{BAPHOMET_TEST_REDIS};
 	} else {
-		$redis = BaphometTestRedis->start;
-		skip( 'no redis-server to spin up and no BAPHOMET_TEST_REDIS', 3 ) if !defined($redis);
-		$server = $redis->server;
+		$redis = eval {
+			require Test::RedisServer;
+			require Net::EmptyPort;
+			Test::RedisServer->new( 'conf' => { 'bind' => '127.0.0.1', 'port' => Net::EmptyPort::empty_port() } );
+		};
+		skip( 'no Test::RedisServer and redis-server to spin up, and no BAPHOMET_TEST_REDIS', 3 ) if !defined($redis);
+		my %connect_info = $redis->connect_info;
+		$server = $connect_info{server};
 	}
 
 	make_path( $dir . '/liveA', $dir . '/liveB' );

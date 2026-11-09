@@ -7,6 +7,7 @@ use App::Baphomet::App -command;
 use App::Baphomet::Config qw( load_config );
 use JSON::MaybeXS         ();
 use POSIX                 qw( strftime );
+use Text::CSV_XS          ();
 
 =head1 NAME
 
@@ -130,14 +131,19 @@ sub execute {
 # a ledger row into a entry hash... epoch,kur,ip,rule,watcher, the last
 # two quoted if they carry a comma, and absent entirely on rows from
 # before the ledger carried them. undef for the header or anything mangled
+my $ledger_csv = Text::CSV_XS->new( { 'binary' => 1 } );
+
 sub _parse_row {
 	my ($line) = @_;
 
-	my $quoted = '"(?:[^"]|"")*"|[^,]*';
-	if ( $line !~ /^([0-9]+),([^,]*),([^,]+?)(?:,($quoted),($quoted))?$/ ) {
+	if ( !$ledger_csv->parse($line) ) {
 		return undef;
 	}
-	my ( $epoch, $kur, $ip, $rule, $watcher ) = ( $1, $2, $3, _unquote($4), _unquote($5) );
+	my @fields = $ledger_csv->fields;
+	if ( ( @fields != 3 && @fields != 5 ) || $fields[0] !~ /^[0-9]+$/ || $fields[2] eq '' ) {
+		return undef;
+	}
+	my ( $epoch, $kur, $ip, $rule, $watcher ) = @fields;
 
 	return {
 		'epoch' => $epoch + 0,
@@ -148,18 +154,6 @@ sub _parse_row {
 		defined($watcher) && $watcher ne '' ? ( 'watcher' => $watcher ) : (),
 	};
 } ## end sub _parse_row
-
-# undoes the CSV quoting of the galla's ledger writer
-sub _unquote {
-	my ($value) = @_;
-
-	if ( defined($value) && $value =~ /^"(.*)"$/ ) {
-		$value = $1;
-		$value =~ s/""/"/g;
-	}
-
-	return $value;
-} ## end sub _unquote
 
 # a --since spec into a epoch... bare digits are a epoch already, digits
 # with a unit are a span back from now

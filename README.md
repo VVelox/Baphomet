@@ -92,7 +92,7 @@ which is searched ahead of the shipped rules... see
 
 ```shell
 pkg install p5-App-Cmd p5-Error-Helper p5-File-ShareDir p5-JSON-MaybeXS \
-    p5-Net-Server p5-Path-Tiny p5-POE p5-YAML-LibYAML p5-Regexp-IPv6 p5-App-cpanminus
+    p5-Net-Server p5-Path-Tiny p5-POE p5-YAML-LibYAML p5-Regexp-IPv6 p5-Text-CSV_XS p5-App-cpanminus
 cpanm Ereshkigal App::Baphomet
 ```
 
@@ -103,7 +103,7 @@ Startup script for running at boot [rc/freebsd/baphomet](rc/freebsd/baphomet).
 ```shell
 apt-get install libapp-cmd-perl libfile-sharedir-perl libjson-maybexs-perl \
     libnet-server-perl libpath-tiny-perl libpoe-perl libtoml-tiny-perl libyaml-libyaml-perl \
-    libregexp-ipv6-perl cpanminus
+    libregexp-ipv6-perl libtext-csv-xs-perl cpanminus
 cpanm Ereshkigal App::Baphomet
 ```
 

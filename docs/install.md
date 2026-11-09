@@ -20,6 +20,7 @@ configure there, as Baphomet's config targets them.
 | POE::Component::Server::JSONUnix     | (cpanm)          | (cpanm)               |
 | Regexp::IPv4                         | (cpanm)          | (cpanm)               |
 | Regexp::IPv6                         | p5-Regexp-IPv6   | libregexp-ipv6-perl   |
+| Text::CSV_XS                         | p5-Text-CSV_XS   | libtext-csv-xs-perl   |
 | TOML::Tiny                           | (cpanm)          | libtoml-tiny-perl     |
 | YAML::XS                             | p5-YAML-LibYAML  | libyaml-libyaml-perl  |
 | Ereshkigal (for Ereshkigal::Client)  | (cpanm)          | (cpanm)               |
@@ -52,6 +53,10 @@ make
 make test
 make install
 ```
+
+The live Redis tests spin up a throwaway `redis-server` through
+`Test::RedisServer` and `Net::EmptyPort`, or use the server named by
+`BAPHOMET_TEST_REDIS`, and skip when neither is available.
 
 This installs the `baphomet` and `galla` bins, the modules, and the shipped
 rules... the rules go into the dist's [`File::ShareDir`](https://metacpan.org/pod/File::ShareDir)
