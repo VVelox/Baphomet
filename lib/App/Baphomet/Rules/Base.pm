@@ -3811,6 +3811,10 @@ sub _check_stages {
 	return $found;
 } ## end sub _check_stages
 
+# how long, in seconds, a staged slot waits for its next stage when that stage
+# names no within of its own... also the life of a slot just opened
+my $STAGE_DEFAULT_WITHIN = 600;
+
 # the staged matcher proper, wrapped by _check_stages so the ignore veto and
 # the track sweep sit either side of it. returns undef until the final stage
 # completes, then the found carrying the merged captures and the stage hits
@@ -3910,7 +3914,18 @@ sub _check_stages_core {
 	if ( !defined($key_value) || defined( $store->{$key_value} ) ) {
 		return undef;
 	}
-	$self->_stage_slot_new( $store, $key_value, $now );
+	# a fresh slot awaiting the first stage, the per scope slot count bounded
+	# the way the correlation context is bounded
+	$self->_bound_expiring_store( $store, $key_value, $now );
+	$store->{$key_value} = {
+		'stage'     => 0,
+		'count'     => 0,
+		'data'      => {},
+		'hits'      => [],
+		'last_time' => $now,
+		'last_seq'  => undef,
+		'expires'   => $now + $STAGE_DEFAULT_WITHIN,
+	};
 
 	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq, $munge, $line_ctx );
 } ## end sub _check_stages_core
@@ -3930,7 +3945,7 @@ sub _stage_hit {
 	$slot->{last_seq}  = $seq;
 
 	if ( $slot->{count} < $stage->{count} ) {
-		$slot->{expires} = $now + ( defined( $stage->{within} ) ? $stage->{within} : 600 );
+		$slot->{expires} = $now + ( $stage->{within} // $STAGE_DEFAULT_WITHIN );
 		return undef;
 	}
 
@@ -3957,7 +3972,7 @@ sub _stage_hit {
 	$slot->{stage}++;
 	$slot->{count} = 0;
 	my $next_stage = $self->{stages}[ $slot->{stage} ];
-	$slot->{expires} = $now + ( defined( $next_stage->{within} ) ? $next_stage->{within} : 600 );
+	$slot->{expires} = $now + ( $next_stage->{within} // $STAGE_DEFAULT_WITHIN );
 
 	return undef;
 } ## end sub _stage_hit
@@ -3990,26 +4005,6 @@ sub _bound_expiring_store {
 
 	return;
 } ## end sub _bound_expiring_store
-
-# creates a fresh slot awaiting the first stage, bounding the per scope
-# slot count the way the correlation context is bounded
-sub _stage_slot_new {
-	my ( $self, $store, $key_value, $now ) = @_;
-
-	$self->_bound_expiring_store( $store, $key_value, $now );
-
-	$store->{$key_value} = {
-		'stage'     => 0,
-		'count'     => 0,
-		'data'      => {},
-		'hits'      => [],
-		'last_time' => $now,
-		'last_seq'  => undef,
-		'expires'   => $now + 600,
-	};
-
-	return;
-} ## end sub _stage_slot_new
 
 # compiles the capture_regexp of the passed def... entries harvest
 # correlation context rather than being offenses, each a hash of a
@@ -4890,19 +4885,21 @@ sub _compile_predicate {
 	return $predicate;
 } ## end sub _compile_predicate
 
-# runs a compiled predicate against a field value, honoring negate. a missing
-# field is a false core, so a plain predicate misses and a negated one holds,
-# matching Sigma's "field absent" semantics
-sub _predicate_hit {
-	my ( $self, $predicate, $value, $ref ) = @_;
-
-	my $core = $self->_predicate_core( $predicate, $value, $ref );
-	if ( $predicate->{negate} ) {
-		return $core ? 0 : 1;
-	}
-	return $core;
-}
-
+# runs a compiled predicate's operator against one field value, without its
+# negate... _gate_hit applies negate, once per value for a plain gate and once
+# over the whole fan for a keyword gate, so a keyword's OR stays clean. a
+# missing field is a false core, except under exists, which tests presence.
+#
+# args:
+#   $predicate :: a compiled predicate from _compile_predicate
+#   $value     :: the field value, undef when the field is absent
+#   $ref       :: the referenced field's value for a fieldref predicate, the
+#                 needle compared against, else undef
+#
+# returns 1 when the operator holds for the value, or for any candidate its
+# decode chain fans it out to, else 0.
+#
+#   my $core = $self->_predicate_core( $gate->{predicate}, $data->{user} );
 sub _predicate_core {
 	my ( $self, $predicate, $value, $ref ) = @_;
 
@@ -5393,7 +5390,13 @@ sub _gate_hit {
 	if ( defined( $gate->{predicate}{fieldref} ) ) {
 		$ref = $data->{ $gate->{predicate}{fieldref} };
 	}
-	return $self->_predicate_hit( $gate->{predicate}, $value, $ref );
+	my $hit = $self->_predicate_core( $gate->{predicate}, $value, $ref );
+	# a missing field is a false core, so a plain predicate misses and a
+	# negated one holds, matching Sigma's "field absent" semantics
+	if ( $gate->{predicate}{negate} ) {
+		$hit = $hit ? 0 : 1;
+	}
+	return $hit;
 } ## end sub _gate_hit
 
 # the values a keyword gate fans over... every field value plus the message for
