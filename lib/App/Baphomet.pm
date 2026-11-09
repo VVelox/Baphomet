@@ -549,15 +549,6 @@ sub _neti_command_rule {
 	return \%rule;
 } ## end sub _neti_command_rule
 
-sub _galla_client {
-	my ( $self, $name ) = @_;
-
-	return Ereshkigal::Client->new(
-		'socket'  => $self->galla_socket_path($name),
-		'timeout' => $self->{timeout},
-	);
-}
-
 sub _build_galla_cmd {
 	my ( $self, $name ) = @_;
 
@@ -698,11 +689,10 @@ sub _poe_stop_all {
 	my @running = grep { defined( $self->{gallas}{$_}{pid} ) } sort( keys( %{ $self->{gallas} } ) );
 	my $answers = $self->_galla_call_many( \@running, 'stop' );
 	foreach my $name (@running) {
-		my $answer = $answers->{$name};
-		if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
+		my ( undef, $error ) = _galla_answer( $answers->{$name} );
+		if ( !defined($error) ) {
 			next;
 		}
-		my $error = ( ref($answer) eq 'HASH' && defined( $answer->{error} ) ) ? $answer->{error} : 'no answer';
 		log_drek( 'err', 'stopping galla "' . $name . '" via it\'s socket failed, sending TERM... ' . $error );
 		if ( defined( $self->{gallas}{$name}{wheel} ) ) {
 			$self->{gallas}{$name}{wheel}->kill('TERM');
@@ -825,42 +815,43 @@ sub _galla_async_client {
 	return $self->{galla_clients}{$name};
 } ## end sub _galla_async_client
 
-# fires one async call per named galla... each answer folds via
-# $fold->($name, $result, $error) (exactly one of the two defined), and
-# $finish runs once the last lands, which the per-request timeout
-# guarantees. the deferred half of the fan-out commands
-sub _galla_fanout_deferred {
-	my ( $self, $running, $command, $fold, $finish ) = @_;
+# the error a JSONUnix response envelope carries... its own error when it has
+# one, else 'no answer', which covers a envelope that is not even a hash.
+#
+# args:
+#   $response :: the envelope as the client handed it back
+#
+# returns the error string.
+#
+#   my $error = _envelope_error($response);
+sub _envelope_error {
+	my ($response) = @_;
 
-	my $outstanding = scalar( @{$running} );
-	foreach my $name ( @{$running} ) {
-		my $client = $self->_galla_async_client($name);
-		$client->connect;
-		$client->call(
-			'command'  => $command,
-			'callback' => sub {
-				my ($response) = @_;
-				if ( ref($response) eq 'HASH' && defined( $response->{status} ) && $response->{status} eq 'ok' ) {
-					$fold->( $name, $response->{result}, undef );
-				} else {
-					$fold->(
-						$name, undef,
-						( ref($response) eq 'HASH' && defined( $response->{error} ) )
-						? $response->{error}
-						: 'no answer'
-					);
-				}
-				$outstanding--;
-				if ( !$outstanding ) {
-					$finish->();
-				}
-				return;
-			},
-		);
-	} ## end foreach my $name ( @{$running} )
+	if ( ref($response) eq 'HASH' && defined( $response->{error} ) ) {
+		return $response->{error};
+	}
+	return 'no answer';
+}
 
-	return;
-} ## end sub _galla_fanout_deferred
+# reads one galla's answer from call_many as a result and error pair.
+#
+# args:
+#   $answer :: the galla's entry in the call_many answers, a { result => ... }
+#              or { error => ... } hash, or undef when it never answered
+#
+# returns the two item list ( $result, $error ), exactly one of them defined
+# for a answer that is either... a missing answer, or one with neither, reads
+# as the error 'no answer'.
+#
+#   my ( $result, $error ) = _galla_answer( $answers->{sshd} );
+sub _galla_answer {
+	my ($answer) = @_;
+
+	if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
+		return ( $answer->{result}, undef );
+	}
+	return ( undef, _envelope_error($answer) );
+}
 
 # asks every named running galla the one command concurrently... a select
 # fan out against a single shared deadline, so the wall time is the slowest
@@ -885,30 +876,71 @@ sub _galla_call_many {
 	);
 } ## end sub _galla_call_many
 
+# asks the named gallas one command and builds the reply from their answers,
+# the shape every galla fan-out handler shares, errors held per galla so one
+# dead or wedged worker never takes the whole reply down. with a $ctx the asks
+# go out over the async clients and the reply is chiseled once the last lands,
+# which the per-request timeout guarantees, so the manager loop never blocks.
+# without one (a direct call, as in the tests), or with no one to ask,
+# call_many answers in place, bounded by one deadline.
+#
+# args:
+#   $names   :: arrayref of the names of the gallas to ask, the running ones
+#   $command :: the command each is sent
+#   $ctx     :: the JSONUnix context the reply defers through, or undef
+#   $fold    :: called per galla as $fold->( $name, $result, $error ), one of
+#               result and error defined, to fold its answer into the reply
+#   $reply   :: called once every answer is folded, returning the reply
+#
+# returns the reply when it was answered in place, else undef, the reply
+# going out through $ctx when the last answer lands.
+#
+#   return $self->_galla_ask( \@running, 'status', $ctx, $fold, sub { return $status; } );
+sub _galla_ask {
+	my ( $self, $names, $command, $ctx, $fold, $reply ) = @_;
+
+	if ( !defined($ctx) || !@{$names} ) {
+		my $answers = $self->_galla_call_many( $names, $command );
+		foreach my $name ( @{$names} ) {
+			$fold->( $name, _galla_answer( $answers->{$name} ) );
+		}
+		return $reply->();
+	}
+
+	my $outstanding = scalar( @{$names} );
+	foreach my $name ( @{$names} ) {
+		my $client = $self->_galla_async_client($name);
+		$client->connect;
+		$client->call(
+			'command'  => $command,
+			'callback' => sub {
+				my ($response) = @_;
+				if ( ref($response) eq 'HASH' && ( $response->{status} // '' ) eq 'ok' ) {
+					$fold->( $name, $response->{result}, undef );
+				} else {
+					$fold->( $name, undef, _envelope_error($response) );
+				}
+				$outstanding--;
+				if ( !$outstanding ) {
+					$ctx->respond_result( $reply->() );
+				}
+				return;
+			},
+		);
+	} ## end foreach my $name ( @{$names} )
+
+	return undef;
+} ## end sub _galla_ask
+
 sub _cmd_status_all {
 	my ( $self, $ctx ) = @_;
 
-	my $status = $self->_cmd_status;
-
+	my $status  = $self->_cmd_status;
 	my @running = grep { $status->{gallas}{$_}{running} } keys( %{ $status->{gallas} } );
 
-	if ( !defined($ctx) || !@running ) {
-		my $answers = $self->_galla_call_many( \@running, 'status' );
-		foreach my $name (@running) {
-			my $answer = $answers->{$name};
-			if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
-				$status->{gallas}{$name}{status} = $answer->{result};
-			} else {
-				$status->{gallas}{$name}{error}
-					= ( ref($answer) eq 'HASH' && defined( $answer->{error} ) ) ? $answer->{error} : 'no answer';
-			}
-		}
-		return $status;
-	} ## end if ( !defined($ctx) || !@running )
-
-	$self->_galla_fanout_deferred(
+	return $self->_galla_ask(
 		\@running,
-		'status',
+		'status', $ctx,
 		sub {
 			my ( $name, $result, $error ) = @_;
 			if ( defined($error) ) {
@@ -918,13 +950,8 @@ sub _cmd_status_all {
 			}
 			return;
 		},
-		sub {
-			$ctx->respond_result($status);
-			return;
-		}
+		sub { return $status; }
 	);
-
-	return undef;
 } ## end sub _cmd_status_all
 
 sub _cmd_status_galla {
@@ -947,24 +974,12 @@ sub _cmd_status_galla {
 		return $status;
 	}
 
-	# trapped like the other fan-out handlers, so a dead-but-unreaped
-	# galla yields a partial status with a error rather than a raw die...
-	# deferred through $ctx when there is one, so even the single ask
-	# never blocks the manager loop
-	if ( !defined($ctx) ) {
-		my $galla_status;
-		eval { $galla_status = $self->_galla_client($name)->call_ok('status'); };
-		if ($@) {
-			$status->{error} = $@;
-		} else {
-			$status->{status} = $galla_status;
-		}
-		return $status;
-	} ## end if ( !defined($ctx) )
-
-	$self->_galla_fanout_deferred(
+	# asked like the fan-out handlers ask, so a dead-but-unreaped galla
+	# yields a partial status with a error rather than a raw die, and even
+	# the single ask never blocks the manager loop
+	return $self->_galla_ask(
 		[$name],
-		'status',
+		'status', $ctx,
 		sub {
 			my ( undef, $result, $error ) = @_;
 			if ( defined($error) ) {
@@ -974,21 +989,13 @@ sub _cmd_status_galla {
 			}
 			return;
 		},
-		sub {
-			$ctx->respond_result($status);
-			return;
-		}
+		sub { return $status; }
 	);
-
-	return undef;
 } ## end sub _cmd_status_galla
 
 # the shared shape of the per-galla fan-out commands... one galla when
-# args.name says so, else all, asked concurrently with errors held per
-# galla so one dead or wedged worker never takes the whole reply down.
-# with a $ctx to defer through the reply is chiseled from the answers and
-# the manager loop never blocks at all... without one (a direct call in
-# the tests) call_many answers synchronously, bounded by one deadline
+# args.name says so, else all, each answering into its own entry, a galla
+# not running reading as such without being asked
 sub _cmd_fanout {
 	my ( $self, $request, $command, $ctx ) = @_;
 
@@ -1014,37 +1021,16 @@ sub _cmd_fanout {
 		push( @running, $name );
 	}
 
-	if ( !defined($ctx) || !@running ) {
-		my $answers = $self->_galla_call_many( \@running, $command );
-		foreach my $name (@running) {
-			my $answer = $answers->{$name};
-			if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
-				$gallas->{$name} = $answer->{result};
-			} else {
-				$gallas->{$name}
-					= { 'error' => ( ref($answer) eq 'HASH' && defined( $answer->{error} ) )
-						? $answer->{error}
-						: 'no answer' };
-			}
-		} ## end foreach my $name (@running)
-		return { 'gallas' => $gallas };
-	} ## end if ( !defined($ctx) || !@running )
-
-	$self->_galla_fanout_deferred(
+	return $self->_galla_ask(
 		\@running,
-		$command,
+		$command, $ctx,
 		sub {
 			my ( $name, $result, $error ) = @_;
 			$gallas->{$name} = defined($error) ? { 'error' => $error } : $result;
 			return;
 		},
-		sub {
-			$ctx->respond_result( { 'gallas' => $gallas } );
-			return;
-		}
+		sub { return { 'gallas' => $gallas }; }
 	);
-
-	return undef;
 } ## end sub _cmd_fanout
 
 sub _cmd_accused {
@@ -1105,10 +1091,7 @@ sub _ereshkigal_call {
 
 	my $response = $client->call( 'command' => $command, ( defined($args) ? ( 'args' => $args ) : () ) );
 	if ( ref($response) ne 'HASH' || ( $response->{status} // '' ) ne 'ok' ) {
-		die(      'Ereshkigal refused "'
-				. $command . '"... '
-				. ( ref($response) eq 'HASH' && defined( $response->{error} ) ? $response->{error} : 'no answer' )
-				. "\n" );
+		die( 'Ereshkigal refused "' . $command . '"... ' . _envelope_error($response) . "\n" );
 	}
 
 	return $response->{result};
@@ -1176,14 +1159,21 @@ sub _banished_kur_entry {
 } ## end sub _banished_kur_entry
 
 # folds one galla's pending bans, its banishments spoken but not yet heard,
-# into the kur's entry... $answer is the { result => <status> } or
-# { error => ... } shape both the sync and the async galla paths hand back
+# into its kur's entry in the banished reply.
+#
+# args:
+#   $result :: the banished reply being built, { kurs => { name => entry } }
+#   $name   :: the galla's name, which is its kur's
+#   $status :: the galla's answer to status, whose pending_bans is folded
+#
+# returns nothing. a status with no pending_bans list, or a kur with no
+# entry in the reply, adds nothing.
+#
+#   _banished_merge_pending( $result, 'sshd', $galla_status );
 sub _banished_merge_pending {
-	my ( $result, $name, $answer ) = @_;
+	my ( $result, $name, $status ) = @_;
 
-	my $status = ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) ? $answer->{result} : undef;
-	if (   defined($status)
-		&& ref($status) eq 'HASH'
+	if (   ref($status) eq 'HASH'
 		&& ref( $status->{pending_bans} ) eq 'ARRAY'
 		&& defined( $result->{kurs}{$name} ) )
 	{
@@ -1228,34 +1218,22 @@ sub _cmd_banished {
 	}
 
 	# the pending bans ride the async galla fan-out... only the running gallas
-	# among the fed kurs are asked, the recidive kur has none
+	# among the fed kurs are asked, the recidive kur has none, and a galla
+	# that does not answer simply adds no pending
 	my @running = grep { defined( $self->{gallas}{$_} ) && defined( $self->{gallas}{$_}{pid} ) } @kurs;
 
-	if ( !defined($ctx) || !@running ) {
-		my $answers = $self->_galla_call_many( \@running, 'status' );
-		foreach my $name (@running) {
-			_banished_merge_pending( $result, $name, $answers->{$name} );
-		}
-		return $result;
-	}
-
-	$self->_galla_fanout_deferred(
+	return $self->_galla_ask(
 		\@running,
-		'status',
+		'status', $ctx,
 		sub {
-			my ( $name, $galla_result, $error ) = @_;
+			my ( $name, $galla_status, $error ) = @_;
 			if ( !defined($error) ) {
-				_banished_merge_pending( $result, $name, { 'result' => $galla_result } );
+				_banished_merge_pending( $result, $name, $galla_status );
 			}
 			return;
 		},
-		sub {
-			$ctx->respond_result($result);
-			return;
-		}
+		sub { return $result; }
 	);
-
-	return undef;
 } ## end sub _cmd_banished
 
 =head1 ERRORS CODES / ERROR FLAGS
