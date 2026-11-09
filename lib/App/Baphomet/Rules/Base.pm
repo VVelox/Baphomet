@@ -4824,23 +4824,9 @@ our %PREDICATE_TRANSFORMS = (
 # wide is a Sigma alias for utf16le
 $PREDICATE_TRANSFORMS{wide} = $PREDICATE_TRANSFORMS{utf16le};
 
-# true if a gate entry is the predicate form rather than the legacy
-# field/values form, so the compiler can branch and leave the old path alone
-sub _is_predicate {
-	my ( $self, $entry ) = @_;
-
-	return (
-		ref($entry) eq 'HASH' && ( exists( $entry->{op} )
-			|| exists( $entry->{value} )
-			|| exists( $entry->{all} )
-			|| exists( $entry->{negate} )
-			|| exists( $entry->{nocase} )
-			|| exists( $entry->{fieldref} )
-			|| exists( $entry->{decode} ) )
-		)
-		? 1
-		: 0;
-} ## end sub _is_predicate
+# the gate entry keys only the predicate form carries... a entry naming any of
+# them is a predicate, else it is the legacy field/values form
+my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref decode );
 
 # compiles a predicate entry into a runnable form, dieing on anything
 # unusable. shape: { field, op (default eq), value | values, all, negate }.
@@ -5159,7 +5145,7 @@ sub _compile_gates {
 			die( $where . ' is not a hash with a field' );
 		}
 		my $gate;
-		if ( $self->_is_predicate($entry) ) {
+		if ( grep { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS ) {
 			$gate = { 'field' => $entry->{field}, 'predicate' => $self->_compile_predicate( $entry, $where ) };
 		} else {
 			if ( ref( $entry->{values} ) ne 'ARRAY' ) {
@@ -5171,7 +5157,7 @@ sub _compile_gates {
 				}
 			}
 			$gate = { 'field' => $entry->{field}, 'matchers' => $self->_compile_matchers( $entry->{values}, $where ) };
-		} ## end else [ if ( $self->_is_predicate($entry) ) ]
+		} ## end else [ if ( grep { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS)]
 
 		# the reserved keyword fields, flagged at compile so the runtime fans
 		# the predicate over many values... %%%ANY%%% every field, %%%ANY:pre%%%

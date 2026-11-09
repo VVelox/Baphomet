@@ -105,7 +105,7 @@ my $ctx_half = MockCtx->new;
 POE::Session->create(
 	'inline_states' => {
 		'_start' => sub {
-			my $returned = $baphomet->_cmd_accused( {}, $ctx_both );
+			my $returned = $baphomet->_cmd_fanout( {}, 'accused', $ctx_both );
 			is( $returned, undef, 'a deferred fan-out returns undef to the handler' );
 			ok( !defined( $ctx_both->{result} ), 'and has not answered yet at initiation' );
 			$_[KERNEL]->delay( 'both_landed', 1 );
@@ -123,7 +123,7 @@ POE::Session->create(
 			return;
 		},
 		'web_gone' => sub {
-			$baphomet->_cmd_accused( {}, $ctx_half );
+			$baphomet->_cmd_fanout( {}, 'accused', $ctx_half );
 			$_[KERNEL]->delay( 'half_landed', 1 );
 			return;
 		},
@@ -138,7 +138,7 @@ POE::Session->create(
 			# loop the in-process fake server answers from... in reality they
 			# are separate processes... so only the shape is asserted for it
 			$baphomet->{gallas}{web}{pid} = undef;
-			my $sync = $baphomet->_cmd_accused( {} );
+			my $sync = $baphomet->_cmd_fanout( {}, 'accused' );
 			is( ref($sync), 'HASH', 'without a ctx the fan-out answers synchronously' );
 			is( $sync->{gallas}{web}{error}, 'not running', 'the stopped galla reads not running' );
 			ok( defined( $sync->{gallas}{sshd} ), 'the living galla has a per-galla entry either way' );

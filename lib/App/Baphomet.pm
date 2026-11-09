@@ -378,22 +378,6 @@ sub start_server {
 			my ( undef, $request, $ctx ) = @_;
 			return $self->_cmd_status_galla( $request, $ctx );
 		},
-		'accused' => sub {
-			my ( undef, $request, $ctx ) = @_;
-			return $self->_cmd_accused( $request, $ctx );
-		},
-		'marked' => sub {
-			my ( undef, $request, $ctx ) = @_;
-			return $self->_cmd_marked( $request, $ctx );
-		},
-		'tracked' => sub {
-			my ( undef, $request, $ctx ) = @_;
-			return $self->_cmd_tracked( $request, $ctx );
-		},
-		'watching' => sub {
-			my ( undef, $request, $ctx ) = @_;
-			return $self->_cmd_watching( $request, $ctx );
-		},
 		'banished' => sub {
 			my ( undef, $request, $ctx ) = @_;
 			return $self->_cmd_banished( $request, $ctx );
@@ -410,6 +394,15 @@ sub start_server {
 			return { 'stopping' => 1, 'pid' => $$ };
 		},
 	);
+
+	# the per-galla fan-out commands share the one handler, told which command
+	# it is relaying
+	foreach my $fanout_command (qw( accused marked tracked watching )) {
+		$command_handlers{$fanout_command} = sub {
+			my ( undef, $request, $ctx ) = @_;
+			return $self->_cmd_fanout( $request, $fanout_command, $ctx );
+		};
+	}
 
 	# the config validates per-command authorization rules against
 	# App::Baphomet::Config's command list... guard both ways here so the
@@ -1032,30 +1025,6 @@ sub _cmd_fanout {
 		sub { return { 'gallas' => $gallas }; }
 	);
 } ## end sub _cmd_fanout
-
-sub _cmd_accused {
-	my ( $self, $request, $ctx ) = @_;
-
-	return $self->_cmd_fanout( $request, 'accused', $ctx );
-}
-
-sub _cmd_marked {
-	my ( $self, $request, $ctx ) = @_;
-
-	return $self->_cmd_fanout( $request, 'marked', $ctx );
-}
-
-sub _cmd_tracked {
-	my ( $self, $request, $ctx ) = @_;
-
-	return $self->_cmd_fanout( $request, 'tracked', $ctx );
-}
-
-sub _cmd_watching {
-	my ( $self, $request, $ctx ) = @_;
-
-	return $self->_cmd_fanout( $request, 'watching', $ctx );
-}
 
 # the blocking client to Ereshkigal, the source of truth for who Kur holds,
 # spun up and through the Neti dance. the JSONUnix dist's own blocking client,
