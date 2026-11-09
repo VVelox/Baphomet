@@ -357,7 +357,6 @@ sub start_server {
 			$self => {
 				'_start'        => '_poe_start',
 				'spawn_galla'   => '_poe_spawn_galla',
-				'restart_galla' => '_poe_restart_galla',
 				'galla_stdout'  => '_poe_galla_stdout',
 				'galla_stderr'  => '_poe_galla_stderr',
 				'galla_reaped'  => '_poe_galla_reaped',
@@ -611,14 +610,6 @@ sub _poe_spawn_galla {
 	return;
 } ## end sub _poe_spawn_galla
 
-sub _poe_restart_galla {
-	my ( $self, $kernel, $name ) = @_[ OBJECT, KERNEL, ARG0 ];
-
-	$kernel->yield( 'spawn_galla', $name );
-
-	return;
-}
-
 sub _poe_galla_stdout {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
 
@@ -681,7 +672,10 @@ sub _poe_galla_reaped {
 
 	log_drek( 'err', 'galla "' . $name . '" died, restarting in ' . $delay . ' seconds' );
 
-	$kernel->delay_set( 'restart_galla', $delay, $name );
+	# spawn_galla re-checks enabled, a live wheel, and shutting_down when it
+	# fires, so a galla disabled or a manager stopping in the meantime is
+	# simply not respawned
+	$kernel->delay_set( 'spawn_galla', $delay, $name );
 
 	return;
 } ## end sub _poe_galla_reaped
