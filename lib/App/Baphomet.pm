@@ -753,31 +753,42 @@ sub _poe_stop_escalate {
 # JSONUnix command handlers
 #
 
-sub _galla_summary {
-	my ($self) = @_;
+# the manager's own view of one galla, as status and status_galla both
+# report it... nothing asked of the galla itself.
+#
+# args:
+#   $entry :: the galla's slot in $self->{gallas}
+#
+# returns a hash ref of running (1 or 0, whether it has a live PID), pid
+# (undef when not running), restarts (the count since the manager started),
+# and enabled (1 or 0).
+#
+#   my $view = $self->_galla_entry_status( $self->{gallas}{one} );
+#   # { 'running' => 1, 'pid' => 4242, 'restarts' => 0, 'enabled' => 1 }
+sub _galla_entry_status {
+	my ( $self, $entry ) = @_;
 
-	my $gallas = {};
-	foreach my $name ( keys( %{ $self->{gallas} } ) ) {
-		my $entry = $self->{gallas}{$name};
-		$gallas->{$name} = {
-			'running'  => defined( $entry->{pid} ) ? 1 : 0,
-			'pid'      => $entry->{pid},
-			'restarts' => $entry->{restarts},
-			'enabled'  => $entry->{enabled} ? 1 : 0,
-		};
-	}
-
-	return $gallas;
-} ## end sub _galla_summary
+	return {
+		'running'  => defined( $entry->{pid} ) ? 1 : 0,
+		'pid'      => $entry->{pid},
+		'restarts' => $entry->{restarts},
+		'enabled'  => $entry->{enabled} ? 1 : 0,
+	};
+} ## end sub _galla_entry_status
 
 sub _cmd_status {
 	my ($self) = @_;
+
+	my %gallas;
+	foreach my $name ( keys( %{ $self->{gallas} } ) ) {
+		$gallas{$name} = $self->_galla_entry_status( $self->{gallas}{$name} );
+	}
 
 	return {
 		'pid'    => $$,
 		'uptime' => time - $self->{started},
 		'config' => $self->{config},
-		'gallas' => $self->_galla_summary,
+		'gallas' => \%gallas,
 	};
 } ## end sub _cmd_status
 
@@ -930,13 +941,7 @@ sub _cmd_status_galla {
 		die( 'No such galla, "' . $name . '"' );
 	}
 
-	my $status = {
-		'name'     => $name,
-		'running'  => defined( $entry->{pid} ) ? 1 : 0,
-		'pid'      => $entry->{pid},
-		'restarts' => $entry->{restarts},
-		'enabled'  => $entry->{enabled} ? 1 : 0,
-	};
+	my $status = { 'name' => $name, %{ $self->_galla_entry_status($entry) } };
 
 	if ( !$status->{running} ) {
 		return $status;

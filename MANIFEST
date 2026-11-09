@@ -401,6 +401,7 @@ t/manager-fanout-async.t
 t/manager-socket-live.t
 t/manager-stop-escalate.t
 t/manager-new.t
+t/manager-status.t
 t/manifest.t
 t/marks-vocabulary.t
 t/marks.t
