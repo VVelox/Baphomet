@@ -199,16 +199,11 @@ sub new {
 		}
 	);
 
-	if (   !keys( %{ $self->{field_gates} } )
-		&& !( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
-		&& !defined( $self->{condition_ast} )
-		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
-		&& !@{ $self->{matches} } )
-	{
+	if ( !keys( %{ $self->{field_gates} } ) && !$self->{has_boolean} && !@{ $self->{matches} } ) {
 		die(      'The rule "'
 				. $name
 				. '" has no gates, selections, keywords, or matches... it would regard nothing as a offense' );
-	} ## end if ( !keys( %{ $self->{field_gates} } ) &&...)
+	}
 
 	return $self;
 } ## end sub new

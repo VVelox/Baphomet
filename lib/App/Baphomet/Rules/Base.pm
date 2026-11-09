@@ -5196,12 +5196,13 @@ sub _compile_boolean {
 
 	$self->_compile_keywords( $def, $name );
 
-	# whether any boolean filter exists at all, judged once here so the
-	# per-line paths can skip building the field space for a rule with none
-	$self->{has_boolean}
-		= (    ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } )
-			|| ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
-			|| defined( $self->{condition_ast} ) ) ? 1 : 0;
+	# whether any boolean filter exists at all, judged once here... the one
+	# answer to it. the per-line paths read it to skip building the field
+	# space for a rule with none, and each type's new reads it to refuse a
+	# rule that would match everything or nothing
+	my $has_gates    = ref( $self->{gates} ) eq 'ARRAY'         && @{ $self->{gates} };
+	my $has_keywords = ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} };
+	$self->{has_boolean} = ( $has_gates || $has_keywords || defined( $self->{condition_ast} ) ) ? 1 : 0;
 
 	# the whole-rule fast path... a rule whose boolean is nothing but a gate
 	# list, every entry of which compiled to a code ref, is run by walking
@@ -5210,11 +5211,7 @@ sub _compile_boolean {
 	# keywords, a condition, or any gate shape that did not compile leaves it
 	# undef and takes the general path as before
 	$self->{gate_code} = undef;
-	if (   !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
-		&& !defined( $self->{condition_ast} )
-		&& ref( $self->{gates} ) eq 'ARRAY'
-		&& @{ $self->{gates} } )
-	{
+	if ( $has_gates && !$has_keywords && !defined( $self->{condition_ast} ) ) {
 		my @code;
 		foreach my $gate ( @{ $self->{gates} } ) {
 			if ( !defined( $gate->{code} ) ) {
@@ -5226,7 +5223,7 @@ sub _compile_boolean {
 		if (@code) {
 			$self->{gate_code} = \@code;
 		}
-	} ## end if ( !( ref( $self->{keyword_gates} ) eq 'ARRAY'...))
+	} ## end if ( $has_gates && !$has_keywords && !defined...)
 
 	return;
 } ## end sub _compile_boolean

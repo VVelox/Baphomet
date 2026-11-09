@@ -356,12 +356,7 @@ sub new {
 
 	# a message_json or munger rule with no message_regexp must match on
 	# something, else it would regard every line it decodes as a offense
-	if (   ( $self->{message_json} || @{ $self->{mungers} } )
-		&& !@{ $self->{regexps} }
-		&& !@{ $self->{gates} }
-		&& !defined( $self->{condition_ast} )
-		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } ) )
-	{
+	if ( ( $self->{message_json} || @{ $self->{mungers} } ) && !@{ $self->{regexps} } && !$self->{has_boolean} ) {
 		die(      'The rule "'
 				. $name
 				. '" is '

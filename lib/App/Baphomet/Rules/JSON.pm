@@ -221,11 +221,7 @@ sub new {
 		}
 	);
 
-	if (   !@{ $self->{gates} }
-		&& !defined( $self->{condition_ast} )
-		&& !( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } )
-		&& !@{ $self->{matches} } )
-	{
+	if ( !$self->{has_boolean} && !@{ $self->{matches} } ) {
 		die(      'The rule "'
 				. $name
 				. '" has no gates, selections, keywords, or matches... it would regard nothing as a offense' );
