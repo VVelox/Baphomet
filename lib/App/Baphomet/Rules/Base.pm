@@ -1246,12 +1246,15 @@ side, so what C<into> lifts is readable by C<gate> and C<keywords>.
 sub track_gates {
 	my ($self) = @_;
 
-	if ( !defined( $self->{track_gates} ) ) {
-		$self->{track_gates} = { 'tracked' => [], 'not_tracked' => [] };
+	# a rule with no gates gets a fresh empty pair, never one stored on the
+	# object... a defined track_gates is what the per-line paths read as "this
+	# rule has gates", so storing one here would have every rule that ever
+	# fired run the tracked and boolean passes for nothing
+	if ( defined( $self->{track_gates} ) ) {
+		return $self->{track_gates};
 	}
-
-	return $self->{track_gates};
-}
+	return { 'tracked' => [], 'not_tracked' => [] };
+} ## end sub track_gates
 
 =head2 track_only
 

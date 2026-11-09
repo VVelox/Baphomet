@@ -8,7 +8,7 @@ use App::Baphomet::Rules::Syslog ();
 use App::Baphomet::Parser        ();
 use App::Baphomet::Tracks        ();
 
-plan tests => 29;
+plan tests => 34;
 
 # a syslog rule built straight from a def, the way the loader builds one
 sub build_rule {
@@ -346,3 +346,39 @@ my $results = $selftest->run_tests;
 is( $results->{fail}, 0, 'the embedded tests prove the seed, the lift, and the harvest' )
 	or diag( join( "\n", @{ $results->{failures} } ) );
 is( $results->{pass}, 2, 'both embedded tests ran' );
+
+#
+# the getter on a rule with no gates is read-only... a defined track_gates is
+# what the per-line paths take as "this rule has gates", so a getter that
+# stored a empty pair would have every rule the galla ever asked run the
+# tracked and boolean passes for nothing
+#
+
+my $plain = build_ok(
+	'plain',
+	{
+		'daemons'        => ['sshd'],
+		'message_regexp' => ['^bad thing from %%%%SRC%%%%$'],
+		'ban_var'        => ['SRC'],
+	}
+);
+is_deeply(
+	$plain->track_gates,
+	{ 'tracked' => [], 'not_tracked' => [] },
+	'a rule with no gates reads back an empty pair'
+);
+$plain->track_gates->{tracked} = ['scribbled'];
+is_deeply( $plain->track_gates->{tracked}, [], 'each read is a fresh pair, so a caller can not scribble on the next' );
+ok( !defined( $plain->{track_gates} ), 'reading the gates stores nothing on the rule' );
+
+my $boolean_passes = 0;
+{
+	no warnings 'redefine';
+	my $real_pass = \&App::Baphomet::Rules::Base::_offense_boolean_pass;
+	local *App::Baphomet::Rules::Base::_offense_boolean_pass = sub { $boolean_passes++; return $real_pass->(@_); };
+	my $plain_line
+		= App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 192.0.2.8' );
+	my $found = $plain->check( $plain_line, 'plain-scope', { 'seq' => 0, 'source' => '', 'now' => 1_000_000_000 } );
+	ok( defined($found), 'the plain rule still matches after its gates were read' );
+}
+is( $boolean_passes, 0, 'a rule with no boolean and no gates skips the boolean pass after its gates were read' );
