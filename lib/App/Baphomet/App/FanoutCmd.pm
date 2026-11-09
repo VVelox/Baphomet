@@ -3,6 +3,7 @@ package App::Baphomet::App::FanoutCmd;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util     qw( is_plain_hashref );
 use Exporter     qw( import );
 use JSON::MaybeXS ();
 
@@ -85,16 +86,16 @@ sub fanout_execute {
 		$result = $self->app->manager_call($command);
 	}
 
-	if ( defined($pare_value) && ref( $result->{gallas} ) eq 'HASH' ) {
+	if ( defined($pare_value) && is_plain_hashref( $result->{gallas} ) ) {
 		foreach my $galla ( keys( %{ $result->{gallas} } ) ) {
 			my $held = $result->{gallas}{$galla}{$pare_key};
-			if ( ref($held) ne 'HASH' || !defined( $held->{$pare_value} ) ) {
+			if ( !is_plain_hashref($held) || !defined( $held->{$pare_value} ) ) {
 				delete( $result->{gallas}{$galla} );
 				next;
 			}
 			$result->{gallas}{$galla}{$pare_key} = { $pare_value => $held->{$pare_value} };
 		}
-	} ## end if ( defined($pare_value) && ref( $result->...))
+	} ## end if ( defined($pare_value) && is_plain_hashref...)
 
 	print JSON::MaybeXS->new( 'pretty' => 1, 'canonical' => 1 )->encode($result);
 

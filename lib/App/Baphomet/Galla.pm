@@ -3,12 +3,13 @@ package App::Baphomet::Galla;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'Error::Helper';
 use POE                                      qw( Wheel::FollowTail Wheel::Run );
 use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
-use List::Util                               qw( uniqstr );
+use List::Util                               qw( max min sum0 uniqstr );
 use Path::Tiny                               qw( path );
 use Text::CSV_XS                             ();
 use JSON::MaybeXS                            qw( encode_json decode_json );
@@ -215,12 +216,9 @@ sub new {
 		$self->{perror} = 1;
 		$self->{error}  = 2;
 		$self->{errorString}
-			= 'No kur named "'
-			. ( defined( $self->{name} ) ? $self->{name} : 'undef' )
-			. '" under the config "'
-			. $self->{config} . '"';
+			= 'No kur named "' . ( $self->{name} // 'undef' ) . '" under the config "' . $self->{config} . '"';
 		$self->warn;
-	} ## end if ( !defined( $self->{name} ) || !defined...)
+	}
 
 	my $def = $config->{kur}{ $self->{name} };
 	eval { check_kur_def( $self->{name}, $def ); };
@@ -237,7 +235,7 @@ sub new {
 	# the kur's ignore_ips extend the global ones
 	my @ignore_entries = (
 		@{ $config->{ignore_ips} },
-		ref( $kur_settings->{ignore_ips} ) eq 'ARRAY' ? @{ $kur_settings->{ignore_ips} } : ()
+		is_plain_arrayref( $kur_settings->{ignore_ips} ) ? @{ $kur_settings->{ignore_ips} } : ()
 	);
 	$self->{ignore_ips} = compile_ignore_ips( \@ignore_entries, 'ignore_ips' );
 
@@ -247,7 +245,7 @@ sub new {
 	my @internal_entries = defined( $config->{internal} ) ? @{ $config->{internal} } : @{ $config->{ignore_ips} };
 	if ( defined( $kur_settings->{internal} ) ) {
 		push( @internal_entries, @{ $kur_settings->{internal} } );
-	} elsif ( ref( $kur_settings->{ignore_ips} ) eq 'ARRAY' ) {
+	} elsif ( is_plain_arrayref( $kur_settings->{ignore_ips} ) ) {
 		push( @internal_entries, @{ $kur_settings->{ignore_ips} } );
 	}
 	$self->{internal} = compile_ignore_ips( \@internal_entries, 'internal' );
@@ -595,7 +593,7 @@ sub new {
 	}
 	my @empty = grep {
 		my $set = $self->{namtar_files}{$_}{set};
-		ref($set) eq 'HASH' ? !%{$set} : !@{$set};
+		is_plain_hashref($set) ? !%{$set} : !@{$set};
 	} sort( keys(%namtar_slots) );
 	if (@empty) {
 		my @paths = map { $self->{namtar_files}{$_}{path} } @empty;
@@ -750,7 +748,7 @@ sub checkpoint {
 							. $network . ','
 							. $entry->[0] . ','
 							. $entry->[1] . ','
-							. ( defined( $entry->[2] ) ? $entry->[2] : '' ) . "\n";
+							. ( $entry->[2] // '' ) . "\n";
 					}
 				}
 			} ## end foreach my $family ( sort( keys( %{ $self->{subnet_counters...}})))
@@ -1104,7 +1102,7 @@ sub _load_distinct {
 		}
 		my $decoded;
 		eval { $decoded = decode_json($line); };
-		if (   ref($decoded) ne 'HASH'
+		if (   !is_plain_hashref($decoded)
 			|| !defined( $decoded->{rule} )
 			|| !defined( $decoded->{ip} )
 			|| !defined( $decoded->{value} )
@@ -1113,7 +1111,7 @@ sub _load_distinct {
 			|| ( $now - $decoded->{epoch} ) > 86400 )
 		{
 			next;
-		} ## end if ( ref($decoded) ne 'HASH' || !defined( ...))
+		} ## end if ( !is_plain_hashref($decoded) || !defined...)
 		$self->{distinct_counters}{ $decoded->{rule} }{ $decoded->{ip} }{ $decoded->{value} } = $decoded->{epoch} + 0;
 	} ## end foreach my $line ( $self->_read_tablet('distinct'...))
 
@@ -1151,7 +1149,7 @@ sub _write_pending_tablet {
 			my ($fh) = @_;
 			print $fh $key_column . ",ban_time\n";
 			foreach my $subject ( sort( keys( %{$store} ) ) ) {
-				print $fh $subject . ',' . ( defined( $store->{$subject} ) ? $store->{$subject} : '' ) . "\n";
+				print $fh $subject . ',' . ( $store->{$subject} // '' ) . "\n";
 			}
 		}
 	);
@@ -1226,15 +1224,15 @@ sub _load_stats {
 		}
 		my $decoded;
 		eval { $decoded = decode_json($line); };
-		if ( ref($decoded) ne 'HASH' ) {
+		if ( !is_plain_hashref($decoded) ) {
 			next;
 		}
 		foreach my $key ( keys( %{ $self->{stats} } ) ) {
 			if ( !defined( $decoded->{$key} ) ) {
 				next;
 			}
-			if ( ref( $self->{stats}{$key} ) eq 'HASH' ) {
-				if ( ref( $decoded->{$key} ) eq 'HASH' ) {
+			if ( is_plain_hashref( $self->{stats}{$key} ) ) {
+				if ( is_plain_hashref( $decoded->{$key} ) ) {
 					$self->{stats}{$key} = $decoded->{$key};
 				}
 			} elsif ( ref( $decoded->{$key} ) eq '' && $decoded->{$key} =~ /^[0-9]+$/ ) {
@@ -1257,7 +1255,7 @@ sub _load_context {
 		}
 		my $decoded;
 		eval { $decoded = decode_json($line); };
-		if ( ref($decoded) ne 'HASH' || !defined( $decoded->{rule} ) ) {
+		if ( !is_plain_hashref($decoded) || !defined( $decoded->{rule} ) ) {
 			next;
 		}
 		my $rule_obj;
@@ -1280,7 +1278,7 @@ sub _load_marks {
 		}
 		my $decoded;
 		eval { $decoded = decode_json($line); };
-		if (   ref($decoded) ne 'HASH'
+		if (   !is_plain_hashref($decoded)
 			|| !defined( $decoded->{name} )
 			|| !defined( $decoded->{key} )
 			|| !defined( $decoded->{expires} )
@@ -1311,16 +1309,16 @@ sub _load_tracked {
 		}
 		my $decoded;
 		eval { $decoded = decode_json($line); };
-		if (   ref($decoded) ne 'HASH'
+		if (   !is_plain_hashref($decoded)
 			|| !defined( $decoded->{name} )
 			|| !defined( $decoded->{key} )
-			|| ref( $decoded->{fields} ) ne 'HASH'
+			|| !is_plain_hashref( $decoded->{fields} )
 			|| !defined( $decoded->{expires} )
 			|| $decoded->{expires} !~ /^[0-9]+$/
 			|| $decoded->{expires} <= $now )
 		{
 			next;
-		} ## end if ( ref($decoded) ne 'HASH' || !defined( ...))
+		} ## end if ( !is_plain_hashref($decoded) || !defined...)
 		$self->{tracked}{ $decoded->{name} }{ $decoded->{key} } = {
 			'expires' => $decoded->{expires} + 0,
 			'fields'  => $decoded->{fields},
@@ -1464,11 +1462,11 @@ sub _eve_emit {
 sub _eve_parsed {
 	my ( $self, $parsed ) = @_;
 
-	if ( ref($parsed) eq 'HASH' && ref( $parsed->{fields} ) eq 'HASH' ) {
+	if ( is_plain_hashref($parsed) && is_plain_hashref( $parsed->{fields} ) ) {
 		return $parsed->{fields};
 	}
 
-	if ( ref($parsed) eq 'HASH' ) {
+	if ( is_plain_hashref($parsed) ) {
 		my %clean = map { $_ => $parsed->{$_} } grep { !/^_/ } keys( %{$parsed} );
 		return \%clean;
 	}
@@ -2105,7 +2103,7 @@ sub _handle_line {
 
 	# buffers are per source as continuation only means adjacency with in
 	# one file, and several files may feed one watcher interleaved
-	my $source_key = defined($source) ? $source : '';
+	my $source_key = $source // '';
 	my $buffer     = $self->{join_buffers}{$watcher_name}{$source_key};
 
 	if ( defined($buffer) && $line =~ $join->{continuation} ) {
@@ -2282,7 +2280,7 @@ sub _rule_candidates {
 	} elsif ( $field eq '%%%DAEMON%%%' ) {
 		$daemon = $parsed->{daemon};
 		$value  = $daemon;
-	} elsif ( ref( $parsed->{fields} ) eq 'HASH' ) {
+	} elsif ( is_plain_hashref( $parsed->{fields} ) ) {
 		$value = $parsed->{fields}{$field};
 	}
 
@@ -2352,7 +2350,7 @@ sub _process_record {
 	# the record's position in its own file, for the staged rules whose
 	# skip bound counts intervening lines... keyless staging slots by the
 	# source too
-	my $seq_source = defined($source) ? $source : '';
+	my $seq_source = $source // '';
 	my $line_ctx   = {
 		'seq'    => ++$self->{line_seqs}{$watcher_name}{$seq_source},
 		'source' => $seq_source,
@@ -2416,7 +2414,7 @@ sub _process_record {
 		my $track_only_eve  = $watcher->{settings}{track_only_eve_store};
 
 		# a capture line may have completed several deferred offenses
-		my @all_found = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
+		my @all_found = ( $found, is_plain_arrayref( $found->{more} ) ? @{ $found->{more} } : () );
 
 		# the found vars swept again for the tracked fields on the way into
 		# the gates. a rule's tracked clause lifts into each offense it judges,
@@ -2614,11 +2612,9 @@ sub _process_record {
 					$observe_ignored, $is_detection );
 				if ( defined($registered) ) {
 					$context->{subject_scores}{$subject_value} = $registered;
-					if ( !defined($score) ) {
-						$score = $registered;
-					}
+					$score //= $registered;
 				}
-			} ## end foreach my $subject_value (@to_count)
+			}
 
 			# a subject that crossed raised a terminal event (banish, alert, or
 			# sighted, per-IP or subnet) that already stands for the match, so
@@ -2679,18 +2675,14 @@ sub _eve_fields {
 	# the brands set and lifted default off the context, so a terminal event
 	# (a banish, an alert, a sighted) carries them the same as the found it
 	# now stands in for... the found path still passes them explicitly
-	if ( !defined($set) ) {
-		$set = $context->{marks_set};
-	}
-	if ( !defined($lifted) ) {
-		$lifted = $context->{unmarked};
-	}
+	$set    //= $context->{marks_set};
+	$lifted //= $context->{unmarked};
 
 	# the flow's endpoints and the account it was about, lifted to the top level
 	# from the found data under the vars the rule names or the src_ip / dest_ip
 	# / src_port / dest_port / user defaults... all five always emitted, null
 	# when the named var is absent, so a consumer can lean on them being there
-	my $found   = ref( $context->{found} ) eq 'HASH' ? $context->{found} : {};
+	my $found   = is_plain_hashref( $context->{found} ) ? $context->{found} : {};
 	my $rule    = $context->{rule};
 	my $tracked = $self->_track_eve( $rule, $found, time );
 
@@ -2789,13 +2781,13 @@ sub _eve_fields {
 sub _subject_var_fields {
 	my ( $self, $context ) = @_;
 
-	my $subjects = ref($context) eq 'HASH' ? $context->{subjects} : undef;
-	if ( ref($subjects) ne 'ARRAY' || !@{$subjects} ) {
+	my $subjects = is_plain_hashref($context) ? $context->{subjects} : undef;
+	if ( !is_plain_arrayref($subjects) || !@{$subjects} ) {
 		return ();
 	}
 
-	my $scores  = ref( $context->{subject_scores} ) eq 'HASH'  ? $context->{subject_scores}  : {};
-	my $crossed = ref( $context->{subject_crossed} ) eq 'HASH' ? $context->{subject_crossed} : {};
+	my $scores  = is_plain_hashref( $context->{subject_scores} )  ? $context->{subject_scores}  : {};
+	my $crossed = is_plain_hashref( $context->{subject_crossed} ) ? $context->{subject_crossed} : {};
 
 	# the records gathered back under the var that held them, in the order the
 	# rule names its vars... one record to a var ordinarily, and one per
@@ -2878,7 +2870,7 @@ sub _subject_var_fields {
 sub _defer_crossing {
 	my ( $self, $context, $crossing ) = @_;
 
-	if ( ref($context) eq 'HASH' && ref( $context->{crossings} ) eq 'ARRAY' ) {
+	if ( is_plain_hashref($context) && is_plain_arrayref( $context->{crossings} ) ) {
 		push( @{ $context->{crossings} }, $crossing );
 		return;
 	}
@@ -2908,7 +2900,7 @@ sub _drain_crossings {
 	my ( $self, $context ) = @_;
 
 	my $queue = delete( $context->{crossings} );
-	if ( ref($queue) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($queue) ) {
 		return;
 	}
 
@@ -2987,21 +2979,14 @@ sub _open_rdns {
 			my ( $query_name, @types ) = @_;
 			my @found;
 			foreach my $type (@types) {
-				my $packet = $resolver->send( $query_name, $type );
-				if ( !defined($packet) ) {
+				# scalar first, as a failed send in list context could be a
+				# empty list and shift _dns_fold's args
+				my $packet  = $resolver->send( $query_name, $type );
+				my $answers = _dns_fold( $packet, $type );
+				if ( !defined($answers) ) {
 					return undef;
 				}
-				my $rcode = $packet->header->rcode;
-				if ( $rcode ne 'NOERROR' && $rcode ne 'NXDOMAIN' ) {
-					return undef;
-				}
-				foreach my $rr ( $packet->answer ) {
-					if ( $type eq 'PTR' && $rr->type eq 'PTR' ) {
-						push( @found, $rr->ptrdname );
-					} elsif ( $rr->type eq $type ) {
-						push( @found, $rr->address );
-					}
-				}
+				push( @found, @{$answers} );
 			} ## end foreach my $type (@types)
 			return \@found;
 		}; ## end $ask = sub
@@ -3198,7 +3183,7 @@ sub _country_of {
 	my $record;
 	eval { $record = $self->{geoip}->record_for_address($ip); };
 	my $iso;
-	if ( !$@ && ref($record) eq 'HASH' && ref( $record->{country} ) eq 'HASH' ) {
+	if ( !$@ && is_plain_hashref($record) && is_plain_hashref( $record->{country} ) ) {
 		$iso = defined( $record->{country}{iso_code} ) ? uc( $record->{country}{iso_code} ) : undef;
 	}
 
@@ -3231,9 +3216,7 @@ sub _country_gate_pass {
 sub _country_locator {
 	my ($self) = @_;
 
-	if ( !defined( $self->{country_locator} ) ) {
-		$self->{country_locator} = sub { return $self->_country_of( $_[0] ); };
-	}
+	$self->{country_locator} //= sub { return $self->_country_of( $_[0] ); };
 	return $self->{country_locator};
 }
 
@@ -3306,7 +3289,7 @@ sub _rdns_cached {
 	}
 
 	my $answer = eval { $ask->(); };
-	if ( $@ || ( defined($answer) && ref($answer) ne 'ARRAY' ) ) {
+	if ( $@ || ( defined($answer) && !is_plain_arrayref($answer) ) ) {
 		$answer = undef;
 	}
 	if ( !defined($answer) ) {
@@ -3402,20 +3385,16 @@ sub _load_namtar_file {
 	my $key   = join( "\0", $type, $nocase, $path );
 	my $mtime = ( stat($path) )[9];
 
+	# a unreadable file reads as no lines
 	my @lines;
-	my $fh;
-	if ( defined($mtime) && open( $fh, '<', $path ) ) {
-		while ( my $line = <$fh> ) {
-			chomp($line);
-			$line =~ s/#.*$//;
-			$line =~ s/^\s+//;
-			$line =~ s/\s+$//;
-			if ( $line ne '' ) {
-				push( @lines, $line );
-			}
-		}
-		close($fh);
-	} ## end if ( defined($mtime) && open( $fh, '<', $path...))
+	if ( defined($mtime) ) {
+		@lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
+	}
+	foreach my $line (@lines) {
+		$line =~ s/#.*$//;
+		$line =~ s/^\s+|\s+$//g;
+	}
+	@lines = grep { $_ ne '' } @lines;
 
 	my $set;
 	if ( $type eq 'string' ) {
@@ -3461,7 +3440,7 @@ sub _resolve_namtar_gate {
 		my %slots;
 		foreach my $name ( @{ $entry->{lists} } ) {
 			my $list = $lists->{$name};
-			if ( ref($list) ne 'HASH' ) {
+			if ( !is_plain_hashref($list) ) {
 				die( $where . ' references namtar_lists{' . $name . '}, which is not a defined list for it' );
 			}
 			foreach my $path ( @{ $list->{paths} } ) {
@@ -3552,7 +3531,7 @@ sub _resolve_active_time_gate {
 	my @specs;
 	foreach my $name ( @{ $active->{windows} } ) {
 		my $window = $windows->{$name};
-		if ( ref($window) ne 'ARRAY' ) {
+		if ( !is_plain_arrayref($window) ) {
 			die( $where . ' references active_time{' . $name . '}, which is not a defined window for it' );
 		}
 		foreach my $spec ( @{$window} ) {
@@ -3566,7 +3545,7 @@ sub _resolve_active_time_gate {
 			my $ranges;
 			if ( defined( $spec->{hours} ) ) {
 				$ranges = [];
-				my @hours = ref( $spec->{hours} ) eq 'ARRAY' ? @{ $spec->{hours} } : ( $spec->{hours} );
+				my @hours = is_plain_arrayref( $spec->{hours} ) ? @{ $spec->{hours} } : ( $spec->{hours} );
 				foreach my $range (@hours) {
 					my ( $start, $end ) = split( /-/, $range );
 					push( @{$ranges}, [ $start + 0, $end + 0 ] );
@@ -3890,8 +3869,8 @@ sub _ingest_mark_event {
 			if ( $held->{expires} > $event_expires ) {
 				$value_source = $held;
 			} elsif ( $held->{expires} == $event_expires ) {
-				my $held_value  = defined( $held->{value} )  ? $held->{value}  : '';
-				my $event_value = defined( $event->{value} ) ? $event->{value} : '';
+				my $held_value  = defined( $held->{value} ) ? $held->{value} : '';
+				my $event_value = $event->{value} // '';
 				if ( $held_value gt $event_value ) {
 					$value_source = $held;
 				}
@@ -3958,9 +3937,9 @@ sub _register_hit {
 		%{$yaml_overrides},
 		map { defined( $rule_cfg->{$_} ) ? ( $_ => $rule_cfg->{$_} ) : () } ( 'max_score', 'find_time', 'ban_time' )
 	};
-	my $max_score = defined( $overrides->{max_score} ) ? $overrides->{max_score} : $settings->{max_score};
-	my $find_time = defined( $overrides->{find_time} ) ? $overrides->{find_time} : $settings->{find_time};
-	my $ban_time  = defined( $overrides->{ban_time} )  ? $overrides->{ban_time}  : $settings->{ban_time};
+	my $max_score = $overrides->{max_score} // $settings->{max_score};
+	my $find_time = $overrides->{find_time} // $settings->{find_time};
+	my $ban_time  = defined( $overrides->{ban_time} ) ? $overrides->{ban_time} : $settings->{ban_time};
 	my $weight    = 1;
 	if ( defined( $rule_cfg->{weight} ) ) {
 		$weight = $rule_cfg->{weight} + 0;
@@ -3998,9 +3977,7 @@ sub _register_hit {
 			return undef;
 		}
 
-		if ( !defined( $dcounters->{$rule_name}{$key} ) ) {
-			$dcounters->{$rule_name}{$key} = {};
-		}
+		$dcounters->{$rule_name}{$key} //= {};
 		my $set = $dcounters->{$rule_name}{$key};
 
 		# distinct values older than find_time no longer count... pruned before
@@ -4045,15 +4022,11 @@ sub _register_hit {
 
 		my $bucket = $counters;
 		if ( defined( $overrides->{max_score} ) || defined( $overrides->{find_time} ) ) {
-			if ( !defined( $rule_counters->{ $context->{rule_name} } ) ) {
-				$rule_counters->{ $context->{rule_name} } = {};
-			}
+			$rule_counters->{ $context->{rule_name} } //= {};
 			$bucket = $rule_counters->{ $context->{rule_name} };
 		}
 
-		if ( !defined( $bucket->{$ip} ) ) {
-			$bucket->{$ip} = [];
-		}
+		$bucket->{$ip} //= [];
 		push( @{ $bucket->{$ip} }, [ $now, $weight ] );
 
 		# matches older than find_time no longer count... entries arrive in time
@@ -4073,7 +4046,7 @@ sub _register_hit {
 		# the crossing goes on the record, against the value that crossed and
 		# the number it had to reach... a rule naming several vars leaves the
 		# reader no way to tell which of them tipped over otherwise
-		if ( ref( $context->{subject_crossed} ) eq 'HASH' ) {
+		if ( is_plain_hashref( $context->{subject_crossed} ) ) {
 			$context->{subject_crossed}{$ip} = $max_score + 0;
 		}
 		# the terminal event it raises is held until the caller has counted the
@@ -4130,14 +4103,12 @@ sub _register_subnet_hit {
 
 	# the subnet threshold and window fall back to the per-IP ones when the
 	# watcher sets none of their own. the ban_time is the watcher's
-	my $max_score = defined( $settings->{subnet_max_score} ) ? $settings->{subnet_max_score} : $settings->{max_score};
-	my $find_time = defined( $settings->{subnet_find_time} ) ? $settings->{subnet_find_time} : $settings->{find_time};
+	my $max_score = $settings->{subnet_max_score} // $settings->{max_score};
+	my $find_time = $settings->{subnet_find_time} // $settings->{find_time};
 	my $ban_time  = $settings->{ban_time};
 
 	my $bucket = ( $eve_only ? $self->{shadow_subnet_counters} : $self->{subnet_counters} )->{$family};
-	if ( !defined( $bucket->{$network} ) ) {
-		$bucket->{$network} = [];
-	}
+	$bucket->{$network} //= [];
 	push( @{ $bucket->{$network} }, [ $now, $weight, $ip ] );
 
 	# deposits older than the subnet find_time no longer count... time
@@ -4153,13 +4124,11 @@ sub _register_subnet_hit {
 
 	# the members that fed the CIDR, distinct and in first-seen order, with the
 	# window they spanned, for the eve bucket
-	my @members = uniqstr( map { $_->[2] } @{ $bucket->{$network} } );
-	my ( $first, $last );
-	foreach my $entry ( @{ $bucket->{$network} } ) {
-		if ( !defined($first) || $entry->[0] < $first ) { $first = $entry->[0]; }
-		if ( !defined($last)  || $entry->[0] > $last )  { $last  = $entry->[0]; }
-	}
-	my $info = {
+	my @members    = uniqstr( map { $_->[2] } @{ $bucket->{$network} } );
+	my @hit_epochs = map { $_->[0] } @{ $bucket->{$network} };
+	my $first      = min(@hit_epochs);
+	my $last       = max(@hit_epochs);
+	my $info       = {
 		'family'  => $family,
 		'cidr'    => $network,
 		'prefix'  => $prefix + 0,
@@ -4182,7 +4151,7 @@ sub _register_subnet_hit {
 	# the crossing queue, which the closure below lands in... holding it as well
 	# would be a reference cycle outliving the drain
 	my $subnet_context = $context;
-	if ( ref($context) eq 'HASH' ) {
+	if ( is_plain_hashref($context) ) {
 		$subnet_context = { %{$context}, 'threshold' => $max_score + 0 };
 		delete( $subnet_context->{crossings} );
 	}
@@ -4279,7 +4248,7 @@ sub _resolve_hostname {
 	my $addrs;
 	if ( defined( $self->{dns_resolve} ) ) {
 		$addrs = eval { $self->{dns_resolve}->($hostname); };
-		if ( $@ || ref($addrs) ne 'ARRAY' ) {
+		if ( $@ || !is_plain_arrayref($addrs) ) {
 			$addrs = undef;
 		}
 	}
@@ -4486,17 +4455,17 @@ sub _ban_hostname {
 sub _resolved_subject_context {
 	my ( $self, $context, $hostname, $addrs ) = @_;
 
-	if ( ref($context) ne 'HASH' ) {
+	if ( !is_plain_hashref($context) ) {
 		return undef;
 	}
 
 	my $resolved = { %{$context} };
-	if ( ref( $resolved->{subjects} ) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref( $resolved->{subjects} ) ) {
 		return $resolved;
 	}
 
-	my $scores  = ref( $resolved->{subject_scores} ) eq 'HASH'  ? $resolved->{subject_scores}  : {};
-	my $crossed = ref( $resolved->{subject_crossed} ) eq 'HASH' ? $resolved->{subject_crossed} : {};
+	my $scores  = is_plain_hashref( $resolved->{subject_scores} )  ? $resolved->{subject_scores}  : {};
+	my $crossed = is_plain_hashref( $resolved->{subject_crossed} ) ? $resolved->{subject_crossed} : {};
 
 	my $name_score   = $scores->{$hostname};
 	my $name_crossed = $crossed->{$hostname};
@@ -4897,11 +4866,11 @@ sub _kur_call {
 	# is not even a hash and so is a unknown error
 	my $is_ok = sub {
 		my ($response) = @_;
-		return ref($response) eq 'HASH' && defined( $response->{status} ) && $response->{status} eq 'ok';
+		return is_plain_hashref($response) && defined( $response->{status} ) && $response->{status} eq 'ok';
 	};
 	my $error_of = sub {
 		my ($response) = @_;
-		if ( ref($response) eq 'HASH' && defined( $response->{error} ) ) {
+		if ( is_plain_hashref($response) && defined( $response->{error} ) ) {
 			return $response->{error};
 		}
 		return 'unknown error';
@@ -4974,8 +4943,8 @@ sub _kur_ban {
 	$self->_kur_call(
 		'ban',
 		{
-			'ips' => ref($ips) eq 'ARRAY' ? $ips : [$ips],
-			'kur' => defined($kur) ? $kur : $self->{name},
+			'ips' => is_plain_arrayref($ips) ? $ips : [$ips],
+			'kur' => $kur // $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		},
 		$done
@@ -4997,8 +4966,8 @@ sub _kur_cidr_ban {
 	$self->_kur_call(
 		'cidr_ban',
 		{
-			'cidrs' => ref($networks) eq 'ARRAY' ? $networks : [$networks],
-			'kur' => defined($kur) ? $kur : $self->{name},
+			'cidrs' => is_plain_arrayref($networks) ? $networks : [$networks],
+			'kur'   => $kur // $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		},
 		$done
@@ -5023,8 +4992,8 @@ sub _send_cidr_ban {
 	$client->call_ok(
 		'cidr_ban',
 		{
-			'cidrs' => ref($network) eq 'ARRAY' ? $network : [$network],
-			'kur' => defined($kur) ? $kur : $self->{name},
+			'cidrs' => is_plain_arrayref($network) ? $network : [$network],
+			'kur'   => $kur // $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		}
 	);
@@ -5046,8 +5015,8 @@ sub _send_ban {
 	$client->call_ok(
 		'ban',
 		{
-			'ips' => ref($ip) eq 'ARRAY' ? $ip : [$ip],
-			'kur' => defined($kur) ? $kur : $self->{name},
+			'ips' => is_plain_arrayref($ip) ? $ip : [$ip],
+			'kur' => $kur // $self->{name},
 			defined($ban_time) ? ( 'ban_time' => $ban_time ) : (),
 		}
 	);
@@ -5076,7 +5045,7 @@ sub _drain_pending_group {
 		if ( $self->{inflight_bans}{ $inflight_prefix . $subject } ) {
 			next;
 		}
-		my $group_key = defined( $pending->{$subject} ) ? $pending->{$subject} : '';
+		my $group_key = $pending->{$subject} // '';
 		push( @{ $groups{$group_key} }, $subject );
 	} ## end foreach my $subject ( sort( keys( %{$pending} )...))
 
@@ -5150,8 +5119,8 @@ sub _recidive_check {
 		return;
 	}
 
-	my $max_score = defined( $self->{recidive}{max_score} ) ? $self->{recidive}{max_score} : 5;
-	my $ban_time  = defined( $self->{recidive}{ban_time} )  ? $self->{recidive}{ban_time}  : 0;
+	my $max_score = $self->{recidive}{max_score} // 5;
+	my $ban_time  = defined( $self->{recidive}{ban_time} ) ? $self->{recidive}{ban_time} : 0;
 
 	if ( !defined($count) || $count < $max_score ) {
 		return;
@@ -5216,7 +5185,7 @@ sub _recidive_find_time {
 	if ( !defined( $self->{recidive} ) ) {
 		return 0;
 	}
-	return defined( $self->{recidive}{find_time} ) ? $self->{recidive}{find_time} : 604800;
+	return $self->{recidive}{find_time} // 604800;
 }
 
 # folds ledger rows from the folded-to offset onward into the in-memory
@@ -5468,7 +5437,7 @@ sub _sweep {
 
 	# the recidive tally the same way... a subject whose banishments have
 	# all aged past the window is dropped rather than lingering
-	if ( defined( $self->{recidive} ) && ref( $self->{ledger_tally} ) eq 'HASH' ) {
+	if ( defined( $self->{recidive} ) && is_plain_hashref( $self->{ledger_tally} ) ) {
 		my $find_time = $self->_recidive_find_time;
 		foreach my $subject ( keys( %{ $self->{ledger_tally} } ) ) {
 			@{ $self->{ledger_tally}{$subject} }
@@ -5477,7 +5446,7 @@ sub _sweep {
 				delete( $self->{ledger_tally}{$subject} );
 			}
 		}
-	} ## end if ( defined( $self->{recidive} ) && ref( ...))
+	} ## end if ( defined( $self->{recidive} ) && is_plain_hashref...)
 
 	# reload any namtar list slot whose file mtime changed, appeared, or
 	# vanished, so a updated feed takes effect with in a sweep... _load keys
@@ -5486,7 +5455,7 @@ sub _sweep {
 		my $rec    = $self->{namtar_files}{$key};
 		my $mtime  = ( stat( $rec->{path} ) )[9];
 		my $cached = $rec->{mtime};
-		if ( ( defined($mtime) ? $mtime : -1 ) != ( defined($cached) ? $cached : -1 ) ) {
+		if ( ( $mtime // -1 ) != ( $cached // -1 ) ) {
 			$self->_load_namtar_file( $rec->{type}, $rec->{nocase}, $rec->{path} );
 		}
 	}
@@ -5639,13 +5608,8 @@ sub _eve_port {
 sub _score_of {
 	my ($entries) = @_;
 
-	my $score = 0;
-	foreach my $entry ( @{$entries} ) {
-		$score += $entry->[1];
-	}
-
-	return $score;
-} ## end sub _score_of
+	return sum0( map { $_->[1] } @{$entries} );
+}
 
 sub _cmd_accused {
 	my ($self) = @_;

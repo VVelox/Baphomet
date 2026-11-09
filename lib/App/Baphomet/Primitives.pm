@@ -3,6 +3,7 @@ package App::Baphomet::Primitives;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util     qw( is_plain_hashref );
 use JSON::MaybeXS ();
 use Path::Tiny    qw( path );
 
@@ -146,7 +147,7 @@ sub _resolve {
 		1;
 	} or die( 'resolving the Log-Munger base primitive library failed... ' . $@ );
 
-	my $vars = ( ref($rules) eq 'HASH' && ref( $rules->{vars} ) eq 'HASH' ) ? $rules->{vars} : {};
+	my $vars = ( is_plain_hashref($rules) && is_plain_hashref( $rules->{vars} ) ) ? $rules->{vars} : {};
 
 	my %map;
 	foreach my $name ( keys( %{$vars} ) ) {
@@ -200,10 +201,10 @@ sub _read_cache {
 	# ä), so the cache is UTF-8 bytes read raw and decoded utf8, symmetric
 	# with the write... a plain decode_json would choke on the lone byte
 	my $decoded = eval { JSON::MaybeXS->new->utf8->decode($text); };
-	if (   ref($decoded) ne 'HASH'
+	if (   !is_plain_hashref($decoded)
 		|| !defined( $decoded->{signature} )
 		|| $decoded->{signature} ne $signature
-		|| ref( $decoded->{primitives} ) ne 'HASH' )
+		|| !is_plain_hashref( $decoded->{primitives} ) )
 	{
 		return undef;
 	}

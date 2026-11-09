@@ -60,13 +60,9 @@ instance.
 sub log_drek {
 	my ( $level, $message, $tracking_int, $ident ) = @_;
 
-	if ( !defined($level) ) {
-		$level = 'info';
-	}
+	$level //= 'info';
 
-	if ( !defined($message) ) {
-		$message = '';
-	}
+	$message //= '';
 
 	chomp($message);
 
@@ -74,9 +70,7 @@ sub log_drek {
 		$message = $tracking_int . ' : ' . $message;
 	}
 
-	if ( !defined($ident) ) {
-		$ident = 'baphomet';
-	}
+	$ident //= 'baphomet';
 
 	openlog( $ident, 'cons,pid', 'daemon' );
 	syslog( $level, '%s', $message );

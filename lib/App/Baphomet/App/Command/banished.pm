@@ -3,6 +3,7 @@ package App::Baphomet::App::Command::banished;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use App::Baphomet::App -command;
 use JSON::MaybeXS ();
 
@@ -111,26 +112,26 @@ sub _pare_to_ip {
 		my $entry = $result->{kurs}{$kur};
 		my $found = {};
 
-		if ( ref( $entry->{banned} ) eq 'ARRAY' && grep { $_ eq $ip } @{ $entry->{banned} } ) {
+		if ( is_plain_arrayref( $entry->{banned} ) && grep { $_ eq $ip } @{ $entry->{banned} } ) {
 			$found->{banned} = 1;
-			if ( ref( $entry->{expires} ) eq 'HASH' && defined( $entry->{expires}{$ip} ) ) {
+			if ( is_plain_hashref( $entry->{expires} ) && defined( $entry->{expires}{$ip} ) ) {
 				$found->{expires} = $entry->{expires}{$ip};
 			}
 		}
 
-		if ( ref( $entry->{members} ) eq 'HASH' ) {
+		if ( is_plain_hashref( $entry->{members} ) ) {
 			foreach my $member ( keys( %{ $entry->{members} } ) ) {
 				my $held = $entry->{members}{$member};
-				if ( ref( $held->{banned} ) eq 'ARRAY' && grep { $_ eq $ip } @{ $held->{banned} } ) {
+				if ( is_plain_arrayref( $held->{banned} ) && grep { $_ eq $ip } @{ $held->{banned} } ) {
 					$found->{members}{$member}{banned} = 1;
-					if ( ref( $held->{expires} ) eq 'HASH' && defined( $held->{expires}{$ip} ) ) {
+					if ( is_plain_hashref( $held->{expires} ) && defined( $held->{expires}{$ip} ) ) {
 						$found->{members}{$member}{expires} = $held->{expires}{$ip};
 					}
 				}
 			}
-		} ## end if ( ref( $entry->{members} ) eq 'HASH' )
+		} ## end if ( is_plain_hashref( $entry->{members} ))
 
-		if ( ref( $entry->{pending} ) eq 'ARRAY' && grep { $_ eq $ip } @{ $entry->{pending} } ) {
+		if ( is_plain_arrayref( $entry->{pending} ) && grep { $_ eq $ip } @{ $entry->{pending} } ) {
 			$found->{pending} = 1;
 		}
 

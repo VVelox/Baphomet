@@ -3,6 +3,7 @@ package App::Baphomet;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'Error::Helper';
 use POE                                              qw( Wheel::Run );
 use POE::Component::Server::JSONUnix                 ();
@@ -501,7 +502,7 @@ sub _neti_permissions {
 	}
 
 	# fold the configured per-command rules over the baseline
-	if ( defined($command_perms) && ref( $command_perms->{commands} ) eq 'HASH' ) {
+	if ( defined($command_perms) && is_plain_hashref( $command_perms->{commands} ) ) {
 		foreach my $name ( keys( %{ $command_perms->{commands} } ) ) {
 			$commands{$name} = _neti_command_rule( $command_perms->{commands}{$name} );
 		}
@@ -523,7 +524,7 @@ sub _neti_permissions {
 sub _neti_command_rule {
 	my ($spec) = @_;
 
-	if ( ref($spec) ne 'HASH' ) {
+	if ( !is_plain_hashref($spec) ) {
 		return $spec;
 	}
 
@@ -820,7 +821,7 @@ sub _galla_async_client {
 sub _envelope_error {
 	my ($response) = @_;
 
-	if ( ref($response) eq 'HASH' && defined( $response->{error} ) ) {
+	if ( is_plain_hashref($response) && defined( $response->{error} ) ) {
 		return $response->{error};
 	}
 	return 'no answer';
@@ -840,7 +841,7 @@ sub _envelope_error {
 sub _galla_answer {
 	my ($answer) = @_;
 
-	if ( ref($answer) eq 'HASH' && exists( $answer->{result} ) ) {
+	if ( is_plain_hashref($answer) && exists( $answer->{result} ) ) {
 		return ( $answer->{result}, undef );
 	}
 	return ( undef, _envelope_error($answer) );
@@ -908,7 +909,7 @@ sub _galla_ask {
 			'command'  => $command,
 			'callback' => sub {
 				my ($response) = @_;
-				if ( ref($response) eq 'HASH' && ( $response->{status} // '' ) eq 'ok' ) {
+				if ( is_plain_hashref($response) && ( $response->{status} // '' ) eq 'ok' ) {
 					$fold->( $name, $response->{result}, undef );
 				} else {
 					$fold->( $name, undef, _envelope_error($response) );
@@ -992,7 +993,7 @@ sub _cmd_status_galla {
 sub _cmd_fanout {
 	my ( $self, $request, $command, $ctx ) = @_;
 
-	my $args = defined( $request->{args} ) ? $request->{args} : {};
+	my $args = $request->{args} // {};
 
 	my @names;
 	if ( defined( $args->{name} ) ) {
@@ -1044,9 +1045,7 @@ sub _ereshkigal_client {
 
 	my $auth = $client->authenticate;
 	if ( ( $auth->{status} // '' ) ne 'ok' ) {
-		die(      'authenticating to Ereshkigal failed... '
-				. ( defined( $auth->{error} ) ? $auth->{error} : 'unknown error' )
-				. "\n" );
+		die( 'authenticating to Ereshkigal failed... ' . ( $auth->{error} // 'unknown error' ) . "\n" );
 	}
 
 	return $client;
@@ -1059,7 +1058,7 @@ sub _ereshkigal_call {
 	my ( $client, $command, $args ) = @_;
 
 	my $response = $client->call( 'command' => $command, ( defined($args) ? ( 'args' => $args ) : () ) );
-	if ( ref($response) ne 'HASH' || ( $response->{status} // '' ) ne 'ok' ) {
+	if ( !is_plain_hashref($response) || ( $response->{status} // '' ) ne 'ok' ) {
 		die( 'Ereshkigal refused "' . $command . '"... ' . _envelope_error($response) . "\n" );
 	}
 
@@ -1077,7 +1076,7 @@ sub _banished_kurs {
 		push( @kurs, $self->{recidive}{kur} );
 	}
 
-	my $args = defined( $request->{args} ) ? $request->{args} : {};
+	my $args = $request->{args} // {};
 	if ( defined( $args->{name} ) ) {
 		if ( !grep { $_ eq $args->{name} } @kurs ) {
 			die( 'the kur "' . $args->{name} . '" is not one this Baphomet feeds' );
@@ -1109,7 +1108,7 @@ sub _banished_kur_entry {
 		$error =~ s/\s+\z//;
 		return { 'error' => $error };
 	}
-	if ( ref( $kur_status->{fan_out} ) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref( $kur_status->{fan_out} ) ) {
 		return { 'error' => 'no banned list... not running?' };
 	}
 
@@ -1142,8 +1141,8 @@ sub _banished_kur_entry {
 sub _banished_merge_pending {
 	my ( $result, $name, $status ) = @_;
 
-	if (   ref($status) eq 'HASH'
-		&& ref( $status->{pending_bans} ) eq 'ARRAY'
+	if (   is_plain_hashref($status)
+		&& is_plain_arrayref( $status->{pending_bans} )
 		&& defined( $result->{kurs}{$name} ) )
 	{
 		$result->{kurs}{$name}{pending} = $status->{pending_bans};
@@ -1179,7 +1178,7 @@ sub _cmd_banished {
 		}
 		die( $error . "\n" );
 	}
-	my $held = ref( $banned->{kurs} ) eq 'HASH' ? $banned->{kurs} : {};
+	my $held = is_plain_hashref( $banned->{kurs} ) ? $banned->{kurs} : {};
 
 	my $result = { 'kurs' => {} };
 	foreach my $kur (@kurs) {

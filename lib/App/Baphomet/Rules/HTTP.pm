@@ -3,6 +3,7 @@ package App::Baphomet::Rules::HTTP;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -205,7 +206,7 @@ sub check {
 	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
 	# must be access log shaped... the syslog parsers never produce these
-	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{host} ) || !defined( $parsed->{status} ) ) {
+	if ( !is_plain_hashref($parsed) || !defined( $parsed->{host} ) || !defined( $parsed->{status} ) ) {
 		return undef;
 	}
 
@@ -297,7 +298,7 @@ naming its own C<src_ip_var> still wins.
 sub src_ip_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{src_ip_var} ) ? $self->{def}{src_ip_var} : 'host';
+	return $self->{def}{src_ip_var} // 'host';
 }
 
 =head2 default_test_parser

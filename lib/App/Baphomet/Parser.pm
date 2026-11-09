@@ -3,6 +3,7 @@ package App::Baphomet::Parser;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util                          qw( is_plain_hashref );
 use App::Baphomet::Parser::ApacheError ();
 use App::Baphomet::Parser::BSDSyslog   ();
 use App::Baphomet::Parser::HTTPAccess  ();
@@ -130,7 +131,7 @@ sub parse {
 	my ( $parser, $line ) = @_;
 
 	if ( !defined($parser) || !defined( $parsers{$parser} ) ) {
-		die( 'Unknown parser, "' . ( defined($parser) ? $parser : 'undef' ) . '"' );
+		die( 'Unknown parser, "' . ( $parser // 'undef' ) . '"' );
 	}
 
 	return $parsers{$parser}->($line);
@@ -247,7 +248,7 @@ sub decode_json_line {
 
 	my $decoded;
 	eval { $decoded = decode_json($line); };
-	if ( $@ || ref($decoded) ne 'HASH' ) {
+	if ( $@ || !is_plain_hashref($decoded) ) {
 		return undef;
 	}
 

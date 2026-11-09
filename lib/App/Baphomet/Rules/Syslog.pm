@@ -3,6 +3,7 @@ package App::Baphomet::Rules::Syslog;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -290,7 +291,7 @@ sub new {
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var... daemons is required either way
 	$self->_check_ban_var( $def, $name );
-	if ( ref( $def->{daemons} ) ne 'ARRAY' || !@{ $def->{daemons} } ) {
+	if ( !is_plain_arrayref( $def->{daemons} ) || !@{ $def->{daemons} } ) {
 		die( 'The rule "' . $name . '" lacks a daemons array or it is empty' );
 	}
 
@@ -389,7 +390,7 @@ the plain token name.
 sub check {
 	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
-	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{message} ) ) {
+	if ( !is_plain_hashref($parsed) || !defined( $parsed->{message} ) ) {
 		return undef;
 	}
 

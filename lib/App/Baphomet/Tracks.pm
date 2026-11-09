@@ -3,6 +3,7 @@ package App::Baphomet::Tracks;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util            qw( is_plain_arrayref );
 use Exporter             qw( import );
 use App::Baphomet::Marks qw( bound_expiring_store );
 
@@ -95,7 +96,7 @@ sub track_key {
 		return undef;
 	}
 
-	my @components = ref( $entry->{key} ) eq 'ARRAY' ? @{ $entry->{key} } : ( $entry->{key} );
+	my @components = is_plain_arrayref( $entry->{key} ) ? @{ $entry->{key} } : ( $entry->{key} );
 
 	my @parts;
 	foreach my $field (@components) {
@@ -179,9 +180,7 @@ sub track_put {
 	}
 
 	my $store = $store_all->{$name};
-	if ( !defined($store) ) {
-		$store = $store_all->{$name} = {};
-	}
+	$store //= $store_all->{$name} = {};
 
 	bound_expiring_store( $store, $key, $now );
 

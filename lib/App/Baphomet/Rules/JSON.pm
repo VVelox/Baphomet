@@ -3,6 +3,7 @@ package App::Baphomet::Rules::JSON;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -222,13 +223,13 @@ sub new {
 	# or a capture, there being no envelope
 	$self->{captures} = [];
 	if ( defined( $def->{capture} ) ) {
-		if ( ref( $def->{capture} ) ne 'ARRAY' || !@{ $def->{capture} } ) {
+		if ( !is_plain_arrayref( $def->{capture} ) || !@{ $def->{capture} } ) {
 			die( 'The capture of the rule "' . $name . '" is not a array or is empty' );
 		}
 		my $entry_int = 0;
 		foreach my $entry ( @{ $def->{capture} } ) {
 			my $where = 'The capture entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( ref($entry) ne 'HASH' ) {
+			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' is not a hash' );
 			}
 			foreach my $key ( keys( %{$entry} ) ) {
@@ -248,7 +249,7 @@ sub new {
 
 			my $compiled = {
 				'key'     => $self->_correlation_key_components( $entry->{key}, $where ),
-				'ttl'     => defined( $entry->{ttl} ) ? $entry->{ttl} : 60,
+				'ttl'     => $entry->{ttl} // 60,
 				'gates'   => undef,
 				'matches' => [],
 			};
@@ -256,13 +257,13 @@ sub new {
 				$compiled->{gates} = $self->_compile_gates( $entry->{gate}, $where . ' gate' );
 			}
 			if ( defined( $entry->{match} ) ) {
-				if ( ref( $entry->{match} ) ne 'ARRAY' || !@{ $entry->{match} } ) {
+				if ( !is_plain_arrayref( $entry->{match} ) || !@{ $entry->{match} } ) {
 					die( $where . ' has a match that is not a array or is empty' );
 				}
 				my $match_int = 0;
 				foreach my $match ( @{ $entry->{match} } ) {
 					my $match_where = $where . ' match entry ' . $match_int;
-					if ( ref($match) ne 'HASH' || !defined( $match->{field} ) || !defined( $match->{regexp} ) ) {
+					if ( !is_plain_hashref($match) || !defined( $match->{field} ) || !defined( $match->{regexp} ) ) {
 						die( $match_where . ' is not a hash with a field and a regexp' );
 					}
 					foreach my $key ( keys( %{$match} ) ) {
@@ -411,15 +412,13 @@ another's.
 sub check {
 	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
-	if ( ref($parsed) ne 'HASH' || ref( $parsed->{fields} ) ne 'HASH' ) {
+	if ( !is_plain_hashref($parsed) || !is_plain_hashref( $parsed->{fields} ) ) {
 		return undef;
 	}
 	my $fields = $parsed->{fields};
-	if ( !defined($scope) ) {
-		$scope = '';
-	}
+	$scope //= '';
 	# a missing line context reads as a empty one
-	if ( ref($line_ctx) ne 'HASH' ) {
+	if ( !is_plain_hashref($line_ctx) ) {
 		$line_ctx = {};
 	}
 	my $now = $line_ctx->{now} // time;

@@ -67,17 +67,12 @@ sub manager_call {
 	# ok whether or not the manager gates, so it is always safe to ask
 	my $auth = $client->authenticate;
 	if ( ( $auth->{status} // '' ) ne 'ok' ) {
-		die( 'authenticating to the manager failed... '
-				. ( defined( $auth->{error} ) ? $auth->{error} : 'unknown error' )
-				. "\n" );
+		die( 'authenticating to the manager failed... ' . ( $auth->{error} // 'unknown error' ) . "\n" );
 	}
 
 	my $response = $client->call( 'command' => $command, ( defined($args) ? ( 'args' => $args ) : () ) );
 	if ( ( $response->{status} // '' ) ne 'ok' ) {
-		die( 'the manager refused "'
-				. $command . '"... '
-				. ( defined( $response->{error} ) ? $response->{error} : 'unknown error' )
-				. "\n" );
+		die( 'the manager refused "' . $command . '"... ' . ( $response->{error} // 'unknown error' ) . "\n" );
 	}
 
 	return $response->{result};

@@ -3,6 +3,7 @@ package App::Baphomet::Parser::JSON;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 # only used at runtime, so the circular use with the dispatcher is harmless
 use App::Baphomet::Parser ();
 
@@ -109,11 +110,11 @@ sub _flatten {
 		return;
 	}
 
-	if ( ref($node) eq 'HASH' ) {
+	if ( is_plain_hashref($node) ) {
 		foreach my $key ( keys( %{$node} ) ) {
 			_flatten( $node->{$key}, $prefix eq '' ? $key : $prefix . '.' . $key, $flat, $depth + 1 );
 		}
-	} elsif ( ref($node) eq 'ARRAY' ) {
+	} elsif ( is_plain_arrayref($node) ) {
 		my $index = 0;
 		foreach my $item ( @{$node} ) {
 			_flatten( $item, $prefix eq '' ? $index : $prefix . '.' . $index, $flat, $depth + 1 );

@@ -18,6 +18,7 @@ configure there, as Baphomet's config targets them.
 | Path::Tiny                           | p5-Path-Tiny     | libpath-tiny-perl     |
 | POE                                  | p5-POE           | libpoe-perl           |
 | POE::Component::Server::JSONUnix     | (cpanm)          | (cpanm)               |
+| Ref::Util                            | p5-Ref-Util      | libref-util-perl      |
 | Regexp::IPv4                         | (cpanm)          | (cpanm)               |
 | Regexp::IPv6                         | p5-Regexp-IPv6   | libregexp-ipv6-perl   |
 | Text::CSV_XS                         | p5-Text-CSV_XS   | libtext-csv-xs-perl   |

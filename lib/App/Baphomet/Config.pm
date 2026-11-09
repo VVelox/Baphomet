@@ -3,6 +3,7 @@ package App::Baphomet::Config;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util  qw( is_plain_arrayref is_plain_coderef is_plain_hashref );
 use Exporter   qw( import );
 use Path::Tiny qw( path );
 use Socket     qw( AF_INET AF_INET6 inet_pton inet_ntop );
@@ -504,10 +505,8 @@ sub load_config {
 	}
 
 	my ( $parsed, $parse_error ) = from_toml($raw_config);
-	if ( !defined($parsed) || ref($parsed) ne 'HASH' ) {
-		die(      'Failed to parse the config, "'
-				. $path . '"... '
-				. ( defined($parse_error) ? $parse_error : 'parsing did not return a hash' ) );
+	if ( !defined($parsed) || !is_plain_hashref($parsed) ) {
+		die( 'Failed to parse the config, "' . $path . '"... ' . ( $parse_error // 'parsing did not return a hash' ) );
 	}
 
 	my $config = {
@@ -569,7 +568,7 @@ sub load_config {
 		}
 	}
 
-	if ( ref( $config->{kur} ) ne 'HASH' ) {
+	if ( !is_plain_hashref( $config->{kur} ) ) {
 		die('kur in the config is defined but not a hash');
 	}
 
@@ -691,7 +690,7 @@ sub load_config {
 sub _check_claytablet {
 	my ($ct) = @_;
 
-	if ( ref($ct) ne 'HASH' ) {
+	if ( !is_plain_hashref($ct) ) {
 		die('ClayTablet is not a table');
 	}
 	foreach my $key ( keys( %{$ct} ) ) {
@@ -704,7 +703,7 @@ sub _check_claytablet {
 	{
 		die('ClayTablet backend is not a plain backend name matching /^[A-Za-z][A-Za-z0-9]*$/');
 	}
-	if ( defined( $ct->{options} ) && ref( $ct->{options} ) ne 'HASH' ) {
+	if ( defined( $ct->{options} ) && !is_plain_hashref( $ct->{options} ) ) {
 		die('ClayTablet options is not a table');
 	}
 
@@ -715,7 +714,7 @@ sub _check_claytablet {
 sub _check_recidive {
 	my ($recidive) = @_;
 
-	if ( ref($recidive) ne 'HASH' ) {
+	if ( !is_plain_hashref($recidive) ) {
 		die('recidive is not a table');
 	}
 	foreach my $key ( keys( %{$recidive} ) ) {
@@ -763,7 +762,7 @@ sub known_command {
 sub _check_command_perms {
 	my ($perms) = @_;
 
-	if ( ref($perms) ne 'HASH' ) {
+	if ( !is_plain_hashref($perms) ) {
 		die('command_perms is not a table');
 	}
 	foreach my $key ( keys( %{$perms} ) ) {
@@ -777,7 +776,7 @@ sub _check_command_perms {
 		die('command_perms default is not "allow" or "deny"');
 	}
 	if ( defined( $perms->{commands} ) ) {
-		if ( ref( $perms->{commands} ) ne 'HASH' ) {
+		if ( !is_plain_hashref( $perms->{commands} ) ) {
 			die('command_perms commands is not a table');
 		}
 		foreach my $name ( keys( %{ $perms->{commands} } ) ) {
@@ -803,7 +802,7 @@ sub _check_command_spec {
 		}
 		return;
 	}
-	if ( ref($spec) ne 'HASH' ) {
+	if ( !is_plain_hashref($spec) ) {
 		die( 'command_perms command "' . $name . '" is not "allow", "deny", or a table of rule lists' );
 	}
 	foreach my $key ( keys( %{$spec} ) ) {
@@ -896,7 +895,7 @@ sub kur_split {
 	my $settings = {};
 	my $watchers = {};
 	foreach my $key ( keys( %{$def} ) ) {
-		if ( ref( $def->{$key} ) eq 'HASH' && !$hash_settings{$key} ) {
+		if ( is_plain_hashref( $def->{$key} ) && !$hash_settings{$key} ) {
 			$watchers->{$key} = $def->{$key};
 		} else {
 			$settings->{$key} = $def->{$key};
@@ -920,9 +919,9 @@ sub check_kur_def {
 	my ( $name, $def ) = @_;
 
 	if ( !defined($name) || $name !~ /^[a-zA-Z0-9\-]+$/ ) {
-		die( 'The kur name, "' . ( defined($name) ? $name : 'undef' ) . '", does not match /^[a-zA-Z0-9\-]+$/' );
+		die( 'The kur name, "' . ( $name // 'undef' ) . '", does not match /^[a-zA-Z0-9\-]+$/' );
 	}
-	if ( ref($def) ne 'HASH' ) {
+	if ( !is_plain_hashref($def) ) {
 		die( 'The def for the kur "' . $name . '" is not a hash' );
 	}
 
@@ -1109,7 +1108,7 @@ a single rule or a array of them.
 sub watcher_rules {
 	my ($watcher) = @_;
 
-	if ( ref( $watcher->{rule} ) eq 'ARRAY' ) {
+	if ( is_plain_arrayref( $watcher->{rule} ) ) {
 		return @{ $watcher->{rule} };
 	}
 
@@ -1129,7 +1128,7 @@ the galla's business, as it has to redo it while running.
 sub watcher_logs {
 	my ($watcher) = @_;
 
-	if ( ref( $watcher->{log} ) eq 'ARRAY' ) {
+	if ( is_plain_arrayref( $watcher->{log} ) ) {
 		return @{ $watcher->{log} };
 	}
 
@@ -1167,10 +1166,8 @@ and the list is walked several times for every offender.
 sub compile_ignore_ips {
 	my ( $list, $where ) = @_;
 
-	if ( !defined($where) ) {
-		$where = 'ignore_ips';
-	}
-	if ( ref($list) ne 'ARRAY' ) {
+	$where //= 'ignore_ips';
+	if ( !is_plain_arrayref($list) ) {
 		die( $where . ' is not a array' );
 	}
 
@@ -1192,9 +1189,7 @@ sub compile_ignore_ips {
 			die( $where . ' entry "' . $entry . '" is not a IPv4 or IPv6 address or CIDR' );
 		}
 
-		if ( !defined($prefix) ) {
-			$prefix = $bits;
-		}
+		$prefix //= $bits;
 		if ( !_is_non_negative_int($prefix) || $prefix > $bits ) {
 			die( $where . ' entry "' . $entry . '" has a invalid prefix length' );
 		}
@@ -1242,7 +1237,7 @@ like a hostname a rule captured, is never regarded as ignored.
 sub ip_ignored {
 	my ( $compiled, $ip ) = @_;
 
-	if ( ref($compiled) ne 'ARRAY' || !@{$compiled} ) {
+	if ( !is_plain_arrayref($compiled) || !@{$compiled} ) {
 		return 0;
 	}
 
@@ -1401,7 +1396,7 @@ follow the whole journal.
 sub watcher_journal {
 	my ($watcher) = @_;
 
-	if ( ref( $watcher->{journal} ) eq 'ARRAY' ) {
+	if ( is_plain_arrayref( $watcher->{journal} ) ) {
 		return @{ $watcher->{journal} };
 	}
 	if ( defined( $watcher->{journal} ) && $watcher->{journal} ne '' && $watcher->{journal} ne '1' ) {
@@ -1417,7 +1412,7 @@ The shared startup step of the baphomet and galla bins... with foreground
 set, just chisels the current PID into the passed PID file, as something
 else is supervising. Else daemonizes via L<Net::Server::Daemonize> as the
 current user and group, writing the PID file along the way. Dies on a PID
-file that will not open.
+file that can not be written.
 
     pidfile_or_daemonize( $pid_path, $foreground );
 
@@ -1427,10 +1422,10 @@ sub pidfile_or_daemonize {
 	my ( $pid_path, $foreground ) = @_;
 
 	if ($foreground) {
-		open( my $pid_fh, '>', $pid_path )
-			|| die( 'Failed to open the PID file "' . $pid_path . '"... ' . $! );
-		print $pid_fh $$;
-		close($pid_fh);
+		eval { path($pid_path)->spew($$); };
+		if ($@) {
+			die( 'Failed to write the PID file "' . $pid_path . '"... ' . $@ );
+		}
 		return;
 	}
 
@@ -1499,14 +1494,12 @@ The keys of a join table...
 sub watcher_join {
 	my ( $watcher, $where ) = @_;
 
-	if ( !defined($where) ) {
-		$where = 'The watcher ';
-	}
+	$where //= 'The watcher ';
 	my $join = $watcher->{join};
 	if ( !defined($join) ) {
 		return undef;
 	}
-	if ( ref($join) ne 'HASH' ) {
+	if ( !is_plain_hashref($join) ) {
 		die( $where . 'has a join that is not a hash' );
 	}
 	foreach my $key ( keys( %{$join} ) ) {
@@ -1540,7 +1533,7 @@ sub watcher_join {
 sub _authed_list_error {
 	my ($list) = @_;
 
-	if ( ref($list) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($list) ) {
 		return 'not a array';
 	}
 	foreach my $item ( @{$list} ) {
@@ -1557,7 +1550,7 @@ sub _authed_list_error {
 sub _settings_error {
 	my ( $settings, $allowed_keys ) = @_;
 
-	if ( ref($allowed_keys) ne 'HASH' ) {
+	if ( !is_plain_hashref($allowed_keys) ) {
 		$allowed_keys = \%kur_setting_keys;
 	}
 	foreach my $key ( keys( %{$settings} ) ) {
@@ -1639,7 +1632,7 @@ sub resolve_country_codes {
 
 	my $resolved = {};
 	foreach my $level ( $config, $kur_settings, $watcher ) {
-		if ( defined($level) && ref( $level->{country_codes} ) eq 'HASH' ) {
+		if ( defined($level) && is_plain_hashref( $level->{country_codes} ) ) {
 			foreach my $name ( keys( %{ $level->{country_codes} } ) ) {
 				$resolved->{$name} = [ map { uc($_) } @{ $level->{country_codes}{$name} } ];
 			}
@@ -1655,11 +1648,11 @@ sub resolve_country_codes {
 sub _country_codes_error {
 	my ( $codes, $where ) = @_;
 
-	if ( ref($codes) ne 'HASH' ) {
+	if ( !is_plain_hashref($codes) ) {
 		return $where . ' is not a hash of named code lists';
 	}
 	foreach my $name ( keys( %{$codes} ) ) {
-		if ( ref( $codes->{$name} ) ne 'ARRAY' || !@{ $codes->{$name} } ) {
+		if ( !is_plain_arrayref( $codes->{$name} ) || !@{ $codes->{$name} } ) {
 			return $where . ' list "' . $name . '" is not a non-empty array';
 		}
 		foreach my $code ( @{ $codes->{$name} } ) {
@@ -1690,7 +1683,7 @@ sub resolve_namtar_lists {
 
 	my $resolved = {};
 	foreach my $level ( $config, $kur_settings, $watcher ) {
-		if ( defined($level) && ref( $level->{namtar_lists} ) eq 'HASH' ) {
+		if ( defined($level) && is_plain_hashref( $level->{namtar_lists} ) ) {
 			foreach my $name ( keys( %{ $level->{namtar_lists} } ) ) {
 				$resolved->{$name} = _namtar_list_spec( $level->{namtar_lists}{$name} );
 			}
@@ -1707,20 +1700,20 @@ sub resolve_namtar_lists {
 sub _namtar_list_spec {
 	my ($value) = @_;
 
-	if ( ref($value) eq 'HASH' ) {
-		my $type  = defined( $value->{type} ) ? $value->{type} : 'cidr';
+	if ( is_plain_hashref($value) ) {
+		my $type  = $value->{type} // 'cidr';
 		my $files = $value->{files};
 		return {
 			'type'   => $type,
 			'nocase' => ( $type eq 'string' && $value->{nocase} ) ? 1 : 0,
-			'paths'  => [ ref($files) eq 'ARRAY' ? @{$files} : ($files) ],
+			'paths'  => [ is_plain_arrayref($files) ? @{$files} : ($files) ],
 		};
 	}
 
 	return {
 		'type'   => 'cidr',
 		'nocase' => 0,
-		'paths'  => [ ref($value) eq 'ARRAY' ? @{$value} : ($value) ],
+		'paths'  => [ is_plain_arrayref($value) ? @{$value} : ($value) ],
 	};
 } ## end sub _namtar_list_spec
 
@@ -1731,13 +1724,13 @@ sub _namtar_list_spec {
 sub _namtar_lists_error {
 	my ( $lists, $where ) = @_;
 
-	if ( ref($lists) ne 'HASH' ) {
+	if ( !is_plain_hashref($lists) ) {
 		return $where . ' is not a hash of named lists';
 	}
 	foreach my $name ( keys( %{$lists} ) ) {
 		my $value = $lists->{$name};
 		my $paths;
-		if ( ref($value) eq 'HASH' ) {
+		if ( is_plain_hashref($value) ) {
 			foreach my $key ( keys( %{$value} ) ) {
 				if ( $key !~ /^(?:type|files|nocase)$/ ) {
 					return $where . ' list "' . $name . '" has the unknown key "' . $key . '"';
@@ -1758,13 +1751,13 @@ sub _namtar_lists_error {
 			if ( !defined($paths) ) {
 				return $where . ' list "' . $name . '" is missing files';
 			}
-		} elsif ( ref($value) ne '' && ref($value) ne 'ARRAY' ) {
+		} elsif ( ref($value) ne '' && !is_plain_arrayref($value) ) {
 			return $where . ' list "' . $name . '" is not a path, a array of paths, or a typed table';
 		} else {
 			$paths = $value;
 		}
 
-		my @paths = ref($paths) eq 'ARRAY' ? @{$paths} : ($paths);
+		my @paths = is_plain_arrayref($paths) ? @{$paths} : ($paths);
 		if ( !@paths ) {
 			return $where . ' list "' . $name . '" is a empty array';
 		}
@@ -1794,10 +1787,10 @@ sub resolve_active_time {
 
 	my $resolved = {};
 	foreach my $level ( $config, $kur_settings, $watcher ) {
-		if ( defined($level) && ref( $level->{active_time} ) eq 'HASH' ) {
+		if ( defined($level) && is_plain_hashref( $level->{active_time} ) ) {
 			foreach my $name ( keys( %{ $level->{active_time} } ) ) {
 				my $window = $level->{active_time}{$name};
-				$resolved->{$name} = [ ref($window) eq 'ARRAY' ? @{$window} : ($window) ];
+				$resolved->{$name} = [ is_plain_arrayref($window) ? @{$window} : ($window) ];
 			}
 		}
 	}
@@ -1811,15 +1804,15 @@ sub resolve_active_time {
 sub _active_time_error {
 	my ( $windows, $where ) = @_;
 
-	if ( ref($windows) ne 'HASH' ) {
+	if ( !is_plain_hashref($windows) ) {
 		return $where . ' is not a hash of named windows';
 	}
 	foreach my $name ( keys( %{$windows} ) ) {
 		my $window = $windows->{$name};
-		if ( ref($window) ne 'HASH' && ref($window) ne 'ARRAY' ) {
+		if ( !is_plain_hashref($window) && !is_plain_arrayref($window) ) {
 			return $where . ' window "' . $name . '" is not a spec or a array of specs';
 		}
-		my @specs = ref($window) eq 'ARRAY' ? @{$window} : ($window);
+		my @specs = is_plain_arrayref($window) ? @{$window} : ($window);
 		if ( !@specs ) {
 			return $where . ' window "' . $name . '" is a empty array';
 		}
@@ -1840,7 +1833,7 @@ sub _active_time_error {
 sub _active_time_spec_error {
 	my ( $spec, $where ) = @_;
 
-	if ( ref($spec) ne 'HASH' ) {
+	if ( !is_plain_hashref($spec) ) {
 		return $where . ' has a spec that is not a hash';
 	}
 	foreach my $key ( keys( %{$spec} ) ) {
@@ -1853,7 +1846,7 @@ sub _active_time_spec_error {
 	}
 
 	if ( defined( $spec->{days} ) ) {
-		if ( ref( $spec->{days} ) ne 'ARRAY' || !@{ $spec->{days} } ) {
+		if ( !is_plain_arrayref( $spec->{days} ) || !@{ $spec->{days} } ) {
 			return $where . ' has a days that is not a non-empty array';
 		}
 		foreach my $day ( @{ $spec->{days} } ) {
@@ -1864,10 +1857,10 @@ sub _active_time_spec_error {
 	} ## end if ( defined( $spec->{days} ) )
 
 	if ( defined( $spec->{hours} ) ) {
-		if ( ref( $spec->{hours} ) ne '' && ref( $spec->{hours} ) ne 'ARRAY' ) {
+		if ( ref( $spec->{hours} ) ne '' && !is_plain_arrayref( $spec->{hours} ) ) {
 			return $where . ' has a hours that is not a range or a array of ranges';
 		}
-		my @ranges = ref( $spec->{hours} ) eq 'ARRAY' ? @{ $spec->{hours} } : ( $spec->{hours} );
+		my @ranges = is_plain_arrayref( $spec->{hours} ) ? @{ $spec->{hours} } : ( $spec->{hours} );
 		if ( !@ranges ) {
 			return $where . ' has a empty hours array';
 		}
@@ -1926,7 +1919,7 @@ sub resolve_rule_config {
 
 	my $resolved = {};
 	foreach my $level ( $kur_settings, $watcher ) {
-		if ( defined($level) && ref( $level->{rule_config} ) eq 'HASH' ) {
+		if ( defined($level) && is_plain_hashref( $level->{rule_config} ) ) {
 			# a %group% key stands for every rule the group names. groups are
 			# laid down before the plain names so that, within one level, a
 			# rule tuned by name beats the group it belongs to... which is the
@@ -1941,7 +1934,7 @@ sub resolve_rule_config {
 				my @rule_names;
 				if ( $key =~ /^%(.*)%$/ ) {
 					my $group = $1;
-					if ( ref($group_members) ne 'CODE' ) {
+					if ( !is_plain_coderef($group_members) ) {
 						# never silently drop the override... an eve_only that
 						# quietly did not apply is a rule banning when the
 						# operator believed it was only watching
@@ -1967,7 +1960,7 @@ sub resolve_rule_config {
 					}
 				} ## end foreach my $rule_name (@rule_names)
 			} ## end foreach my $key (@keys)
-		} ## end if ( defined($level) && ref( $level->{rule_config...}))
+		} ## end if ( defined($level) && is_plain_hashref( ...))
 	} ## end foreach my $level ( $kur_settings, $watcher )
 
 	return $resolved;
@@ -1985,7 +1978,7 @@ my %rule_config_keys = map { $_ => 1 } qw( max_score find_time ban_time weight e
 sub _rule_config_error {
 	my ( $rule_config, $where ) = @_;
 
-	if ( ref($rule_config) ne 'HASH' ) {
+	if ( !is_plain_hashref($rule_config) ) {
 		return $where . ' is not a hash of per-rule override tables';
 	}
 
@@ -2006,7 +1999,7 @@ sub _rule_config_error {
 				. '"... should be like "syslog/sshd", or a group like "%syslog/foreign-auth%"';
 		}
 		my $override = $rule_config->{$rule_name};
-		if ( ref($override) ne 'HASH' ) {
+		if ( !is_plain_hashref($override) ) {
 			return $where . ' rule "' . $rule_name . '" is not a table of overrides';
 		}
 		foreach my $key ( keys( %{$override} ) ) {

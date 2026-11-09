@@ -3,6 +3,7 @@ package App::Baphomet::Rules::HTTPError;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -147,7 +148,7 @@ sub new {
 	# machinery the json type uses, ANDed ahead of the message_regexp match
 	$self->_compile_boolean( $def, $name );
 
-	if ( ref( $def->{message_regexp} ) ne 'ARRAY' || !@{ $def->{message_regexp} } ) {
+	if ( !is_plain_arrayref( $def->{message_regexp} ) || !@{ $def->{message_regexp} } ) {
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
 	}
 
@@ -157,7 +158,7 @@ sub new {
 		if ( !defined( $def->{$sort} ) ) {
 			next;
 		}
-		if ( ref( $def->{$sort} ) ne 'ARRAY' ) {
+		if ( !is_plain_arrayref( $def->{$sort} ) ) {
 			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array' );
 		}
 
@@ -200,7 +201,7 @@ sub check {
 
 	# must be error log shaped and carry a client... startup notices and
 	# worker chatter have no one to blame
-	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{client} ) || !defined( $parsed->{message} ) ) {
+	if ( !is_plain_hashref($parsed) || !defined( $parsed->{client} ) || !defined( $parsed->{message} ) ) {
 		return undef;
 	}
 
@@ -295,7 +296,7 @@ its own C<src_ip_var> still wins.
 sub src_ip_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{src_ip_var} ) ? $self->{def}{src_ip_var} : 'client';
+	return $self->{def}{src_ip_var} // 'client';
 }
 
 =head2 default_test_parser

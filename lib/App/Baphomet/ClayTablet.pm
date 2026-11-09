@@ -3,6 +3,7 @@ package App::Baphomet::ClayTablet;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_hashref );
 
 =head1 NAME
 
@@ -72,14 +73,14 @@ sub new {
 	my ( $class, %opts ) = @_;
 
 	my $config = $opts{config};
-	if ( ref($config) ne 'HASH' ) {
+	if ( !is_plain_hashref($config) ) {
 		$config = {};
 	}
 
-	my $backend_name = defined( $config->{backend} ) ? $config->{backend} : 'file';
+	my $backend_name = $config->{backend} // 'file';
 	if ( ref($backend_name) ne '' || $backend_name !~ /^[A-Za-z][A-Za-z0-9]*$/ ) {
 		die(      'ClayTablet backend "'
-				. ( defined($backend_name) ? $backend_name : 'undef' )
+				. ( $backend_name // 'undef' )
 				. '" is not a plain backend name matching /^[A-Za-z][A-Za-z0-9]*$/' );
 	}
 
@@ -92,7 +93,7 @@ sub new {
 	eval "require $backend_class; 1;"    ## no critic (ProhibitStringyEval)
 		or die( 'ClayTablet could not load the backend "' . $backend_name . '" (' . $backend_class . ')... ' . $@ );
 
-	my $options = ref( $config->{options} ) eq 'HASH' ? $config->{options} : {};
+	my $options = is_plain_hashref( $config->{options} ) ? $config->{options} : {};
 
 	my $backend = $backend_class->new(
 		'name'            => $opts{name},

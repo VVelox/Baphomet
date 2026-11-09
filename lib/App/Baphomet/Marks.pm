@@ -294,9 +294,7 @@ sub mark_set {
 	my ( $store_all, $name, $key, $value, $ttl, $now, $on_set ) = @_;
 
 	my $store = $store_all->{$name};
-	if ( !defined($store) ) {
-		$store = $store_all->{$name} = {};
-	}
+	$store //= $store_all->{$name} = {};
 
 	bound_expiring_store( $store, $key, $now );
 

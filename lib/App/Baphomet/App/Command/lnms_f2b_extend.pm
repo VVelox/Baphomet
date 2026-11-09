@@ -3,9 +3,11 @@ package App::Baphomet::App::Command::lnms_f2b_extend;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use App::Baphomet::App -command;
 use JSON::MaybeXS      ();
 use IO::Compress::Gzip qw( gzip $GzipError );
+use List::Util         qw( sum0 );
 use MIME::Base64       qw( encode_base64 );
 
 =head1 NAME
@@ -161,18 +163,18 @@ sub execute {
 sub _tallies_from_banished {
 	my ($banished) = @_;
 
-	my $kurs = ( ref($banished) eq 'HASH' && ref( $banished->{kurs} ) eq 'HASH' ) ? $banished->{kurs} : {};
+	my $kurs = ( is_plain_hashref($banished) && is_plain_hashref( $banished->{kurs} ) ) ? $banished->{kurs} : {};
 
 	my %tallies;
 	foreach my $kur ( keys( %{$kurs} ) ) {
 		my $entry = $kurs->{$kur};
-		if ( ref( $entry->{banned} ) eq 'ARRAY' ) {
+		if ( is_plain_arrayref( $entry->{banned} ) ) {
 			$tallies{$kur} = scalar( @{ $entry->{banned} } );
-		} elsif ( ref( $entry->{members} ) eq 'HASH' ) {
+		} elsif ( is_plain_hashref( $entry->{members} ) ) {
 			my %union;
 			foreach my $member ( keys( %{ $entry->{members} } ) ) {
 				my $held = $entry->{members}{$member};
-				if ( ref( $held->{banned} ) eq 'ARRAY' ) {
+				if ( is_plain_arrayref( $held->{banned} ) ) {
 					foreach my $ip ( @{ $held->{banned} } ) {
 						$union{$ip} = 1;
 					}
@@ -193,18 +195,13 @@ sub _tallies_from_banished {
 sub _extend_structure {
 	my ( $tallies, $error, $error_string ) = @_;
 
-	my $total = 0;
-	my %jails;
-	foreach my $kur ( keys( %{$tallies} ) ) {
-		my $count = $tallies->{$kur} + 0;
-		$jails{$kur} = $count;
-		$total += $count;
-	}
+	my %jails = map { $_ => $tallies->{$_} + 0 } keys( %{$tallies} );
+	my $total = sum0( values(%jails) );
 
 	return {
 		'data'        => { 'total' => $total, 'jails' => \%jails },
-		'error'       => defined($error)        ? $error + 0    : 0,
-		'errorString' => defined($error_string) ? $error_string : '',
+		'error'       => defined($error) ? $error + 0 : 0,
+		'errorString' => $error_string // '',
 		'version'     => '1',
 	};
 } ## end sub _extend_structure

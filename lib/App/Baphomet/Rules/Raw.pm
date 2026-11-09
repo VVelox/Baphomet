@@ -3,6 +3,7 @@ package App::Baphomet::Rules::Raw;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -155,7 +156,7 @@ match, returns a hash as below, same as syslog rules.
 sub check {
 	my ( $self, $parsed, $scope, $line_ctx ) = @_;
 
-	if ( ref($parsed) ne 'HASH' || !defined( $parsed->{message} ) ) {
+	if ( !is_plain_hashref($parsed) || !defined( $parsed->{message} ) ) {
 		return undef;
 	}
 

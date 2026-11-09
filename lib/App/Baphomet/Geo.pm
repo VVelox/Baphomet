@@ -3,6 +3,7 @@ package App::Baphomet::Geo;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util            qw( is_plain_arrayref );
 use Exporter             qw( import );
 use App::Baphomet::Marks qw( entry_in_pass );
 
@@ -64,7 +65,7 @@ sub resolve_country_gate {
 	foreach my $entry ( @{ $country->{entries} } ) {
 		if ( $entry =~ /^%%%country_codes\{([a-zA-Z0-9_\-]+)\}%%%$/ ) {
 			my $list = $codes->{$1};
-			if ( ref($list) ne 'ARRAY' ) {
+			if ( !is_plain_arrayref($list) ) {
 				die( $where . ' imports country_codes{' . $1 . '}, which is not a defined list for it' );
 			}
 			foreach my $code ( @{$list} ) {

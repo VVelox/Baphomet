@@ -95,7 +95,7 @@ sub parse {
 			'facility' => $facility,
 			'severity' => $severity,
 			'level'    => $level,
-			'message'  => defined($message) ? $message : '',
+			'message'  => $message // '',
 		};
 	} ## end if ( $line =~ /^ )
 

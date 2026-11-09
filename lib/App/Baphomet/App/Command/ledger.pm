@@ -6,6 +6,7 @@ use warnings;
 use App::Baphomet::App -command;
 use App::Baphomet::Config qw( load_config );
 use JSON::MaybeXS         ();
+use Path::Tiny            qw( path );
 use POSIX                 qw( strftime );
 use Text::CSV_XS          ();
 
@@ -98,9 +99,11 @@ sub execute {
 
 	my @entries;
 	if ( -f $path ) {
-		open( my $fh, '<', $path ) || die( 'opening the ledger "' . $path . '" failed... ' . $! );
-		while ( my $line = <$fh> ) {
-			chomp($line);
+		my @lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
+		if ($@) {
+			die( 'opening the ledger "' . $path . '" failed... ' . $@ );
+		}
+		foreach my $line (@lines) {
 			my $entry = _parse_row($line);
 			if ( !defined($entry) ) {
 				next;
@@ -115,8 +118,7 @@ sub execute {
 				next;
 			}
 			push( @entries, $entry );
-		} ## end while ( my $line = <$fh> )
-		close($fh);
+		} ## end foreach my $line (@lines)
 	} ## end if ( -f $path )
 
 	if ( defined( $opt->tail ) && scalar(@entries) > $opt->tail ) {

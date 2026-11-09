@@ -3,6 +3,7 @@ package App::Baphomet::Rules::Base;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util                 qw( is_plain_arrayref is_plain_hashref );
 use Regexp::IPv4              qw( $IPv4_re );
 use Regexp::IPv6              qw( $IPv6_re );
 use MIME::Base64              qw( decode_base64 );
@@ -692,9 +693,7 @@ does not depend on traffic.
 sub sweep_state {
 	my ( $self, $now ) = @_;
 
-	if ( !defined($now) ) {
-		$now = time;
-	}
+	$now //= time;
 
 	foreach my $scope ( keys( %{ $self->{context} } ) ) {
 		foreach my $key ( keys( %{ $self->{context}{$scope} } ) ) {
@@ -841,7 +840,7 @@ what makes it detection-only.
 sub detection_var {
 	my ($self) = @_;
 
-	if ( ref( $self->{def}{detection_var} ) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref( $self->{def}{detection_var} ) ) {
 		return ();
 	}
 
@@ -1070,7 +1069,7 @@ built with out the loader reads as shipped.
 sub gid {
 	my ($self) = @_;
 
-	return defined( $self->{gid} ) ? $self->{gid} : 0;
+	return $self->{gid} // 0;
 }
 
 =head2 set_gid
@@ -1146,7 +1145,7 @@ marks store and does the branding, this just exposes the def key.
 sub marks {
 	my ($self) = @_;
 
-	return ref( $self->{def}{mark} ) eq 'ARRAY' ? $self->{def}{mark} : [];
+	return is_plain_arrayref( $self->{def}{mark} ) ? $self->{def}{mark} : [];
 }
 
 =head2 unmarks
@@ -1161,7 +1160,7 @@ and optionally C<var> or C<vars>... a empty array for a rule lifting none.
 sub unmarks {
 	my ($self) = @_;
 
-	return ref( $self->{def}{unmark} ) eq 'ARRAY' ? $self->{def}{unmark} : [];
+	return is_plain_arrayref( $self->{def}{unmark} ) ? $self->{def}{unmark} : [];
 }
 
 =head2 mark_gates
@@ -1187,9 +1186,9 @@ sub mark_gates {
 	# pure rule data, so built once... this is asked for on every match
 	if ( !defined( $self->{_mark_gates} ) ) {
 		$self->{_mark_gates} = {
-			'marked'     => ref( $self->{def}{marked} ) eq 'ARRAY'     ? $self->{def}{marked}     : [],
-			'not_marked' => ref( $self->{def}{not_marked} ) eq 'ARRAY' ? $self->{def}{not_marked} : [],
-			'sequence'   => ref( $self->{def}{sequence} ) eq 'ARRAY'   ? $self->{def}{sequence}   : [],
+			'marked'     => is_plain_arrayref( $self->{def}{marked} )     ? $self->{def}{marked}     : [],
+			'not_marked' => is_plain_arrayref( $self->{def}{not_marked} ) ? $self->{def}{not_marked} : [],
+			'sequence'   => is_plain_arrayref( $self->{def}{sequence} )   ? $self->{def}{sequence}   : [],
 		};
 	}
 
@@ -1227,7 +1226,7 @@ seconds. This is what the harvest walks.
 sub tracks {
 	my ($self) = @_;
 
-	return defined( $self->{tracks} ) ? $self->{tracks} : [];
+	return $self->{tracks} // [];
 }
 
 =head2 track_gates
@@ -1293,7 +1292,7 @@ sub _check_detection_var {
 		return 0;
 	}
 
-	if ( ref( $def->{detection_var} ) ne 'ARRAY' || !@{ $def->{detection_var} } ) {
+	if ( !is_plain_arrayref( $def->{detection_var} ) || !@{ $def->{detection_var} } ) {
 		die( 'The rule "' . $name . '" has a detection_var that is not a non-empty array' );
 	}
 	foreach my $item ( @{ $def->{detection_var} } ) {
@@ -1342,7 +1341,7 @@ my @COMMON_DEF_KEYS = qw(
 sub _check_common {
 	my ( $self, $def, $name, $type_keys ) = @_;
 
-	if ( ref($def) ne 'HASH' ) {
+	if ( !is_plain_hashref($def) ) {
 		die( 'The def for the rule "' . $name . '" is not a hash' );
 	}
 	my %allowed_keys = map { $_ => 1 } ( @COMMON_DEF_KEYS, @{$type_keys} );
@@ -1362,7 +1361,7 @@ sub _check_common {
 	$self->_check_distinct($def);
 	$self->_check_promoted_vars($def);
 
-	if ( defined( $def->{tests} ) && ref( $def->{tests} ) ne 'HASH' ) {
+	if ( defined( $def->{tests} ) && !is_plain_hashref( $def->{tests} ) ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
 	}
 
@@ -1379,7 +1378,7 @@ sub _check_ban_var {
 		return 1;
 	}
 
-	if ( ref( $def->{ban_var} ) ne 'ARRAY' || !@{ $def->{ban_var} } ) {
+	if ( !is_plain_arrayref( $def->{ban_var} ) || !@{ $def->{ban_var} } ) {
 		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
 	}
 	foreach my $item ( @{ $def->{ban_var} } ) {
@@ -1482,22 +1481,22 @@ sub namtar_list {
 
 	if ( !exists( $self->{namtar_parsed} ) ) {
 		my $def = $self->{def}{namtar_list};
-		if ( ref($def) ne 'ARRAY' ) {
+		if ( !is_plain_arrayref($def) ) {
 			$self->{namtar_parsed} = undef;
 		} else {
 			my @entries;
 			foreach my $entry ( @{$def} ) {
-				my $lists = defined( $entry->{lists} ) ? $entry->{lists} : $entry->{list};
+				my $lists = $entry->{lists} // $entry->{list};
 				push(
 					@entries,
 					{
-						'lists' => [ ref($lists) eq 'ARRAY' ? @{$lists} : ($lists) ],
+						'lists' => [ is_plain_arrayref($lists) ? @{$lists} : ($lists) ],
 						'var'   => $entry->{var},
 					}
 				);
 			} ## end foreach my $entry ( @{$def} )
 			$self->{namtar_parsed} = \@entries;
-		} ## end else [ if ( ref($def) ne 'ARRAY' ) ]
+		} ## end else [ if ( !is_plain_arrayref($def) ) ]
 	} ## end if ( !exists( $self->{namtar_parsed} ) )
 
 	return $self->{namtar_parsed};
@@ -1545,17 +1544,17 @@ sub _is_isnot_parsed {
 
 	my $gate_def = $self->{def}{$gate_key};
 	my $parsed;
-	if ( ref($gate_def) eq 'HASH' ) {
+	if ( is_plain_hashref($gate_def) ) {
 		my $mode = defined( $gate_def->{is} ) ? 'is' : 'isnot';
 		my $vars;
-		if ( ref( $gate_def->{vars} ) eq 'ARRAY' ) {
+		if ( is_plain_arrayref( $gate_def->{vars} ) ) {
 			$vars = $gate_def->{vars};
 		} elsif ( defined( $gate_def->{vars} ) ) {
 			$vars = [ $gate_def->{vars} ];
 		}
-		my @entries = ref( $gate_def->{$mode} ) eq 'ARRAY' ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
+		my @entries = is_plain_arrayref( $gate_def->{$mode} ) ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
 		$parsed = { 'mode' => $mode, $IS_ISNOT_GATES{$gate_key}{list_key} => \@entries, 'vars' => $vars };
-	} ## end if ( ref($gate_def) eq 'HASH' )
+	} ## end if ( is_plain_hashref($gate_def) )
 
 	$self->{is_isnot_parsed}{$gate_key} = $parsed;
 	return $parsed;
@@ -1575,7 +1574,7 @@ exposes the def key.
 sub distinct {
 	my ($self) = @_;
 
-	return ( ref( $self->{def}{distinct} ) eq 'HASH' ) ? $self->{def}{distinct} : undef;
+	return ( is_plain_hashref( $self->{def}{distinct} ) ) ? $self->{def}{distinct} : undef;
 }
 
 =head2 src_ip_var
@@ -1594,7 +1593,7 @@ dotted path a schema puts the source under.
 sub src_ip_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{src_ip_var} ) ? $self->{def}{src_ip_var} : 'src_ip';
+	return $self->{def}{src_ip_var} // 'src_ip';
 }
 
 =head2 dest_ip_var
@@ -1610,7 +1609,7 @@ to the EVE event's top-level C<dest_ip>.
 sub dest_ip_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{dest_ip_var} ) ? $self->{def}{dest_ip_var} : 'dest_ip';
+	return $self->{def}{dest_ip_var} // 'dest_ip';
 }
 
 =head2 src_port_var
@@ -1628,7 +1627,7 @@ native integer land in the one field as the one type.
 sub src_port_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{src_port_var} ) ? $self->{def}{src_port_var} : 'src_port';
+	return $self->{def}{src_port_var} // 'src_port';
 }
 
 =head2 dest_port_var
@@ -1644,7 +1643,7 @@ L</src_port_var>, promoted to the EVE event's top-level C<dest_port>.
 sub dest_port_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{dest_port_var} ) ? $self->{def}{dest_port_var} : 'dest_port';
+	return $self->{def}{dest_port_var} // 'dest_port';
 }
 
 =head2 user_var
@@ -1663,7 +1662,7 @@ schemas already call it C<user> and need no override.
 sub user_var {
 	my ($self) = @_;
 
-	return defined( $self->{def}{user_var} ) ? $self->{def}{user_var} : 'user';
+	return $self->{def}{user_var} // 'user';
 }
 
 =head2 mungers
@@ -1684,7 +1683,7 @@ divergence being deliberate (a looser parse than the munger had).
 sub mungers {
 	my ($self) = @_;
 
-	return ref( $self->{mungers} ) eq 'ARRAY' ? @{ $self->{mungers} } : ();
+	return is_plain_arrayref( $self->{mungers} ) ? @{ $self->{mungers} } : ();
 }
 
 # validates and stores the mungers key... a non-empty array of non-empty
@@ -1699,7 +1698,7 @@ sub _compile_mungers {
 	if ( !defined( $def->{mungers} ) ) {
 		return;
 	}
-	if ( ref( $def->{mungers} ) ne 'ARRAY' || !@{ $def->{mungers} } ) {
+	if ( !is_plain_arrayref( $def->{mungers} ) || !@{ $def->{mungers} } ) {
 		die( 'The mungers of the rule "' . $name . '" is not a non-empty array' );
 	}
 	foreach my $munger ( @{ $def->{mungers} } ) {
@@ -1723,7 +1722,7 @@ my %munge_processor_cache;
 sub _munge_processor {
 	my ($self) = @_;
 
-	if ( ref( $self->{mungers} ) ne 'ARRAY' || !@{ $self->{mungers} } ) {
+	if ( !is_plain_arrayref( $self->{mungers} ) || !@{ $self->{mungers} } ) {
 		return undef;
 	}
 
@@ -1778,7 +1777,7 @@ sub _munge_processor {
 sub _munge_enrich {
 	my ( $self, $parsed ) = @_;
 
-	if ( ref( $self->{mungers} ) ne 'ARRAY' || !@{ $self->{mungers} } || ref($parsed) ne 'HASH' ) {
+	if ( !is_plain_arrayref( $self->{mungers} ) || !@{ $self->{mungers} } || !is_plain_hashref($parsed) ) {
 		return undef;
 	}
 	if ( !defined( $parsed->{message} ) ) {
@@ -1788,7 +1787,7 @@ sub _munge_enrich {
 	# keyed by the set, since two rules on one watcher may name different
 	# mungers and must not be handed each other's fields
 	my $set_key = join( "\x1f", @{ $self->{mungers} } );
-	if ( ref( $parsed->{_munge_fields} ) eq 'HASH' && exists( $parsed->{_munge_fields}{$set_key} ) ) {
+	if ( is_plain_hashref( $parsed->{_munge_fields} ) && exists( $parsed->{_munge_fields}{$set_key} ) ) {
 		return $parsed->{_munge_fields}{$set_key};
 	}
 
@@ -1804,7 +1803,7 @@ sub _munge_enrich {
 
 	my $fields;
 	eval { $fields = $processor->process_item(%feed); };
-	if ( $@ || ref($fields) ne 'HASH' ) {
+	if ( $@ || !is_plain_hashref($fields) ) {
 		$parsed->{_munge_fields}{$set_key} = undef;
 		return undef;
 	}
@@ -1872,35 +1871,33 @@ rather than replacing, so it is safe to call at start.
 sub restore_state {
 	my ( $self, $state, $now ) = @_;
 
-	if ( ref($state) ne 'HASH' ) {
+	if ( !is_plain_hashref($state) ) {
 		return;
 	}
-	if ( !defined($now) ) {
-		$now = time;
-	}
+	$now //= time;
 
-	if ( ref( $state->{context} ) eq 'HASH' ) {
+	if ( is_plain_hashref( $state->{context} ) ) {
 		foreach my $scope ( keys( %{ $state->{context} } ) ) {
 			foreach my $key ( keys( %{ $state->{context}{$scope} } ) ) {
 				my $entry = $state->{context}{$scope}{$key};
-				if ( ref($entry) eq 'HASH' && defined( $entry->{expires} ) && $entry->{expires} > $now ) {
+				if ( is_plain_hashref($entry) && defined( $entry->{expires} ) && $entry->{expires} > $now ) {
 					$self->{context}{$scope}{$key} = $entry;
 				}
 			}
 		}
-	} ## end if ( ref( $state->{context} ) eq 'HASH' )
+	} ## end if ( is_plain_hashref( $state->{context} ))
 
-	if ( ref( $state->{pending} ) eq 'HASH' ) {
+	if ( is_plain_hashref( $state->{pending} ) ) {
 		foreach my $scope ( keys( %{ $state->{pending} } ) ) {
 			foreach my $key ( keys( %{ $state->{pending}{$scope} } ) ) {
-				my @live = grep { ref($_) eq 'HASH' && defined( $_->{expires} ) && $_->{expires} > $now }
+				my @live = grep { is_plain_hashref($_) && defined( $_->{expires} ) && $_->{expires} > $now }
 					@{ $state->{pending}{$scope}{$key} };
 				if (@live) {
 					push( @{ $self->{pending}{$scope}{$key} }, @live );
 				}
 			}
 		}
-	} ## end if ( ref( $state->{pending} ) eq 'HASH' )
+	} ## end if ( is_plain_hashref( $state->{pending} ))
 
 	return;
 } ## end sub restore_state
@@ -1969,7 +1966,7 @@ sub run_tests {
 	$self->{pending}     = {};
 
 	my $tests = $self->{def}{tests};
-	if ( ref($tests) ne 'HASH' ) {
+	if ( !is_plain_hashref($tests) ) {
 		return $results;
 	}
 
@@ -1988,7 +1985,7 @@ sub run_tests {
 	# the log and not on the pattern, which no reading of the rule can settle...
 	# so this is a warning and not a failure, and the rule loads either way. A
 	# tests.injection entry answers it, whichever way the answer goes.
-	if ( $self->{needs_injection_test} && ref( $tests->{injection} ) ne 'ARRAY' ) {
+	if ( $self->{needs_injection_test} && !is_plain_arrayref( $tests->{injection} ) ) {
 		push(
 			@{ $results->{warnings} },
 			$self->{needs_injection_test}
@@ -2002,7 +1999,7 @@ sub run_tests {
 		if ( !defined( $tests->{$sort} ) ) {
 			next;
 		}
-		if ( ref( $tests->{$sort} ) ne 'ARRAY' ) {
+		if ( !is_plain_arrayref( $tests->{$sort} ) ) {
 			$results->{fail}++;
 			push( @{ $results->{failures} }, $sort . ' tests is not a array' );
 			next;
@@ -2016,7 +2013,9 @@ sub run_tests {
 			my $where = $sort . ' test ' . $test_int;
 			$test_int++;
 
-			if ( ref($test) ne 'HASH' || ( !defined( $test->{message} ) && ref( $test->{messages} ) ne 'ARRAY' ) ) {
+			if ( !is_plain_hashref($test)
+				|| ( !defined( $test->{message} ) && !is_plain_arrayref( $test->{messages} ) ) )
+			{
 				$results->{fail}++;
 				push( @{ $results->{failures} }, $where . ' is not a hash with a message or a messages array' );
 				next TEST;
@@ -2025,7 +2024,7 @@ sub run_tests {
 			# a injection test with no data block asserts only that the forged
 			# line matched, which is the half that was never in doubt... naming
 			# the offender is the whole assertion
-			if ( $sort eq 'injection' && ref( $test->{data} ) ne 'HASH' ) {
+			if ( $sort eq 'injection' && !is_plain_hashref( $test->{data} ) ) {
 				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
@@ -2167,7 +2166,7 @@ sub run_tests {
 				$message_index++;
 				my $message = $message_entry;
 				my ( $found_after, $marks_after, $tracked_after );
-				if ( ref($message_entry) eq 'HASH' ) {
+				if ( is_plain_hashref($message_entry) ) {
 					my @unknown_entry_keys = grep { !/^(?:message|advance|at|found_after|marks_after|tracked_after)$/ }
 						keys( %{$message_entry} );
 					if (@unknown_entry_keys) {
@@ -2195,7 +2194,7 @@ sub run_tests {
 					$found_after   = $message_entry->{found_after};
 					$marks_after   = $message_entry->{marks_after};
 					$tracked_after = $message_entry->{tracked_after};
-				} ## end if ( ref($message_entry) eq 'HASH' )
+				} ## end if ( is_plain_hashref($message_entry) )
 
 				my $parsed;
 				eval { $parsed = App::Baphomet::Parser::parse( $parser, $message ); };
@@ -2233,7 +2232,7 @@ sub run_tests {
 				# a capture line may have completed several deferred offenses
 				my @results_of_line;
 				if ( defined($found) ) {
-					@results_of_line = ( $found, ref( $found->{more} ) eq 'ARRAY' ? @{ $found->{more} } : () );
+					@results_of_line = ( $found, is_plain_arrayref( $found->{more} ) ? @{ $found->{more} } : () );
 				}
 				foreach my $one (@results_of_line) {
 					my $data = $one->{data};
@@ -2324,7 +2323,7 @@ sub run_tests {
 			my $got_found = scalar(@found_all);
 
 			if ( $got_found != $expected_found ) {
-				my $last_message = ref( $messages[-1] ) eq 'HASH' ? $messages[-1]{message} : $messages[-1];
+				my $last_message = is_plain_hashref( $messages[-1] ) ? $messages[-1]{message} : $messages[-1];
 				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
@@ -2341,7 +2340,7 @@ sub run_tests {
 
 			my $found = @found_all ? $found_all[-1] : undef;
 
-			if ( ref( $test->{data} ) eq 'HASH' ) {
+			if ( is_plain_hashref( $test->{data} ) ) {
 				foreach my $key ( sort( keys( %{ $test->{data} } ) ) ) {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( !defined($got) || $got ne $test->{data}{$key} ) {
@@ -2358,9 +2357,9 @@ sub run_tests {
 						next TEST;
 					} ## end if ( !defined($got) || $got ne $test->{data...})
 				} ## end foreach my $key ( sort( keys( %{ $test->{data} ...})))
-			} ## end if ( ref( $test->{data} ) eq 'HASH' )
+			} ## end if ( is_plain_hashref( $test->{data} ) )
 
-			if ( ref( $test->{undefed} ) eq 'ARRAY' ) {
+			if ( is_plain_arrayref( $test->{undefed} ) ) {
 				foreach my $key ( @{ $test->{undefed} } ) {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( defined($got) ) {
@@ -2372,7 +2371,7 @@ sub run_tests {
 						next TEST;
 					}
 				} ## end foreach my $key ( @{ $test->{undefed} } )
-			} ## end if ( ref( $test->{undefed} ) eq 'ARRAY' )
+			} ## end if ( is_plain_arrayref( $test->{undefed} ))
 
 			if ( defined( $test->{marks_expected} )
 				&& $self->_test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results ) )
@@ -2403,7 +2402,7 @@ sub run_tests {
 sub _test_dns_resolver {
 	my ( $self, $fixture, $where, $results ) = @_;
 
-	if ( ref($fixture) ne 'HASH' ) {
+	if ( !is_plain_hashref($fixture) ) {
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' dns is not a hash' );
 		return undef;
@@ -2414,14 +2413,14 @@ sub _test_dns_resolver {
 			push( @{ $results->{failures} }, $where . ' dns has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
-		if ( ref( $fixture->{$fixture_key} ) ne 'HASH' ) {
+		if ( !is_plain_hashref( $fixture->{$fixture_key} ) ) {
 			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' dns ' . $fixture_key . ' is not a hash' );
 			return undef;
 		}
 		foreach my $subject ( keys( %{ $fixture->{$fixture_key} } ) ) {
 			my $answer = $fixture->{$fixture_key}{$subject};
-			if ( ref($answer) ne 'ARRAY' && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
+			if ( !is_plain_arrayref($answer) && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
 				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
@@ -2431,7 +2430,7 @@ sub _test_dns_resolver {
 						. '" is not a list of names/addresses, nxdomain, or servfail'
 				);
 				return undef;
-			} ## end if ( ref($answer) ne 'ARRAY' && ( ref($answer...)))
+			} ## end if ( !is_plain_arrayref($answer) && ( ref(...)))
 		} ## end foreach my $subject ( keys( %{ $fixture->{$fixture_key...}}))
 	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
 
@@ -2463,7 +2462,7 @@ sub _test_dns_resolver {
 sub _test_geo_locator {
 	my ( $self, $fixture, $where, $results ) = @_;
 
-	if ( ref($fixture) ne 'HASH' ) {
+	if ( !is_plain_hashref($fixture) ) {
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' geo is not a hash' );
 		return undef;
@@ -2474,7 +2473,7 @@ sub _test_geo_locator {
 			push( @{ $results->{failures} }, $where . ' geo has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
-		if ( ref( $fixture->{$fixture_key} ) ne 'HASH' ) {
+		if ( !is_plain_hashref( $fixture->{$fixture_key} ) ) {
 			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' geo ' . $fixture_key . ' is not a hash' );
 			return undef;
@@ -2492,7 +2491,7 @@ sub _test_geo_locator {
 		}
 	} ## end foreach my $address ( keys( %{ $fixture->{countries...}}))
 	foreach my $list_name ( keys( %{ $fixture->{lists} || {} } ) ) {
-		if ( ref( $fixture->{lists}{$list_name} ) ne 'ARRAY' ) {
+		if ( !is_plain_arrayref( $fixture->{lists}{$list_name} ) ) {
 			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' geo lists "' . $list_name . '" is not a array' );
 			return undef;
@@ -2540,16 +2539,16 @@ sub _test_geo_locator {
 sub _test_store_entry_malformed {
 	my ( $entry, $label, $allowed, $needs_fields, $where, $results ) = @_;
 
-	if (   ref($entry) ne 'HASH'
+	if (   !is_plain_hashref($entry)
 		|| !defined( $entry->{name} )
 		|| !defined( $entry->{key} )
-		|| ( $needs_fields && ref( $entry->{fields} ) ne 'HASH' ) )
+		|| ( $needs_fields && !is_plain_hashref( $entry->{fields} ) ) )
 	{
 		my $lacking = $needs_fields ? 'a name, key, and fields hash' : 'a name and key';
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' lacking ' . $lacking );
 		return 1;
-	} ## end if ( ref($entry) ne 'HASH' || !defined( $entry...))
+	} ## end if ( !is_plain_hashref($entry) || !defined...)
 
 	my %allowed_keys = map  { $_ => 1 } @{$allowed};
 	my @unknown_keys = grep { !$allowed_keys{$_} } keys( %{$entry} );
@@ -2577,7 +2576,7 @@ sub _test_store_entry_malformed {
 sub _test_store_key {
 	my ($key) = @_;
 
-	if ( ref($key) eq 'ARRAY' ) {
+	if ( is_plain_arrayref($key) ) {
 		return ( join( "\x1f", @{$key} ), join( '|', @{$key} ) );
 	}
 	return ( $key, $key );
@@ -2609,7 +2608,7 @@ sub _test_store_key {
 sub _test_tracked_seed {
 	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
 
-	if ( ref($seeds) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($seeds) ) {
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' tracked_before is not a array' );
 		return 1;
@@ -2628,7 +2627,7 @@ sub _test_tracked_seed {
 			return 1;
 		} ## end if ( _test_store_entry_malformed( $seed, 'tracked_before entry'...))
 		my ($key) = _test_store_key( $seed->{key} );
-		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
+		my $ttl = $seed->{ttl} // 3600;
 		$store->{ $seed->{name} }{$key} = {
 			'expires' => $clock + $ttl,
 			'fields'  => { %{ $seed->{fields} } },
@@ -2663,7 +2662,7 @@ sub _test_tracked_seed {
 sub _test_tracked_assert {
 	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
 
-	if ( ref($expected) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($expected) ) {
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' tracked assertion is not a array' );
 		return 1;
@@ -2709,7 +2708,7 @@ sub _test_tracked_assert {
 			next;
 		}
 
-		if ( ref( $expect->{fields} ) ne 'HASH' ) {
+		if ( !is_plain_hashref( $expect->{fields} ) ) {
 			next;
 		}
 		foreach my $field ( sort( keys( %{ $expect->{fields} } ) ) ) {
@@ -2762,7 +2761,7 @@ sub _test_tracked_assert {
 sub _test_marks_seed {
 	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
 
-	if ( ref($seeds) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($seeds) ) {
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' marks_before is not a array' );
 		return 1;
@@ -2781,10 +2780,10 @@ sub _test_marks_seed {
 			return 1;
 		} ## end if ( _test_store_entry_malformed( $seed, 'marks_before entry'...))
 		my ($key) = _test_store_key( $seed->{key} );
-		my $ttl = defined( $seed->{ttl} ) ? $seed->{ttl} : 3600;
+		my $ttl = $seed->{ttl} // 3600;
 		$store->{ $seed->{name} }{$key} = {
 			'expires' => $clock + $ttl,
-			'set' => defined( $seed->{set} ) ? $seed->{set} : $clock,
+			'set'     => $seed->{set} // $clock,
 			defined( $seed->{value} ) ? ( 'value' => $seed->{value} ) : (),
 		};
 	} ## end foreach my $seed ( @{$seeds} )
@@ -2817,7 +2816,7 @@ sub _test_marks_seed {
 sub _test_marks_assert {
 	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
 
-	if ( ref($expected) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($expected) ) {
 		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' marks assertion is not a array' );
 		return 1;
@@ -2930,7 +2929,7 @@ our %SEVERITY = ( 'info' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical
 sub _check_string_list {
 	my ( $value, $prefix ) = @_;
 
-	if ( ref($value) ne 'ARRAY' || !@{$value} ) {
+	if ( !is_plain_arrayref($value) || !@{$value} ) {
 		die( $prefix . ' that is not a non-empty array' );
 	}
 	foreach my $item ( @{$value} ) {
@@ -3039,11 +3038,11 @@ sub _check_marks {
 			next;
 		}
 		my $where = 'The ' . $key . ' of the rule "' . $name . '"';
-		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
+		if ( !is_plain_arrayref( $def->{$key} ) || !@{ $def->{$key} } ) {
 			die( $where . ' is not a non-empty array' );
 		}
 		foreach my $entry ( @{ $def->{$key} } ) {
-			if ( ref($entry) ne 'HASH' ) {
+			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
 			foreach my $entry_key ( keys( %{$entry} ) ) {
@@ -3057,7 +3056,7 @@ sub _check_marks {
 				if ( defined( $entry->{name} ) ) {
 					die( $where . ' has a entry carrying both name and names' );
 				}
-				if ( ref( $entry->{names} ) ne 'ARRAY' || !@{ $entry->{names} } ) {
+				if ( !is_plain_arrayref( $entry->{names} ) || !@{ $entry->{names} } ) {
 					die( $where . ' has a entry whose names is not a non-empty array' );
 				}
 				foreach my $mark_name ( @{ $entry->{names} } ) {
@@ -3071,7 +3070,7 @@ sub _check_marks {
 			{
 				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
 			}
-			my $entry_name = defined( $entry->{name} ) ? $entry->{name} : join( '|', @{ $entry->{names} } );
+			my $entry_name = $entry->{name} // join( '|', @{ $entry->{names} } );
 			if (
 				defined( $shapes{$key}{ttl} )
 				&& (  !defined( $entry->{ttl} )
@@ -3117,11 +3116,11 @@ sub _check_marks {
 	# that must all be set for the key and in the listed order by set time
 	if ( defined( $def->{sequence} ) ) {
 		my $where = 'The sequence of the rule "' . $name . '"';
-		if ( ref( $def->{sequence} ) ne 'ARRAY' || !@{ $def->{sequence} } ) {
+		if ( !is_plain_arrayref( $def->{sequence} ) || !@{ $def->{sequence} } ) {
 			die( $where . ' is not a non-empty array' );
 		}
 		foreach my $entry ( @{ $def->{sequence} } ) {
-			if ( ref($entry) ne 'HASH' ) {
+			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
 			foreach my $entry_key ( keys( %{$entry} ) ) {
@@ -3129,7 +3128,7 @@ sub _check_marks {
 					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
 				}
 			}
-			if ( ref( $entry->{marks} ) ne 'ARRAY' || scalar( @{ $entry->{marks} } ) < 2 ) {
+			if ( !is_plain_arrayref( $entry->{marks} ) || scalar( @{ $entry->{marks} } ) < 2 ) {
 				die( $where . ' entry lacks a marks array of at least two mark names' );
 			}
 			foreach my $mark_name ( @{ $entry->{marks} } ) {
@@ -3183,12 +3182,12 @@ sub _compile_tracks {
 	my %declared;
 	if ( defined( $def->{track} ) ) {
 		my $where = 'The track of the rule "' . $name . '"';
-		if ( ref( $def->{track} ) ne 'ARRAY' || !@{ $def->{track} } ) {
+		if ( !is_plain_arrayref( $def->{track} ) || !@{ $def->{track} } ) {
 			die( $where . ' is not a non-empty array' );
 		}
 		my @tracks;
 		foreach my $entry ( @{ $def->{track} } ) {
-			if ( ref($entry) ne 'HASH' ) {
+			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
 			foreach my $entry_key ( keys( %{$entry} ) ) {
@@ -3207,7 +3206,7 @@ sub _compile_tracks {
 			# the same thing as the plain string, so both compile to a list and
 			# the runtime has one shape to resolve
 			my @components;
-			if ( ref( $entry->{key} ) eq 'ARRAY' ) {
+			if ( is_plain_arrayref( $entry->{key} ) ) {
 				if ( !@{ $entry->{key} } ) {
 					die( $where . ' entry "' . $entry->{name} . '" has a key that is a empty array' );
 				}
@@ -3226,7 +3225,7 @@ sub _compile_tracks {
 			# how a rule that only reads a record declares itself
 			my $fields;
 			if ( defined( $entry->{fields} ) ) {
-				if ( ref( $entry->{fields} ) ne 'ARRAY' ) {
+				if ( !is_plain_arrayref( $entry->{fields} ) ) {
 					die( $where . ' entry "' . $entry->{name} . '" has a fields that is not a array' );
 				}
 				foreach my $field ( @{ $entry->{fields} } ) {
@@ -3266,11 +3265,11 @@ sub _compile_tracks {
 			next;
 		}
 		my $where = 'The ' . $key . ' of the rule "' . $name . '"';
-		if ( ref( $def->{$key} ) ne 'ARRAY' || !@{ $def->{$key} } ) {
+		if ( !is_plain_arrayref( $def->{$key} ) || !@{ $def->{$key} } ) {
 			die( $where . ' is not a non-empty array' );
 		}
 		foreach my $entry ( @{ $def->{$key} } ) {
-			if ( ref($entry) ne 'HASH' ) {
+			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
 			my $allowed = $key eq 'tracked' ? qr/^(?:name|where|into)$/ : qr/^(?:name)$/;
@@ -3343,7 +3342,7 @@ sub _check_is_isnot_gate {
 	my $shape = $IS_ISNOT_GATES{$gate_key};
 	my $where = 'The ' . $shape->{label} . ' gate of the rule "' . $self->{name} . '"';
 
-	if ( ref($gate_def) ne 'HASH' ) {
+	if ( !is_plain_hashref($gate_def) ) {
 		die( $where . ' is not a hash' );
 	}
 	foreach my $key ( keys( %{$gate_def} ) ) {
@@ -3360,7 +3359,7 @@ sub _check_is_isnot_gate {
 
 	my $mode = defined( $gate_def->{is} ) ? 'is' : 'isnot';
 
-	my @entries = ref( $gate_def->{$mode} ) eq 'ARRAY' ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
+	my @entries = is_plain_arrayref( $gate_def->{$mode} ) ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
 	if ( !@entries ) {
 		die( $where . ' ' . $mode . ' is empty' );
 	}
@@ -3371,7 +3370,7 @@ sub _check_is_isnot_gate {
 	}
 
 	if ( defined( $gate_def->{vars} ) ) {
-		my @vars = ref( $gate_def->{vars} ) eq 'ARRAY' ? @{ $gate_def->{vars} } : ( $gate_def->{vars} );
+		my @vars = is_plain_arrayref( $gate_def->{vars} ) ? @{ $gate_def->{vars} } : ( $gate_def->{vars} );
 		if ( !@vars ) {
 			die( $where . ' vars is empty' );
 		}
@@ -3401,7 +3400,7 @@ sub _compile_reverse_dns {
 	my $name  = $self->{name};
 	my $where = 'The reverse_dns gate of the rule "' . $name . '"';
 
-	if ( ref( $def->{reverse_dns} ) ne 'ARRAY' || !@{ $def->{reverse_dns} } ) {
+	if ( !is_plain_arrayref( $def->{reverse_dns} ) || !@{ $def->{reverse_dns} } ) {
 		die( $where . ' is not a array or is empty' );
 	}
 
@@ -3409,7 +3408,7 @@ sub _compile_reverse_dns {
 	my $entry_int = 0;
 	foreach my $entry ( @{ $def->{reverse_dns} } ) {
 		my $entry_where = $where . ' entry ' . $entry_int;
-		if ( ref($entry) ne 'HASH' ) {
+		if ( !is_plain_hashref($entry) ) {
 			die( $entry_where . ' is not a hash' );
 		}
 		foreach my $key ( keys( %{$entry} ) ) {
@@ -3473,11 +3472,11 @@ sub _check_namtar {
 	my $name  = $self->{name};
 	my $where = 'The namtar_list gate of the rule "' . $name . '"';
 
-	if ( ref( $def->{namtar_list} ) ne 'ARRAY' || !@{ $def->{namtar_list} } ) {
+	if ( !is_plain_arrayref( $def->{namtar_list} ) || !@{ $def->{namtar_list} } ) {
 		die( $where . ' is not a non-empty array' );
 	}
 	foreach my $entry ( @{ $def->{namtar_list} } ) {
-		if ( ref($entry) ne 'HASH' ) {
+		if ( !is_plain_hashref($entry) ) {
 			die( $where . ' has a entry that is not a hash' );
 		}
 		foreach my $key ( keys( %{$entry} ) ) {
@@ -3488,11 +3487,11 @@ sub _check_namtar {
 		if ( defined( $entry->{list} ) && defined( $entry->{lists} ) ) {
 			die( $where . ' has a entry carrying both list and lists' );
 		}
-		my $lists = defined( $entry->{lists} ) ? $entry->{lists} : $entry->{list};
+		my $lists = $entry->{lists} // $entry->{list};
 		if ( !defined($lists) ) {
 			die( $where . ' has a entry lacking a list or lists' );
 		}
-		my @lists = ref($lists) eq 'ARRAY' ? @{$lists} : ($lists);
+		my @lists = is_plain_arrayref($lists) ? @{$lists} : ($lists);
 		if ( !@lists ) {
 			die( $where . ' has a entry with a empty lists' );
 		}
@@ -3520,7 +3519,7 @@ sub _check_distinct {
 	my $name = $self->{name};
 	my $spec = $def->{distinct};
 
-	if ( ref($spec) ne 'HASH' ) {
+	if ( !is_plain_hashref($spec) ) {
 		die( 'The distinct of the rule "' . $name . '" is not a table' );
 	}
 	foreach my $key ( keys( %{$spec} ) ) {
@@ -3591,7 +3590,7 @@ sub _detect_injection_shape {
 	$self->{needs_injection_test} = undef;
 
 	foreach my $item ( @{ $def->{message_regexp} || [] } ) {
-		my $re = ref($item) eq 'HASH' ? $item->{regexp} : $item;
+		my $re = is_plain_hashref($item) ? $item->{regexp} : $item;
 		next if ( !defined($re) || ref($re) ne '' );
 
 		my ( $pre, $token, $post ) = $re =~ /^(.*?)%%%%(SRC|DEST|ADDR|HOST|IP4|IP6|SUBNET)%%%%(.*)$/s;
@@ -3643,14 +3642,14 @@ sub _compile_message_regexps {
 		$self->_compile_ignore_regexps($def);
 		return;
 	}
-	if ( ref( $def->{message_regexp} ) ne 'ARRAY' || !@{ $def->{message_regexp} } ) {
+	if ( !is_plain_arrayref( $def->{message_regexp} ) || !@{ $def->{message_regexp} } ) {
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
 	}
 	foreach my $item ( @{ $def->{message_regexp} } ) {
-		if ( !defined($item) || ( ref($item) ne '' && ref($item) ne 'HASH' ) ) {
+		if ( !defined($item) || ( ref($item) ne '' && !is_plain_hashref($item) ) ) {
 			die( 'The message_regexp of the rule "' . $name . '" contains a entry that is not a string or a hash' );
 		}
-		if ( ref($item) eq 'HASH' ) {
+		if ( is_plain_hashref($item) ) {
 			foreach my $key ( keys( %{$item} ) ) {
 				if ( $key !~ /^(?:regexp|key|defer)$/ ) {
 					die( 'A message_regexp entry of the rule "' . $name . '" has the unknown key "' . $key . '"' );
@@ -3668,17 +3667,17 @@ sub _compile_message_regexps {
 						. $name
 						. '" is not a positive int of seconds' );
 			}
-		} ## end if ( ref($item) eq 'HASH' )
+		} ## end if ( is_plain_hashref($item) )
 	} ## end foreach my $item ( @{ $def->{message_regexp} } )
 
 	$self->_compile_ignore_regexps($def);
 
 	my $entry_int = 0;
 	foreach my $item ( @{ $def->{message_regexp} } ) {
-		my $regexp   = ref($item) eq 'HASH' ? $item->{regexp} : $item;
+		my $regexp   = is_plain_hashref($item) ? $item->{regexp} : $item;
 		my $compiled = $self->_compile_tokened_regexp( $regexp,
 			'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
-		if ( ref($item) eq 'HASH' ) {
+		if ( is_plain_hashref($item) ) {
 			$compiled->{key} = $self->_correlation_key_components( $item->{key},
 				'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
 			$compiled->{defer} = $item->{defer};
@@ -3703,7 +3702,7 @@ sub _compile_ignore_regexps {
 	if ( !defined( $def->{ignore_regexp} ) ) {
 		return;
 	}
-	if ( ref( $def->{ignore_regexp} ) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref( $def->{ignore_regexp} ) ) {
 		die( 'The ignore_regexp of the rule "' . $name . '" is not a array' );
 	}
 	foreach my $item ( @{ $def->{ignore_regexp} } ) {
@@ -3732,7 +3731,7 @@ sub _compile_stages {
 
 	my $name = $self->{name};
 
-	if ( ref( $def->{stages} ) ne 'ARRAY' || !@{ $def->{stages} } ) {
+	if ( !is_plain_arrayref( $def->{stages} ) || !@{ $def->{stages} } ) {
 		die( 'The stages of the rule "' . $name . '" is not a array or is empty' );
 	}
 
@@ -3740,7 +3739,7 @@ sub _compile_stages {
 	my $stage_int = 0;
 	foreach my $stage ( @{ $def->{stages} } ) {
 		my $where = 'The stage ' . $stage_int . ' of the rule "' . $name . '"';
-		if ( ref($stage) ne 'HASH' ) {
+		if ( !is_plain_hashref($stage) ) {
 			die( $where . ' is not a hash' );
 		}
 		foreach my $key ( keys( %{$stage} ) ) {
@@ -3748,7 +3747,7 @@ sub _compile_stages {
 				die( $where . ' has the unknown key "' . $key . '"' );
 			}
 		}
-		if ( ref( $stage->{message_regexp} ) ne 'ARRAY' || !@{ $stage->{message_regexp} } ) {
+		if ( !is_plain_arrayref( $stage->{message_regexp} ) || !@{ $stage->{message_regexp} } ) {
 			die( $where . ' lacks a message_regexp array or it is empty' );
 		}
 		foreach my $item ( 'count', 'within', 'skip' ) {
@@ -3817,9 +3816,9 @@ sub _check_stages {
 	# there is one, this line's munger enrichment when there is not
 	if ( defined( $self->{tracks} ) ) {
 		my $source
-			= defined($found)       ? $found->{data}
-			: ref($munge) eq 'HASH' ? $munge
-			:                         {};
+			= defined($found)          ? $found->{data}
+			: is_plain_hashref($munge) ? $munge
+			:                            {};
 		$self->_track_sweep( [$source], $line_ctx );
 	}
 
@@ -3836,11 +3835,9 @@ my $STAGE_DEFAULT_WITHIN = 600;
 sub _check_stages_core {
 	my ( $self, $message, $scope, $line_ctx, $envelope, $munge ) = @_;
 
-	if ( !defined($scope) ) {
-		$scope = '';
-	}
+	$scope //= '';
 	# a missing line context reads as a empty one
-	if ( ref($line_ctx) ne 'HASH' ) {
+	if ( !is_plain_hashref($line_ctx) ) {
 		$line_ctx = {};
 	}
 	my $now = $line_ctx->{now} // time;
@@ -3848,9 +3845,7 @@ sub _check_stages_core {
 
 	my $stages = $self->{stages};
 	my $store  = $self->{stage_state}{$scope};
-	if ( !defined($store) ) {
-		$store = $self->{stage_state}{$scope} = {};
-	}
+	$store //= $self->{stage_state}{$scope} = {};
 
 	# which stages this line hits, tried lazily and remembered
 	my @stage_caps;
@@ -3935,7 +3930,7 @@ sub _check_stages_core {
 	}
 	# a fresh slot awaiting the first stage, the per scope slot count bounded
 	# the way the correlation context is bounded
-	$self->_bound_expiring_store( $store, $key_value, $now );
+	App::Baphomet::Marks::bound_expiring_store( $store, $key_value, $now );
 	$store->{$key_value} = {
 		'stage'     => 0,
 		'count'     => 0,
@@ -3976,7 +3971,7 @@ sub _stage_hit {
 		# accumulated captures, which win on a clash... the same precedence a
 		# non-staged rule gives, and the completing line is what EVE records
 		my $data = $slot->{data};
-		if ( ref($munge) eq 'HASH' && %{$munge} ) {
+		if ( is_plain_hashref($munge) && %{$munge} ) {
 			$data = { %{$munge}, %{ $slot->{data} } };
 		}
 		my $found = { 'data' => $data, 'regexp' => undef, 'stages' => $slot->{hits} };
@@ -3996,35 +3991,6 @@ sub _stage_hit {
 	return undef;
 } ## end sub _stage_hit
 
-# bounds a store of expiring entries at the shared 10000 cap ahead of
-# inserting a new key... expired entries are pruned first, then the soonest
-# to expire is evicted, found by a linear min-scan rather than a sort, as
-# this can run per line under a deliberate key flood
-sub _bound_expiring_store {
-	my ( $self, $store, $key_value, $now ) = @_;
-
-	if ( defined( $store->{$key_value} ) || scalar( keys( %{$store} ) ) < 10000 ) {
-		return;
-	}
-
-	foreach my $key ( keys( %{$store} ) ) {
-		if ( $store->{$key}{expires} <= $now ) {
-			delete( $store->{$key} );
-		}
-	}
-	if ( scalar( keys( %{$store} ) ) >= 10000 ) {
-		my $soonest;
-		foreach my $key ( keys( %{$store} ) ) {
-			if ( !defined($soonest) || $store->{$key}{expires} < $store->{$soonest}{expires} ) {
-				$soonest = $key;
-			}
-		}
-		delete( $store->{$soonest} );
-	}
-
-	return;
-} ## end sub _bound_expiring_store
-
 # compiles the capture_regexp of the passed def... entries harvest
 # correlation context rather than being offenses, each a hash of a
 # tokened regexp, the capture name serving as the correlation key, and a
@@ -4039,14 +4005,14 @@ sub _compile_capture_regexps {
 	if ( !defined( $def->{capture_regexp} ) ) {
 		return;
 	}
-	if ( ref( $def->{capture_regexp} ) ne 'ARRAY' || !@{ $def->{capture_regexp} } ) {
+	if ( !is_plain_arrayref( $def->{capture_regexp} ) || !@{ $def->{capture_regexp} } ) {
 		die( 'The capture_regexp of the rule "' . $name . '" is not a array or is empty' );
 	}
 
 	my $entry_int = 0;
 	foreach my $item ( @{ $def->{capture_regexp} } ) {
 		my $where = 'The capture_regexp entry ' . $entry_int . ' of the rule "' . $name . '"';
-		if ( ref($item) ne 'HASH' || !defined( $item->{regexp} ) || !defined( $item->{key} ) ) {
+		if ( !is_plain_hashref($item) || !defined( $item->{regexp} ) || !defined( $item->{key} ) ) {
 			die( $where . ' is not a hash with a regexp and a key' );
 		}
 		foreach my $key ( keys( %{$item} ) ) {
@@ -4060,7 +4026,7 @@ sub _compile_capture_regexps {
 
 		my $compiled = $self->_compile_tokened_regexp( $item->{regexp}, $where );
 		$compiled->{key} = $self->_correlation_key_components( $item->{key}, $where );
-		$compiled->{ttl} = defined( $item->{ttl} ) ? $item->{ttl} : 60;
+		$compiled->{ttl} = $item->{ttl} // 60;
 
 		push( @{ $self->{capture_regexps} }, $compiled );
 		$entry_int++;
@@ -4078,7 +4044,7 @@ sub _correlation_key_components {
 	my ( $self, $key, $where ) = @_;
 
 	my @components;
-	if ( ref($key) eq 'ARRAY' ) {
+	if ( is_plain_arrayref($key) ) {
 		@components = @{$key};
 	} elsif ( ref($key) eq '' ) {
 		@components = ($key);
@@ -4093,7 +4059,7 @@ sub _correlation_key_components {
 			die( $where . ' has a key component that is not a non-empty string' );
 		}
 		if ( $component =~ /^syslog\./ ) {
-			if ( ref( $self->{envelope_key_fields} ) ne 'HASH' || !$self->{envelope_key_fields}{$component} ) {
+			if ( !is_plain_hashref( $self->{envelope_key_fields} ) || !$self->{envelope_key_fields}{$component} ) {
 				die( $where . ' keys on "' . $component . '", which is not a envelope field this rule type carries' );
 			}
 			$self->{wants_envelope} = 1;
@@ -4215,10 +4181,10 @@ sub _tracked_pass {
 
 	# a missing line context reads as a empty one, and a missing store as a
 	# empty store
-	if ( ref($line_ctx) ne 'HASH' ) {
+	if ( !is_plain_hashref($line_ctx) ) {
 		$line_ctx = {};
 	}
-	my $store = ref( $line_ctx->{tracked} ) eq 'HASH' ? $line_ctx->{tracked} : {};
+	my $store = is_plain_hashref( $line_ctx->{tracked} ) ? $line_ctx->{tracked} : {};
 	my $now   = $line_ctx->{now} // time;
 
 	foreach my $gate ( @{ $gates->{tracked} } ) {
@@ -4318,7 +4284,7 @@ sub _track_sweep {
 	}
 
 	# nothing to harvest into with out a line context carrying a store
-	if ( ref($line_ctx) ne 'HASH' || ref( $line_ctx->{tracked} ) ne 'HASH' ) {
+	if ( !is_plain_hashref($line_ctx) || !is_plain_hashref( $line_ctx->{tracked} ) ) {
 		return;
 	}
 	my $store = $line_ctx->{tracked};
@@ -4409,9 +4375,7 @@ sub _complete_pendings {
 sub _park_pending {
 	my ( $self, $scope, $key_value, $caps, $regexp, $defer, $now ) = @_;
 
-	if ( !defined( $self->{pending}{$scope}{$key_value} ) ) {
-		$self->{pending}{$scope}{$key_value} = [];
-	}
+	$self->{pending}{$scope}{$key_value} //= [];
 	my $pendings = $self->{pending}{$scope}{$key_value};
 	push( @{$pendings}, { 'caps' => $caps, 'regexp' => $regexp, 'expires' => $now + $defer } );
 	if ( scalar( @{$pendings} ) > $PENDING_PER_KEY_MAX ) {
@@ -4455,11 +4419,9 @@ sub _check_message {
 	if ( !defined($message) ) {
 		return undef;
 	}
-	if ( !defined($scope) ) {
-		$scope = '';
-	}
+	$scope //= '';
 	# a missing line context reads as a empty one
-	if ( ref($line_ctx) ne 'HASH' ) {
+	if ( !is_plain_hashref($line_ctx) ) {
 		$line_ctx = {};
 	}
 	my $now = $line_ctx->{now} // time;
@@ -4549,7 +4511,7 @@ sub _check_message {
 		@sweep = map { $_->{data} }
 			grep { defined($_) } ( $found, @completions );
 		if ( !@sweep ) {
-			@sweep = ( defined($extra) ? $extra : {} );
+			@sweep = ( $extra // {} );
 		}
 	}
 
@@ -4584,7 +4546,7 @@ sub _flatten_json_message {
 	}
 	my $parsed;
 	eval { $parsed = App::Baphomet::Parser::parse( 'json', $message ); };
-	if ( ref($parsed) eq 'HASH' && ref( $parsed->{fields} ) eq 'HASH' ) {
+	if ( is_plain_hashref($parsed) && is_plain_hashref( $parsed->{fields} ) ) {
 		return $parsed->{fields};
 	}
 
@@ -4598,11 +4560,9 @@ sub _context_store {
 	my ( $self, $scope, $key_value, $caps, $ttl, $now ) = @_;
 
 	my $context = $self->{context}{$scope};
-	if ( !defined($context) ) {
-		$context = $self->{context}{$scope} = {};
-	}
+	$context //= $self->{context}{$scope} = {};
 
-	$self->_bound_expiring_store( $context, $key_value, $now );
+	App::Baphomet::Marks::bound_expiring_store( $context, $key_value, $now );
 
 	$context->{$key_value} = { 'data' => $caps, 'expires' => $now + $ttl };
 
@@ -4683,14 +4643,14 @@ sub _compile_match_ignore {
 		if ( !defined( $def->{$sort} ) ) {
 			next;
 		}
-		if ( ref( $def->{$sort} ) ne 'ARRAY' || !@{ $def->{$sort} } ) {
+		if ( !is_plain_arrayref( $def->{$sort} ) || !@{ $def->{$sort} } ) {
 			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array or is empty' );
 		}
 
 		my $entry_int = 0;
 		foreach my $entry ( @{ $def->{$sort} } ) {
 			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
+			if ( !is_plain_hashref($entry) || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
 				die( $where . ' is not a hash with a field and a regexp' );
 			}
 			foreach my $key ( keys( %{$entry} ) ) {
@@ -4830,7 +4790,7 @@ sub _compile_predicate {
 		}
 	}
 
-	my $op = defined( $entry->{op} ) ? $entry->{op} : 'eq';
+	my $op = $entry->{op} // 'eq';
 	if ( ref($op) ne '' || !$PREDICATE_OPS{$op} ) {
 		die( $where . ' has the unknown op "' . ( ref($op) ? ref($op) : $op ) . '"' );
 	}
@@ -4881,7 +4841,7 @@ sub _compile_predicate {
 	if ( defined($fieldref) ) {
 		# no literal needle... the referenced field is resolved at match time
 	} elsif ( exists( $entry->{values} ) ) {
-		if ( ref( $entry->{values} ) ne 'ARRAY' || !@{ $entry->{values} } ) {
+		if ( !is_plain_arrayref( $entry->{values} ) || !@{ $entry->{values} } ) {
 			die( $where . ' values is not a non-empty array' );
 		}
 		@values = @{ $entry->{values} };
@@ -4906,7 +4866,7 @@ sub _compile_predicate {
 	};
 
 	if ( exists( $entry->{decode} ) ) {
-		if ( ref( $entry->{decode} ) ne 'ARRAY' || !@{ $entry->{decode} } ) {
+		if ( !is_plain_arrayref( $entry->{decode} ) || !@{ $entry->{decode} } ) {
 			die( $where . ' decode is not a non-empty array' );
 		}
 		foreach my $transform ( @{ $entry->{decode} } ) {
@@ -5122,7 +5082,7 @@ sub _predicate_test_one {
 sub _compile_gates {
 	my ( $self, $gate_def, $where_prefix ) = @_;
 
-	if ( ref($gate_def) ne 'ARRAY' || !@{$gate_def} ) {
+	if ( !is_plain_arrayref($gate_def) || !@{$gate_def} ) {
 		die( $where_prefix . ' is not a array or is empty' );
 	}
 
@@ -5130,14 +5090,14 @@ sub _compile_gates {
 	my $entry_int = 0;
 	foreach my $entry ( @{$gate_def} ) {
 		my $where = $where_prefix . ' entry ' . $entry_int;
-		if ( ref($entry) ne 'HASH' || !defined( $entry->{field} ) ) {
+		if ( !is_plain_hashref($entry) || !defined( $entry->{field} ) ) {
 			die( $where . ' is not a hash with a field' );
 		}
 		my $gate;
 		if ( grep { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS ) {
 			$gate = { 'field' => $entry->{field}, 'predicate' => $self->_compile_predicate( $entry, $where ) };
 		} else {
-			if ( ref( $entry->{values} ) ne 'ARRAY' ) {
+			if ( !is_plain_arrayref( $entry->{values} ) ) {
 				die( $where . ' is not a hash with a field and a values array' );
 			}
 			foreach my $key ( keys( %{$entry} ) ) {
@@ -5252,7 +5212,7 @@ sub _compile_boolean {
 		if ( !defined( $def->{condition} ) ) {
 			die( 'The rule "' . $name . '" has selections but no condition' );
 		}
-		if ( ref( $def->{selections} ) ne 'HASH' || !%{ $def->{selections} } ) {
+		if ( !is_plain_hashref( $def->{selections} ) || !%{ $def->{selections} } ) {
 			die( 'The selections of the rule "' . $name . '" is not a non-empty table' );
 		}
 		my %compiled;
@@ -5276,8 +5236,8 @@ sub _compile_boolean {
 	# answer to it. the per-line paths read it to skip building the field
 	# space for a rule with none, and each type's new reads it to refuse a
 	# rule that would match everything or nothing
-	my $has_gates    = ref( $self->{gates} ) eq 'ARRAY'         && @{ $self->{gates} };
-	my $has_keywords = ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} };
+	my $has_gates    = is_plain_arrayref( $self->{gates} )         && @{ $self->{gates} };
+	my $has_keywords = is_plain_arrayref( $self->{keyword_gates} ) && @{ $self->{keyword_gates} };
 	$self->{has_boolean} = ( $has_gates || $has_keywords || defined( $self->{condition_ast} ) ) ? 1 : 0;
 
 	# the whole-rule fast path... a rule whose boolean is nothing but a gate
@@ -5325,7 +5285,7 @@ sub _compile_field_gates {
 		if ( !defined( $def->{$field} ) ) {
 			next;
 		}
-		if ( ref( $def->{$field} ) ne 'ARRAY' || !@{ $def->{$field} } ) {
+		if ( !is_plain_arrayref( $def->{$field} ) || !@{ $def->{$field} } ) {
 			die( 'The ' . $field . ' of the rule "' . $name . '" is not a array or is empty' );
 		}
 		$self->{field_gates}{$field}
@@ -5407,16 +5367,16 @@ sub _compile_keywords {
 	my $kw    = $def->{keywords};
 
 	my ( $in, $values );
-	if ( ref($kw) eq 'ARRAY' ) {
+	if ( is_plain_arrayref($kw) ) {
 		$in     = '%%%ANY%%%';
 		$values = $kw;
-	} elsif ( ref($kw) eq 'HASH' ) {
+	} elsif ( is_plain_hashref($kw) ) {
 		foreach my $key ( keys( %{$kw} ) ) {
 			if ( $key !~ /^(?:in|values)$/ ) {
 				die( $where . ' has the unknown key "' . $key . '"' );
 			}
 		}
-		$in = defined( $kw->{in} ) ? $kw->{in} : '%%%ANY%%%';
+		$in = $kw->{in} // '%%%ANY%%%';
 		if ( ref($in) ne '' || $in eq '' ) {
 			die( $where . ' in is not a non-empty string naming a field, a %%%ANY:prefix%%%, or %%%ANY%%%' );
 		}
@@ -5425,7 +5385,7 @@ sub _compile_keywords {
 		die( $where . ' is not a list of strings or a table' );
 	}
 
-	if ( ref($values) ne 'ARRAY' || !@{$values} ) {
+	if ( !is_plain_arrayref($values) || !@{$values} ) {
 		die( $where . ' lacks a non-empty values list' );
 	}
 
@@ -5459,7 +5419,7 @@ sub _boolean_pass {
 
 	# the keywords shorthand, ANDed ahead of the gate or selections so it
 	# composes with either or stands alone
-	if ( ref( $self->{keyword_gates} ) eq 'ARRAY' && @{ $self->{keyword_gates} } ) {
+	if ( is_plain_arrayref( $self->{keyword_gates} ) && @{ $self->{keyword_gates} } ) {
 		if ( !$self->_gates_pass( $self->{keyword_gates}, $data, $message ) ) {
 			return 0;
 		}
@@ -5480,7 +5440,7 @@ sub _boolean_pass {
 		return $self->_eval_condition( $self->{condition_ast}, $eval_sel );
 	} ## end if ( defined( $self->{condition_ast} ) )
 
-	if ( ref( $self->{gates} ) eq 'ARRAY' && @{ $self->{gates} } ) {
+	if ( is_plain_arrayref( $self->{gates} ) && @{ $self->{gates} } ) {
 		return $self->_gates_pass( $self->{gates}, $data, $message );
 	}
 

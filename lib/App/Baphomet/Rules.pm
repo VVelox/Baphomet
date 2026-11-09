@@ -3,8 +3,10 @@ package App::Baphomet::Rules;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util                       qw( is_plain_hashref );
 use File::Find                      ();
 use File::ShareDir                  ();
+use Path::Tiny                      qw( path );
 use YAML::XS                        ();
 use App::Baphomet::Rules::HTTP      ();
 use App::Baphomet::Rules::HTTPError ();
@@ -123,9 +125,7 @@ my %type_parsers = (
 sub new {
 	my ( $blank, %opts ) = @_;
 
-	if ( !defined( $opts{shipped} ) ) {
-		$opts{shipped} = 1;
-	}
+	$opts{shipped} //= 1;
 
 	my @rules_dirs;
 
@@ -207,7 +207,7 @@ sub load {
 	my ( $self, $name, %opts ) = @_;
 
 	if ( !is_rule_name($name) ) {
-		die( 'The rule name, "' . ( defined($name) ? $name : 'undef' ) . '", is not in the form "type/name"' );
+		die( 'The rule name, "' . ( $name // 'undef' ) . '", is not in the form "type/name"' );
 	}
 
 	if ( defined( $self->{cache}{$name} ) ) {
@@ -238,7 +238,7 @@ sub load {
 	if ($@) {
 		die( 'Failed to parse the rule "' . $name . '", "' . $path . '"... ' . $@ );
 	}
-	if ( ref($def) ne 'HASH' ) {
+	if ( !is_plain_hashref($def) ) {
 		die( 'The rule "' . $name . '", "' . $path . '", did not parse to a hash' );
 	}
 
@@ -384,7 +384,7 @@ sub group_members {
 	my ( $self, $name ) = @_;
 
 	if ( !is_rule_name($name) ) {
-		die( 'The group name, "' . ( defined($name) ? $name : 'undef' ) . '", is not in the form "type/name"' );
+		die( 'The group name, "' . ( $name // 'undef' ) . '", is not in the form "type/name"' );
 	}
 
 	my $path = $self->group_path($name);
@@ -397,14 +397,15 @@ sub group_members {
 				: 'none are configured or shipped' ) );
 	}
 
-	open( my $fh, '<', $path ) || die( 'Failed to open the group "' . $name . '", "' . $path . '"... ' . $! );
+	my @lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
+	if ($@) {
+		die( 'Failed to open the group "' . $name . '", "' . $path . '"... ' . $@ );
+	}
 	my @members;
-	while ( my $line = <$fh> ) {
-		$line =~ s/^\s+//;
-		$line =~ s/\s+$//;
+	foreach my $line (@lines) {
+		$line =~ s/^\s+|\s+$//g;
 		next if ( $line eq '' || $line =~ /^#/ );
 		if ( !is_rule_name($line) ) {
-			close($fh);
 			die(      'The group "'
 					. $name . '", "'
 					. $path
@@ -413,8 +414,7 @@ sub group_members {
 					. '"... should be like "syslog/sshd"' );
 		} ## end if ( !is_rule_name($line) )
 		push( @members, $line );
-	} ## end while ( my $line = <$fh> )
-	close($fh);
+	} ## end foreach my $line (@lines)
 
 	if ( !@members ) {
 		die( 'The group "' . $name . '", "' . $path . '", has no members' );

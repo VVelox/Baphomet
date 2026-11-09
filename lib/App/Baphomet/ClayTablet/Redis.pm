@@ -3,6 +3,7 @@ package App::Baphomet::ClayTablet::Redis;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util                       qw( is_plain_arrayref is_plain_hashref );
 use Sys::Hostname                   ();
 use App::Baphomet::ClayTablet::File ();
 use App::Baphomet::LogDrek          qw( log_drek );
@@ -114,7 +115,7 @@ L</verify> is where a galla learns whether it may proceed.
 sub new {
 	my ( $class, %opts ) = @_;
 
-	my $options = ref( $opts{options} ) eq 'HASH' ? $opts{options} : {};
+	my $options = is_plain_hashref( $opts{options} ) ? $opts{options} : {};
 
 	my $self = {
 		'name'          => $opts{name},
@@ -136,7 +137,7 @@ sub new {
 	# the optional local disk persistence... the host-local tablets go to a
 	# wrapped file backend, and the Redis is then only the mark bus
 	if ( $options->{local} ) {
-		my $local_opts = ref( $options->{local} ) eq 'HASH' ? $options->{local} : {};
+		my $local_opts = is_plain_hashref( $options->{local} ) ? $options->{local} : {};
 		$self->{local} = App::Baphomet::ClayTablet::File->new(
 			'name'            => $opts{name},
 			'options'         => $local_opts,
@@ -241,7 +242,7 @@ sub _ensure_redis {
 sub _key {
 	my ( $self, $kind ) = @_;
 
-	return $self->{prefix} . ':tablet:' . ( defined( $self->{name} ) ? $self->{name} : '' ) . ':' . $kind;
+	return $self->{prefix} . ':tablet:' . ( $self->{name} // '' ) . ':' . $kind;
 }
 
 # the mark stream key for this scope, shared across the fleet
@@ -302,8 +303,7 @@ sub verify {
 	} ## end if ( $self->{local} )
 
 	if ( !defined( $self->{redis} ) ) {
-		return 'ClayTablet redis backend could not connect... '
-			. ( defined( $self->{connect_error} ) ? $self->{connect_error} : 'unknown' );
+		return 'ClayTablet redis backend could not connect... ' . ( $self->{connect_error} // 'unknown' );
 	}
 	if ( !$self->_redis_ok ) {
 		return 'ClayTablet redis backend ping failed';
@@ -488,8 +488,9 @@ sub _flush_outbox {
 	while ( @{ $self->{outbox} } ) {
 		my $delta  = $self->{outbox}[0];
 		my @fields = (
-			'op',      $delta->{op}, 'name', $delta->{name}, 'key', $delta->{key}, 'origin', $delta->{origin},
-			'expires', defined( $delta->{expires} ) ? $delta->{expires} : '',
+			'op',      $delta->{op},  'name',   $delta->{name},
+			'key',     $delta->{key}, 'origin', $delta->{origin},
+			'expires', $delta->{expires} // '',
 		);
 		if ( defined( $delta->{value} ) ) {
 			push( @fields, 'value', $delta->{value} );
@@ -550,7 +551,7 @@ sub mark_drain {
 		log_drek( 'err', 'draining the mark stream "' . $stream . '" failed... ' . $@, undef, $self->{log_tag} );
 		return ( [], $last_id );
 	}
-	if ( ref($reply) ne 'ARRAY' ) {
+	if ( !is_plain_arrayref($reply) ) {
 		return ( [], $last_id );
 	}
 
@@ -558,9 +559,9 @@ sub mark_drain {
 	my $new_id = $last_id;
 	foreach my $stream_reply ( @{$reply} ) {
 		# each is [ stream_name, [ [ id, [ f, v, f, v, ... ] ], ... ] ]
-		next if ( ref($stream_reply) ne 'ARRAY' || ref( $stream_reply->[1] ) ne 'ARRAY' );
+		next if ( !is_plain_arrayref($stream_reply) || !is_plain_arrayref( $stream_reply->[1] ) );
 		foreach my $entry ( @{ $stream_reply->[1] } ) {
-			next if ( ref($entry) ne 'ARRAY' || ref( $entry->[1] ) ne 'ARRAY' );
+			next if ( !is_plain_arrayref($entry) || !is_plain_arrayref( $entry->[1] ) );
 			my ( $id, $fields ) = @{$entry};
 			$new_id = $id;
 			my %field = @{$fields};

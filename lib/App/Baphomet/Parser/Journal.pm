@@ -3,6 +3,7 @@ package App::Baphomet::Parser::Journal;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref );
 # only used at runtime, so the circular use with the dispatcher is harmless
 use App::Baphomet::Parser ();
 
@@ -90,14 +91,10 @@ sub parse {
 	}
 
 	my $daemon = _journal_scalar( $decoded->{SYSLOG_IDENTIFIER} );
-	if ( !defined($daemon) ) {
-		$daemon = _journal_scalar( $decoded->{_COMM} );
-	}
+	$daemon //= _journal_scalar( $decoded->{_COMM} );
 
 	my $pid = _journal_scalar( $decoded->{_PID} );
-	if ( !defined($pid) ) {
-		$pid = _journal_scalar( $decoded->{SYSLOG_PID} );
-	}
+	$pid //= _journal_scalar( $decoded->{SYSLOG_PID} );
 
 	my $priority = _journal_scalar( $decoded->{PRIORITY} );
 	my $severity;
@@ -129,7 +126,7 @@ sub _journal_scalar {
 	if ( !defined($value) ) {
 		return undef;
 	}
-	if ( ref($value) eq 'ARRAY' ) {
+	if ( is_plain_arrayref($value) ) {
 		my $string = join( '', map { ( defined($_) && $_ =~ /^[0-9]+$/ ) ? chr( $_ & 0xFF ) : '' } @{$value} );
 		return $string eq '' ? undef : $string;
 	}

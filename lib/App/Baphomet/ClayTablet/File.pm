@@ -3,6 +3,7 @@ package App::Baphomet::ClayTablet::File;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util              qw( is_plain_hashref );
 use File::Path             qw( make_path );
 use Path::Tiny             qw( path );
 use App::Baphomet::LogDrek qw( log_drek );
@@ -48,13 +49,13 @@ is left to L</verify>.
 sub new {
 	my ( $class, %opts ) = @_;
 
-	my $options  = ref( $opts{options} ) eq 'HASH' ? $opts{options}       : {};
-	my $base_dir = defined( $options->{base_dir} ) ? $options->{base_dir} : $opts{tablet_base_dir};
+	my $options  = is_plain_hashref( $opts{options} ) ? $opts{options} : {};
+	my $base_dir = $options->{base_dir} // $opts{tablet_base_dir};
 
 	my $self = {
 		'name'     => $opts{name},
 		'base_dir' => $base_dir,
-		'log_tag'  => 'galla-' . ( defined( $opts{name} ) ? $opts{name} : '' ),
+		'log_tag'  => 'galla-' . ( $opts{name} // '' ),
 	};
 	bless $self, $class;
 

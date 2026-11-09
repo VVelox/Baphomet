@@ -3,6 +3,7 @@ package App::Baphomet::App::Command::check_rules;
 use 5.006;
 use strict;
 use warnings;
+use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use App::Baphomet::App -command;
 use App::Baphomet::Config qw( load_config );
 use App::Baphomet::Rules  ();
@@ -132,7 +133,7 @@ sub execute {
 
 		if ( $opt->verbose ) {
 			print $name . "\n";
-			print '    file      ' . ( defined($path) ? $path : 'unresolved' ) . "\n";
+			print '    file      ' . ( $path // 'unresolved' ) . "\n";
 			my $gid_label = ' (shipped)';
 			if ( $item->{isolated} ) {
 				$gid_label = ' (one dir checked in isolation, so nothing to rank it against)';
@@ -141,10 +142,10 @@ sub execute {
 			}
 			print '    gid       ' . $rule->gid . $gid_label . "\n";
 			# how many tests each section the rule carries holds
-			my $tests = ref( $rule->{def}{tests} ) eq 'HASH' ? $rule->{def}{tests} : {};
+			my $tests = is_plain_hashref( $rule->{def}{tests} ) ? $rule->{def}{tests} : {};
 			my @section_counts;
 			foreach my $section ( 'positive', 'negative', 'injection' ) {
-				if ( ref( $tests->{$section} ) eq 'ARRAY' ) {
+				if ( is_plain_arrayref( $tests->{$section} ) ) {
 					push( @section_counts, $section . ' ' . scalar( @{ $tests->{$section} } ) );
 				}
 			}

@@ -131,18 +131,16 @@ sub parse {
 	}
 	if ( defined( $fields{PRIORITY} ) ) {
 		$level = $fields{PRIORITY};
-		if ( !defined($severity) ) {
-			$severity = App::Baphomet::Parser::severity_number($level);
-		}
+		$severity //= App::Baphomet::Parser::severity_number($level);
 	} elsif ( defined($severity) ) {
 		$level = App::Baphomet::Parser::severity_name($severity);
 	}
 
-	my $facility = defined( $fields{FACILITY} ) ? $fields{FACILITY} : $fields{FACILITY_NUM};
+	my $facility = $fields{FACILITY} // $fields{FACILITY_NUM};
 
 	return {
 		'format'   => 'json_syslog',
-		'time'     => defined( $fields{ISODATE} ) ? $fields{ISODATE} : $fields{DATE},
+		'time'     => $fields{ISODATE} // $fields{DATE},
 		'hostname' => $fields{HOST},
 		'daemon'   => $fields{PROGRAM},
 		'pid'      => $fields{PID},
