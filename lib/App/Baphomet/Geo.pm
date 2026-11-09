@@ -127,8 +127,12 @@ sub country_gate_pass {
 		if ( !defined($country) ) {
 			return 0;
 		}
-		my $in = $gate->{codes}{$country} ? 1 : 0;
-		if ( $gate->{mode} eq 'is' ? !$in : $in ) {
+		# is passes only a listed country, isnot only a unlisted one
+		my $listed = $gate->{codes}{$country} ? 1 : 0;
+		if ( $gate->{mode} eq 'is' && !$listed ) {
+			return 0;
+		}
+		if ( $gate->{mode} ne 'is' && $listed ) {
 			return 0;
 		}
 	} ## end foreach my $value (@check)

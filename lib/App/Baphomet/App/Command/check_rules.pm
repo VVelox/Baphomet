@@ -133,13 +133,13 @@ sub execute {
 		if ( $opt->verbose ) {
 			print $name . "\n";
 			print '    file      ' . ( defined($path) ? $path : 'unresolved' ) . "\n";
-			print '    gid       '
-				. $rule->gid
-				. (
-				$item->{isolated} ? ' (one dir checked in isolation, so nothing to rank it against)'
-				: $rule->gid      ? ' (site override dir)'
-				:                   ' (shipped)'
-				) . "\n";
+			my $gid_label = ' (shipped)';
+			if ( $item->{isolated} ) {
+				$gid_label = ' (one dir checked in isolation, so nothing to rank it against)';
+			} elsif ( $rule->gid ) {
+				$gid_label = ' (site override dir)';
+			}
+			print '    gid       ' . $rule->gid . $gid_label . "\n";
 			my $tests = ref( $rule->{def}{tests} ) eq 'HASH' ? $rule->{def}{tests} : {};
 			print '    tests     '
 				. join( ', ',

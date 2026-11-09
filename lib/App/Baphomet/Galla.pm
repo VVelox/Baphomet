@@ -3630,11 +3630,19 @@ sub _in_active_windows {
 			my $hit = 0;
 			foreach my $range ( @{ $spec->{ranges} } ) {
 				my ( $start, $end ) = @{$range};
-				if ( $start <= $end ? ( $hhmm >= $start && $hhmm <= $end ) : ( $hhmm >= $start || $hhmm <= $end ) ) {
+				# a range whose start is after its end wraps midnight, holding
+				# from start to the end of the day and from midnight to end
+				my $in_range;
+				if ( $start <= $end ) {
+					$in_range = $hhmm >= $start && $hhmm <= $end;
+				} else {
+					$in_range = $hhmm >= $start || $hhmm <= $end;
+				}
+				if ($in_range) {
 					$hit = 1;
 					last;
 				}
-			}
+			} ## end foreach my $range ( @{ $spec->{ranges} } )
 			if ( !$hit ) {
 				next;
 			}
@@ -4894,9 +4902,22 @@ sub _kur_call {
 	my $client = $self->{kur_client};
 	$client->connect;
 
+	# a answer is ok on a status of ok, and otherwise carries its error, or
+	# is not even a hash and so is a unknown error
+	my $is_ok = sub {
+		my ($response) = @_;
+		return ref($response) eq 'HASH' && defined( $response->{status} ) && $response->{status} eq 'ok';
+	};
+	my $error_of = sub {
+		my ($response) = @_;
+		if ( ref($response) eq 'HASH' && defined( $response->{error} ) ) {
+			return $response->{error};
+		}
+		return 'unknown error';
+	};
 	my $answered = sub {
 		my ($response) = @_;
-		if ( ref($response) eq 'HASH' && defined( $response->{status} ) && $response->{status} eq 'ok' ) {
+		if ( $is_ok->($response) ) {
 			$done->(undef);
 			return 1;
 		}
@@ -4911,8 +4932,7 @@ sub _kur_call {
 			if ( $answered->($response) ) {
 				return;
 			}
-			my $error
-				= ( ref($response) eq 'HASH' && defined( $response->{error} ) ) ? $response->{error} : 'unknown error';
+			my $error = $error_of->($response);
 			if ( $error !~ /^authentication required/ ) {
 				$done->($error);
 				return;
@@ -4921,19 +4941,10 @@ sub _kur_call {
 			$client->authenticate(
 				'callback' => sub {
 					my ($verdict) = @_;
-					if ( !( ref($verdict) eq 'HASH' && defined( $verdict->{status} ) && $verdict->{status} eq 'ok' )
-						)
-					{
-						$done->(
-							'authentication failed... '
-								. (
-									( ref($verdict) eq 'HASH' && defined( $verdict->{error} ) )
-									? $verdict->{error}
-									: 'unknown error'
-								)
-						);
+					if ( !$is_ok->($verdict) ) {
+						$done->( 'authentication failed... ' . $error_of->($verdict) );
 						return;
-					} ## end if ( !( ref($verdict) eq 'HASH' && defined...))
+					}
 					$client->call(
 						'command'  => $command,
 						'args'     => $args,
@@ -4942,11 +4953,7 @@ sub _kur_call {
 							if ( $answered->($again) ) {
 								return;
 							}
-							$done->(
-								( ref($again) eq 'HASH' && defined( $again->{error} ) )
-								? $again->{error}
-								: 'unknown error'
-							);
+							$done->( $error_of->($again) );
 							return;
 						},
 					);
