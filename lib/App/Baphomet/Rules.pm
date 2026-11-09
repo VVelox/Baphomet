@@ -300,6 +300,47 @@ sub rule_path {
 	return undef;
 } ## end sub rule_path
 
+=head2 rule_from_path
+
+The reverse of C<rule_path>... turns the path of a rule file into the rules
+dir and rule name the resolver works in, so a rule named by its file can go
+through the ordinary load path, its type check, YAML handling, and tests
+included, rather than a second way of reading a rule.
+
+A rule's name is its path relative to the rules dir with the C<.yaml> off,
+so the type is the parent dir's name and the rules dir the one above that.
+A path with no dir above the type gives C<.> as the rules dir.
+
+A plain function, not a method. Returns the empty list when the path is not
+a file, or has no type dir to take the name's type from.
+
+    my ( $dir, $name ) = App::Baphomet::Rules::rule_from_path('share/rules/syslog/sshd.yaml');
+    # $dir is "share/rules", $name is "syslog/sshd"
+
+    my $rules = App::Baphomet::Rules->new( 'rules_dir' => $dir, 'shipped' => 0 );
+
+=cut
+
+sub rule_from_path {
+	my ($path) = @_;
+
+	if ( !defined($path) || !-f $path ) {
+		return ();
+	}
+
+	my @parts = split( m{/}, $path );
+	if ( @parts < 2 ) {
+		return ();
+	}
+
+	my $base = pop(@parts);
+	$base =~ s/\.yaml$//;
+	my $type = pop(@parts);
+	my $dir  = @parts ? join( '/', @parts ) : '.';
+
+	return ( $dir, $type . '/' . $base );
+} ## end sub rule_from_path
+
 =head2 group_path
 
 Returns the path of the file backing the named group, searching the groups

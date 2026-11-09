@@ -58,34 +58,6 @@ sub opt_spec {
 	);
 }
 
-# Turns a path to a rule file into the (rules dir, rule name) pair the resolver
-# works in, so --file can lean on the ordinary load path... its type check, its
-# YAML handling, its tests... rather than a second way of reading a rule.
-#
-# A rule's name is its path relative to the rules dir with the extension off, so
-# the type is the parent dir's name and the rules dir is the one above that:
-# ".../share/rules/syslog/sshd.yaml" is "syslog/sshd" under ".../share/rules".
-# Returns nothing when the path is not a file.
-sub _rule_from_path {
-	my ( $self, $path ) = @_;
-
-	if ( !-f $path ) {
-		return ();
-	}
-
-	my @parts = split( m{/}, $path );
-	if ( @parts < 2 ) {
-		return ();
-	}
-
-	my $base = pop(@parts);
-	$base =~ s/\.yaml$//;
-	my $type = pop(@parts);
-	my $dir = @parts ? join( '/', @parts ) : '.';
-
-	return ( $dir, $type . '/' . $base );
-} ## end sub _rule_from_path
-
 sub execute {
 	my ( $self, $opt, $args ) = @_;
 
@@ -95,7 +67,7 @@ sub execute {
 	# checkout being the installed one rather than the tree
 	my @todo;
 	foreach my $path ( @{ $opt->file || [] } ) {
-		my ( $dir, $name ) = $self->_rule_from_path($path);
+		my ( $dir, $name ) = App::Baphomet::Rules::rule_from_path($path);
 		if ( !defined($name) ) {
 			die( 'The rule file "' . $path . "\" is not a file\n" );
 		}

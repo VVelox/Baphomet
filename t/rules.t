@@ -5,6 +5,7 @@ use warnings;
 use Test::More;
 use File::Temp            qw( tempdir );
 use File::Path            qw( make_path );
+use File::Spec            ();
 use App::Baphomet::Rules  ();
 use App::Baphomet::Parser ();
 
@@ -269,5 +270,31 @@ ok( !eval { $rules->load('flat'); 1 },             'typeless name refuses to loa
 ok( App::Baphomet::Rules::known_type('syslog'), 'syslog is a known type' );
 ok( !App::Baphomet::Rules::known_type('nope'),  'nope is not a known type' );
 ok( $rules->known_type('syslog'),               'known_type works as a method too' );
+
+#
+# rule_from_path, the reverse of rule_path
+#
+write_rule( 'syslog/from-path', "---\nmessage_regexp:\n  - '^x %%%%SRC%%%%\$'\n" );
+is_deeply(
+	[ App::Baphomet::Rules::rule_from_path( $rules_dir . '/syslog/from-path.yaml' ) ],
+	[ $rules_dir, 'syslog/from-path' ],
+	'rule_from_path splits a path into the rules dir and the rule name'
+);
+{
+	my $cwd = File::Spec->rel2abs('.');
+	chdir($rules_dir) || die($!);
+	is_deeply(
+		[ App::Baphomet::Rules::rule_from_path('syslog/from-path.yaml') ],
+		[ '.', 'syslog/from-path' ],
+		'rule_from_path gives . as the rules dir when there is nothing above the type dir'
+	);
+	chdir( $rules_dir . '/syslog' ) || die($!);
+	is_deeply( [ App::Baphomet::Rules::rule_from_path('from-path.yaml') ],
+		[], 'rule_from_path gives nothing for a path with no type dir' );
+	chdir($cwd) || die($!);
+}
+is_deeply( [ App::Baphomet::Rules::rule_from_path( $rules_dir . '/syslog/missing.yaml' ) ],
+	[], 'rule_from_path gives nothing for a path that is not a file' );
+is_deeply( [ App::Baphomet::Rules::rule_from_path($rules_dir) ], [], 'rule_from_path gives nothing for a dir' );
 
 done_testing;
