@@ -240,14 +240,12 @@ sub new {
 	# internal marks your own hosts, for ban_not_internal rules that banish
 	# the other end of a flow... it defaults to the ignore list at each
 	# level, so what you ignore is treated as yours
-	my @internal_entries = (
-		( defined( $config->{internal} ) ? @{ $config->{internal} } : @{ $config->{ignore_ips} } ),
-		(
-			  defined( $kur_settings->{internal} )          ? @{ $kur_settings->{internal} }
-			: ref( $kur_settings->{ignore_ips} ) eq 'ARRAY' ? @{ $kur_settings->{ignore_ips} }
-			:                                                 ()
-		)
-	);
+	my @internal_entries = defined( $config->{internal} ) ? @{ $config->{internal} } : @{ $config->{ignore_ips} };
+	if ( defined( $kur_settings->{internal} ) ) {
+		push( @internal_entries, @{ $kur_settings->{internal} } );
+	} elsif ( ref( $kur_settings->{ignore_ips} ) eq 'ARRAY' ) {
+		push( @internal_entries, @{ $kur_settings->{ignore_ips} } );
+	}
 	$self->{internal} = compile_ignore_ips( \@internal_entries, 'internal' );
 
 	foreach my $dir ( $self->{run_base_dir}, $self->{run_base_dir} . '/galla' ) {
@@ -327,7 +325,7 @@ sub new {
 		my $watcher = $watchers->{$watcher_name};
 
 		my $is_journal = watcher_is_journal($watcher);
-		my $parser     = defined( $watcher->{parser} ) ? $watcher->{parser} : ( $is_journal ? 'journal' : 'syslog' );
+		my $parser     = $watcher->{parser} // ( $is_journal ? 'journal' : 'syslog' );
 
 		# expand any %group% entries in the rule list into their member rules
 		# ahead of loading, deduped and in order... a unresolvable group or a
@@ -378,42 +376,39 @@ sub new {
 			push( @rule_objs, $rule );
 		} ## end foreach my $rule_name (@rule_names)
 
-		# resolve each rule's country gate against this watcher's country
-		# code lists... rule objects are shared across watchers but the lists
-		# layer per watcher, so each resolved gate lives on the binding, not
-		# the rule. a import of a undefined list is fatal, like a bad rule.
-		# country, namtar_list, and active_time resolve identically, so one
-		# loop over a dispatch list covers all three... the namtar files
-		# themselves are loaded and mtime refreshed on the galla, not frozen
-		# here, while active_time compiles to pure config nothing reloads
-		my @gate_families = (
-			[ '_resolve_country_gate',     resolve_country_codes( $config, $kur_settings, $watcher ) ],
-			[ '_resolve_namtar_gate',      resolve_namtar_lists( $config, $kur_settings, $watcher ) ],
-			[ '_resolve_active_time_gate', resolve_active_time( $config, $kur_settings, $watcher ) ],
-		);
-		my @resolved_gate_lists;
-		foreach my $family (@gate_families) {
-			my ( $resolver, $watcher_layered ) = @{$family};
-			my @gates;
-			for ( my $i = 0; $i < scalar(@rule_objs); $i++ ) {
-				my $gate;
-				if ( defined( $rule_objs[$i] ) ) {
-					eval {
-						$gate = $self->$resolver( $rule_objs[$i], $watcher_layered,
-							'The rule "' . $rule_names[$i] . '" of the watcher "' . $watcher_name . '"' );
-					};
-					if ($@) {
-						$self->{perror}      = 1;
-						$self->{error}       = 6;
-						$self->{errorString} = $@;
-						$self->warn;
-					}
-				} ## end if ( defined( $rule_objs[$i] ) )
-				push( @gates, $gate );
-			} ## end for ( my $i = 0; $i < scalar(@rule_objs); $i...)
-			push( @resolved_gate_lists, \@gates );
-		} ## end foreach my $family (@gate_families)
-		my ( $country_gates, $namtar_gates, $active_gates ) = @resolved_gate_lists;
+		# resolve each rule's country, namtar_list, and active_time gates
+		# against this watcher's layered lists... rule objects are shared
+		# across watchers but the lists layer per watcher, so each resolved
+		# gate lives on the binding, not the rule, in arrays parallel to
+		# rule_objs. a import of a undefined list is fatal, like a bad rule.
+		# the namtar files themselves are loaded and mtime refreshed on the
+		# galla, not frozen here, while active_time compiles to pure config
+		# nothing reloads
+		my $watcher_country_codes = resolve_country_codes( $config, $kur_settings, $watcher );
+		my $watcher_namtar_lists  = resolve_namtar_lists( $config, $kur_settings, $watcher );
+		my $watcher_active_time   = resolve_active_time( $config, $kur_settings, $watcher );
+		my ( @country_gates, @namtar_gates, @active_gates );
+		for my $rule_int ( 0 .. $#rule_objs ) {
+			my $rule_obj = $rule_objs[$rule_int];
+			my ( $country_gate, $namtar_gate, $active_gate );
+			if ( defined($rule_obj) ) {
+				my $where = 'The rule "' . $rule_names[$rule_int] . '" of the watcher "' . $watcher_name . '"';
+				eval {
+					$country_gate = $self->_resolve_country_gate( $rule_obj, $watcher_country_codes, $where );
+					$namtar_gate  = $self->_resolve_namtar_gate( $rule_obj, $watcher_namtar_lists, $where );
+					$active_gate  = $self->_resolve_active_time_gate( $rule_obj, $watcher_active_time, $where );
+				};
+				if ($@) {
+					$self->{perror}      = 1;
+					$self->{error}       = 6;
+					$self->{errorString} = $@;
+					$self->warn;
+				}
+			} ## end if ( defined($rule_obj) )
+			push( @country_gates, $country_gate );
+			push( @namtar_gates,  $namtar_gate );
+			push( @active_gates,  $active_gate );
+		} ## end for my $rule_int ( 0 .. $#rule_objs )
 
 		# the joiner, compiled... check_kur_def already vetted it, so a die
 		# here is the same config error it already flagged
@@ -439,9 +434,9 @@ sub new {
 			# values to the rules. see _index_field and _rule_candidates
 			'index_field'   => _index_field( \@rule_objs ),
 			'rule_index'    => {},
-			'country_gates' => $country_gates,
-			'namtar_gates'  => $namtar_gates,
-			'active_gates'  => $active_gates,
+			'country_gates' => \@country_gates,
+			'namtar_gates'  => \@namtar_gates,
+			'active_gates'  => \@active_gates,
 			'rule_config'   =>
 				resolve_rule_config( $kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); } ),
 			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
@@ -452,46 +447,76 @@ sub new {
 		};
 	} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
-	# a detection rule writes only to EVE, so it is a silent no-op with the log
-	# off... force it on when any is loaded, make the dir a first write needs,
-	# and say so, rather than leave the operator wondering why nothing lands
-	if ( !$self->{eve_enable} ) {
-		my $has_detection = 0;
-		foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-			foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
-				if ( defined($rule_obj) && $rule_obj->is_detection ) {
-					$has_detection = 1;
+	# one pass over the built watchers gathers what the startup checks below
+	# act on... sorted, so the usedns warning names its watchers in a stable
+	# order
+	my $has_detection = 0;
+	my $rdns_gated    = 0;
+	my $country_gated = 0;
+	my @dns_wanting;
+	my %munge_reps;
+	my %namtar_slots;
+	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
+		my $built = $self->{watchers}{$watcher_name};
+
+		foreach my $rule_obj ( grep { defined($_) } @{ $built->{rule_objs} } ) {
+			if ( $rule_obj->is_detection ) {
+				$has_detection = 1;
+			}
+			if ( defined( $rule_obj->reverse_dns ) ) {
+				$rdns_gated = 1;
+			}
+			# one rep per distinct munger set is enough... the processor is
+			# memoized on the set, so warming it warms it for all
+			if ( $rule_obj->can('mungers') ) {
+				my @mungers = $rule_obj->mungers;
+				if (@mungers) {
+					$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
+				}
+			}
+		} ## end foreach my $rule_obj ( grep { defined($_) } @{ ...})
+
+		if ( grep { defined($_) } @{ $built->{country_gates} } ) {
+			$country_gated = 1;
+		}
+
+		foreach my $gate ( grep { defined($_) } @{ $built->{namtar_gates} } ) {
+			foreach my $entry ( @{$gate} ) {
+				foreach my $slot ( @{ $entry->{slots} } ) {
+					$namtar_slots{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) } = $slot;
 				}
 			}
 		}
-		if ($has_detection) {
-			$self->{eve_enable} = 1;
-			$self->_ensure_eve_dir;
-			log_drek( 'info', 'a detection rule is loaded... EVE output enabled to ' . $self->{eve_log},
-				undef, 'galla-' . $self->{name} );
-		}
-	} ## end if ( !$self->{eve_enable} )
 
-	# a resolve usedns with out the machinery behind it behaves as no...
-	# say so loudly rather than silently never banishing a hostname
-	my @dns_wanting;
-	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
-		my $watcher_settings = $self->{watchers}{$watcher_name}{settings};
-		if ( $watcher_settings->{usedns} ne 'no' && !defined( $self->{dns_resolve} ) ) {
+		# a resolve usedns with out the machinery behind it behaves as no
+		if ( $built->{settings}{usedns} ne 'no' && !defined( $self->{dns_resolve} ) ) {
 			push( @dns_wanting, $watcher_name );
-			$watcher_settings->{usedns} = 'no';
+			$built->{settings}{usedns} = 'no';
 		}
+	} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
+
+	# a detection rule writes only to EVE, so it is a silent no-op with the log
+	# off... force it on when any is loaded, make the dir a first write needs,
+	# and say so, rather than leave the operator wondering why nothing lands
+	if ( $has_detection && !$self->{eve_enable} ) {
+		$self->{eve_enable} = 1;
+		$self->_ensure_eve_dir;
+		log_drek( 'info', 'a detection rule is loaded... EVE output enabled to ' . $self->{eve_log},
+			undef, 'galla-' . $self->{name} );
 	}
+
+	# usedns forced to no above... say so loudly rather than silently never
+	# banishing a hostname
 	if (@dns_wanting) {
+		my $dns_reason = 'enable_dns is off';
+		if ( $self->{enable_dns} ) {
+			$dns_reason = 'Net::DNS is not loadable... ' . ( $self->{dns_error} // '' );
+		}
 		log_drek(
 			'err',
 			'usedns is configured on '
 				. join( ', ', @dns_wanting ) . ' but '
-				. (
-					$self->{enable_dns}
-					? 'Net::DNS is not loadable... ' . ( defined( $self->{dns_error} ) ? $self->{dns_error} : '' )
-					: 'enable_dns is off'
-				)
+				. $dns_reason
 				. '... treated as no, hostname offenders banish nobody',
 			undef,
 			'galla-' . $self->{name}
@@ -501,14 +526,6 @@ sub new {
 	# reverse_dns gates fail closed with out the machinery behind them, so
 	# those rules count nothing... a silent hole, so say so loudly. the
 	# resolver only stands up at all when some rule wants it
-	my $rdns_gated = 0;
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
-			if ( defined($rule_obj) && defined( $rule_obj->reverse_dns ) ) {
-				$rdns_gated = 1;
-			}
-		}
-	}
 	if ($rdns_gated) {
 		if ( !$self->{enable_rdns} ) {
 			log_drek(
@@ -536,14 +553,6 @@ sub new {
 	# a country gate with no GeoIP database behind it fails closed, so those
 	# rules banish nobody... that is a silent hole, so say so loudly. not a
 	# perror, the galla runs fine, the gated rules just never fire
-	my $country_gated = 0;
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		foreach my $gate ( @{ $self->{watchers}{$watcher_name}{country_gates} } ) {
-			if ( defined($gate) ) {
-				$country_gated = 1;
-			}
-		}
-	}
 	if ( $country_gated && !defined( $self->{geoip} ) ) {
 		log_drek(
 			'err',
@@ -561,20 +570,6 @@ sub new {
 	# prewarm every declared set once here (the processors memoize, shared
 	# across rules), so a bad munger is caught at startup, named loudly, and
 	# refuses the galla rather than dying mid-line later
-	my %munge_reps;
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
-			if ( !defined($rule_obj) || !$rule_obj->can('mungers') ) {
-				next;
-			}
-			my @mungers = $rule_obj->mungers;
-			if (@mungers) {
-				# one rep per distinct set is enough... the processor is
-				# memoized on the set, so warming it warms it for all
-				$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
-			}
-		} ## end foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name...}})
-	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 	foreach my $set ( sort keys(%munge_reps) ) {
 		eval { $munge_reps{$set}->_munge_processor; };
 		if ($@) {
@@ -590,19 +585,6 @@ sub new {
 	# sweeper refreshes them on mtime change from here on. a slot that loads
 	# empty or unreadable matches nobody, so those gates banish nobody from
 	# it... a silent hole, so name them loudly
-	my %namtar_slots;
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		foreach my $gate ( @{ $self->{watchers}{$watcher_name}{namtar_gates} } ) {
-			if ( !defined($gate) ) {
-				next;
-			}
-			foreach my $entry ( @{$gate} ) {
-				foreach my $slot ( @{ $entry->{slots} } ) {
-					$namtar_slots{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) } = $slot;
-				}
-			}
-		} ## end foreach my $gate ( @{ $self->{watchers}{$watcher_name...}})
-	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
 	foreach my $key ( sort( keys(%namtar_slots) ) ) {
 		my $slot = $namtar_slots{$key};
 		$self->_load_namtar_file( $slot->{type}, $slot->{nocase}, $slot->{path} );
