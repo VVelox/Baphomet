@@ -332,7 +332,8 @@ field, and no daemon gate applies.
   to be extended locally
 - `http/fakegooglebot` :: a user agent claiming Googlebot whose client
   does not reverse into Google's domains, forward-confirmed... needs
-  `enable_rdns` and Net::DNS, the gate failing closed with out them
+  `enable_rdns`, Net::DNS, and POE::Component::Client::DNS, the gate
+  failing closed with out them
 - `http/path-scan` :: a client fetching many different paths that do not
   exist... scanning by breadth rather than by signature, counting
   [distinct](rules.md#distinct-counting-how-many-not-how-often) 404

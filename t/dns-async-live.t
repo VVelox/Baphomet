@@ -5,22 +5,28 @@ use warnings;
 use Test::More;
 use File::Temp qw( tempdir );
 use File::Path qw( make_path );
+use File::Spec ();
 
 BEGIN {
 	eval { require Ereshkigal::Client; };
 	if ($@) {
 		plan skip_all => 'Ereshkigal::Client not available';
 	}
-	eval { require Net::DNS::Resolver; require Net::DNS::Nameserver; require Net::DNS::RR; };
+	eval {
+		require Net::DNS::Resolver;
+		require Net::DNS::Nameserver;
+		require Net::DNS::RR;
+		require POE::Component::Client::DNS;
+	};
 	if ($@) {
-		plan skip_all => 'Net::DNS with Nameserver not available';
+		plan skip_all => 'Net::DNS with Nameserver, or POE::Component::Client::DNS, not available';
 	}
 }
 
 use POE;
 use App::Baphomet::Galla ();
 
-# the wire half of the background engine... bgsend, the select, and the
+# the wire half of the background engine... the DNS client and its
 # timeout, against a real Net::DNS::Nameserver on loopback in a child
 # process, so nothing here touches the outside world. every environment
 # hiccup is a skip, not a failure
@@ -138,13 +144,15 @@ close($fh);
 my $galla = App::Baphomet::Galla->new( 'config' => $dir . '/config.toml', 'name' => 'app' );
 ok( defined($galla), 'galla built' );
 
-# the engine rides a resolver aimed at the loopback nameserver only
-$galla->{dns_resolver} = Net::DNS::Resolver->new(
-	'nameservers' => ['127.0.0.1'],
-	'port'        => $port,
-	'retry'       => 1,
-	'udp_timeout' => 2,
+# the resolver only marks the kind ready... the queries ride a DNS client
+# aimed at the loopback nameserver alone, injected ahead of the galla's own
+$galla->{dns_resolver} = Net::DNS::Resolver->new();
+$galla->{dns_client}   = POE::Component::Client::DNS->spawn(
+	'Alias'       => 'galla-dns-app',
+	'Nameservers' => ['127.0.0.1'],
+	'HostsFile'   => File::Spec->devnull,
 );
+$galla->{dns_client}->get_resolver->port($port);
 $galla->{dns_async} = 1;
 
 my ( $live_answer, $dead_answer, $watchdogged );
@@ -164,14 +172,9 @@ POE::Session->create(
 			return;
 		},
 		'go_dead' => sub {
-			# a resolver aimed at a port nobody listens on... the query
+			# the client re-aimed at a port nobody listens on... the query
 			# must still complete, as a failure, inside the timeout
-			$galla->{dns_resolver} = Net::DNS::Resolver->new(
-				'nameservers' => ['127.0.0.1'],
-				'port'        => 1,
-				'retry'       => 1,
-				'udp_timeout' => 2,
-			);
+			$galla->{dns_client}->get_resolver->port(1);
 			$galla->_resolve_hostname_async(
 				'dead.test',
 				sub {
@@ -188,10 +191,7 @@ POE::Session->create(
 		},
 		'finish' => sub {
 			$_[KERNEL]->alarm_remove_all;
-			foreach my $handle_key ( keys( %{ $galla->{dns_inflight} } ) ) {
-				my $query = delete( $galla->{dns_inflight}{$handle_key} );
-				$_[KERNEL]->select_read( $query->{handle} ) if defined( $query->{handle} );
-			}
+			$galla->{dns_client}->shutdown;
 			# tear the nameserver down from inside the loop, then hand its
 			# offspring to POE's own reaper. otherwise those subprocesses
 			# are still breathing when the kernel finalizes its signals,
@@ -214,9 +214,8 @@ POE::Session->create(
 	},
 	'object_states' => [
 		$galla => {
-			'dns_start'     => '_poe_dns_start',
-			'dns_answered'  => '_poe_dns_answered',
-			'dns_timed_out' => '_poe_dns_timed_out',
+			'dns_start'    => '_poe_dns_start',
+			'dns_answered' => '_poe_dns_answered',
 		},
 	],
 );

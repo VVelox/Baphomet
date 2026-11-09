@@ -56,12 +56,15 @@ my %WriteMakefileArgs = (
 			},
 		},
 		# only needed by optional pieces, soft requires at runtime... the
-		# country gate's GeoIP, and the ClayTablet redis backend
+		# country gate's GeoIP, usedns and the reverse_dns gate, and the ClayTablet
+		# redis backend
 		prereqs => {
 			runtime => {
 				recommends => {
-					'IP::Geolocation::MMDB' => '0',
-					'Redis::Fast'           => '0',
+					'IP::Geolocation::MMDB'       => '0',
+					'Net::DNS'                    => '0',
+					'POE::Component::Client::DNS' => '0',
+					'Redis::Fast'                 => '0',
 				},
 			},
 			# only for spinning up a throwaway redis-server for the live redis tests,

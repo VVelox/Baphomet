@@ -26,17 +26,20 @@ configure there, as Baphomet's config targets them.
 | YAML::XS                             | p5-YAML-LibYAML  | libyaml-libyaml-perl  |
 | Ereshkigal (for Ereshkigal::Client)  | (cpanm)          | (cpanm)               |
 
-Two more are optional, wanted only if the pieces they serve are in use...
+A few more are optional, wanted only if the pieces they serve are in use...
 
-| CPAN module           | FreeBSD pkg   | Debian pkg                  |
-|-----------------------|---------------|-----------------------------|
-| IP::Geolocation::MMDB | (cpanm)       | libip-geolocation-mmdb-perl |
-| Redis::Fast           | p5-Redis-Fast | libredis-fast-perl          |
+| CPAN module                 | FreeBSD pkg                 | Debian pkg                       |
+|-----------------------------|-----------------------------|----------------------------------|
+| IP::Geolocation::MMDB       | (cpanm)                     | libip-geolocation-mmdb-perl      |
+| Net::DNS                    | p5-Net-DNS                  | libnet-dns-perl                  |
+| POE::Component::Client::DNS | p5-POE-Component-Client-DNS | libpoe-component-client-dns-perl |
+| Redis::Fast                 | p5-Redis-Fast               | libredis-fast-perl               |
 
 `IP::Geolocation::MMDB` reads the `geoip_db` for rules with a `country`
-gate (see [configuration.md](configuration.md)), and `Redis::Fast` backs
-the `redis` tablet backend (see [tablets.md](tablets.md)). Neither is
-needed otherwise.
+gate (see [configuration.md](configuration.md)). `Net::DNS` and
+`POE::Component::Client::DNS` together back `usedns` and the `reverse_dns`
+gate (see [usedns.md](usedns.md)). `Redis::Fast` backs the `redis` tablet
+backend (see [tablets.md](tablets.md)). None are needed otherwise.
 
 Package names are current as of writing. Anything marked `(cpanm)`, or
 missing from your release, installs cleanly from CPAN via

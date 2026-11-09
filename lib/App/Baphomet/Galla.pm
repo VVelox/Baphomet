@@ -9,6 +9,7 @@ use POE                                      qw( Wheel::FollowTail Wheel::Run );
 use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
+use File::Spec                               ();
 use List::Util                               qw( max min sum0 uniqstr );
 use Path::Tiny                               qw( path );
 use Text::CSV_XS                             ();
@@ -134,7 +135,7 @@ sub new {
 		kur_client        => undef,
 		inflight_bans     => {},
 		dns_async         => 0,
-		dns_inflight      => {},
+		dns_client        => undef,
 		dns_bg            => undef,
 		wheel_to_watcher  => {},
 		started           => undef,
@@ -512,7 +513,7 @@ sub new {
 	if (@dns_wanting) {
 		my $dns_reason = 'enable_dns is off';
 		if ( $self->{enable_dns} ) {
-			$dns_reason = 'Net::DNS is not loadable... ' . ( $self->{dns_error} // '' );
+			$dns_reason = 'Net::DNS or POE::Component::Client::DNS is not loadable... ' . ( $self->{dns_error} // '' );
 		}
 		log_drek(
 			'err',
@@ -542,7 +543,7 @@ sub new {
 			if ( defined( $self->{rdns_error} ) ) {
 				log_drek(
 					'err',
-					'reverse_dns-gated rules are configured but Net::DNS is not loadable...'
+					'reverse_dns-gated rules are configured but Net::DNS or POE::Component::Client::DNS is not loadable...'
 						. ' those gates fail closed and will count nothing... '
 						. $self->{rdns_error},
 					undef,
@@ -1642,7 +1643,6 @@ sub start_server {
 				'stop_tails'      => '_poe_stop_tails',
 				'dns_start'       => '_poe_dns_start',
 				'dns_answered'    => '_poe_dns_answered',
-				'dns_timed_out'   => '_poe_dns_timed_out',
 			},
 		],
 	);
@@ -2047,13 +2047,11 @@ sub _poe_stop_tails {
 	$self->{wheelid_to_journal} = {};
 	$self->{pid_to_journal}     = {};
 
-	# in-flight DNS queries would hold this session alive... their alarms
-	# fall to the remove_all below, the selects are dropped here
-	foreach my $handle_key ( keys( %{ $self->{dns_inflight} } ) ) {
-		my $query = delete( $self->{dns_inflight}{$handle_key} );
-		if ( defined( $query->{handle} ) ) {
-			$kernel->select_read( $query->{handle} );
-		}
+	# the DNS client holds this session alive while a query is in flight...
+	# shutting it down lets go, the pending answers discarded
+	if ( defined( $self->{dns_client} ) ) {
+		$self->{dns_client}->shutdown;
+		$self->{dns_client} = undef;
 	}
 
 	$kernel->alarm_remove_all;
@@ -2927,8 +2925,10 @@ sub _open_dns {
 			'tcp_timeout' => $self->{usedns_timeout},
 			'retry'       => 1,
 		);
-		# kept for the background query engine, which bgsends on the same
-		# resolver the blocking closure wraps... one config, one behavior
+		# the background engine rides POE::Component::Client::DNS, loaded here
+		# so a missing one disables DNS as loudly as a missing Net::DNS... the
+		# resolver is kept as the sign the kind is ready for background queries
+		require POE::Component::Client::DNS;
 		$self->{dns_resolver} = $resolver;
 		$self->{dns_resolve}  = sub {
 			my ($hostname) = @_;
@@ -2973,7 +2973,8 @@ sub _open_rdns {
 			'tcp_timeout' => $self->{rdns_timeout},
 			'retry'       => 1,
 		);
-		# kept for the background query engine, as with dns_resolver
+		# loaded and kept as with dns_resolver
+		require POE::Component::Client::DNS;
 		$self->{rdns_resolver} = $resolver;
 		my $ask = sub {
 			my ( $query_name, @types ) = @_;
@@ -3050,9 +3051,8 @@ sub _dns_async_ready {
 } ## end sub _dns_async_ready
 
 # fires one background query, $done receiving the folded tri-value...
-# routed through the tails session so the select and the timeout alarm
-# live there no matter which session initiated (a kur client completion,
-# say). the dns_bg closure is the test seam, standing in for the whole
+# routed through the tails session so the DNS client answers back to it no
+# matter which session initiated (a kur client completion, say). the dns_bg closure is the test seam, standing in for the whole
 # wire engine when injected
 sub _dns_query_bg {
 	my ( $self, $kind, $qname, $qtype, $done ) = @_;
@@ -3076,67 +3076,41 @@ sub _dns_query_bg {
 	return;
 } ## end sub _dns_query_bg
 
-# the wire half of the engine... bgsend on the same resolver the blocking
-# closure wraps, the returned handle watched by the kernel and bounded by
-# the kind's configured timeout
+# the wire half of the engine, handed to POE::Component::Client::DNS, which
+# owns the socket, the select, the retries, and the deadline... the kind's
+# configured timeout rides each request. the client is spawned on first use,
+# so a test can inject one aimed at its own nameserver, and is given a empty
+# hosts file so A and AAAA answers come from DNS alone, as they do for the
+# blocking closures, never from /etc/hosts
 sub _poe_dns_start {
-	my ( $self, $kernel, $query ) = @_[ OBJECT, KERNEL, ARG0 ];
+	my ( $self, $query ) = @_[ OBJECT, ARG0 ];
 
-	my $resolver = $query->{kind} eq 'rdns' ? $self->{rdns_resolver} : $self->{dns_resolver};
-	my $timeout  = $query->{kind} eq 'rdns' ? $self->{rdns_timeout}  : $self->{usedns_timeout};
-	if ( !defined($resolver) ) {
-		$query->{done}->(undef);
-		return;
-	}
+	my $timeout = $query->{kind} eq 'rdns' ? $self->{rdns_timeout} : $self->{usedns_timeout};
 
-	my $handle = eval { $resolver->bgsend( $query->{qname}, $query->{qtype} ); };
-	if ( !defined($handle) ) {
-		$query->{done}->(undef);
-		return;
-	}
-
-	$query->{handle} = $handle;
-	$self->{dns_inflight}{"$handle"} = $query;
-	$kernel->select_read( $handle, 'dns_answered' );
-	$query->{alarm_id} = $kernel->delay_set( 'dns_timed_out', $timeout, "$handle" );
+	$self->{dns_client} //= POE::Component::Client::DNS->spawn(
+		'Alias'     => 'galla-dns-' . $self->{name},
+		'HostsFile' => File::Spec->devnull,
+	);
+	$self->{dns_client}->resolve(
+		'event'   => 'dns_answered',
+		'host'    => $query->{qname},
+		'type'    => $query->{qtype},
+		'context' => $query,
+		'timeout' => $timeout,
+	);
 
 	return;
 } ## end sub _poe_dns_start
 
+# the client's answer, its packet folded into the tri-value $done expects...
+# a timeout or a failed read arrives as a undef packet, so it fails closed
 sub _poe_dns_answered {
-	my ( $self, $kernel, $handle ) = @_[ OBJECT, KERNEL, ARG0 ];
+	my ( $self, $answer ) = @_[ OBJECT, ARG0 ];
 
-	$kernel->select_read($handle);
-	my $query = delete( $self->{dns_inflight}{"$handle"} );
-	if ( !defined($query) ) {
-		return;
-	}
-	if ( defined( $query->{alarm_id} ) ) {
-		$kernel->alarm_remove( $query->{alarm_id} );
-	}
-
-	my $resolver = $query->{kind} eq 'rdns' ? $self->{rdns_resolver} : $self->{dns_resolver};
-	my $packet   = eval { $resolver->bgread($handle); };
-	$query->{done}->( _dns_fold( $packet, $query->{qtype} ) );
+	$answer->{context}{done}->( _dns_fold( $answer->{response}, $answer->{type} ) );
 
 	return;
-} ## end sub _poe_dns_answered
-
-# a query past its deadline completes as a failure, the fail-closed
-# posture every DNS consumer already promises... the answer showing up
-# later is simply discarded, its select gone
-sub _poe_dns_timed_out {
-	my ( $self, $kernel, $handle_key ) = @_[ OBJECT, KERNEL, ARG0 ];
-
-	my $query = delete( $self->{dns_inflight}{$handle_key} );
-	if ( !defined($query) ) {
-		return;
-	}
-	$kernel->select_read( $query->{handle} );
-	$query->{done}->(undef);
-
-	return;
-} ## end sub _poe_dns_timed_out
+}
 
 # opens the GeoIP database for country gating, if one is configured...
 # stores the reader on success, a error string otherwise, both undef when

@@ -333,7 +333,8 @@ Top level keys are as below.
 
     - enable_dns :: The consent for DNS resolution. With out it any
           usedns is treated as no, loudly. Resolution rides the optional
-          Net::DNS module... set but unloadable, and usedns behaves as no,
+          Net::DNS and POE::Component::Client::DNS modules... set but
+          either unloadable, and usedns behaves as no,
           also loudly.
         Default :: 0
 
@@ -367,8 +368,9 @@ Top level keys are as below.
           up. A separate consent from enable_dns on purpose... the gate
           only refines matches and never redirects a ban, so it is safe
           by default. Off, reverse_dns gates fail closed and count
-          nothing, loudly. Rides the optional Net::DNS module, only
-          loaded when some rule carries the gate.
+          nothing, loudly. Rides the optional Net::DNS and
+          POE::Component::Client::DNS modules, only loaded when some rule
+          carries the gate.
         Default :: 1
 
     - rdns_timeout :: Seconds a reverse_dns gate query may take before

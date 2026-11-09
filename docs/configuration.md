@@ -127,7 +127,8 @@ Each setting's default is given in parens after its name.
 
 - `enable_dns` (`false`) :: The consent for DNS resolution. With out it,
   any `usedns` is treated as `no`, loudly. Resolution rides the optional
-  `Net::DNS` module... set but unloadable, and `usedns` behaves as `no`,
+  `Net::DNS` and `POE::Component::Client::DNS` modules... set but either
+  unloadable, and `usedns` behaves as `no`,
   also loudly. See [usedns](usedns.md).
 - `usedns` (`no`) :: How a hostname offender... a `ban_var` value that is
   not an IP... is handled: `no`, `resolve_seen`, or `resolve_ban`.
@@ -146,8 +147,8 @@ Each setting's default is given in parens after its name.
   things up. A separate consent from `enable_dns` on purpose... the gate
   only refines matches and never redirects a ban, so it is safe by
   default. Off, reverse_dns gates fail closed and count nothing, loudly.
-  Rides the optional `Net::DNS` module, loaded only when some rule
-  carries the gate.
+  Rides the optional `Net::DNS` and `POE::Component::Client::DNS` modules,
+  loaded only when some rule carries the gate.
 - `rdns_timeout` (`2`) :: Seconds a `reverse_dns` gate query may take
   before being given up on. A failed lookup is judged by the gate's
   `on_servfail` knob, whose default of `fail` vetoes the count

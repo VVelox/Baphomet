@@ -15,8 +15,9 @@ teeth, so the reasoning sits here next to the knobs.
   
 - **`enable_dns`**, default `false` :: The consent for DNS resolution. With out it, any
   `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS`
-  module... set but unloadable, and `usedns` behaves as `no`, also loudly. Global
-  only... consent is not delegated downward.
+  and `POE::Component::Client::DNS` modules... set but either unloadable,
+  and `usedns` behaves as `no`, also loudly. Global only... consent is not
+  delegated downward.
 
 - **`usedns_timeout`**, default `2` :: Seconds a DNS query may take before being given up
   on. Resolution is blocking, so this bounds how long a hostile name can stall the galla.
