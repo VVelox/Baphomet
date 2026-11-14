@@ -1,8 +1,9 @@
 package App::Baphomet::App::Command::stop;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use App::Baphomet::App -command;
 use App::Baphomet::Config ();
 use JSON::MaybeXS         ();
@@ -137,6 +138,6 @@ sub _pid_alive {
 	}
 
 	return $!{EPERM} ? 1 : 0;
-} ## end sub _pid_alive
+}
 
 1;

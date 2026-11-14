@@ -1,8 +1,9 @@
 package App::Baphomet::App::Command::marked;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use App::Baphomet::App -command;
 use App::Baphomet::App::FanoutCmd qw( fanout_validate_args fanout_execute );
 
@@ -42,7 +43,7 @@ sub description {
 		. 'captures joined on the unit separator, shown in the JSON as \\u001f. '
 		. 'With no args, every galla is asked. '
 		. 'With a galla name, just that one. With --name, only that mark is shown.';
-}
+} ## end sub description
 
 sub usage_desc { return '%c marked %o [galla]'; }
 

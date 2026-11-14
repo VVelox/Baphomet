@@ -1,8 +1,9 @@
 package App::Baphomet::Parser::IETFSyslog;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 # only used at runtime, so the circular use with the dispatcher is harmless
 use App::Baphomet::Parser ();
 

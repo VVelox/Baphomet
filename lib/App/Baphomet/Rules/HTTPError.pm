@@ -1,8 +1,9 @@
 package App::Baphomet::Rules::HTTPError;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
@@ -162,21 +163,21 @@ sub new {
 			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array' );
 		}
 
-		foreach my $entry_int ( 0 .. $#{ $def->{$sort} } ) {
-			my $regexp = $def->{$sort}[$entry_int];
-			my $where  = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
+		foreach my ( $entry_int, $regexp ) ( indexed @{ $def->{$sort} } ) {
+			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
 			if ( !defined($regexp) || ref($regexp) ne '' ) {
 				die( $where . ' is not a string' );
 			}
 
 			my $compiled;
-			eval { $compiled = qr/$regexp/; };
-			if ($@) {
-				die( $where . ', "' . $regexp . '", does not compile... ' . $@ );
+			try {
+				$compiled = qr/$regexp/;
+			} catch ($caught) {
+				die( $where . ', "' . $regexp . '", does not compile... ' . $caught );
 			}
 
 			push( @{ $self->{ $slot_of{$sort} } }, $compiled );
-		} ## end foreach my $entry_int ( 0 .. $#{ $def->{$sort} ...})
+		} ## end foreach my ( $entry_int, $regexp ) ( indexed @{...})
 	} ## end foreach my $sort ( 'message_regexp', 'ignore_regexp')
 
 	return $self;
@@ -227,8 +228,8 @@ sub check {
 		return undef;
 	}
 
-	foreach my $entry_int ( 0 .. $#{ $self->{regexps} } ) {
-		if ( $parsed->{message} =~ $self->{regexps}[$entry_int] ) {
+	foreach my ( $entry_int, $regexp ) ( indexed @{ $self->{regexps} } ) {
+		if ( $parsed->{message} =~ $regexp ) {
 			my %caps = %+;
 
 			# the parsed fields are authoritative over captures
@@ -240,8 +241,8 @@ sub check {
 			}
 
 			return { 'data' => \%data, 'regexp' => $entry_int };
-		} ## end if ( $parsed->{message} =~ $self->{regexps...})
-	} ## end foreach my $entry_int ( 0 .. $#{ $self->{regexps...}})
+		} ## end if ( $parsed->{message} =~ $regexp )
+	} ## end foreach my ( $entry_int, $regexp ) ( indexed @{...})
 
 	return undef;
 } ## end sub check

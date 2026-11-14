@@ -1,9 +1,11 @@
 package App::Baphomet;
 
-use 5.006;
-use strict;
-use warnings;
-use Ref::Util qw( is_plain_arrayref is_plain_hashref );
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
+use Ref::Util  qw( is_plain_arrayref is_plain_hashref );
+use List::Util qw( any min none );
 use base 'Error::Helper';
 use POE                                              qw( Wheel::Run );
 use POE::Component::Server::JSONUnix                 ();
@@ -130,11 +132,12 @@ sub new {
 	}
 
 	my $config;
-	eval { $config = load_config( $self->{config} ); };
-	if ($@) {
+	try {
+		$config = load_config( $self->{config} );
+	} catch ($caught) {
 		$self->{perror}      = 1;
 		$self->{error}       = 1;
-		$self->{errorString} = $@;
+		$self->{errorString} = $caught;
 		$self->warn;
 	}
 	foreach my $item (
@@ -166,27 +169,27 @@ sub new {
 	# check every kur def and load every referenced rule now, so a broken
 	# config fails here instead of after the gallas have been spawned
 	my $rules;
-	eval {
+	try {
 		$rules = App::Baphomet::Rules->new(
 			'rules_dir'  => $config->{rules_dir},
 			'groups_dir' => $config->{groups_dir}
 		);
-	};
-	if ($@) {
+	} catch ($caught) {
 		$self->{perror}      = 1;
 		$self->{error}       = 3;
-		$self->{errorString} = $@;
+		$self->{errorString} = $caught;
 		$self->warn;
 	}
 
 	foreach my $name ( sort( keys( %{ $config->{kur} } ) ) ) {
 		my $def = $config->{kur}{$name};
 
-		eval { check_kur_def( $name, $def ); };
-		if ($@) {
+		try {
+			check_kur_def( $name, $def );
+		} catch ($caught) {
 			$self->{perror}      = 1;
 			$self->{error}       = 2;
-			$self->{errorString} = $@;
+			$self->{errorString} = $caught;
 			$self->warn;
 		}
 
@@ -195,8 +198,9 @@ sub new {
 			# %group% references expand here the same as in the galla, so a
 			# bad group fails the preflight too instead of only at spawn
 			my @rule_names;
-			eval { @rule_names = $rules->expand_rules( watcher_rules( $watchers->{$watcher_name} ) ); };
-			if ($@) {
+			try {
+				@rule_names = $rules->expand_rules( watcher_rules( $watchers->{$watcher_name} ) );
+			} catch ($caught) {
 				$self->{perror} = 1;
 				$self->{error}  = 3;
 				$self->{errorString}
@@ -204,12 +208,13 @@ sub new {
 					. $watcher_name
 					. '" of the kur "'
 					. $name . '"... '
-					. $@;
+					. $caught;
 				$self->warn;
-			} ## end if ($@)
+			} ## end catch ($caught)
 			foreach my $rule (@rule_names) {
-				eval { $rules->load($rule); };
-				if ($@) {
+				try {
+					$rules->load($rule);
+				} catch ($caught) {
 					$self->{perror} = 1;
 					$self->{error}  = 3;
 					$self->{errorString}
@@ -219,9 +224,9 @@ sub new {
 						. $watcher_name
 						. '" of the kur "'
 						. $name . '"... '
-						. $@;
+						. $caught;
 					$self->warn;
-				} ## end if ($@)
+				} ## end catch ($caught)
 			} ## end foreach my $rule (@rule_names)
 		} ## end foreach my $watcher_name ( sort( keys( %{$watchers...})))
 
@@ -637,7 +642,7 @@ sub _poe_galla_reaped {
 		# thing keeping this session, and so the manager, alive... drop it
 		# so stop finishes the moment the reaping does rather than holding
 		# the PID file a whole grace period more
-		if ( !grep { defined( $self->{gallas}{$_}{pid} ) } keys( %{ $self->{gallas} } ) ) {
+		if ( none { defined( $self->{gallas}{$_}{pid} ) } keys( %{ $self->{gallas} } ) ) {
 			$kernel->alarm_remove_all;
 		}
 		return;
@@ -652,7 +657,7 @@ sub _poe_galla_reaped {
 	}
 
 	my $delay = $entry->{delay};
-	$entry->{delay} = $delay * 2 > 60 ? 60 : $delay * 2;
+	$entry->{delay} = min( $delay * 2, 60 );
 	$entry->{restarts}++;
 
 	log_drek( 'err', 'galla "' . $name . '" died, restarting in ' . $delay . ' seconds' );
@@ -701,7 +706,7 @@ sub _poe_stop_all {
 	# still-running galla is TERMed, and a grace later KILLed. set after the
 	# alarm sweep so it survives, and only when something still runs, so a
 	# clean stop is not held a whole grace period by a pending alarm
-	if ( grep { defined( $self->{gallas}{$_}{pid} ) } keys( %{ $self->{gallas} } ) ) {
+	if ( any { defined( $self->{gallas}{$_}{pid} ) } keys( %{ $self->{gallas} } ) ) {
 		$kernel->delay( 'stop_escalate', $self->{timeout}, 'TERM' );
 	}
 
@@ -1072,13 +1077,13 @@ sub _banished_kurs {
 	my ( $self, $request ) = @_;
 
 	my @kurs = sort( keys( %{ $self->{gallas} } ) );
-	if ( defined( $self->{recidive} ) && !grep { $_ eq $self->{recidive}{kur} } @kurs ) {
+	if ( defined( $self->{recidive} ) && none { $_ eq $self->{recidive}{kur} } @kurs ) {
 		push( @kurs, $self->{recidive}{kur} );
 	}
 
 	my $args = $request->{args} // {};
 	if ( defined( $args->{name} ) ) {
-		if ( !grep { $_ eq $args->{name} } @kurs ) {
+		if ( none { $_ eq $args->{name} } @kurs ) {
 			die( 'the kur "' . $args->{name} . '" is not one this Baphomet feeds' );
 		}
 		@kurs = ( $args->{name} );
@@ -1102,9 +1107,10 @@ sub _banished_kur_entry {
 	}
 
 	my $kur_status;
-	eval { $kur_status = _ereshkigal_call( $ereshkigal, 'status_kur', { 'name' => $kur } ); };
-	if ($@) {
-		my $error = $@;
+	try {
+		$kur_status = _ereshkigal_call( $ereshkigal, 'status_kur', { 'name' => $kur } );
+	} catch ($caught) {
+		my $error = $caught;
 		$error =~ s/\s+\z//;
 		return { 'error' => $error };
 	}
@@ -1165,12 +1171,11 @@ sub _cmd_banished {
 	# all against the one trusted local daemon
 	my $ereshkigal;
 	my $banned;
-	eval {
+	try {
 		$ereshkigal = $self->_ereshkigal_client;
 		$banned     = _ereshkigal_call( $ereshkigal, 'banned' );
-	};
-	if ($@) {
-		my $error = 'asking Ereshkigal for the banned lists failed... ' . $@;
+	} catch ($caught) {
+		my $error = 'asking Ereshkigal for the banned lists failed... ' . $caught;
 		$error =~ s/\s+\z//;
 		if ( defined($ctx) ) {
 			$ctx->error($error);

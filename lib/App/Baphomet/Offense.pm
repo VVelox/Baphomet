@@ -1,9 +1,10 @@
 package App::Baphomet::Offense;
 
-use 5.006;
-use strict;
-use warnings;
-use Exporter qw( import );
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
+use Exporter             qw( import );
 use App::Baphomet::Marks ();
 
 our @EXPORT_OK = qw( resolve_offense data_gate_pass );
@@ -138,10 +139,9 @@ sub resolve_offense {
 	# caller's own per-hit filter deciding there
 	my @brandable = defined( $arg{brandable} ) ? grep { $arg{brandable}->($_) } @survivors : @survivors;
 
-	my ( $set, $lifted ) = App::Baphomet::Marks::apply_marks(
-		$arg{store}, $marks, $unmarks, $arg{data}, \@brandable, $arg{now},
-		$arg{on_set}, $arg{on_unset}
-	);
+	my ( $set, $lifted )
+		= App::Baphomet::Marks::apply_marks( $arg{store}, $marks, $unmarks, $arg{data}, \@brandable, $arg{now},
+			$arg{on_set}, $arg{on_unset} );
 
 	return { 'fired' => 1, 'survivors' => \@survivors, 'set' => $set, 'lifted' => $lifted };
 } ## end sub resolve_offense

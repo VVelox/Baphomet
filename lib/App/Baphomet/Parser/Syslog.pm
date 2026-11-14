@@ -1,8 +1,9 @@
 package App::Baphomet::Parser::Syslog;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use App::Baphomet::Parser::BSDSyslog  ();
 use App::Baphomet::Parser::IETFSyslog ();
 use App::Baphomet::Parser::JSONSyslog ();
@@ -60,18 +61,15 @@ either grammar.
 # the three sniff orders, built once... this runs per line for every syslog
 # watcher, so no rebuilding the dispatch lists per call
 my $order_json = [
-	\&App::Baphomet::Parser::JSONSyslog::parse,
-	\&App::Baphomet::Parser::BSDSyslog::parse,
+	\&App::Baphomet::Parser::JSONSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse,
 	\&App::Baphomet::Parser::IETFSyslog::parse,
 ];
 my $order_ietf = [
-	\&App::Baphomet::Parser::IETFSyslog::parse,
-	\&App::Baphomet::Parser::BSDSyslog::parse,
+	\&App::Baphomet::Parser::IETFSyslog::parse, \&App::Baphomet::Parser::BSDSyslog::parse,
 	\&App::Baphomet::Parser::JSONSyslog::parse,
 ];
 my $order_bsd = [
-	\&App::Baphomet::Parser::BSDSyslog::parse,
-	\&App::Baphomet::Parser::IETFSyslog::parse,
+	\&App::Baphomet::Parser::BSDSyslog::parse, \&App::Baphomet::Parser::IETFSyslog::parse,
 	\&App::Baphomet::Parser::JSONSyslog::parse,
 ];
 

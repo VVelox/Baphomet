@@ -1,8 +1,9 @@
 package App::Baphomet::App::Command::test_line;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use App::Baphomet::App -command;
 use JSON::MaybeXS         ();
 use App::Baphomet::Config qw( load_config );
@@ -101,8 +102,9 @@ sub execute {
 		$name  = $opt->rule;
 	} else {
 		my $config = load_config( $opt->config );
-		$rules = App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
-		$name  = $opt->rule;
+		$rules
+			= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
+		$name = $opt->rule;
 	}
 	my $rule_file = $rules->rule_path($name);
 	my $rule      = $rules->load( $name, skip_tests => 1 );

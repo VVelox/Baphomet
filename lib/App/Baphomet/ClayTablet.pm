@@ -1,8 +1,9 @@
 package App::Baphomet::ClayTablet;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_hashref );
 
 =head1 NAME
@@ -88,8 +89,7 @@ sub new {
 	# carrying capitals is taken as chiseled, so a third-party CamelCase
 	# backend like SQLite stays reachable
 	my $backend_class
-		= 'App::Baphomet::ClayTablet::'
-		. ( $backend_name =~ /[A-Z]/ ? $backend_name : ucfirst($backend_name) );
+		= 'App::Baphomet::ClayTablet::' . ( $backend_name =~ /[A-Z]/ ? $backend_name : ucfirst($backend_name) );
 	eval "require $backend_class; 1;"    ## no critic (ProhibitStringyEval)
 		or die( 'ClayTablet could not load the backend "' . $backend_name . '" (' . $backend_class . ')... ' . $@ );
 

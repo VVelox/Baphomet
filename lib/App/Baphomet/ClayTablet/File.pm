@@ -1,8 +1,9 @@
 package App::Baphomet::ClayTablet::File;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util              qw( is_plain_hashref );
 use File::Path             qw( make_path );
 use Path::Tiny             qw( path );
@@ -85,7 +86,7 @@ sub locator {
 		: 'csv';
 
 	return $self->{base_dir} . '/galla.' . $self->{name} . '.' . $kind . '.' . $suffix;
-}
+} ## end sub locator
 
 =head2 verify
 
@@ -127,11 +128,11 @@ sub write {
 	# spew writes a uniquely-named temp file and renames it over the target,
 	# dying on a failed write or close, so a full disk never leaves a
 	# truncated tablet in place of the good one
-	eval {
+	try {
 		path($path)->spew( map { $_ . "\n" } @{$lines} );
-	};
-	if ($@) {
-		log_drek( 'err', 'writing the ' . $kind . ' tablet "' . $path . '" failed... ' . $@, undef, $self->{log_tag} );
+	} catch ($caught) {
+		log_drek( 'err', 'writing the ' . $kind . ' tablet "' . $path . '" failed... ' . $caught,
+			undef, $self->{log_tag} );
 		return 0;
 	}
 
@@ -164,9 +165,12 @@ sub read {
 		return ();
 	}
 
-	my @lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
-	if ($@) {
-		log_drek( 'err', 'reading the ' . $kind . ' tablet "' . $path . '" failed... ' . $@, undef, $self->{log_tag} );
+	my @lines;
+	try {
+		@lines = path($path)->lines( { 'chomp' => 1 } );
+	} catch ($caught) {
+		log_drek( 'err', 'reading the ' . $kind . ' tablet "' . $path . '" failed... ' . $caught,
+			undef, $self->{log_tag} );
 		return ();
 	}
 

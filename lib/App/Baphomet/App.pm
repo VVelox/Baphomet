@@ -1,8 +1,9 @@
 package App::Baphomet::App;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use App::Cmd::Setup -app;
 use POE::Component::Server::JSONUnix::BlockingClient ();
 
@@ -61,7 +62,8 @@ it. The socket is the global C<--socket>.
 sub manager_call {
 	my ( $self, $command, $args ) = @_;
 
-	my $client = POE::Component::Server::JSONUnix::BlockingClient->new( 'socket_path' => $self->global_options->{socket} );
+	my $client
+		= POE::Component::Server::JSONUnix::BlockingClient->new( 'socket_path' => $self->global_options->{socket} );
 
 	# the Neti dance, done transparently as the old client did... it answers
 	# ok whether or not the manager gates, so it is always safe to ask

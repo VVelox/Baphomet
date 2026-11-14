@@ -1,8 +1,9 @@
 package App::Baphomet::Rules::JSON;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
@@ -226,8 +227,7 @@ sub new {
 		if ( !is_plain_arrayref( $def->{capture} ) || !@{ $def->{capture} } ) {
 			die( 'The capture of the rule "' . $name . '" is not a array or is empty' );
 		}
-		my $entry_int = 0;
-		foreach my $entry ( @{ $def->{capture} } ) {
+		foreach my ( $entry_int, $entry ) ( indexed @{ $def->{capture} } ) {
 			my $where = 'The capture entry ' . $entry_int . ' of the rule "' . $name . '"';
 			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' is not a hash' );
@@ -260,8 +260,7 @@ sub new {
 				if ( !is_plain_arrayref( $entry->{match} ) || !@{ $entry->{match} } ) {
 					die( $where . ' has a match that is not a array or is empty' );
 				}
-				my $match_int = 0;
-				foreach my $match ( @{ $entry->{match} } ) {
+				foreach my ( $match_int, $match ) ( indexed @{ $entry->{match} } ) {
 					my $match_where = $where . ' match entry ' . $match_int;
 					if ( !is_plain_hashref($match) || !defined( $match->{field} ) || !defined( $match->{regexp} ) ) {
 						die( $match_where . ' is not a hash with a field and a regexp' );
@@ -278,12 +277,10 @@ sub new {
 							'entry' => $self->_compile_tokened_regexp( $match->{regexp}, $match_where ),
 						}
 					);
-					$match_int++;
-				} ## end foreach my $match ( @{ $entry->{match} } )
+				} ## end foreach my ( $match_int, $match ) ( indexed @{ ...})
 			} ## end if ( defined( $entry->{match} ) )
 			push( @{ $self->{captures} }, $compiled );
-			$entry_int++;
-		} ## end foreach my $entry ( @{ $def->{capture} } )
+		} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
 	} ## end if ( defined( $def->{capture} ) )
 
 	if ( defined( $def->{key} ) ) {
@@ -486,8 +483,7 @@ sub check {
 	if ( $tracked_pass && $self->_boolean_pass( $gate_fields, undef ) ) {
 		my $matched;
 		my $caps = {};
-		foreach my $entry_int ( 0 .. $#{ $self->{matches} } ) {
-			my $match      = $self->{matches}[$entry_int];
+		foreach my ( $entry_int, $match ) ( indexed @{ $self->{matches} } ) {
 			my $match_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
 			if ( defined($match_caps) ) {
 				$matched = $entry_int;

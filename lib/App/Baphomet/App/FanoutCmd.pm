@@ -1,10 +1,11 @@
 package App::Baphomet::App::FanoutCmd;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util     qw( is_plain_hashref );
-use Exporter     qw( import );
+use Exporter      qw( import );
 use JSON::MaybeXS ();
 
 our @EXPORT_OK = qw( fanout_validate_args fanout_execute );

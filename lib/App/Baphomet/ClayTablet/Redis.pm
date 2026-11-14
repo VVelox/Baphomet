@@ -1,8 +1,9 @@
 package App::Baphomet::ClayTablet::Redis;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util                       qw( is_plain_arrayref is_plain_hashref );
 use Sys::Hostname                   ();
 use App::Baphomet::ClayTablet::File ();
@@ -145,9 +146,10 @@ sub new {
 		);
 	}
 
-	eval { require Redis::Fast; };
-	if ($@) {
-		die( 'the ClayTablet redis backend needs Redis::Fast, which is not installed... ' . $@ );
+	try {
+		require Redis::Fast;
+	} catch ($caught) {
+		die( 'the ClayTablet redis backend needs Redis::Fast, which is not installed... ' . $caught );
 	}
 
 	# fast-fail connect args... reconnect 0 and a short cnx_timeout so
@@ -222,14 +224,13 @@ sub _ensure_redis {
 	}
 	$self->{last_connect_try} = $now;
 
-	eval {
+	try {
 		$self->{redis} = Redis::Fast->new( %{ $self->{redis_args} } );
 		if ( defined( $self->{options}{db} ) ) {
 			$self->{redis}->select( $self->{options}{db} );
 		}
-	};
-	if ($@) {
-		$self->{connect_error} = $@;
+	} catch ($caught) {
+		$self->{connect_error} = $caught;
 		$self->{redis}         = undef;
 		return 0;
 	}
@@ -350,16 +351,16 @@ sub write {
 		return 0;
 	}
 	my $key = $self->_key($kind);
-	eval {
+	try {
 		if ( @{$lines} ) {
 			$self->{redis}->set( $key, join( "\n", @{$lines} ) . "\n" );
 		} else {
 			$self->{redis}->del($key);
 		}
-	};
-	if ($@) {
+	} catch ($caught) {
 		$self->{redis} = undef;
-		log_drek( 'err', 'writing the ' . $kind . ' tablet "' . $key . '" failed... ' . $@, undef, $self->{log_tag} );
+		log_drek( 'err', 'writing the ' . $kind . ' tablet "' . $key . '" failed... ' . $caught,
+			undef, $self->{log_tag} );
 		return 0;
 	}
 
@@ -387,10 +388,12 @@ sub read {
 	}
 	my $key = $self->_key($kind);
 	my $blob;
-	eval { $blob = $self->{redis}->get($key); };
-	if ($@) {
+	try {
+		$blob = $self->{redis}->get($key);
+	} catch ($caught) {
 		$self->{redis} = undef;
-		log_drek( 'err', 'reading the ' . $kind . ' tablet "' . $key . '" failed... ' . $@, undef, $self->{log_tag} );
+		log_drek( 'err', 'reading the ' . $kind . ' tablet "' . $key . '" failed... ' . $caught,
+			undef, $self->{log_tag} );
 		return ();
 	}
 	if ( !defined($blob) || $blob eq '' ) {
@@ -545,10 +548,11 @@ sub mark_drain {
 
 	my $stream = $self->_marklog_key;
 	my $reply;
-	eval { $reply = $self->{redis}->xread( 'COUNT', 1000, 'STREAMS', $stream, $last_id ); };
-	if ($@) {
+	try {
+		$reply = $self->{redis}->xread( 'COUNT', 1000, 'STREAMS', $stream, $last_id );
+	} catch ($caught) {
 		$self->{redis} = undef;
-		log_drek( 'err', 'draining the mark stream "' . $stream . '" failed... ' . $@, undef, $self->{log_tag} );
+		log_drek( 'err', 'draining the mark stream "' . $stream . '" failed... ' . $caught, undef, $self->{log_tag} );
 		return ( [], $last_id );
 	}
 	if ( !is_plain_arrayref($reply) ) {

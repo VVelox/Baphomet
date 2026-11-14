@@ -1,8 +1,9 @@
 package App::Baphomet::Rules::HTTP;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
@@ -171,9 +172,10 @@ sub new {
 			}
 			my $regexp = $entry->{regexp};
 			my $compiled;
-			eval { $compiled = qr/$regexp/; };
-			if ($@) {
-				die( $where . ', "' . $regexp . '", does not compile... ' . $@ );
+			try {
+				$compiled = qr/$regexp/;
+			} catch ($caught) {
+				die( $where . ', "' . $regexp . '", does not compile... ' . $caught );
 			}
 			return { 'field' => $entry->{field}, 'regexp' => $compiled };
 		}
@@ -234,8 +236,7 @@ sub check {
 	# with match entries the first to match makes the offense, else the gates
 	# alone did
 	my $matched;
-	foreach my $entry_int ( 0 .. $#{ $self->{matches} } ) {
-		my $match = $self->{matches}[$entry_int];
+	foreach my ( $entry_int, $match ) ( indexed @{ $self->{matches} } ) {
 		my $value = $parsed->{ $match->{field} };
 		if ( defined($value) && $value =~ $match->{regexp} ) {
 			$matched = $entry_int;

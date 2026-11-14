@@ -1,8 +1,9 @@
 package App::Baphomet::Primitives;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util     qw( is_plain_hashref );
 use JSON::MaybeXS ();
 use Path::Tiny    qw( path );
@@ -82,7 +83,7 @@ sub configure {
 	}
 
 	return;
-} ## end sub configure
+}
 
 =head2 primitives
 
@@ -231,9 +232,8 @@ sub _write_cache {
 	my $path = $cache_dir . '/' . $cache_file;
 	# utf8-encode to bytes and write raw, so a fragment carrying a non-ASCII
 	# character (MONTH's ä) round-trips through the read
-	my $text = eval {
-		JSON::MaybeXS->new->canonical->utf8->encode( { 'signature' => $signature, 'primitives' => $map } );
-	};
+	my $text
+		= eval { JSON::MaybeXS->new->canonical->utf8->encode( { 'signature' => $signature, 'primitives' => $map } ); };
 	if ( !defined($text) ) {
 		return;
 	}

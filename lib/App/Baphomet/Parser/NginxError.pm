@@ -1,8 +1,9 @@
 package App::Baphomet::Parser::NginxError;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 
 =pod
 
@@ -156,8 +157,8 @@ sub parse {
 					$parsed->{$key} = $+{$key};
 				}
 				$message = substr( $rest, 0, $start );
-			}
-		}
+			} ## end if ( $tail =~ /^ )
+		} ## end if ( $start >= 0 )
 
 		$parsed->{message} = $message;
 

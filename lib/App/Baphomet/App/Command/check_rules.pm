@@ -1,8 +1,9 @@
 package App::Baphomet::App::Command::check_rules;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use App::Baphomet::App -command;
 use App::Baphomet::Config qw( load_config );
@@ -46,7 +47,7 @@ sub description {
 		. 'shipped rules, which in a source checkout is the INSTALLED copy and not the '
 		. 'tree; the dir every rule came from is named in the summary, and per rule under '
 		. '--verbose. Use --file to check a path outright and leave resolving out of it.';
-}
+} ## end sub description
 
 sub usage_desc { return '%c check_rules %o [rule ...]'; }
 
@@ -74,12 +75,13 @@ sub execute {
 		}
 		push(
 			@todo,
-			{   'name'     => $name,
+			{
+				'name'     => $name,
 				'rules'    => App::Baphomet::Rules->new( 'rules_dir' => $dir, 'shipped' => 0 ),
 				'isolated' => 1,
 			}
 		);
-	}
+	} ## end foreach my $path ( @{ $opt->file || [] } )
 
 	# Named rules, or no --file at all, need the ordinary resolver. It is only
 	# built then, since building it needs a usable rules dir and a run that
@@ -103,11 +105,12 @@ sub execute {
 		} else {
 			my $config = load_config( $opt->config );
 			$rules
-				= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
+				= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir},
+					'groups_dir' => $config->{groups_dir} );
 		}
 		@names = @names ? $rules->expand_rules(@names) : $rules->rule_names;
 		push( @todo, map { { 'name' => $_, 'rules' => $rules, 'isolated' => $isolated } } @names );
-	}
+	} ## end if ( @names || !@todo )
 
 	if ( !@todo ) {
 		die("No rules found to check\n");
@@ -124,9 +127,11 @@ sub execute {
 		my $path = $resolver->rule_path($name);
 		$from{ defined($path) ? _dir_of( $path, $name ) : 'unresolved' }++;
 
-		my $rule = eval { $resolver->load( $name, skip_tests => 1 ); };
-		if ($@) {
-			print $name . ' ... failed to load... ' . $@;
+		my $rule;
+		try {
+			$rule = $resolver->load( $name, skip_tests => 1 );
+		} catch ($caught) {
+			print $name . ' ... failed to load... ' . $caught;
 			$failed++;
 			next;
 		}
@@ -156,7 +161,7 @@ sub execute {
 		} ## end if ( $opt->verbose )
 
 		my $results = $rule->run_tests;
-		my $lead = $opt->verbose ? '    result    ' : $name . ' ... ';
+		my $lead    = $opt->verbose ? '    result    ' : $name . ' ... ';
 
 		# a warning is a question about the rule, not a verdict on it... printed
 		# whatever the result, and never counted against the exit
@@ -167,8 +172,7 @@ sub execute {
 
 		if ( $results->{fail} ) {
 			print $lead
-				. $results->{fail}
-				. ' of '
+				. $results->{fail} . ' of '
 				. ( $results->{pass} + $results->{fail} )
 				. " tests failed...\n    "
 				. join( "\n    ", @{ $results->{failures} } ) . "\n";

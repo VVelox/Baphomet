@@ -1,8 +1,9 @@
 package App::Baphomet::Config;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util     qw( is_plain_arrayref is_plain_coderef is_plain_hashref );
 use Exporter      qw( import );
 use Net::Patricia ();
@@ -1301,7 +1302,7 @@ sub ip_network {
 	my ( $whole_bytes, $mask ) = _prefix_split($prefix);
 	my $masked = substr( $packed, 0, $whole_bytes );
 	if ( defined($mask) ) {
-		$masked .= ( substr( $packed, $whole_bytes, 1 ) & $mask );
+		$masked .= ( substr( $packed, $whole_bytes, 1 ) &. $mask );
 	}
 	$masked .= "\0" x ( length($packed) - length($masked) );
 
@@ -1395,8 +1396,9 @@ sub watcher_journal {
 The shared startup step of the baphomet and galla bins... with foreground
 set, just chisels the current PID into the passed PID file, as something
 else is supervising. Else daemonizes via L<Net::Server::Daemonize> as the
-current user and group, writing the PID file along the way. Dies on a PID
-file that can not be written.
+current user and group, writing the PID file along the way. Either way a PID
+file naming a process that is still alive is fatal, while a stale one is
+warned of and overwritten. Dies on a PID file that can not be written.
 
     pidfile_or_daemonize( $pid_path, $foreground );
 
@@ -1405,16 +1407,18 @@ file that can not be written.
 sub pidfile_or_daemonize {
 	my ( $pid_path, $foreground ) = @_;
 
+	# only the two entry points ever get here, so the dep loads lazily
+	require Net::Server::Daemonize;
+
+	# create_pid_file makes the same check daemonize does before it writes...
+	# a file naming a live process is fatal and a stale one is overwritten,
+	# so a second foreground start can not quietly take over the PID file of
+	# the one still running
 	if ($foreground) {
-		eval { path($pid_path)->spew($$); };
-		if ($@) {
-			die( 'Failed to write the PID file "' . $pid_path . '"... ' . $@ );
-		}
+		Net::Server::Daemonize::create_pid_file($pid_path);
 		return;
 	}
 
-	# only the two entry points ever daemonize, so the dep loads lazily
-	require Net::Server::Daemonize;
 	Net::Server::Daemonize::daemonize( $>, ( split( /\s+/, $) ) )[0], $pid_path );
 
 	return;
@@ -1495,9 +1499,10 @@ sub watcher_join {
 		die( $where . 'has a join lacking a continuation regexp string' );
 	}
 	my $continuation;
-	eval { $continuation = qr/$join->{continuation}/; };
-	if ($@) {
-		die( $where . 'has a join continuation that does not compile... ' . $@ );
+	try {
+		$continuation = qr/$join->{continuation}/;
+	} catch ($caught) {
+		die( $where . 'has a join continuation that does not compile... ' . $caught );
 	}
 	foreach my $key ( 'max_lines', 'flush_after' ) {
 		if ( defined( $join->{$key} ) && !_is_positive_int( $join->{$key} ) ) {
@@ -1772,8 +1777,7 @@ sub resolve_active_time {
 	my $resolved = {};
 	foreach my $level ( $config, $kur_settings, $watcher ) {
 		if ( defined($level) && is_plain_hashref( $level->{active_time} ) ) {
-			foreach my $name ( keys( %{ $level->{active_time} } ) ) {
-				my $window = $level->{active_time}{$name};
+			foreach my ( $name, $window ) ( %{ $level->{active_time} } ) {
 				$resolved->{$name} = [ is_plain_arrayref($window) ? @{$window} : ($window) ];
 			}
 		}

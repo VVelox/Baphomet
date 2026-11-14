@@ -1,8 +1,9 @@
 package App::Baphomet::App::Command::ledger;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use App::Baphomet::App -command;
 use App::Baphomet::Config qw( load_config );
 use JSON::MaybeXS         ();
@@ -99,9 +100,11 @@ sub execute {
 
 	my @entries;
 	if ( -f $path ) {
-		my @lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
-		if ($@) {
-			die( 'opening the ledger "' . $path . '" failed... ' . $@ );
+		my @lines;
+		try {
+			@lines = path($path)->lines( { 'chomp' => 1 } );
+		} catch ($caught) {
+			die( 'opening the ledger "' . $path . '" failed... ' . $caught );
 		}
 		foreach my $line (@lines) {
 			my $entry = _parse_row($line);

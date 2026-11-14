@@ -1,8 +1,9 @@
 package App::Baphomet::Rules::Syslog;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'App::Baphomet::Rules::Base';
 
@@ -348,8 +349,7 @@ sub new {
 	# something, else it would regard every line it decodes as a offense
 	if ( ( $self->{message_json} || @{ $self->{mungers} } ) && !@{ $self->{regexps} } && !$self->{has_boolean} ) {
 		die(      'The rule "'
-				. $name
-				. '" is '
+				. $name . '" is '
 				. ( $self->{message_json} ? 'message_json' : 'munger driven' )
 				. ' with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
 	}

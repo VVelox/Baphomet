@@ -1,8 +1,9 @@
 package App::Baphomet::App::Command::lnms_f2b_extend;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use App::Baphomet::App -command;
 use JSON::MaybeXS      ();
@@ -121,13 +122,12 @@ sub execute {
 	# extend, so LibreNMS records the fault rather than choking
 	my %tallies;
 	my ( $error, $error_string ) = ( 0, '' );
-	eval {
+	try {
 		my $banished = $self->app->manager_call('banished');
 		%tallies = _tallies_from_banished($banished);
-	};
-	if ($@) {
+	} catch ($caught) {
 		$error        = 1;
-		$error_string = 'asking the manager for the banished lists failed... ' . $@;
+		$error_string = 'asking the manager for the banished lists failed... ' . $caught;
 		$error_string =~ s/\s+\z//;
 		%tallies = ();
 	}
@@ -172,8 +172,7 @@ sub _tallies_from_banished {
 			$tallies{$kur} = scalar( @{ $entry->{banned} } );
 		} elsif ( is_plain_hashref( $entry->{members} ) ) {
 			my %union;
-			foreach my $member ( keys( %{ $entry->{members} } ) ) {
-				my $held = $entry->{members}{$member};
+			foreach my $held ( values( %{ $entry->{members} } ) ) {
 				if ( is_plain_arrayref( $held->{banned} ) ) {
 					foreach my $ip ( @{ $held->{banned} } ) {
 						$union{$ip} = 1;
@@ -184,7 +183,7 @@ sub _tallies_from_banished {
 		} else {
 			$tallies{$kur} = 0;
 		}
-	} ## end foreach my $kur ( keys( %{$kurs...}))
+	} ## end foreach my $kur ( keys( %{$kurs} ) )
 
 	return %tallies;
 } ## end sub _tallies_from_banished

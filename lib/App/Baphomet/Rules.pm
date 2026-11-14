@@ -1,8 +1,9 @@
 package App::Baphomet::Rules;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util                       qw( is_plain_hashref );
 use File::ShareDir                  ();
 use Path::Tiny                      qw( path );
@@ -233,9 +234,10 @@ sub load {
 	}
 
 	my $def;
-	eval { $def = YAML::XS::LoadFile($path); };
-	if ($@) {
-		die( 'Failed to parse the rule "' . $name . '", "' . $path . '"... ' . $@ );
+	try {
+		$def = YAML::XS::LoadFile($path);
+	} catch ($caught) {
+		die( 'Failed to parse the rule "' . $name . '", "' . $path . '"... ' . $caught );
 	}
 	if ( !is_plain_hashref($def) ) {
 		die( 'The rule "' . $name . '", "' . $path . '", did not parse to a hash' );
@@ -388,17 +390,23 @@ sub group_members {
 
 	my $path = $self->group_path($name);
 	if ( !defined($path) ) {
-		die(      'The group "'
+		die(
+				  'The group "'
 				. $name
 				. '" does not exist under any of the groups dirs... '
-				. ( @{ $self->{groups_dirs} }
-				? join( ', ', map { '"' . $_ . '"' } @{ $self->{groups_dirs} } )
-				: 'none are configured or shipped' ) );
-	}
+				. (
+					@{ $self->{groups_dirs} }
+					? join( ', ', map { '"' . $_ . '"' } @{ $self->{groups_dirs} } )
+					: 'none are configured or shipped'
+				)
+		);
+	} ## end if ( !defined($path) )
 
-	my @lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
-	if ($@) {
-		die( 'Failed to open the group "' . $name . '", "' . $path . '"... ' . $@ );
+	my @lines;
+	try {
+		@lines = path($path)->lines( { 'chomp' => 1 } );
+	} catch ($caught) {
+		die( 'Failed to open the group "' . $name . '", "' . $path . '"... ' . $caught );
 	}
 	my @members;
 	foreach my $line (@lines) {
@@ -411,7 +419,7 @@ sub group_members {
 					. '", has the invalid rule "'
 					. $line
 					. '"... should be like "syslog/sshd"' );
-		} ## end if ( !is_rule_name($line) )
+		}
 		push( @members, $line );
 	} ## end foreach my $line (@lines)
 
@@ -450,7 +458,7 @@ sub expand_rules {
 			@names = ($entry);
 		}
 		foreach my $name (@names) {
-			next if ( defined($name) && $seen{$name} );
+			next             if ( defined($name) && $seen{$name} );
 			$seen{$name} = 1 if defined($name);
 			push( @expanded, $name );
 		}

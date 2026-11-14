@@ -1,8 +1,9 @@
 package App::Baphomet::Galla;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util qw( is_plain_arrayref is_plain_hashref );
 use base 'Error::Helper';
 use POE                                      qw( Wheel::FollowTail Wheel::Run );
@@ -10,7 +11,7 @@ use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
 use File::Spec                               ();
-use List::Util                               qw( max min sum0 uniqstr );
+use List::Util                               qw( any max mesh min sum0 uniqstr );
 use Path::Tiny                               qw( path );
 use Text::CSV_XS                             ();
 use JSON::MaybeXS                            qw( encode_json decode_json );
@@ -44,15 +45,16 @@ Version 0.0.1
 
 our $VERSION = '0.0.1';
 
-# the CSV writer and reader for the ledger and the positions and cursors
-# tablets... quotes a field only when it holds a comma or a quote, as
-# _ledger_fold splits the leading epoch,kur,ip on bare commas and the ledger
-# command expects that same plain form. all three are read line-wise, so a
-# newline is stripped from a field before it is written rather than quoted
+# the CSV writer and reader for the ledger and every CSV tablet... the
+# counters, subnet, pending, positions, and cursors. quotes a field only when
+# it holds a comma or a quote, so a row with neither is the same plain form
+# the tablets and the ledger have always held. no eol is set, as a tablet is
+# handed to its backend as a list of bare lines, so the ledger write adds its
+# own newline. all of them are read line-wise, so a newline is stripped from a
+# field before it is written rather than quoted
 my $csv = Text::CSV_XS->new(
 	{
 		'binary'       => 1,
-		'eol'          => "\n",
 		'quote_space'  => 0,
 		'quote_binary' => 0,
 	}
@@ -184,11 +186,12 @@ sub new {
 	$self->{name} = $opts{name};
 
 	my $config;
-	eval { $config = load_config( $self->{config} ); };
-	if ($@) {
+	try {
+		$config = load_config( $self->{config} );
+	} catch ($caught) {
 		$self->{perror}      = 1;
 		$self->{error}       = 1;
-		$self->{errorString} = $@;
+		$self->{errorString} = $caught;
 		$self->warn;
 	}
 	$self->{run_base_dir}      = $config->{run_base_dir};
@@ -236,11 +239,12 @@ sub new {
 	}
 
 	my $def = $config->{kur}{ $self->{name} };
-	eval { check_kur_def( $self->{name}, $def ); };
-	if ($@) {
+	try {
+		check_kur_def( $self->{name}, $def );
+	} catch ($caught) {
 		$self->{perror}      = 1;
 		$self->{error}       = 3;
-		$self->{errorString} = $@;
+		$self->{errorString} = $caught;
 		$self->warn;
 	}
 
@@ -287,19 +291,20 @@ sub new {
 	# ClayTablet config... the file backend, the default, is the current
 	# on-disk system and defaults its base dir to tablet_base_dir. an
 	# unusable backend or store is a fatal startup error, like a bad run dir
-	eval {
+	try {
 		$self->{tablet} = App::Baphomet::ClayTablet->new(
 			'config'          => $config->{ClayTablet},
 			'name'            => $self->{name},
 			'tablet_base_dir' => $self->{tablet_base_dir},
 		);
-	};
-	if ($@) {
+	} catch ($caught) {
 		$self->{perror}      = 1;
 		$self->{error}       = 7;
-		$self->{errorString} = $@;
+		$self->{errorString} = $caught;
 		$self->warn;
-	} else {
+	}
+	# only a backend that stood up has a store to verify
+	if ( defined( $self->{tablet} ) ) {
 		my $tablet_error = $self->{tablet}->verify;
 		if ( defined($tablet_error) ) {
 			$self->{perror}      = 1;
@@ -310,7 +315,7 @@ sub new {
 		# whether the store carries a fleet mark sync bus... the galla then
 		# publishes brands to it and drains the fleet's into its own marks
 		$self->{mark_sync} = $self->{tablet}->mark_sync;
-	} ## end else [ if ($@) ]
+	} ## end if ( defined( $self->{tablet} ) )
 
 	# make the EVE log's dir when enabled, so a first write does not fail
 	# just for a missing dir... a unwritable one is only logged, as
@@ -326,14 +331,13 @@ sub new {
 	# restart or a sibling galla reads the cache instead of re-parsing
 	App::Baphomet::Primitives::configure( 'cache_dir' => $self->{tablet_base_dir} );
 
-	eval {
+	try {
 		$self->{rules}
 			= App::Baphomet::Rules->new( 'rules_dir' => $config->{rules_dir}, 'groups_dir' => $config->{groups_dir} );
-	};
-	if ($@) {
+	} catch ($caught) {
 		$self->{perror}      = 1;
 		$self->{error}       = 6;
-		$self->{errorString} = $@;
+		$self->{errorString} = $caught;
 		$self->warn;
 	}
 
@@ -347,25 +351,31 @@ sub new {
 		# ahead of loading, deduped and in order... a unresolvable group or a
 		# bad member dies loudly here, the same as a bad rule does below
 		my @rule_names;
-		eval { @rule_names = $self->{rules}->expand_rules( watcher_rules($watcher) ); };
-		if ($@) {
+		try {
+			@rule_names = $self->{rules}->expand_rules( watcher_rules($watcher) );
+		} catch ($caught) {
 			$self->{perror}      = 1;
 			$self->{error}       = 6;
-			$self->{errorString} = 'Failed to expand the rules for the watcher "' . $watcher_name . '"... ' . $@;
+			$self->{errorString} = 'Failed to expand the rules for the watcher "' . $watcher_name . '"... ' . $caught;
 			$self->warn;
 		}
 
 		my @rule_objs;
 		foreach my $rule_name (@rule_names) {
 			my $rule;
-			eval { $rule = $self->{rules}->load($rule_name); };
-			if ($@) {
+			try {
+				$rule = $self->{rules}->load($rule_name);
+			} catch ($caught) {
 				$self->{perror} = 1;
 				$self->{error}  = 6;
 				$self->{errorString}
-					= 'Failed to load the rule "' . $rule_name . '" for the watcher "' . $watcher_name . '"... ' . $@;
+					= 'Failed to load the rule "'
+					. $rule_name
+					. '" for the watcher "'
+					. $watcher_name . '"... '
+					. $caught;
 				$self->warn;
-			}
+			} ## end catch ($caught)
 
 			# check_kur_def already vetted the type/parser pairing of the
 			# explicit rules, but a rule pulled in through a %group% never
@@ -409,15 +419,14 @@ sub new {
 			my ( $country_gate, $namtar_gate, $active_gate );
 			if ( defined($rule_obj) ) {
 				my $where = 'The rule "' . $rule_names[$rule_int] . '" of the watcher "' . $watcher_name . '"';
-				eval {
+				try {
 					$country_gate = $self->_resolve_country_gate( $rule_obj, $watcher_country_codes, $where );
 					$namtar_gate  = $self->_resolve_namtar_gate( $rule_obj, $watcher_namtar_lists, $where );
 					$active_gate  = $self->_resolve_active_time_gate( $rule_obj, $watcher_active_time, $where );
-				};
-				if ($@) {
+				} catch ($caught) {
 					$self->{perror}      = 1;
 					$self->{error}       = 6;
-					$self->{errorString} = $@;
+					$self->{errorString} = $caught;
 					$self->warn;
 				}
 			} ## end if ( defined($rule_obj) )
@@ -429,11 +438,12 @@ sub new {
 		# the joiner, compiled... check_kur_def already vetted it, so a die
 		# here is the same config error it already flagged
 		my $join_compiled;
-		eval { $join_compiled = watcher_join($watcher); };
-		if ($@) {
+		try {
+			$join_compiled = watcher_join($watcher);
+		} catch ($caught) {
 			$self->{perror}      = 1;
 			$self->{error}       = 3;
-			$self->{errorString} = $@;
+			$self->{errorString} = $caught;
 			$self->warn;
 		}
 
@@ -492,7 +502,7 @@ sub new {
 			}
 		} ## end foreach my $rule_obj ( grep { defined($_) } @{ ...})
 
-		if ( grep { defined($_) } @{ $built->{country_gates} } ) {
+		if ( any { defined($_) } @{ $built->{country_gates} } ) {
 			$country_gated = 1;
 		}
 
@@ -587,11 +597,12 @@ sub new {
 	# across rules), so a bad munger is caught at startup, named loudly, and
 	# refuses the galla rather than dying mid-line later
 	foreach my $set ( sort keys(%munge_reps) ) {
-		eval { $munge_reps{$set}->_munge_processor; };
-		if ($@) {
+		try {
+			$munge_reps{$set}->_munge_processor;
+		} catch ($caught) {
 			$self->{perror}      = 1;
 			$self->{error}       = 6;
-			$self->{errorString} = 'the mungers (' . $set . ') could not be loaded... ' . $@;
+			$self->{errorString} = 'the mungers (' . $set . ') could not be loaded... ' . $caught;
 			log_drek( 'err', $self->{errorString}, undef, 'galla-' . $self->{name} );
 			$self->warn;
 		}
@@ -670,39 +681,6 @@ sub state_path {
 	return $self->{tablet}->locator($kind);
 }
 
-# builds a tablet's lines by handing $writer a in-memory filehandle to print
-# into, exactly as the old on-disk writer did, then hands the lines to the
-# configured backend... the backend logs and swallows a storage failure, as a
-# failed checkpoint should not take the galla down
-sub _write_tablet {
-	my ( $self, $kind, $writer ) = @_;
-
-	my @lines;
-	eval {
-		my $buf = '';
-		open( my $fh, '>', \$buf ) || die( 'in-memory open failed... ' . $! );
-		$writer->($fh);
-		close($fh);
-		@lines = split( /\n/, $buf );
-	};
-	if ($@) {
-		log_drek( 'err', 'building the ' . $kind . ' tablet failed... ' . $@, undef, 'galla-' . $self->{name} );
-		return;
-	}
-
-	$self->{tablet}->write( $kind, \@lines );
-
-	return;
-} ## end sub _write_tablet
-
-# reads a tablet's lines from the backend, returning them chomped... a missing
-# tablet is just a empty list
-sub _read_tablet {
-	my ( $self, $kind ) = @_;
-
-	return $self->{tablet}->read($kind);
-}
-
 =head2 checkpoint
 
 Writes the state tablets out now... the counters, the distinct-cardinality
@@ -717,208 +695,209 @@ periodically by the sweeper and on stop.
 sub checkpoint {
 	my ($self) = @_;
 
-	my $now = time;
+	my $now   = time;
+	my $ident = 'galla-' . $self->{name};
+
+	# every tablet is built as a list of lines and handed to the backend,
+	# which logs and swallows a storage failure, as a failed checkpoint should
+	# not take the galla down. a entry that will not encode is logged and left
+	# out, so one bad entry costs its own line rather than the whole tablet
 
 	# counters... ip,hit_epoch,weight,rule one row per live hit, rule empty
-	# for the shared bucket and the rule name for a per-rule bucket... rule
-	# names can not hold a comma, so no quoting is needed. the shadow buckets
-	# of observe mode are ephemeral and never chiseled. old three-column rows
-	# without a weight restore fine, weighing 1
-	$self->_write_tablet(
-		'counters',
-		sub {
-			my ($fh) = @_;
-			print $fh "ip,hit,weight,rule\n";
-			foreach my $ip ( sort( keys( %{ $self->{counters} } ) ) ) {
-				foreach my $entry ( @{ $self->{counters}{$ip} } ) {
-					print $fh $ip . ',' . $entry->[0] . ',' . $entry->[1] . ",\n";
-				}
-			}
-			foreach my $rule_name ( sort( keys( %{ $self->{rule_counters} } ) ) ) {
-				foreach my $ip ( sort( keys( %{ $self->{rule_counters}{$rule_name} } ) ) ) {
-					foreach my $entry ( @{ $self->{rule_counters}{$rule_name}{$ip} } ) {
-						print $fh $ip . ',' . $entry->[0] . ',' . $entry->[1] . ',' . $rule_name . "\n";
-					}
-				}
+	# for the shared bucket and the rule name for a per-rule bucket. the
+	# shadow buckets of observe mode are ephemeral and never chiseled. old
+	# three-column rows without a weight restore fine, weighing 1
+	my @counter_lines = ('ip,hit,weight,rule');
+	foreach my $ip ( sort( keys( %{ $self->{counters} } ) ) ) {
+		foreach my $entry ( @{ $self->{counters}{$ip} } ) {
+			$csv->combine( $ip, $entry->[0], $entry->[1], '' );
+			push( @counter_lines, $csv->string );
+		}
+	}
+	foreach my $rule_name ( sort( keys( %{ $self->{rule_counters} } ) ) ) {
+		foreach my $ip ( sort( keys( %{ $self->{rule_counters}{$rule_name} } ) ) ) {
+			foreach my $entry ( @{ $self->{rule_counters}{$rule_name}{$ip} } ) {
+				$csv->combine( $ip, $entry->[0], $entry->[1], $rule_name );
+				push( @counter_lines, $csv->string );
 			}
 		}
-	);
+	}
+	$self->{tablet}->write( 'counters', \@counter_lines );
 
 	# subnet buckets... family,net,hit_epoch,weight,member one row per live
 	# deposit, so a restart resumes a partial subnet count and remembers who
 	# fed it. the family is v4 or v6, the two kept apart. the shadow buckets of
-	# observe mode are ephemeral and never chiseled. the member is last, as a
-	# IPv6 holds no comma but is the one field worth putting at the end anyway
-	$self->_write_tablet(
-		'subnet',
-		sub {
-			my ($fh) = @_;
-			print $fh "family,net,hit,weight,member\n";
-			foreach my $family ( sort( keys( %{ $self->{subnet_counters} } ) ) ) {
-				my $store = $self->{subnet_counters}{$family};
-				foreach my $network ( sort( keys( %{$store} ) ) ) {
-					foreach my $entry ( @{ $store->{$network} } ) {
-						print $fh $family . ','
-							. $network . ','
-							. $entry->[0] . ','
-							. $entry->[1] . ','
-							. ( $entry->[2] // '' ) . "\n";
-					}
-				}
-			} ## end foreach my $family ( sort( keys( %{ $self->{subnet_counters...}})))
+	# observe mode are ephemeral and never chiseled
+	my @subnet_lines = ('family,net,hit,weight,member');
+	foreach my $family ( sort( keys( %{ $self->{subnet_counters} } ) ) ) {
+		my $store = $self->{subnet_counters}{$family};
+		foreach my $network ( sort( keys( %{$store} ) ) ) {
+			foreach my $entry ( @{ $store->{$network} } ) {
+				$csv->combine( $family, $network, $entry->[0], $entry->[1], $entry->[2] // '' );
+				push( @subnet_lines, $csv->string );
+			}
 		}
-	);
+	}
+	$self->{tablet}->write( 'subnet', \@subnet_lines );
 
 	# distinct-cardinality sets... one JSON line per (rule, ip, distinct value)
 	# with the value's newest epoch, so a restart resumes a partial count
-	$self->_write_tablet(
-		'distinct',
-		sub {
-			my ($fh) = @_;
-			foreach my $rule_name ( sort( keys( %{ $self->{distinct_counters} } ) ) ) {
-				foreach my $ip ( sort( keys( %{ $self->{distinct_counters}{$rule_name} } ) ) ) {
-					my $set = $self->{distinct_counters}{$rule_name}{$ip};
-					foreach my $value ( sort( keys( %{$set} ) ) ) {
-						print $fh encode_json(
-							{ 'rule' => $rule_name, 'ip' => $ip, 'value' => $value, 'epoch' => $set->{$value} } )
-							. "\n";
-					}
+	my @distinct_lines;
+	foreach my $rule_name ( sort( keys( %{ $self->{distinct_counters} } ) ) ) {
+		foreach my $ip ( sort( keys( %{ $self->{distinct_counters}{$rule_name} } ) ) ) {
+			my $set = $self->{distinct_counters}{$rule_name}{$ip};
+			foreach my $value ( sort( keys( %{$set} ) ) ) {
+				my $line = eval {
+					encode_json(
+						{ 'rule' => $rule_name, 'ip' => $ip, 'value' => $value, 'epoch' => $set->{$value} } );
+				};
+				if ( !defined($line) ) {
+					log_drek(
+						'err',
+						'encoding a distinct value of "' . $rule_name . '" for the distinct tablet failed... ' . $@,
+						undef,
+						$ident
+					);
+					next;
 				}
-			} ## end foreach my $rule_name ( sort( keys( %{ $self->{...}})))
-		}
-	);
+				push( @distinct_lines, $line );
+			} ## end foreach my $value ( sort( keys( %{$set} ) ) )
+		} ## end foreach my $ip ( sort( keys( %{ $self->{distinct_counters...}})))
+	} ## end foreach my $rule_name ( sort( keys( %{ $self->{...}})))
+	$self->{tablet}->write( 'distinct', \@distinct_lines );
 
 	# pending bans... ip,ban_time, and its CIDR twin net,ban_time, ban_time
 	# empty meaning undef, for bans the manager could not be reached for
 	$self->_write_pending_tablet( 'pending',      'ip',  $self->{pending_bans} );
 	$self->_write_pending_tablet( 'pending_cidr', 'net', $self->{pending_cidr_bans} );
 
-	# log positions... file,inode,offset
-	$self->_write_tablet(
-		'positions',
-		sub {
-			my ($fh) = @_;
-			print $fh "file,inode,offset\n";
-			$self->_snapshot_positions;
-			foreach my $file ( sort( keys( %{ $self->{positions} } ) ) ) {
-				my $pos = $self->{positions}{$file};
-				$csv->print( $fh, [ $file =~ s{[\r\n]}{}gr, $pos->{inode}, $pos->{offset} ] );
-			}
-		}
-	);
+	# log positions... file,inode,offset. the tablets are read line-wise, so
+	# a newline in a path is dropped rather than quoted
+	$self->_snapshot_positions;
+	my @position_lines = ('file,inode,offset');
+	foreach my $file ( sort( keys( %{ $self->{positions} } ) ) ) {
+		my $pos = $self->{positions}{$file};
+		$csv->combine( $file =~ s{[\r\n]}{}gr, $pos->{inode}, $pos->{offset} );
+		push( @position_lines, $csv->string );
+	}
+	$self->{tablet}->write( 'positions', \@position_lines );
 
 	# journal cursors... watcher,cursor, so a restart resumes the journal
-	# just after the last line seen rather than from now
-	$self->_write_tablet(
-		'cursors',
-		sub {
-			my ($fh) = @_;
-			print $fh "watcher,cursor\n";
-			foreach my $watcher_name ( sort( keys( %{ $self->{journal_cursors} } ) ) ) {
-				my $cursor = $self->{journal_cursors}{$watcher_name};
-				if ( defined($cursor) && $cursor ne '' ) {
-					$csv->print( $fh, [ map { s{[\r\n]}{}gr } ( $watcher_name, $cursor ) ] );
-				}
-			}
+	# just after the last line seen rather than from now. a newline is dropped
+	# from either for the same reason as from a position's path
+	my @cursor_lines = ('watcher,cursor');
+	foreach my $watcher_name ( sort( keys( %{ $self->{journal_cursors} } ) ) ) {
+		my $cursor = $self->{journal_cursors}{$watcher_name};
+		if ( defined($cursor) && $cursor ne '' ) {
+			$csv->combine( map { s{[\r\n]}{}gr } ( $watcher_name, $cursor ) );
+			push( @cursor_lines, $csv->string );
 		}
-	);
+	}
+	$self->{tablet}->write( 'cursors', \@cursor_lines );
 
 	# the running stats, one JSON line, so the totals mean since first
-	# loosing rather than since the last respawn
-	$self->_write_tablet(
-		'stats',
-		sub {
-			my ($fh) = @_;
-			print $fh encode_json( $self->{stats} ) . "\n";
-		}
-	);
+	# loosing rather than since the last respawn... stats that will not encode
+	# leave the last good tablet in place rather than writing a empty one
+	my $stats_line = eval { encode_json( $self->{stats} ); };
+	if ( defined($stats_line) ) {
+		$self->{tablet}->write( 'stats', [$stats_line] );
+	} else {
+		log_drek( 'err', 'encoding the stats for the stats tablet failed... ' . $@, undef, $ident );
+	}
 
-	# correlation context, structured so JSON lines... one rule per line
-	$self->_write_tablet(
-		'context',
-		sub {
-			my ($fh) = @_;
-			my %seen;
-			foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
-				my $rules = $self->{watchers}{$watcher_name}{rules};
-				my $objs  = $self->{watchers}{$watcher_name}{rule_objs};
-				for ( my $i = 0; $i < scalar( @{$objs} ); $i++ ) {
-					my $rule_obj  = $objs->[$i];
-					my $rule_name = $rules->[$i];
-					if ( !defined($rule_obj) || $seen{$rule_name} ) {
-						next;
-					}
-					$seen{$rule_name} = 1;
-					my $state = $rule_obj->dump_state;
-					if ( defined($state) ) {
-						print $fh encode_json( { 'rule' => $rule_name, 'state' => $state } ) . "\n";
-					}
-				} ## end for ( my $i = 0; $i < scalar( @{$objs} ); $i...)
-			} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
-		}
-	);
+	# correlation context, structured so JSON lines... one rule per line. a
+	# rule whose state will not dump or encode is left out
+	my @context_lines;
+	my %seen;
+	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
+		my $rules = $self->{watchers}{$watcher_name}{rules};
+		my $objs  = $self->{watchers}{$watcher_name}{rule_objs};
+		foreach my ( $rule_name, $rule_obj ) ( mesh( $rules, $objs ) ) {
+			if ( !defined($rule_obj) || $seen{$rule_name} ) {
+				next;
+			}
+			$seen{$rule_name} = 1;
+			my $line;
+			try {
+				my $state = $rule_obj->dump_state;
+				if ( defined($state) ) {
+					$line = encode_json( { 'rule' => $rule_name, 'state' => $state } );
+				}
+			} catch ($caught) {
+				log_drek( 'err',
+					'dumping the state of "' . $rule_name . '" for the context tablet failed... ' . $caught,
+					undef, $ident );
+				next;
+			}
+			if ( defined($line) ) {
+				push( @context_lines, $line );
+			}
+		} ## end foreach my ( $rule_name, $rule_obj ) ( mesh( $rules...))
+	} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
+	$self->{tablet}->write( 'context', \@context_lines );
 
 	# marks... one JSON line per branded key, name,key,expires and the
 	# stored value when there is one. unlike counters and correlation
 	# these survive a restart by design, as ttls of a week are legitimate
-	$self->_write_tablet(
-		'marks',
-		sub {
-			my ($fh) = @_;
-			foreach my $mark_name ( sort( keys( %{ $self->{marks} } ) ) ) {
-				my $store = $self->{marks}{$mark_name};
-				foreach my $key ( sort( keys( %{$store} ) ) ) {
-					print $fh encode_json(
-						{
-							'name'    => $mark_name,
-							'key'     => $key,
-							'expires' => $store->{$key}{expires},
-							defined( $store->{$key}{set} )  ? ( 'set'   => $store->{$key}{set} )   : (),
-							exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
-						}
-					) . "\n";
-				} ## end foreach my $key ( sort( keys( %{$store} ) ) )
-			} ## end foreach my $mark_name ( sort( keys( %{ $self->{...}})))
-		}
-	);
+	my @mark_lines;
+	foreach my $mark_name ( sort( keys( %{ $self->{marks} } ) ) ) {
+		my $store = $self->{marks}{$mark_name};
+		foreach my $key ( sort( keys( %{$store} ) ) ) {
+			my $line = eval {
+				encode_json(
+					{
+						'name'    => $mark_name,
+						'key'     => $key,
+						'expires' => $store->{$key}{expires},
+						defined( $store->{$key}{set} )  ? ( 'set'   => $store->{$key}{set} )   : (),
+						exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
+					}
+				);
+			};
+			if ( !defined($line) ) {
+				log_drek( 'err', 'encoding a "' . $mark_name . '" mark for the marks tablet failed... ' . $@,
+					undef, $ident );
+				next;
+			}
+			push( @mark_lines, $line );
+		} ## end foreach my $key ( sort( keys( %{$store} ) ) )
+	} ## end foreach my $mark_name ( sort( keys( %{ $self->{...}})))
+	$self->{tablet}->write( 'marks', \@mark_lines );
 
 	# tracked records... one JSON line per key, name,key,expires and the
 	# accumulated fields. these survive a restart by design, a postfix queue
 	# outliving a galla restart being exactly the case the store is for
-	$self->_write_tablet(
-		'tracked',
-		sub {
-			my ($fh) = @_;
-			foreach my $track_name ( sort( keys( %{ $self->{tracked} } ) ) ) {
-				my $store = $self->{tracked}{$track_name};
-				foreach my $key ( sort( keys( %{$store} ) ) ) {
-					print $fh encode_json(
-						{
-							'name'    => $track_name,
-							'key'     => $key,
-							'expires' => $store->{$key}{expires},
-							'fields'  => $store->{$key}{fields},
-						}
-					) . "\n";
-				} ## end foreach my $key ( sort( keys( %{$store} ) ) )
-			} ## end foreach my $track_name ( sort( keys( %{ $self->...})))
-		}
-	);
+	my @tracked_lines;
+	foreach my $track_name ( sort( keys( %{ $self->{tracked} } ) ) ) {
+		my $store = $self->{tracked}{$track_name};
+		foreach my $key ( sort( keys( %{$store} ) ) ) {
+			my $line = eval {
+				encode_json(
+					{
+						'name'    => $track_name,
+						'key'     => $key,
+						'expires' => $store->{$key}{expires},
+						'fields'  => $store->{$key}{fields},
+					}
+				);
+			};
+			if ( !defined($line) ) {
+				log_drek( 'err', 'encoding a "' . $track_name . '" record for the tracked tablet failed... ' . $@,
+					undef, $ident );
+				next;
+			}
+			push( @tracked_lines, $line );
+		} ## end foreach my $key ( sort( keys( %{$store} ) ) )
+	} ## end foreach my $track_name ( sort( keys( %{ $self->...})))
+	$self->{tablet}->write( 'tracked', \@tracked_lines );
 
 	# the mark stream cursor... where the fleet mark bus was last drained to,
 	# so a restart resumes the tail rather than replaying the whole stream.
 	# host-local, like the journal cursors
 	if ( $self->{mark_sync} ) {
-		$self->_write_tablet(
-			'mark_stream',
-			sub {
-				my ($fh) = @_;
-				if ( defined( $self->{mark_stream_id} ) && $self->{mark_stream_id} ne '' ) {
-					print $fh $self->{mark_stream_id} . "\n";
-				}
-			}
-		);
-	} ## end if ( $self->{mark_sync} )
+		my $has_stream_id = defined( $self->{mark_stream_id} ) && $self->{mark_stream_id} ne '';
+		$self->{tablet}->write( 'mark_stream', [ $has_stream_id ? $self->{mark_stream_id} : () ] );
+	}
 
 	# the shared ledger is pruned here rather than per ban, so a busy galla
 	# never pays O(ledger) on the ban path
@@ -935,8 +914,7 @@ sub _snapshot_positions {
 	my ($self) = @_;
 
 	my %wheeled;
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		my $watcher = $self->{watchers}{$watcher_name};
+	foreach my $watcher ( values( %{ $self->{watchers} } ) ) {
 		foreach my $file ( keys( %{ $watcher->{wheels} } ) ) {
 			$wheeled{$file} = 1;
 			my $wheel = $watcher->{wheels}{$file};
@@ -947,7 +925,7 @@ sub _snapshot_positions {
 				$self->{positions}{$file} = { 'inode' => $inode, 'offset' => $offset };
 			}
 		} ## end foreach my $file ( keys( %{ $watcher->{wheels} ...}))
-	} ## end foreach my $watcher_name ( keys( %{ $self->{watchers...}}))
+	} ## end foreach my $watcher ( values( %{ $self->{watchers...}}))
 
 	# a position for a file gone from disk and no longer followed is dead
 	# weight... dated glob logs would otherwise pile up in the tablet forever
@@ -999,14 +977,18 @@ sub _load_counters {
 	# later. a four-field row is the current ip,hit,weight,rule form; a
 	# three-field row is the older ip,hit,rule, its hit weighing 1; rows from
 	# before per-rule thresholds land in the shared bucket like they always
-	# did. split with a limit so a trailing empty rule field is kept
+	# did. a trailing empty rule field parses as a field of its own, so the
+	# two forms are told apart by the field count
 	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet('counters') ) {
+	foreach my $line ( $self->{tablet}->read('counters') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^ip,/ ) || $line eq '' ) {
 			next;
 		}
-		my @field = split( /,/, $line, 4 );
+		if ( !$csv->parse($line) ) {
+			next;
+		}
+		my @field = $csv->fields;
 		my ( $ip, $hit ) = @field[ 0, 1 ];
 		my ( $weight, $rule_name );
 		if ( scalar(@field) >= 4 ) {
@@ -1025,7 +1007,7 @@ sub _load_counters {
 		} else {
 			push( @{ $self->{counters}{$ip} }, [ $hit + 0, $weight + 0 ] );
 		}
-	} ## end foreach my $line ( $self->_read_tablet('counters'...))
+	} ## end foreach my $line ( $self->{tablet}->read('counters'...))
 
 	$self->_prune_restored_counters($now);
 
@@ -1040,12 +1022,15 @@ sub _load_subnet {
 	my ( $self, $now ) = @_;
 
 	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet('subnet') ) {
+	foreach my $line ( $self->{tablet}->read('subnet') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^family,/ ) || $line eq '' ) {
 			next;
 		}
-		my ( $family, $network, $hit, $weight, $member ) = split( /,/, $line, 5 );
+		if ( !$csv->parse($line) ) {
+			next;
+		}
+		my ( $family, $network, $hit, $weight, $member ) = $csv->fields;
 		if ( !defined($family) || ( $family ne 'v4' && $family ne 'v6' ) ) {
 			next;
 		}
@@ -1059,7 +1044,7 @@ sub _load_subnet {
 			@{ $self->{subnet_counters}{$family}{$network} },
 			[ $hit + 0, $weight + 0, ( defined($member) && $member ne '' ? $member : undef ) ]
 		);
-	} ## end foreach my $line ( $self->_read_tablet('subnet'...))
+	} ## end foreach my $line ( $self->{tablet}->read('subnet'...))
 
 	return;
 } ## end sub _load_subnet
@@ -1089,8 +1074,7 @@ sub _prune_restored_counters {
 
 	# the restored subnet buckets, per family... sort each network's deposits
 	# and drop any with nothing recent, the same as the per-IP buckets
-	foreach my $family ( keys( %{ $self->{subnet_counters} } ) ) {
-		my $store = $self->{subnet_counters}{$family};
+	foreach my $store ( values( %{ $self->{subnet_counters} } ) ) {
 		foreach my $network ( keys( %{$store} ) ) {
 			my @sorted = sort { $a->[0] <=> $b->[0] } @{ $store->{$network} };
 			if ( !@sorted || ( $now - $sorted[-1][0] ) > 86400 ) {
@@ -1099,7 +1083,7 @@ sub _prune_restored_counters {
 				$store->{$network} = \@sorted;
 			}
 		}
-	} ## end foreach my $family ( keys( %{ $self->{subnet_counters...}}))
+	} ## end foreach my $store ( values( %{ $self->{subnet_counters...}}))
 
 	return;
 } ## end sub _prune_restored_counters
@@ -1110,7 +1094,7 @@ sub _prune_restored_counters {
 sub _load_distinct {
 	my ( $self, $now ) = @_;
 
-	foreach my $line ( $self->_read_tablet('distinct') ) {
+	foreach my $line ( $self->{tablet}->read('distinct') ) {
 		if ( $line eq '' ) {
 			next;
 		}
@@ -1127,7 +1111,7 @@ sub _load_distinct {
 			next;
 		} ## end if ( !is_plain_hashref($decoded) || !defined...)
 		$self->{distinct_counters}{ $decoded->{rule} }{ $decoded->{ip} }{ $decoded->{value} } = $decoded->{epoch} + 0;
-	} ## end foreach my $line ( $self->_read_tablet('distinct'...))
+	} ## end foreach my $line ( $self->{tablet}->read('distinct'...))
 
 	return;
 } ## end sub _load_distinct
@@ -1138,17 +1122,20 @@ sub _load_pending_tablet {
 	my ( $self, $kind, $key_column, $store ) = @_;
 
 	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet($kind) ) {
+	foreach my $line ( $self->{tablet}->read($kind) ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^\Q$key_column\E,/ ) || $line eq '' ) {
 			next;
 		}
-		my ( $subject, $ban_time ) = split( /,/, $line );
+		if ( !$csv->parse($line) ) {
+			next;
+		}
+		my ( $subject, $ban_time ) = $csv->fields;
 		if ( !defined($subject) || $subject eq '' ) {
 			next;
 		}
 		$store->{$subject} = ( defined($ban_time) && $ban_time =~ /^[0-9]+$/ ) ? $ban_time + 0 : undef;
-	} ## end foreach my $line ( $self->_read_tablet($kind) )
+	} ## end foreach my $line ( $self->{tablet}->read($kind))
 
 	return;
 } ## end sub _load_pending_tablet
@@ -1157,16 +1144,12 @@ sub _load_pending_tablet {
 sub _write_pending_tablet {
 	my ( $self, $kind, $key_column, $store ) = @_;
 
-	$self->_write_tablet(
-		$kind,
-		sub {
-			my ($fh) = @_;
-			print $fh $key_column . ",ban_time\n";
-			foreach my $subject ( sort( keys( %{$store} ) ) ) {
-				print $fh $subject . ',' . ( $store->{$subject} // '' ) . "\n";
-			}
-		}
-	);
+	my @lines = ( $key_column . ',ban_time' );
+	foreach my $subject ( sort( keys( %{$store} ) ) ) {
+		$csv->combine( $subject, $store->{$subject} // '' );
+		push( @lines, $csv->string );
+	}
+	$self->{tablet}->write( $kind, \@lines );
 
 	return;
 } ## end sub _write_pending_tablet
@@ -1176,7 +1159,7 @@ sub _load_positions {
 	my ($self) = @_;
 
 	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet('positions') ) {
+	foreach my $line ( $self->{tablet}->read('positions') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^file,/ ) || $line eq '' ) {
 			next;
@@ -1190,7 +1173,7 @@ sub _load_positions {
 			next;
 		}
 		$self->{positions}{$file} = { 'inode' => $inode + 0, 'offset' => $offset + 0 };
-	} ## end foreach my $line ( $self->_read_tablet('positions'...))
+	} ## end foreach my $line ( $self->{tablet}->read('positions'...))
 
 	return;
 } ## end sub _load_positions
@@ -1201,7 +1184,7 @@ sub _load_cursors {
 	my ($self) = @_;
 
 	my $line_int = 0;
-	foreach my $line ( $self->_read_tablet('cursors') ) {
+	foreach my $line ( $self->{tablet}->read('cursors') ) {
 		$line_int++;
 		if ( ( $line_int == 1 && $line =~ /^watcher,/ ) || $line eq '' ) {
 			next;
@@ -1218,7 +1201,7 @@ sub _load_cursors {
 		{
 			$self->{journal_cursors}{$watcher_name} = $cursor;
 		}
-	} ## end foreach my $line ( $self->_read_tablet('cursors'...))
+	} ## end foreach my $line ( $self->{tablet}->read('cursors'...))
 
 	return;
 } ## end sub _load_cursors
@@ -1228,7 +1211,7 @@ sub _load_cursors {
 sub _load_stats {
 	my ($self) = @_;
 
-	foreach my $line ( $self->_read_tablet('stats') ) {
+	foreach my $line ( $self->{tablet}->read('stats') ) {
 		if ( $line eq '' ) {
 			next;
 		}
@@ -1250,7 +1233,7 @@ sub _load_stats {
 			}
 		} ## end foreach my $key ( keys( %{ $self->{stats} } ) )
 		last;
-	} ## end foreach my $line ( $self->_read_tablet('stats'))
+	} ## end foreach my $line ( $self->{tablet}->read('stats'...))
 
 	return;
 } ## end sub _load_stats
@@ -1259,7 +1242,7 @@ sub _load_stats {
 sub _load_context {
 	my ( $self, $now ) = @_;
 
-	foreach my $line ( $self->_read_tablet('context') ) {
+	foreach my $line ( $self->{tablet}->read('context') ) {
 		if ( $line eq '' ) {
 			next;
 		}
@@ -1273,7 +1256,7 @@ sub _load_context {
 		if ( defined($rule_obj) ) {
 			$rule_obj->restore_state( $decoded->{state}, $now );
 		}
-	} ## end foreach my $line ( $self->_read_tablet('context'...))
+	} ## end foreach my $line ( $self->{tablet}->read('context'...))
 
 	return;
 } ## end sub _load_context
@@ -1282,7 +1265,7 @@ sub _load_context {
 sub _load_marks {
 	my ( $self, $now ) = @_;
 
-	foreach my $line ( $self->_read_tablet('marks') ) {
+	foreach my $line ( $self->{tablet}->read('marks') ) {
 		if ( $line eq '' ) {
 			next;
 		}
@@ -1302,7 +1285,7 @@ sub _load_marks {
 			( defined( $decoded->{set} ) && $decoded->{set} =~ /^[0-9]+$/ ) ? ( 'set'   => $decoded->{set} + 0 ) : (),
 			exists( $decoded->{value} )                                     ? ( 'value' => $decoded->{value} )   : ()
 		};
-	} ## end foreach my $line ( $self->_read_tablet('marks'))
+	} ## end foreach my $line ( $self->{tablet}->read('marks'...))
 
 	return;
 } ## end sub _load_marks
@@ -1313,7 +1296,7 @@ sub _load_marks {
 sub _load_tracked {
 	my ( $self, $now ) = @_;
 
-	foreach my $line ( $self->_read_tablet('tracked') ) {
+	foreach my $line ( $self->{tablet}->read('tracked') ) {
 		if ( $line eq '' ) {
 			next;
 		}
@@ -1333,7 +1316,7 @@ sub _load_tracked {
 			'expires' => $decoded->{expires} + 0,
 			'fields'  => $decoded->{fields},
 		};
-	} ## end foreach my $line ( $self->_read_tablet('tracked'...))
+	} ## end foreach my $line ( $self->{tablet}->read('tracked'...))
 
 	return;
 } ## end sub _load_tracked
@@ -1345,7 +1328,7 @@ sub _load_tracked {
 sub _load_mark_stream {
 	my ($self) = @_;
 
-	foreach my $line ( $self->_read_tablet('mark_stream') ) {
+	foreach my $line ( $self->{tablet}->read('mark_stream') ) {
 		if ( $line ne '' ) {
 			$self->{mark_stream_id} = $line;
 			last;
@@ -1409,22 +1392,22 @@ sub _eve_emit {
 	$record = $self->_eve_utf8($record);
 
 	my $line;
-	eval { $line = encode_json($record); };
-	if ($@) {
-		log_drek( 'err', 'encoding a EVE event failed... ' . $@, undef, 'galla-' . $self->{name} );
+	try {
+		$line = encode_json($record);
+	} catch ($caught) {
+		log_drek( 'err', 'encoding a EVE event failed... ' . $caught, undef, 'galla-' . $self->{name} );
 		return;
 	}
 
 	# open, lock, append, close per event... atomic across the gallas
 	# sharing the one file and correct under a log rotation
-	eval {
+	try {
 		open( my $fh, '>>', $self->{eve_log} ) || die( 'open failed... ' . $! );
 		flock( $fh, LOCK_EX )                  || die( 'lock failed... ' . $! );
 		print $fh $line . "\n";
 		close($fh);
-	};
-	if ($@) {
-		log_drek( 'err', 'writing to the EVE log "' . $self->{eve_log} . '" failed... ' . $@,
+	} catch ($caught) {
+		log_drek( 'err', 'writing to the EVE log "' . $self->{eve_log} . '" failed... ' . $caught,
 			undef, 'galla-' . $self->{name} );
 	}
 
@@ -1852,7 +1835,7 @@ sub _poe_journal_reaped {
 		$watcher->{journal_delay} = 1;
 	}
 	my $delay = $watcher->{journal_delay};
-	$watcher->{journal_delay} = $delay * 2 > 60 ? 60 : $delay * 2;
+	$watcher->{journal_delay} = min( $delay * 2, 60 );
 
 	log_drek( 'err', 'journalctl for the watcher "' . $watcher_name . '" exited, restarting in ' . $delay . ' seconds',
 		undef, 'galla-' . $self->{name} );
@@ -2018,8 +2001,7 @@ sub _poe_stop_tails {
 	# pipeline whole, so a clean stop drops nothing buffered
 	$self->_flush_stale_join_buffers(1);
 
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		my $watcher = $self->{watchers}{$watcher_name};
+	foreach my $watcher ( values( %{ $self->{watchers} } ) ) {
 		$watcher->{wheels} = {};
 		if ( defined( $watcher->{journal_wheel} ) ) {
 			$watcher->{journal_wheel}->kill('TERM');
@@ -2278,8 +2260,7 @@ sub _rule_candidates {
 
 	my @candidates;
 	my $rule_objs = $watcher->{rule_objs};
-	for ( my $rule_int = 0; $rule_int < scalar( @{$rule_objs} ); $rule_int++ ) {
-		my $rule_obj = $rule_objs->[$rule_int];
+	foreach my ( $rule_int, $rule_obj ) ( indexed @{$rule_objs} ) {
 		if ( !defined($rule_obj) ) {
 			next;
 		}
@@ -2301,7 +2282,7 @@ sub _rule_candidates {
 		if ( !defined($pinned) || ( defined($value) && $pinned->{$value} ) ) {
 			push( @candidates, $rule_int );
 		}
-	} ## end for ( my $rule_int = 0; $rule_int < scalar(...))
+	} ## end foreach my ( $rule_int, $rule_obj ) ( indexed @...)
 
 	if ( scalar( keys( %{ $watcher->{rule_index} } ) ) >= $rule_index_max ) {
 		$watcher->{rule_index} = {};
@@ -2498,14 +2479,7 @@ sub _process_record {
 			# two names resolving to it, walk it one step toward the threshold
 			# and not two. both vars then read the one bucket and report the
 			# one score
-			my @offenders;
-			my %offender_seen;
-			foreach my $subject (@subjects) {
-				if ( $offender_seen{ $subject->{value} }++ ) {
-					next;
-				}
-				push( @offenders, $subject->{value} );
-			}
+			my @offenders = uniqstr( map { $_->{value} } @subjects );
 
 			# what each var named, and what each is worth once counted... read
 			# by _eve_fields into subject_vars and subject_vars_scores. the
@@ -2902,7 +2876,7 @@ sub _open_dns {
 	my ($self) = @_;
 
 	$self->{dns_error} = undef;
-	eval {
+	try {
 		require Net::DNS::Resolver;
 		my $resolver = Net::DNS::Resolver->new(
 			'udp_timeout' => $self->{usedns_timeout},
@@ -2932,9 +2906,8 @@ sub _open_dns {
 			}
 			return \@addrs;
 		}; ## end sub
-	};
-	if ($@) {
-		$self->{dns_error} = $@;
+	} catch ($caught) {
+		$self->{dns_error} = $caught;
 	}
 
 	return;
@@ -2950,7 +2923,7 @@ sub _open_rdns {
 	my ($self) = @_;
 
 	$self->{rdns_error} = undef;
-	eval {
+	try {
 		require Net::DNS::Resolver;
 		my $resolver = Net::DNS::Resolver->new(
 			'udp_timeout' => $self->{rdns_timeout},
@@ -2983,9 +2956,8 @@ sub _open_rdns {
 			my ($hostname) = @_;
 			return $ask->( $hostname, 'A', 'AAAA' );
 		};
-	};
-	if ($@) {
-		$self->{rdns_error} = $@;
+	} catch ($caught) {
+		$self->{rdns_error} = $caught;
 	}
 
 	return;
@@ -3108,12 +3080,11 @@ sub _open_geoip {
 		return;
 	}
 
-	eval {
+	try {
 		require IP::Geolocation::MMDB;
 		$self->{geoip} = IP::Geolocation::MMDB->new( 'file' => $path );
-	};
-	if ($@) {
-		$self->{geoip_error} = $@;
+	} catch ($caught) {
+		$self->{geoip_error} = $caught;
 		$self->{geoip_error} =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*$//;
 	}
 
@@ -3361,9 +3332,10 @@ sub _load_namtar_file {
 			$set->{ $nocase ? lc($line) : $line } = 1;
 		}
 	} else {
-		eval { $set = compile_ignore_ips( \@lines, 'namtar list "' . $path . '"' ); };
-		if ($@) {
-			log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $@,
+		try {
+			$set = compile_ignore_ips( \@lines, 'namtar list "' . $path . '"' );
+		} catch ($caught) {
+			log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $caught,
 				undef, 'galla-' . $self->{name} );
 			$set = compile_ignore_ips( [] );
 		}
@@ -4833,54 +4805,49 @@ sub _kur_call {
 		}
 		return 'unknown error';
 	};
-	my $answered = sub {
-		my ($response) = @_;
-		if ( $is_ok->($response) ) {
-			$done->(undef);
-			return 1;
-		}
-		return 0;
-	};
 
-	$client->call(
-		'command'  => $command,
-		'args'     => $args,
-		'callback' => sub {
-			my ($response) = @_;
-			if ( $answered->($response) ) {
-				return;
-			}
-			my $error = $error_of->($response);
-			if ( $error !~ /^authentication required/ ) {
-				$done->($error);
-				return;
-			}
-			# auth state lives on the connection, so challenge and resend
-			$client->authenticate(
-				'callback' => sub {
-					my ($verdict) = @_;
-					if ( !$is_ok->($verdict) ) {
-						$done->( 'authentication failed... ' . $error_of->($verdict) );
-						return;
-					}
-					$client->call(
-						'command'  => $command,
-						'args'     => $args,
-						'callback' => sub {
-							my ($again) = @_;
-							if ( $answered->($again) ) {
-								return;
-							}
-							$done->( $error_of->($again) );
-							return;
-						},
-					);
+	# sends the command, and on a answer of authentication required runs the
+	# challenge and then sends itself the once more. auth state lives on the
+	# connection, so one challenge is all a connection needs, and the resend
+	# passes $may_authenticate false so a manager that goes on demanding
+	# authentication is answered with its error rather than looped on
+	my $send = sub {
+		my ($may_authenticate) = @_;
+
+		# held here as inside the callbacks below __SUB__ is the callback
+		my $resend = __SUB__;
+
+		$client->call(
+			'command'  => $command,
+			'args'     => $args,
+			'callback' => sub {
+				my ($response) = @_;
+				if ( $is_ok->($response) ) {
+					$done->(undef);
 					return;
-				},
-			);
-			return;
-		},
-	);
+				}
+				my $error = $error_of->($response);
+				if ( !$may_authenticate || $error !~ /^authentication required/ ) {
+					$done->($error);
+					return;
+				}
+				$client->authenticate(
+					'callback' => sub {
+						my ($verdict) = @_;
+						if ( !$is_ok->($verdict) ) {
+							$done->( 'authentication failed... ' . $error_of->($verdict) );
+							return;
+						}
+						$resend->(0);
+						return;
+					},
+				);
+				return;
+			},
+		);
+		return;
+	}; ## end $send = sub
+	$send->(1);
 
 	return;
 } ## end sub _kur_call
@@ -5164,7 +5131,10 @@ sub _ledger_fold {
 	seek( $fh, $self->{ledger_offset}, 0 ) || die( 'seek failed... ' . $! );
 	while ( my $line = <$fh> ) {
 		chomp($line);
-		my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 4 );
+		if ( !$csv->parse($line) ) {
+			next;
+		}
+		my ( $epoch, $kur, $row_ip ) = $csv->fields;
 		if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) || $row_ip eq '' ) {
 			next;
 		}
@@ -5195,7 +5165,7 @@ sub _ledger_append_and_count {
 	my $watcher = defined($context) && defined( $context->{watcher} )   ? $context->{watcher}   : '';
 
 	my $path = $self->ledger_path;
-	eval {
+	try {
 		open( my $fh, '+>>', $path ) || die( 'open failed... ' . $! );
 		flock( $fh, LOCK_EX )        || die( 'lock failed... ' . $! );
 
@@ -5213,15 +5183,15 @@ sub _ledger_append_and_count {
 		# a newline in the rule or watcher would split the row for the
 		# line-wise readers, so it is dropped rather than quoted
 		my @row = ( $now, $self->{name}, $ip, map { s{[\r\n]}{}gr } ( $rule, $watcher ) );
-		$csv->print( $fh, \@row ) || die( 'write failed... ' . $! );
+		$csv->combine(@row);
+		print( $fh $csv->string . "\n" ) || die( 'write failed... ' . $! );
 		if ($find_time) {
 			$self->{ledger_offset} = tell($fh);
 		}
 
 		close($fh) || die( 'close failed... ' . $! );
-	};
-	if ($@) {
-		log_drek( 'err', 'the banishment ledger "' . $path . '" could not be updated... ' . $@,
+	} catch ($caught) {
+		log_drek( 'err', 'the banishment ledger "' . $path . '" could not be updated... ' . $caught,
 			undef, 'galla-' . $self->{name} );
 		return undef;
 	}
@@ -5264,16 +5234,13 @@ sub _ledger_compact {
 	my $find_time    = $self->_recidive_find_time;
 	my $recidive_kur = defined( $self->{recidive} ) ? $self->{recidive}{kur} : '';
 
-	my $keep = $self->{ledger_keep};
-	if ( $keep < $find_time ) {
-		$keep = $find_time;
-	}
+	my $keep = max( $self->{ledger_keep}, $find_time );
 
 	my $path = $self->ledger_path;
 	if ( !-f $path ) {
 		return;
 	}
-	eval {
+	try {
 		open( my $fh, '+<', $path ) || die( 'open failed... ' . $! );
 		flock( $fh, LOCK_EX )       || die( 'lock failed... ' . $! );
 
@@ -5285,7 +5252,10 @@ sub _ledger_compact {
 		my @kept;
 		while ( my $line = <$fh> ) {
 			chomp($line);
-			my ( $epoch, $kur, $row_ip ) = split( /,/, $line, 4 );
+			if ( !$csv->parse($line) ) {
+				next;
+			}
+			my ( $epoch, undef, $row_ip ) = $csv->fields;
 			if ( !defined($epoch) || $epoch !~ /^[0-9]+$/ || !defined($row_ip) || $row_ip eq '' ) {
 				next;
 			}
@@ -5304,9 +5274,8 @@ sub _ledger_compact {
 		}
 
 		close($fh) || die( 'close failed... ' . $! );
-	};
-	if ($@) {
-		log_drek( 'err', 'compacting the banishment ledger "' . $path . '" failed... ' . $@,
+	} catch ($caught) {
+		log_drek( 'err', 'compacting the banishment ledger "' . $path . '" failed... ' . $caught,
 			undef, 'galla-' . $self->{name} );
 	}
 
@@ -5468,8 +5437,7 @@ sub _cmd_status {
 	my ($self) = @_;
 
 	my $watchers = {};
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		my $watcher = $self->{watchers}{$watcher_name};
+	foreach my ( $watcher_name, $watcher ) ( %{ $self->{watchers} } ) {
 		$watchers->{$watcher_name} = {
 			'parser'   => $watcher->{parser},
 			'rules'    => $watcher->{rules},
@@ -5509,9 +5477,10 @@ sub _ensure_eve_dir {
 
 	# parent is "." for a bare filename, and mkpath makes every missing level
 	# and is a no-op for a dir that already exists
-	eval { path( $self->{eve_log} )->parent->mkpath; };
-	if ($@) {
-		log_drek( 'err', 'making the dir for the EVE log "' . $self->{eve_log} . '" failed... ' . $@,
+	try {
+		path( $self->{eve_log} )->parent->mkpath;
+	} catch ($caught) {
+		log_drek( 'err', 'making the dir for the EVE log "' . $self->{eve_log} . '" failed... ' . $caught,
 			undef, 'galla-' . $self->{name} );
 	}
 
@@ -5570,8 +5539,7 @@ sub _cmd_accused {
 		push( @{ $all{$ip} }, @{ $self->{counters}{$ip} } );
 	}
 	foreach my $rule_name ( keys( %{ $self->{rule_counters} } ) ) {
-		foreach my $ip ( keys( %{ $self->{rule_counters}{$rule_name} } ) ) {
-			my $hits = $self->{rule_counters}{$rule_name}{$ip};
+		foreach my ( $ip, $hits ) ( %{ $self->{rule_counters}{$rule_name} } ) {
 			if ( !@{$hits} ) {
 				next;
 			}
@@ -5582,7 +5550,7 @@ sub _cmd_accused {
 				'first' => $hits->[0][0],
 				'last'  => $hits->[-1][0],
 			};
-		} ## end foreach my $ip ( keys( %{ $self->{rule_counters...}}))
+		} ## end foreach my ( $ip, $hits ) ( %{ $self->{rule_counters...}})
 	} ## end foreach my $rule_name ( keys( %{ $self->{rule_counters...}}))
 
 	my $accused = {};
@@ -5613,8 +5581,7 @@ sub _cmd_marked {
 	# expiry and the harvested value when there is one
 	my $now   = time;
 	my $marks = {};
-	foreach my $mark_name ( keys( %{ $self->{marks} } ) ) {
-		my $store = $self->{marks}{$mark_name};
+	foreach my ( $mark_name, $store ) ( %{ $self->{marks} } ) {
 		foreach my $key ( keys( %{$store} ) ) {
 			if ( $store->{$key}{expires} <= $now ) {
 				next;
@@ -5624,7 +5591,7 @@ sub _cmd_marked {
 				exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
 			};
 		}
-	} ## end foreach my $mark_name ( keys( %{ $self->{marks}...}))
+	} ## end foreach my ( $mark_name, $store ) ( %{ $self->{...}})
 
 	return {
 		'name'  => $self->{name},
@@ -5641,8 +5608,7 @@ sub _cmd_tracked {
 	# them, rather than carrying the separator they are joined on
 	my $now     = time;
 	my $tracked = {};
-	foreach my $track_name ( keys( %{ $self->{tracked} } ) ) {
-		my $store = $self->{tracked}{$track_name};
+	foreach my ( $track_name, $store ) ( %{ $self->{tracked} } ) {
 		foreach my $key ( keys( %{$store} ) ) {
 			if ( $store->{$key}{expires} <= $now ) {
 				next;
@@ -5653,7 +5619,7 @@ sub _cmd_tracked {
 				'fields'  => $store->{$key}{fields},
 			};
 		} ## end foreach my $key ( keys( %{$store} ) )
-	} ## end foreach my $track_name ( keys( %{ $self->{tracked...}}))
+	} ## end foreach my ( $track_name, $store ) ( %{ $self->...})
 
 	return {
 		'name'    => $self->{name},
@@ -5670,8 +5636,7 @@ sub _cmd_watching {
 	# a tail wheel on right now. for journal watchers the journalctl matches
 	# stand in for the specs, with journal_running saying whether the wheel is up
 	my $watchers = {};
-	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		my $watcher = $self->{watchers}{$watcher_name};
+	foreach my ( $watcher_name, $watcher ) ( %{ $self->{watchers} } ) {
 		$watchers->{$watcher_name} = { $self->_watcher_following( $watcher, 'globs' ) };
 	}
 

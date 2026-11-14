@@ -1,15 +1,16 @@
 package App::Baphomet::Rules::Base;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Ref::Util                 qw( is_plain_arrayref is_plain_hashref );
 use Regexp::IPv4              qw( $IPv4_re );
 use Regexp::IPv6              qw( $IPv6_re );
 use MIME::Base64              qw( decode_base64 );
 use Digest::MD5               qw( md5 );
 use Encode                    ();
-use List::Util                qw( uniqstr );
+use List::Util                qw( any uniqstr );
 use App::Baphomet::Parser     ();
 use App::Baphomet::Config     qw( compile_ignore_ips ip_ignored );
 use App::Baphomet::Marks      ();
@@ -1731,14 +1732,15 @@ sub _munge_processor {
 		return $munge_processor_cache{$key};
 	}
 
-	eval { require Log::Munger::LogProcessor; };
-	if ($@) {
+	try {
+		require Log::Munger::LogProcessor;
+	} catch ($caught) {
 		die(      'The rule "'
 				. $self->{name}
 				. '" names mungers ('
 				. join( ', ', @{ $self->{mungers} } )
 				. ') but Log::Munger is not loadable... '
-				. $@ );
+				. $caught );
 	}
 
 	my $processor;
@@ -1878,14 +1880,13 @@ sub restore_state {
 
 	if ( is_plain_hashref( $state->{context} ) ) {
 		foreach my $scope ( keys( %{ $state->{context} } ) ) {
-			foreach my $key ( keys( %{ $state->{context}{$scope} } ) ) {
-				my $entry = $state->{context}{$scope}{$key};
+			foreach my ( $key, $entry ) ( %{ $state->{context}{$scope} } ) {
 				if ( is_plain_hashref($entry) && defined( $entry->{expires} ) && $entry->{expires} > $now ) {
 					$self->{context}{$scope}{$key} = $entry;
 				}
 			}
 		}
-	} ## end if ( is_plain_hashref( $state->{context} ))
+	}
 
 	if ( is_plain_hashref( $state->{pending} ) ) {
 		foreach my $scope ( keys( %{ $state->{pending} } ) ) {
@@ -2091,10 +2092,11 @@ sub run_tests {
 				if ( !defined($geo_locator) ) {
 					next TEST;
 				}
-				eval { $geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where ); };
-				if ($@) {
+				try {
+					$geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where );
+				} catch ($caught) {
 					$results->{fail}++;
-					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $@ );
+					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $caught );
 					next TEST;
 				}
 			} ## end if ( defined( $test->{geo} ) )
@@ -2140,7 +2142,7 @@ sub run_tests {
 			# offender-time, not provable here, as the tests section documents,
 			# so it is not among them. takes the result's data and the offender,
 			# undef when no fixtured gate is var-less
-			my $rdns_has_varless = defined($rdns_gate) && grep { !defined( $_->{var} ) } @{$rdns_gate};
+			my $rdns_has_varless = defined($rdns_gate) && any { !defined( $_->{var} ) } @{$rdns_gate};
 			my $geo_varless      = defined($geo_gate)  && !defined( $geo_gate->{vars} );
 			my $offender_gate;
 			if ( $rdns_has_varless || $geo_varless ) {
@@ -2197,10 +2199,11 @@ sub run_tests {
 				} ## end if ( is_plain_hashref($message_entry) )
 
 				my $parsed;
-				eval { $parsed = App::Baphomet::Parser::parse( $parser, $message ); };
-				if ($@) {
+				try {
+					$parsed = App::Baphomet::Parser::parse( $parser, $message );
+				} catch ($caught) {
 					$results->{fail}++;
-					push( @{ $results->{failures} }, $where . ' has a unusable parser... ' . $@ );
+					push( @{ $results->{failures} }, $where . ' has a unusable parser... ' . $caught );
 					next TEST;
 				}
 				if ( !defined($parsed) ) {
@@ -2418,8 +2421,7 @@ sub _test_dns_resolver {
 			push( @{ $results->{failures} }, $where . ' dns ' . $fixture_key . ' is not a hash' );
 			return undef;
 		}
-		foreach my $subject ( keys( %{ $fixture->{$fixture_key} } ) ) {
-			my $answer = $fixture->{$fixture_key}{$subject};
+		foreach my ( $subject, $answer ) ( %{ $fixture->{$fixture_key} } ) {
 			if ( !is_plain_arrayref($answer) && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
 				$results->{fail}++;
 				push(
@@ -2431,7 +2433,7 @@ sub _test_dns_resolver {
 				);
 				return undef;
 			} ## end if ( !is_plain_arrayref($answer) && ( ref(...)))
-		} ## end foreach my $subject ( keys( %{ $fixture->{$fixture_key...}}))
+		} ## end foreach my ( $subject, $answer ) ( %{ $fixture->...})
 	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
 
 	my $answer_for = sub {
@@ -3405,8 +3407,7 @@ sub _compile_reverse_dns {
 	}
 
 	my @compiled;
-	my $entry_int = 0;
-	foreach my $entry ( @{ $def->{reverse_dns} } ) {
+	foreach my ( $entry_int, $entry ) ( indexed @{ $def->{reverse_dns} } ) {
 		my $entry_where = $where . ' entry ' . $entry_int;
 		if ( !is_plain_hashref($entry) ) {
 			die( $entry_where . ' is not a hash' );
@@ -3445,14 +3446,14 @@ sub _compile_reverse_dns {
 		};
 		if ( defined( $entry->{matches} ) ) {
 			my $regexp = $entry->{matches};
-			eval { $compiled_entry->{regexp} = qr/$regexp/; };
-			if ($@) {
-				die( $entry_where . ' matches does not compile... ' . $@ );
+			try {
+				$compiled_entry->{regexp} = qr/$regexp/;
+			} catch ($caught) {
+				die( $entry_where . ' matches does not compile... ' . $caught );
 			}
 		}
 		push( @compiled, $compiled_entry );
-		$entry_int++;
-	} ## end foreach my $entry ( @{ $def->{reverse_dns} } )
+	} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
 	$self->{reverse_dns_gate} = \@compiled;
 
 	return;
@@ -3672,8 +3673,7 @@ sub _compile_message_regexps {
 
 	$self->_compile_ignore_regexps($def);
 
-	my $entry_int = 0;
-	foreach my $item ( @{ $def->{message_regexp} } ) {
+	foreach my ( $entry_int, $item ) ( indexed @{ $def->{message_regexp} } ) {
 		my $regexp   = is_plain_hashref($item) ? $item->{regexp} : $item;
 		my $compiled = $self->_compile_tokened_regexp( $regexp,
 			'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
@@ -3683,8 +3683,7 @@ sub _compile_message_regexps {
 			$compiled->{defer} = $item->{defer};
 		}
 		push( @{ $self->{regexps} }, $compiled );
-		$entry_int++;
-	} ## end foreach my $item ( @{ $def->{message_regexp} } )
+	} ## end foreach my ( $entry_int, $item ) ( indexed @{ $def...})
 
 	return;
 } ## end sub _compile_message_regexps
@@ -3711,12 +3710,10 @@ sub _compile_ignore_regexps {
 		}
 	}
 
-	my $ignore_int = 0;
-	foreach my $regexp ( @{ $def->{ignore_regexp} } ) {
+	foreach my ( $ignore_int, $regexp ) ( indexed @{ $def->{ignore_regexp} } ) {
 		my $entry = $self->_compile_tokened_regexp( $regexp,
 			'The ignore_regexp entry ' . $ignore_int . ' of the rule "' . $name . '"' );
 		push( @{ $self->{ignore_regexps} }, $entry->{regexp} );
-		$ignore_int++;
 	}
 
 	return;
@@ -3736,8 +3733,7 @@ sub _compile_stages {
 	}
 
 	my @compiled_stages;
-	my $stage_int = 0;
-	foreach my $stage ( @{ $def->{stages} } ) {
+	foreach my ( $stage_int, $stage ) ( indexed @{ $def->{stages} } ) {
 		my $where = 'The stage ' . $stage_int . ' of the rule "' . $name . '"';
 		if ( !is_plain_hashref($stage) ) {
 			die( $where . ' is not a hash' );
@@ -3759,14 +3755,12 @@ sub _compile_stages {
 		}
 
 		my @matchers;
-		my $entry_int = 0;
-		foreach my $regexp ( @{ $stage->{message_regexp} } ) {
+		foreach my ( $entry_int, $regexp ) ( indexed @{ $stage->{message_regexp} } ) {
 			if ( !defined($regexp) || ref($regexp) ne '' ) {
 				die( $where . ' has a message_regexp entry that is not a string' );
 			}
 			push( @matchers,
 				$self->_compile_tokened_regexp( $regexp, $where . ' message_regexp entry ' . $entry_int ) );
-			$entry_int++;
 		}
 
 		push(
@@ -3778,8 +3772,7 @@ sub _compile_stages {
 				'skip'     => defined( $stage->{skip} )   ? $stage->{skip} + 0   : undef,
 			}
 		);
-		$stage_int++;
-	} ## end foreach my $stage ( @{ $def->{stages} } )
+	} ## end foreach my ( $stage_int, $stage ) ( indexed @{ ...})
 	$self->{stages} = \@compiled_stages;
 
 	if ( defined( $def->{per} ) ) {
@@ -3877,7 +3870,7 @@ sub _check_stages_core {
 	# a hit on the stage a slot is awaiting advances it, gap bounds
 	# permitting... too late or too far kills the sequence, and the line
 	# may then head a fresh one below
-	for ( my $stage_int = 0; $stage_int < scalar( @{$stages} ); $stage_int++ ) {
+	foreach my ( $stage_int, $stage ) ( indexed @{$stages} ) {
 		my $caps = $stage_match->($stage_int);
 		if ( !defined($caps) ) {
 			next;
@@ -3897,7 +3890,6 @@ sub _check_stages_core {
 			next;
 		}
 
-		my $stage  = $stages->[$stage_int];
 		my $gap_ok = 1;
 		if ( defined( $stage->{within} ) && ( $now - $slot->{last_time} ) > $stage->{within} ) {
 			$gap_ok = 0;
@@ -3916,7 +3908,7 @@ sub _check_stages_core {
 		}
 
 		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge, $line_ctx );
-	} ## end for ( my $stage_int = 0; $stage_int < scalar...)
+	} ## end foreach my ( $stage_int, $stage ) ( indexed @{$stages...})
 
 	# no slot advanced... a line matching the first stage heads a fresh
 	# sequence, but never tramples one already in flight for its key
@@ -4009,8 +4001,7 @@ sub _compile_capture_regexps {
 		die( 'The capture_regexp of the rule "' . $name . '" is not a array or is empty' );
 	}
 
-	my $entry_int = 0;
-	foreach my $item ( @{ $def->{capture_regexp} } ) {
+	foreach my ( $entry_int, $item ) ( indexed @{ $def->{capture_regexp} } ) {
 		my $where = 'The capture_regexp entry ' . $entry_int . ' of the rule "' . $name . '"';
 		if ( !is_plain_hashref($item) || !defined( $item->{regexp} ) || !defined( $item->{key} ) ) {
 			die( $where . ' is not a hash with a regexp and a key' );
@@ -4029,8 +4020,7 @@ sub _compile_capture_regexps {
 		$compiled->{ttl} = $item->{ttl} // 60;
 
 		push( @{ $self->{capture_regexps} }, $compiled );
-		$entry_int++;
-	} ## end foreach my $item ( @{ $def->{capture_regexp} } )
+	} ## end foreach my ( $entry_int, $item ) ( indexed @{ $def...})
 
 	return;
 } ## end sub _compile_capture_regexps
@@ -4107,9 +4097,10 @@ sub _compile_tokened_regexp {
 	$expanded =~ s/%%%%([A-Z0-9_]+)%%%%/$self->_expand_token( $1, \%aliases, $where, $regexp )/ge;
 
 	my $compiled;
-	eval { $compiled = qr/$expanded/; };
-	if ($@) {
-		die( $where . ', "' . $regexp . '", does not compile... ' . $@ );
+	try {
+		$compiled = qr/$expanded/;
+	} catch ($caught) {
+		die( $where . ', "' . $regexp . '", does not compile... ' . $caught );
 	}
 
 	return {
@@ -4450,9 +4441,8 @@ sub _check_message {
 	} ## end foreach my $capture ( @{ $self->{capture_regexps...}})
 
 	my $found;
-	foreach my $entry_int ( 0 .. $#{ $self->{regexps} } ) {
-		my $entry = $self->{regexps}[$entry_int];
-		my $caps  = $self->_match_tokened( $entry, $message );
+	foreach my ( $entry_int, $entry ) ( indexed @{ $self->{regexps} } ) {
+		my $caps = $self->_match_tokened( $entry, $message );
 		if ( !defined($caps) ) {
 			next;
 		}
@@ -4481,7 +4471,7 @@ sub _check_message {
 
 		# unresolved and undeferred, so this entry is not a offense here...
 		# fall through to the remaining entries
-	} ## end foreach my $entry_int ( 0 .. $#{ $self->{regexps...}})
+	} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
 
 	# message_json... with no message_regexp the offense is the extra fields
 	# themselves (the json body and syslog envelope), synthesized here so the
@@ -4619,9 +4609,10 @@ sub _compile_matchers {
 		if ( $item =~ /^\/\/(.*)\/\/$/ ) {
 			my $regexp = $1;
 			my $compiled;
-			eval { $compiled = qr/$regexp/; };
-			if ($@) {
-				die( $where . ' entry "' . $item . '" does not compile... ' . $@ );
+			try {
+				$compiled = qr/$regexp/;
+			} catch ($caught) {
+				die( $where . ' entry "' . $item . '" does not compile... ' . $caught );
 			}
 			push( @{ $matchers->{regexps} }, $compiled );
 		} else {
@@ -4647,8 +4638,7 @@ sub _compile_match_ignore {
 			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array or is empty' );
 		}
 
-		my $entry_int = 0;
-		foreach my $entry ( @{ $def->{$sort} } ) {
+		foreach my ( $entry_int, $entry ) ( indexed @{ $def->{$sort} } ) {
 			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
 			if ( !is_plain_hashref($entry) || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
 				die( $where . ' is not a hash with a field and a regexp' );
@@ -4660,8 +4650,7 @@ sub _compile_match_ignore {
 			}
 
 			push( @{ $self->{ $sort eq 'match' ? 'matches' : 'ignores' } }, $compile_entry->( $entry, $where ) );
-			$entry_int++;
-		} ## end foreach my $entry ( @{ $def->{$sort} } )
+		} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
 	} ## end foreach my $sort ( 'match', 'ignore' )
 
 	return;
@@ -5094,7 +5083,7 @@ sub _compile_gates {
 			die( $where . ' is not a hash with a field' );
 		}
 		my $gate;
-		if ( grep { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS ) {
+		if ( any { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS ) {
 			$gate = { 'field' => $entry->{field}, 'predicate' => $self->_compile_predicate( $entry, $where ) };
 		} else {
 			if ( !is_plain_arrayref( $entry->{values} ) ) {
@@ -5106,7 +5095,7 @@ sub _compile_gates {
 				}
 			}
 			$gate = { 'field' => $entry->{field}, 'matchers' => $self->_compile_matchers( $entry->{values}, $where ) };
-		} ## end else [ if ( grep { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS)]
+		} ## end else [ if ( any { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS)]
 
 		# the reserved keyword fields, flagged at compile so the runtime fans
 		# the predicate over many values... %%%ANY%%% every field, %%%ANY:pre%%%

@@ -1,9 +1,11 @@
 package App::Baphomet::App::Command::banished;
 
-use 5.006;
-use strict;
-use warnings;
-use Ref::Util qw( is_plain_arrayref is_plain_hashref );
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
+use Ref::Util  qw( is_plain_arrayref is_plain_hashref );
+use List::Util qw( any );
 use App::Baphomet::App -command;
 use JSON::MaybeXS ();
 
@@ -108,11 +110,10 @@ sub _pare_to_ip {
 		$pared->{pending_error} = $result->{pending_error};
 	}
 
-	foreach my $kur ( keys( %{ $result->{kurs} } ) ) {
-		my $entry = $result->{kurs}{$kur};
+	foreach my ( $kur, $entry ) ( %{ $result->{kurs} } ) {
 		my $found = {};
 
-		if ( is_plain_arrayref( $entry->{banned} ) && grep { $_ eq $ip } @{ $entry->{banned} } ) {
+		if ( is_plain_arrayref( $entry->{banned} ) && any { $_ eq $ip } @{ $entry->{banned} } ) {
 			$found->{banned} = 1;
 			if ( is_plain_hashref( $entry->{expires} ) && defined( $entry->{expires}{$ip} ) ) {
 				$found->{expires} = $entry->{expires}{$ip};
@@ -120,9 +121,8 @@ sub _pare_to_ip {
 		}
 
 		if ( is_plain_hashref( $entry->{members} ) ) {
-			foreach my $member ( keys( %{ $entry->{members} } ) ) {
-				my $held = $entry->{members}{$member};
-				if ( is_plain_arrayref( $held->{banned} ) && grep { $_ eq $ip } @{ $held->{banned} } ) {
+			foreach my ( $member, $held ) ( %{ $entry->{members} } ) {
+				if ( is_plain_arrayref( $held->{banned} ) && any { $_ eq $ip } @{ $held->{banned} } ) {
 					$found->{members}{$member}{banned} = 1;
 					if ( is_plain_hashref( $held->{expires} ) && defined( $held->{expires}{$ip} ) ) {
 						$found->{members}{$member}{expires} = $held->{expires}{$ip};
@@ -131,14 +131,14 @@ sub _pare_to_ip {
 			}
 		} ## end if ( is_plain_hashref( $entry->{members} ))
 
-		if ( is_plain_arrayref( $entry->{pending} ) && grep { $_ eq $ip } @{ $entry->{pending} } ) {
+		if ( is_plain_arrayref( $entry->{pending} ) && any { $_ eq $ip } @{ $entry->{pending} } ) {
 			$found->{pending} = 1;
 		}
 
 		if ( keys( %{$found} ) ) {
 			$pared->{kurs}{$kur} = $found;
 		}
-	} ## end foreach my $kur ( keys( %{ $result->{kurs} } ) )
+	} ## end foreach my ( $kur, $entry ) ( %{ $result->{kurs...}})
 
 	return $pared;
 } ## end sub _pare_to_ip

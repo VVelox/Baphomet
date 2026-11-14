@@ -1,7 +1,7 @@
 #!perl
 
 # the per-tablet restore helpers, taken one at a time... each is driven
-# directly with a stubbed _read_tablet feeding it canned lines, so a single
+# directly with a stubbed tablet read feeding it canned lines, so a single
 # tablet's parsing and pruning is proven in isolation. the full round trip
 # through checkpoint/_load_state lives in t/state-tablets.t
 
@@ -65,12 +65,12 @@ close($fh);
 
 my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'sshd' );
 
-# every helper reads through _read_tablet($kind)... hand it whatever this test
+# every helper reads through the tablet backend... hand it whatever this test
 # wants for the kind under exercise, an empty list for anything else
 my %canned;
 {
 	no warnings 'redefine';
-	*App::Baphomet::Galla::_read_tablet = sub {
+	*App::Baphomet::ClayTablet::read = sub {
 		my ( undef, $kind ) = @_;
 		return @{ $canned{$kind} || [] };
 	};

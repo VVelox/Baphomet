@@ -1,8 +1,9 @@
 package App::Baphomet::LogDrek;
 
-use 5.006;
-use strict;
-use warnings;
+use v5.40;
+# log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
+# lc, and /i would read a high byte as a Latin-1 character, so it stays off
+no feature 'unicode_strings';
 use Exporter    qw( import );
 use Sys::Syslog qw( closelog openlog syslog );
 
@@ -57,6 +58,9 @@ instance.
 
 =cut
 
+# the ident syslog is currently open under, undef till the first message
+my $opened_ident;
+
 sub log_drek {
 	my ( $level, $message, $tracking_int, $ident ) = @_;
 
@@ -72,9 +76,19 @@ sub log_drek {
 
 	$ident //= 'baphomet';
 
-	openlog( $ident, 'cons,pid', 'daemon' );
+	# a process logs under one ident nearly always, so the connection is kept
+	# and only reopened when the ident changes, rather than paying a connect
+	# and a close per message... Sys::Syslog stamps the PID per message and
+	# reconnects by itself when the socket goes bad, so a kept connection
+	# survives a fork and a syslogd restart alike
+	if ( !defined($opened_ident) || $opened_ident ne $ident ) {
+		if ( defined($opened_ident) ) {
+			closelog();
+		}
+		openlog( $ident, 'cons,pid', 'daemon' );
+		$opened_ident = $ident;
+	}
 	syslog( $level, '%s', $message );
-	closelog();
 
 	return;
 } ## end sub log_drek
