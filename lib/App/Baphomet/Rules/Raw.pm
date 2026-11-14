@@ -4,8 +4,7 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util qw( is_plain_hashref );
-use base 'App::Baphomet::Rules::Base';
+use base 'App::Baphomet::Rules::MessageRegexp';
 
 =pod
 
@@ -112,37 +111,13 @@ sub _compile {
 =head2 check
 
 Checks a parsed line against the rule. Returns undef for no match. For a
-match, returns a hash as below, same as syslog rules.
+match, returns a hash as below, same as syslog rules. Inherited from
+L<App::Baphomet::Rules::MessageRegexp/check> as it stands, a raw rule having
+no gate of its own to put ahead of it.
 
     { 'data' => { 'SRC' => '1.2.3.4' }, 'regexp' => 0 }
 
     my $found = $rule->check($parsed);
-
-=cut
-
-sub check {
-	my ( $self, $parsed, $scope, $line_ctx ) = @_;
-
-	if ( !is_plain_hashref($parsed) || !defined( $parsed->{message} ) ) {
-		return undef;
-	}
-
-	# mungers run first, their decoded fields carried under the offense so the
-	# rule's own captures overwrite them on a clash. a staged rule enriches the
-	# completed sequence from its final (completing) line
-	my $munge = $self->_munge_enrich($parsed);
-
-	if ( defined( $self->{stages} ) ) {
-		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, undef, $munge );
-	}
-
-	my $extra;
-	if ( defined($munge) && %{$munge} ) {
-		$extra = { %{$munge} };
-	}
-
-	return $self->_check_message( $parsed->{message}, $scope, $extra, undef, $line_ctx );
-} ## end sub check
 
 =head2 ban_var
 

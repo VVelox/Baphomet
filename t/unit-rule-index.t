@@ -32,6 +32,26 @@ sub json_record {
 	return { 'fields' => \%fields };
 }
 
+# a watcher of the shape the galla builds, as far as the index reads one...
+# the passed pairs are a rule name and its rule, each becoming a binding
+sub watcher_of {
+	my ( $index_field, @named_rules ) = @_;
+
+	my @bindings;
+	while ( my ( $rule_name, $rule ) = splice( @named_rules, 0, 2 ) ) {
+		push( @bindings, { 'name' => $rule_name, 'rule' => $rule } );
+	}
+
+	return { 'bindings' => \@bindings, 'index_field' => $index_field, 'rule_index' => {} };
+} ## end sub watcher_of
+
+# the names of the rules a record would be offered to, in the order walked
+sub candidate_names {
+	my ( $watcher, $parsed ) = @_;
+
+	return [ map { $_->{name} } @{ $galla->_rule_candidates( $watcher, $parsed ) } ];
+}
+
 #
 # accepts_daemon... the rule-side half for syslog. a syslog rule answers off
 # its daemons list, every other type keeps the base always-true
@@ -166,11 +186,20 @@ is_deeply( $with_ignore->gate_discriminators, {}, 'and neither does one carrying
 # _index_field... which field a watcher keys on
 #
 
-is( App::Baphomet::Galla::_index_field( [ $sshd, $regexp_daemon ] ),
-	'%%%DAEMON%%%', 'a watcher whose rules gate on a daemon keys on the daemon' );
-is( App::Baphomet::Galla::_index_field( [ $keyword_gate, $selected, $regexp_gate ] ),
-	undef, 'a watcher whose rules pin nothing keys on nothing' );
-is( App::Baphomet::Galla::_index_field( [ undef, undef ] ), undef, 'and rules that did not load elect nothing' );
+is(
+	App::Baphomet::Galla::_index_field(
+		watcher_of( undef, 'syslog/a' => $sshd, 'syslog/b' => $regexp_daemon )->{bindings}
+	),
+	'%%%DAEMON%%%',
+	'a watcher whose rules gate on a daemon keys on the daemon'
+);
+is(
+	App::Baphomet::Galla::_index_field(
+		watcher_of( undef, 'json/a' => $keyword_gate, 'json/b' => $selected, 'json/c' => $regexp_gate )->{bindings}
+	),
+	undef,
+	'a watcher whose rules pin nothing keys on nothing'
+);
 
 # the election takes the most selective field, not the most popular one...
 # both rules pin event_type, but between them they pin only the two values
@@ -187,7 +216,7 @@ is( App::Baphomet::Galla::_index_field( [ undef, undef ] ), undef, 'and rules th
 			'ban_var' => ['src_ip'],
 		}
 	);
-	my $both = [ $alert_scan, $scan_two ];
+	my $both = watcher_of( undef, 'json/scan' => $alert_scan, 'json/scan-two' => $scan_two )->{bindings};
 	is( App::Baphomet::Galla::_index_field($both), 'alert.category', 'the most selective field wins the election' );
 
 	# and it is really the values that decide... give the two rules the same
@@ -203,35 +232,36 @@ is( App::Baphomet::Galla::_index_field( [ undef, undef ] ), undef, 'and rules th
 			'ban_var' => ['src_ip'],
 		}
 	);
-	is( App::Baphomet::Galla::_index_field( [ $alert_scan, $same_category ] ),
-		'event_type', 'a field every rule pins the same way thins nothing and loses' );
+	is(
+		App::Baphomet::Galla::_index_field(
+			watcher_of( undef, 'json/scan' => $alert_scan, 'json/same-category' => $same_category )->{bindings}
+		),
+		'event_type',
+		'a field every rule pins the same way thins nothing and loses'
+	);
 }
 
 #
 # _rule_candidates, the daemon half
 #
 
-my $syslog_watcher = {
-	'rules'       => [ 'syslog/a', 'syslog/b',     'syslog/c' ],
-	'rule_objs'   => [ $sshd,      $regexp_daemon, $sshd ],
-	'index_field' => '%%%DAEMON%%%',
-	'rule_index'  => {},
-};
+my $syslog_watcher
+	= watcher_of( '%%%DAEMON%%%', 'syslog/a' => $sshd, 'syslog/b' => $regexp_daemon, 'syslog/c' => $sshd );
 
 is_deeply(
-	$galla->_rule_candidates( $syslog_watcher, syslog_record( 'sshd', 'x' ) ),
-	[ 0, 2 ],
+	candidate_names( $syslog_watcher, syslog_record( 'sshd', 'x' ) ),
+	[ 'syslog/a', 'syslog/c' ],
 	'only the rules the daemon could match'
 );
-is_deeply( $galla->_rule_candidates( $syslog_watcher, syslog_record( 'dovecot', 'x' ) ),
-	[1], 'the regexp-gated rule answers for its own' );
-is_deeply( $galla->_rule_candidates( $syslog_watcher, syslog_record( 'nobody', 'x' ) ),
+is_deeply( candidate_names( $syslog_watcher, syslog_record( 'dovecot', 'x' ) ),
+	['syslog/b'], 'the regexp-gated rule answers for its own' );
+is_deeply( candidate_names( $syslog_watcher, syslog_record( 'nobody', 'x' ) ),
 	[], 'a daemon no rule wants yields nothing to walk' );
-is_deeply( $galla->_rule_candidates( $syslog_watcher, syslog_record( undef, 'x' ) ),
+is_deeply( candidate_names( $syslog_watcher, syslog_record( undef, 'x' ) ),
 	[], 'and neither does a line with no daemon' );
 
 # the config's rule order is what the overlap semantics rest on, so the
-# candidates must come back ascending however the index was filled
+# candidates must come back in it however the index was filled
 my $ordered = App::Baphomet::Rules::Syslog->new(
 	'name' => 'syslog/ordered',
 	'def'  => {
@@ -240,28 +270,19 @@ my $ordered = App::Baphomet::Rules::Syslog->new(
 		'ban_var'        => ['SRC'],
 	}
 );
-my $five = {
-	'rules'       => [ map { 'syslog/r' . $_ } ( 0 .. 4 ) ],
-	'rule_objs'   => [ $ordered, $sshd, $ordered, $sshd, $ordered ],
-	'index_field' => '%%%DAEMON%%%',
-	'rule_index'  => {},
-};
+my $five = watcher_of(
+	'%%%DAEMON%%%',
+	'syslog/r0' => $ordered,
+	'syslog/r1' => $sshd,
+	'syslog/r2' => $ordered,
+	'syslog/r3' => $sshd,
+	'syslog/r4' => $ordered
+);
 is_deeply(
-	$galla->_rule_candidates( $five, syslog_record( 'shared', 'x' ) ),
-	[ 0, 2, 4 ],
+	candidate_names( $five, syslog_record( 'shared', 'x' ) ),
+	[ 'syslog/r0', 'syslog/r2', 'syslog/r4' ],
 	'candidates keep the config rule order'
 );
-
-# an undef rule obj (a rule that failed to load under a non-fatal warn) is
-# never a candidate rather than a call on undef
-my $holed = {
-	'rules'       => [ 'syslog/a', 'syslog/gone' ],
-	'rule_objs'   => [ $sshd,      undef ],
-	'index_field' => '%%%DAEMON%%%',
-	'rule_index'  => {},
-};
-is_deeply( $galla->_rule_candidates( $holed, syslog_record( 'sshd', 'x' ) ),
-	[0], 'a rule that did not load is never a candidate' );
 
 #
 # _rule_candidates, the gate half
@@ -271,38 +292,34 @@ my $anomaly = App::Baphomet::Rules::JSON->new(
 	'name' => 'json/anomaly',
 	'def'  => { 'gate' => [ { 'field' => 'event_type', 'values' => ['anomaly'] } ], 'ban_var' => ['src_ip'] }
 );
-my $json_watcher = {
-	'rules'       => [ 'json/scan', 'json/multi', 'json/anomaly', 'json/keyword' ],
-	'rule_objs'   => [ $alert_scan, $multi,       $anomaly,       $keyword_gate ],
-	'index_field' => 'event_type',
-	'rule_index'  => {},
-};
+my $json_watcher = watcher_of(
+	'event_type',
+	'json/scan'    => $alert_scan,
+	'json/multi'   => $multi,
+	'json/anomaly' => $anomaly,
+	'json/keyword' => $keyword_gate
+);
 
 is_deeply(
-	$galla->_rule_candidates( $json_watcher, json_record( 'event_type' => 'alert' ) ),
-	[ 0, 1, 3 ],
+	candidate_names( $json_watcher, json_record( 'event_type' => 'alert' ) ),
+	[ 'json/scan', 'json/multi', 'json/keyword' ],
 	'an alert reaches the rules pinning alert, and the rule pinning nothing'
 );
 is_deeply(
-	$galla->_rule_candidates( $json_watcher, json_record( 'event_type' => 'anomaly' ) ),
-	[ 1, 2, 3 ],
+	candidate_names( $json_watcher, json_record( 'event_type' => 'anomaly' ) ),
+	[ 'json/multi', 'json/anomaly', 'json/keyword' ],
 	'a values list makes its rule a candidate for each value it names'
 );
-is_deeply( $galla->_rule_candidates( $json_watcher, json_record( 'event_type' => 'flow' ) ),
-	[3], 'a flow reaches only the rule that pins no event_type at all' );
-is_deeply( $galla->_rule_candidates( $json_watcher, json_record( 'src_ip' => '192.0.2.1' ) ),
-	[3], 'and so does a record missing the indexed field entirely' );
+is_deeply( candidate_names( $json_watcher, json_record( 'event_type' => 'flow' ) ),
+	['json/keyword'], 'a flow reaches only the rule that pins no event_type at all' );
+is_deeply( candidate_names( $json_watcher, json_record( 'src_ip' => '192.0.2.1' ) ),
+	['json/keyword'], 'and so does a record missing the indexed field entirely' );
 
 # a watcher with nothing to index on walks every rule, as it always did
-my $unindexed = {
-	'rules'       => [ 'json/keyword', 'json/selections' ],
-	'rule_objs'   => [ $keyword_gate,  $selected ],
-	'index_field' => undef,
-	'rule_index'  => {},
-};
+my $unindexed = watcher_of( undef, 'json/keyword' => $keyword_gate, 'json/selections' => $selected );
 is_deeply(
-	$galla->_rule_candidates( $unindexed, json_record( 'event_type' => 'alert' ) ),
-	[ 0, 1 ],
+	candidate_names( $unindexed, json_record( 'event_type' => 'alert' ) ),
+	[ 'json/keyword', 'json/selections' ],
 	'a watcher with no index field offers every line to every rule'
 );
 
@@ -311,12 +328,7 @@ is_deeply(
 # a hostile producer must not be able to grow it forever
 #
 
-my $memo = {
-	'rules'       => ['syslog/a'],
-	'rule_objs'   => [$sshd],
-	'index_field' => '%%%DAEMON%%%',
-	'rule_index'  => {},
-};
+my $memo   = watcher_of( '%%%DAEMON%%%', 'syslog/a' => $sshd );
 my $first  = $galla->_rule_candidates( $memo, syslog_record( 'sshd', 'x' ) );
 my $second = $galla->_rule_candidates( $memo, syslog_record( 'sshd', 'x' ) );
 is( $second, $first, 'a repeat value is answered from the index, not rebuilt' );
@@ -326,8 +338,8 @@ for ( my $i = 0; $i < 1100; $i++ ) {
 }
 cmp_ok( scalar( keys( %{ $memo->{rule_index} } ) ), '<=', 1024,
 	'the index stays bounded under a fresh value per line' );
-is_deeply( $galla->_rule_candidates( $memo, syslog_record( 'sshd', 'x' ) ),
-	[0], 'and still answers correctly after being thrown away' );
+is_deeply( candidate_names( $memo, syslog_record( 'sshd', 'x' ) ),
+	['syslog/a'], 'and still answers correctly after being thrown away' );
 
 #
 # the whole point... walking the candidates and walking every rule reach the
@@ -337,9 +349,10 @@ is_deeply( $galla->_rule_candidates( $memo, syslog_record( 'sshd', 'x' ) ),
 sub agrees {
 	my ( $watcher, $parsed, $scope, $label ) = @_;
 
-	my @every = grep { defined( $watcher->{rule_objs}[$_]->check( $parsed, $scope . '-every', {} ) ) }
-		grep { defined( $watcher->{rule_objs}[$_] ) } ( 0 .. scalar( @{ $watcher->{rule_objs} } ) - 1 );
-	my @indexed = grep { defined( $watcher->{rule_objs}[$_]->check( $parsed, $scope . '-indexed', {} ) ) }
+	my @every = map { $_->{name} }
+		grep { defined( $_->{rule}->check( $parsed, $scope . '-every', {} ) ) } @{ $watcher->{bindings} };
+	my @indexed = map { $_->{name} }
+		grep { defined( $_->{rule}->check( $parsed, $scope . '-indexed', {} ) ) }
 		@{ $galla->_rule_candidates( $watcher, $parsed ) };
 	is_deeply( \@indexed, \@every, 'the same rules fire for ' . $label );
 

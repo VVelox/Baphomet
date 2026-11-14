@@ -23,6 +23,7 @@ my @modules = (
 	'App::Baphomet::Rules::Gates',
 	'App::Baphomet::Rules::Tokens',
 	'App::Baphomet::Rules::SelfTest',
+	'App::Baphomet::Rules::MessageRegexp',
 	'App::Baphomet::Rules::Syslog',
 	'App::Baphomet::Rules::HTTP',
 	'App::Baphomet::Rules::HTTPError',

@@ -69,7 +69,11 @@ like( $error, qr/names a record the rule declares no track for/, 'a not_tracked 
 		'ban_var'        => ['queueid'],
 	}
 );
-like( $error, qr/carries neither where nor into/, 'a tracked with neither where nor into will not load' );
+like(
+	$error,
+	qr/has neither where nor into, so it does nothing/,
+	'a tracked with neither where nor into will not load'
+);
 
 ( undef, $error ) = build_rule(
 	'not-tracked-where',

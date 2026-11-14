@@ -257,7 +257,11 @@ is( scalar(@sent), 1, 'no ban after aging out' );
 # rule lists... first match wins, per rule daemon gates and ban_var
 #
 
-is_deeply( $galla->{watchers}{multilog}{rules}, [ 'syslog/sshd', 'syslog/other' ], 'rule list loaded in order' );
+is_deeply(
+	[ map { $_->{name} } @{ $galla->{watchers}{multilog}{bindings} } ],
+	[ 'syslog/sshd', 'syslog/other' ],
+	'rule list loaded in order'
+);
 is( $galla->{watchers}{multilog}{parser}, 'syslog', 'parser defaults to syslog when unspecified' );
 
 # a otherd line passes through sshd's daemon gate untouched and matches the second rule

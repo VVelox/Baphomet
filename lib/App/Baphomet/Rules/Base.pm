@@ -4,15 +4,14 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util             qw( is_plain_arrayref is_plain_hashref );
-use Digest::MD5           qw( md5 );
-use List::Util            qw( uniqstr );
-use App::Baphomet::Parser ();
-use App::Baphomet::Marks  ();
-use App::Baphomet::Tracks qw( track_key track_get track_put );
+use Ref::Util                  qw( is_plain_arrayref is_plain_hashref );
+use Digest::MD5                qw( md5 );
+use List::Util                 qw( uniqstr );
+use App::Baphomet::Correlation qw( correlation_prune correlation_restore );
+use App::Baphomet::Shape       qw( check_hash check_entries check_value );
+use App::Baphomet::Tracks      qw( track_key track_get track_put );
 use App::Baphomet::Rules::Gates
 	qw( compile_matchers matchers_hit compile_gates gates_pass compile_condition eval_condition );
-use App::Baphomet::Rules::Tokens qw( compile_tokened_regexp match_tokened );
 # run_tests takes the rule as its first argument, so importing it here is what
 # makes it a method of every rule... $rule->run_tests
 use App::Baphomet::Rules::SelfTest qw( run_tests );
@@ -34,13 +33,16 @@ our $VERSION = '0.0.1';
 =head1 DESCRIPTION
 
 The bits common to every rule handler... the def checks, the getters the
-galla reads a rule through, and the regexp, staged, correlated, and tracked
-matching the types share. The gate vocabulary is
+galla reads a rule through, and the mungers, the boolean, and the tracked
+records the types share. The def checks are written as shapes for
+L<App::Baphomet::Shape>, the gate vocabulary is
 L<App::Baphomet::Rules::Gates>, the C<%%%%TOKEN%%%%> regexps
-L<App::Baphomet::Rules::Tokens>, and the embedded test runner
-L<App::Baphomet::Rules::SelfTest>. Not usable on its own... see
-L<App::Baphomet::Rules::Syslog> and L<App::Baphomet::Rules::HTTP> for the
-handlers.
+L<App::Baphomet::Rules::Tokens>, the correlation store
+L<App::Baphomet::Correlation>, and the embedded test runner
+L<App::Baphomet::Rules::SelfTest>. The regexp and staged matching of the
+syslog and raw types is L<App::Baphomet::Rules::MessageRegexp>. Not usable
+on its own... see L<App::Baphomet::Rules::Syslog> and
+L<App::Baphomet::Rules::HTTP> for the handlers.
 
 A handler is expected to provide C<_compile>, which L</new> calls to check
 and compile the def, and C<check>, taking a parsed line and returning undef
@@ -101,6 +103,10 @@ sub new {
 			'def'     => $opts{def},
 			'mungers' => [],
 			'gates'   => [],
+			# the correlation store, context and deferred offenses per scope...
+			# empty for a rule that never correlates, and what dump_state hands
+			# the galla for the context tablet
+			'correlation' => { 'context' => {}, 'pending' => {} },
 			# a stable 31-bit unsigned integer from the name, the top four bytes
 			# of its MD5... masked to stay a positive value that survives tools
 			# treating a sid as a signed 32-bit int
@@ -210,42 +216,10 @@ does not depend on traffic.
 sub sweep_state {
 	my ( $self, $now ) = @_;
 
-	$now //= time;
-
-	# correlation context and staged rule slots are kept the same way, per
-	# scope and key with a expires, so the one walk drops the dead of either...
-	# for a staged slot that is a sequence nothing has fed since its stage's
-	# within, or the default hold
-	foreach my $store_name ( 'context', 'stage_state' ) {
-		my $store = $self->{$store_name};
-		foreach my $scope ( keys( %{$store} ) ) {
-			foreach my $key ( keys( %{ $store->{$scope} } ) ) {
-				if ( $store->{$scope}{$key}{expires} <= $now ) {
-					delete( $store->{$scope}{$key} );
-				}
-			}
-			if ( !%{ $store->{$scope} } ) {
-				delete( $store->{$scope} );
-			}
-		} ## end foreach my $scope ( keys( %{$store} ) )
-	} ## end foreach my $store_name ( 'context', 'stage_state')
-
-	foreach my $scope ( keys( %{ $self->{pending} } ) ) {
-		foreach my $key ( keys( %{ $self->{pending}{$scope} } ) ) {
-			my @live = grep { $_->{expires} > $now } @{ $self->{pending}{$scope}{$key} };
-			if (@live) {
-				$self->{pending}{$scope}{$key} = \@live;
-			} else {
-				delete( $self->{pending}{$scope}{$key} );
-			}
-		}
-		if ( !keys( %{ $self->{pending}{$scope} } ) ) {
-			delete( $self->{pending}{$scope} );
-		}
-	} ## end foreach my $scope ( keys( %{ $self->{pending} }...))
+	correlation_prune( $self->{correlation}, $now // time );
 
 	return;
-} ## end sub sweep_state
+}
 
 =head2 ban_not_internal
 
@@ -760,8 +734,9 @@ sub track_only {
 =head2 _check_detection_var
 
 Validates a rule's C<detection_var>, if any, and reports whether the rule is
-detection-only. When present it must be a non-empty array of strings, and it
-may not sit beside C<ban_var>... a rule bans or is detection-only, not both.
+detection-only. When present it must be a non-empty array of non-empty
+strings, and it may not sit beside C<ban_var>... a rule bans or is
+detection-only, not both.
 Each rule type calls this and makes its own C<ban_var> requirement conditional
 on the return, so a detection rule need not name a offender it will never
 banish. Returns 1 for a detection rule, 0 otherwise. Dies on a malformed def.
@@ -780,14 +755,7 @@ sub _check_detection_var {
 		return 0;
 	}
 
-	if ( !is_plain_arrayref( $def->{detection_var} ) || !@{ $def->{detection_var} } ) {
-		die( 'The rule "' . $name . '" has a detection_var that is not a non-empty array' );
-	}
-	foreach my $item ( @{ $def->{detection_var} } ) {
-		if ( !defined($item) || ref($item) ne '' ) {
-			die( 'The detection_var of the rule "' . $name . '" contains a non-string entry' );
-		}
-	}
+	check_value( $def->{detection_var}, 'strings', 'The detection_var of the rule "' . $name . '"' );
 	if ( exists( $def->{ban_var} ) ) {
 		die(      'The rule "'
 				. $name
@@ -797,34 +765,149 @@ sub _check_detection_var {
 	return 1;
 } ## end sub _check_detection_var
 
-# what the name of a mark, a tracked record, a namtar list, or a active_time
-# window must look like... the alphabet of a rule name, so one rides tablets,
-# commands, and config tables cleanly
-my $NAME_RE = qr/^[a-zA-Z0-9_\-]+$/;
+# the def keys every rule type allows, each against the kind it must be... a
+# type adds only its own matcher keys to these. a key of the kind any is
+# either a flag read only for its truth or a structure of its own, vetted by
+# the entry shapes below or by the compile that reads it
+my %COMMON_DEF_KEYS = (
+	# the boolean
+	'gate'       => 'any',
+	'selections' => 'any',
+	'condition'  => 'any',
+	'keywords'   => 'any',
+	# naming the offender
+	'detection_var'    => 'any',
+	'ban_not_internal' => 'any',
+	'src_ip_var'       => 'string',
+	'src_port_var'     => 'string',
+	'dest_ip_var'      => 'string',
+	'dest_port_var'    => 'string',
+	'user_var'         => 'string',
+	# how it is counted... a ban_time of 0 is eternal
+	'max_score' => 'positive_int',
+	'find_time' => 'positive_int',
+	'ban_time'  => 'seconds_or_zero',
+	'weight'    => 'positive_number',
+	'eve_only'  => 'boolean',
+	'distinct'  => 'any',
+	# triage metadata... a rev of 0 is unversioned
+	'msg'        => 'string',
+	'severity'   => 'severity',
+	'classtype'  => 'string',
+	'references' => 'strings',
+	'attack'     => 'strings',
+	'rev'        => 'non_negative_int',
+	# marks
+	'mark'       => 'any',
+	'unmark'     => 'any',
+	'marked'     => 'any',
+	'not_marked' => 'any',
+	'mark_only'  => 'any',
+	'sequence'   => 'any',
+	# tracked records
+	'track'       => 'any',
+	'tracked'     => 'any',
+	'not_tracked' => 'any',
+	'track_only'  => 'any',
+	# the gates the galla judges
+	'country'     => 'any',
+	'namtar_list' => 'any',
+	'active_time' => 'any',
+	'reverse_dns' => 'any',
+	# the embedded tests
+	'tests'       => 'hash',
+	'test_parser' => 'any',
+);
 
-# the def keys every rule type allows, the ones _check_common goes on to
-# vet... a type adds only its own matcher keys to these
-my @COMMON_DEF_KEYS = qw(
-	gate selections condition keywords
-	detection_var ban_not_internal src_ip_var src_port_var dest_ip_var dest_port_var user_var
-	max_score find_time ban_time weight eve_only distinct
-	msg severity classtype references attack rev
-	mark unmark marked not_marked mark_only sequence
-	track tracked not_tracked track_only
-	country namtar_list active_time reverse_dns
-	tests test_parser
+# what a reverse_dns entry may do with a lookup that gave no names
+my $RDNS_FAILURE_ACTION = { 'in' => [qw( pass fail compare )], 'says' => 'one of pass, fail, or compare' };
+
+# what each entry of a def's list keys must look like, read by check_entries...
+# a mark name is constrained like a rule name so it rides tablets and commands
+# cleanly, and vars is a compound key, several captures joined into one, and
+# never beside the single var
+my %ENTRY_SHAPES = (
+	'mark' => {
+		'required' => { 'name' => 'name',   'ttl'  => 'seconds' },
+		'optional' => { 'var'  => 'string', 'vars' => 'strings', 'value_var' => 'string' },
+		'not_both' => [ [ 'var', 'vars' ] ],
+	},
+	'unmark' => {
+		'required' => { 'name' => 'name' },
+		'optional' => { 'var'  => 'string', 'vars' => 'strings' },
+		'not_both' => [ [ 'var', 'vars' ] ],
+	},
+	# a marked entry may hold on any of a list of names in place of its one
+	'marked' => {
+		'optional' => {
+			'name'      => 'name',
+			'names'     => 'names',
+			'var'       => 'string',
+			'vars'      => 'strings',
+			'value_is'  => 'string',
+			'value_not' => 'string',
+		},
+		'one_of'   => [ [ 'name', 'names' ] ],
+		'not_both' => [ [ 'var',  'vars' ], [ 'value_is', 'value_not' ] ],
+	},
+	'not_marked' => {
+		'required' => { 'name' => 'name' },
+		'optional' => { 'var'  => 'string', 'vars' => 'strings', 'value_is' => 'string', 'value_not' => 'string' },
+		'not_both' => [ [ 'var', 'vars' ], [ 'value_is', 'value_not' ] ],
+	},
+	# ordered temporal correlation... the marks that must all be set for the
+	# key and in the listed order by set time
+	'sequence' => {
+		'required' => {
+			'marks' => { 'each' => 'name', 'min' => 2, 'says' => 'a array of at least two mark names' },
+		},
+		'optional' => { 'var' => 'string', 'vars' => 'strings' },
+		'not_both' => [ [ 'var', 'vars' ] ],
+	},
+	# fields absent means everything found is contributed, which is not the
+	# same as a empty list, which means nothing is... the second is how a rule
+	# that only reads a record declares itself
+	'track' => {
+		'required' => { 'name'   => 'name',        'key' => 'string_or_strings' },
+		'optional' => { 'fields' => 'string_list', 'ttl' => 'seconds' },
+	},
+	# a tracked entry with neither where nor into would do nothing, which is
+	# worth saying out loud
+	'tracked' => {
+		'required' => { 'name'  => 'name' },
+		'optional' => { 'where' => 'any', 'into' => 'strings' },
+		'any_of'   => [ [ 'where', 'into', 'so it does nothing' ] ],
+	},
+	'not_tracked' => { 'required' => { 'name' => 'name' } },
+	'namtar_list' => {
+		'optional' => { 'list' => 'name_or_names', 'lists' => 'name_or_names', 'var' => 'string' },
+		'one_of'   => [ [ 'list', 'lists' ] ],
+	},
+	'reverse_dns' => {
+		'optional' => {
+			'var'             => 'string',
+			'matches'         => 'string',
+			'matches_var'     => 'string',
+			'negate'          => 'any',
+			'forward_confirm' => 'any',
+			'on_nxdomain'     => $RDNS_FAILURE_ACTION,
+			'on_servfail'     => $RDNS_FAILURE_ACTION,
+		},
+		'one_of' => [ [ 'matches', 'matches_var' ] ],
+	},
 );
 
 # the def checks every handler runs, one call so a new key or gate check can
-# not be forgotten in one type... that the def is a hash, that it names only
-# the common keys and the type's own, then the scoring and triage keys, the
-# gate family, and the tests shape. the _check_ steps only validate, while the
-# _compile_ ones, the tracks and the country, namtar_list, active_time, and
-# reverse_dns gates, also compile what they vet onto the object.
+# not be forgotten in one type... that the def is a hash naming only the
+# common keys and the type's own, each common one of the kind
+# %COMMON_DEF_KEYS holds it to, then the mark lists and distinct against
+# their shapes, and last the compiles of what the galla judges, the tracks and
+# the country, namtar_list, active_time, and reverse_dns gates, each of which
+# vets its part of the def as it compiles it.
 #
 # args:
 #   $type_keys :: arrayref of the def keys this type allows past the common
-#                 ones, its matcher keys
+#                 ones, its matcher keys, which the type vets itself
 #
 # returns nothing, dying on the first problem found. a sound def also leaves
 # thresholds, mark_gates, and info on the object, the views of it their
@@ -837,24 +920,36 @@ sub _check_common {
 	my $def  = $self->{def};
 	my $name = $self->{name};
 
-	if ( !is_plain_hashref($def) ) {
-		die( 'The def for the rule "' . $name . '" is not a hash' );
-	}
-	$self->_check_keys( $def, [ @COMMON_DEF_KEYS, @{$type_keys} ], 'The rule "' . $name . '" has' );
+	check_hash(
+		$def,
+		{ 'optional' => { %COMMON_DEF_KEYS, map { $_ => 'any' } @{$type_keys} } },
+		'The rule "' . $name . '"'
+	);
 
-	$self->_check_scoring_and_triage;
-	$self->_check_marks;
+	foreach my $list_key ( 'mark', 'unmark', 'marked', 'not_marked', 'sequence' ) {
+		if ( defined( $def->{$list_key} ) ) {
+			check_entries(
+				$def->{$list_key},
+				$ENTRY_SHAPES{$list_key},
+				'The ' . $list_key . ' of the rule "' . $name . '"'
+			);
+		}
+	}
+	# the distinct-cardinality spec... of names the found var whose distinct
+	# values the galla counts, by the one it groups them under
+	if ( defined( $def->{distinct} ) ) {
+		check_hash(
+			$def->{distinct},
+			{ 'required' => { 'of' => 'string' }, 'optional' => { 'by' => 'string' } },
+			'The distinct of the rule "' . $name . '"'
+		);
+	}
+
 	$self->_compile_tracks;
 	$self->_compile_is_isnot_gate('country');
 	$self->_compile_namtar;
 	$self->_compile_is_isnot_gate('active_time');
 	$self->_compile_reverse_dns;
-	$self->_check_distinct;
-	$self->_check_promoted_vars;
-
-	if ( defined( $def->{tests} ) && !is_plain_hashref( $def->{tests} ) ) {
-		die( 'The tests of the rule "' . $name . '" is not a hash' );
-	}
 
 	# the views of the def the galla asks for on every match, built once now
 	# that the def is known sound rather than on each asking... the threshold
@@ -873,7 +968,14 @@ sub _check_common {
 
 # validates the ban_var of a def unless the rule is detection-only, and
 # says which it was... shared by the types with a free-form ban_var (the
-# http pair chisel theirs to a fixed field)
+# http pair chisel theirs to a fixed field).
+#
+# takes nothing. returns 1 for a detection-only rule, which needs no ban_var,
+# else 0. dies on a detection_var that is unusable, and for a rule that is not
+# detection-only on a ban_var that is not a non-empty array of non-empty
+# strings.
+#
+#   my $is_detection = $self->_check_ban_var;
 sub _check_ban_var {
 	my ($self) = @_;
 
@@ -884,14 +986,7 @@ sub _check_ban_var {
 		return 1;
 	}
 
-	if ( !is_plain_arrayref( $def->{ban_var} ) || !@{ $def->{ban_var} } ) {
-		die( 'The rule "' . $name . '" lacks a ban_var array or it is empty' );
-	}
-	foreach my $item ( @{ $def->{ban_var} } ) {
-		if ( !defined($item) || ref($item) ne '' ) {
-			die( 'The ban_var of the rule "' . $name . '" contains a non-string entry' );
-		}
-	}
+	check_value( $def->{ban_var}, 'strings', 'The ban_var of the rule "' . $name . '"' );
 
 	return 0;
 } ## end sub _check_ban_var
@@ -911,24 +1006,33 @@ sub ban_var {
 	return @{ $self->{def}{ban_var} };
 }
 
+# what a country gate's is or isnot may hold... a code or a named import, or
+# a non-empty array of them
+my $COUNTRY_ENTRIES = {
+	'each'   => { 'match' => qr/^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/ },
+	'min'    => 1,
+	'or_one' => 1,
+	'says'   => 'a 2-letter code or a %%%country_codes{name}%%% import, or a non-empty array of them',
+};
+
 # the is/isnot gates, which share one shape... is xor isnot, each a entry or a
 # array of them, and vars an optional found var or list of them to check in
-# place of the offender or the clock. per gate, what its die messages call it,
-# the key its getter lists the entries under, and what a entry must look like
+# place of the offender or the clock. per gate, the key its getter lists the
+# entries under and the shape its hash must have
 my %IS_ISNOT_GATES = (
 	'country' => {
-		'label'       => 'country',
-		'list_key'    => 'entries',
-		'entry_re'    => qr/^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/,
-		'entry_noun'  => 'entry',
-		'entry_shape' => 'a 2-letter code or a %%%country_codes{name}%%% import',
+		'list_key' => 'entries',
+		'shape'    => {
+			'optional' => { 'is' => $COUNTRY_ENTRIES, 'isnot' => $COUNTRY_ENTRIES, 'vars' => 'string_or_strings' },
+			'one_of'   => [ [ 'is', 'isnot' ] ],
+		},
 	},
 	'active_time' => {
-		'label'       => 'active_time',
-		'list_key'    => 'windows',
-		'entry_re'    => $NAME_RE,
-		'entry_noun'  => 'window name',
-		'entry_shape' => 'a /^[a-zA-Z0-9_\-]+$/ string',
+		'list_key' => 'windows',
+		'shape'    => {
+			'optional' => { 'is' => 'name_or_names', 'isnot' => 'name_or_names', 'vars' => 'string_or_strings' },
+			'one_of'   => [ [ 'is', 'isnot' ] ],
+		},
 	},
 );
 
@@ -1147,14 +1251,7 @@ sub _compile_mungers {
 	if ( !defined( $def->{mungers} ) ) {
 		return;
 	}
-	if ( !is_plain_arrayref( $def->{mungers} ) || !@{ $def->{mungers} } ) {
-		die( 'The mungers of the rule "' . $name . '" is not a non-empty array' );
-	}
-	foreach my $munger ( @{ $def->{mungers} } ) {
-		if ( !defined($munger) || ref($munger) ne '' || $munger eq '' ) {
-			die( 'The mungers of the rule "' . $name . '" contains a entry that is not a non-empty string' );
-		}
-	}
+	check_value( $def->{mungers}, 'strings', 'The mungers of the rule "' . $name . '"' );
 	$self->{mungers} = [ sort( uniqstr( @{ $def->{mungers} } ) ) ];
 
 	return;
@@ -1291,14 +1388,14 @@ this to a tablet so a restart does not forget a half correlated offense.
 sub dump_state {
 	my ($self) = @_;
 
-	if ( !( $self->{context} && %{ $self->{context} } ) && !( $self->{pending} && %{ $self->{pending} } ) ) {
+	my $store = $self->{correlation};
+	if ( !%{ $store->{context} } && !%{ $store->{pending} } ) {
 		return undef;
 	}
 
-	return {
-		'context' => $self->{context},
-		'pending' => $self->{pending},
-	};
+	# a copy of the top level, so nothing a caller adds to what it was handed
+	# lands in the live store
+	return { %{$store} };
 } ## end sub dump_state
 
 =head2 restore_state
@@ -1314,35 +1411,10 @@ rather than replacing, so it is safe to call at start.
 sub restore_state {
 	my ( $self, $state, $now ) = @_;
 
-	if ( !is_plain_hashref($state) ) {
-		return;
-	}
-	$now //= time;
-
-	if ( is_plain_hashref( $state->{context} ) ) {
-		foreach my $scope ( keys( %{ $state->{context} } ) ) {
-			foreach my ( $key, $entry ) ( %{ $state->{context}{$scope} } ) {
-				if ( is_plain_hashref($entry) && defined( $entry->{expires} ) && $entry->{expires} > $now ) {
-					$self->{context}{$scope}{$key} = $entry;
-				}
-			}
-		}
-	}
-
-	if ( is_plain_hashref( $state->{pending} ) ) {
-		foreach my $scope ( keys( %{ $state->{pending} } ) ) {
-			foreach my $key ( keys( %{ $state->{pending}{$scope} } ) ) {
-				my @live = grep { is_plain_hashref($_) && defined( $_->{expires} ) && $_->{expires} > $now }
-					@{ $state->{pending}{$scope}{$key} };
-				if (@live) {
-					push( @{ $self->{pending}{$scope}{$key} }, @live );
-				}
-			}
-		}
-	} ## end if ( is_plain_hashref( $state->{pending} ))
+	correlation_restore( $self->{correlation}, $state, $now // time );
 
 	return;
-} ## end sub restore_state
+}
 
 =head2 run_tests
 
@@ -1356,287 +1428,20 @@ documented there.
 
 =cut
 
-# the severity scale, worst last... the ordinal is unused for now but keeps
-# the order canonical if anything ever wants to sort or compare
-our %SEVERITY = ( 'info' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical' => 4 );
-
-# dies if a hash of a def carries a key it should not... the typo guard, a
-# misspelled key otherwise being a setting that silently never applies. the
-# keys are walked sorted, so of several unknown keys the one named is always
-# the same, rather than whichever the hash happened to hand back first.
-#
-# args:
-#   $hash    :: the hash ref to check, a def or one entry of a def list
-#   $allowed :: arrayref of the keys the hash may carry
-#   $prefix  :: the start of the die message, naming the rule and what the
-#               hash is, up to and including its verb, such as 'The track of
-#               the rule "syslog/sshd" has a entry with'... the message goes
-#               on with ' the unknown key "<key>"'
-#
-# returns nothing, dying on the first unknown key.
-#
-#   $self->_check_keys( $entry, [qw( name key fields ttl )], $where . ' has a entry with' );
-sub _check_keys {
-	my ( $self, $hash, $allowed, $prefix ) = @_;
-
-	my %allowed_keys = map { $_ => 1 } @{$allowed};
-	foreach my $key ( sort( keys( %{$hash} ) ) ) {
-		if ( !$allowed_keys{$key} ) {
-			die( $prefix . ' the unknown key "' . $key . '"' );
-		}
-	}
-
-	return;
-} ## end sub _check_keys
-
-# dies unless a def value is a non-empty array whose every entry is a
-# defined, plain, non-empty string... the shape of references, attack, a mark
-# or sequence entry's vars, and a tracked gate's into.
-#
-# args:
-#   $value  :: the def value as the rule file wrote it
-#   $prefix :: the start of the die message, naming the rule and the key, such
-#              as 'The rule "syslog/sshd" has a references'... the message goes
-#              on with " that is not a non-empty array" for a bad list, or
-#              " entry that is not a non-empty string" for a bad entry
-#
-# returns nothing, dying on the first problem found.
-#
-#   _check_string_list( $def->{references}, 'The rule "' . $name . '" has a references' );
-sub _check_string_list {
-	my ( $value, $prefix ) = @_;
-
-	if ( !is_plain_arrayref($value) || !@{$value} ) {
-		die( $prefix . ' that is not a non-empty array' );
-	}
-	foreach my $item ( @{$value} ) {
-		if ( !defined($item) || ref($item) ne '' || $item eq '' ) {
-			die( $prefix . ' entry that is not a non-empty string' );
-		}
-	}
-
-	return;
-} ## end sub _check_string_list
-
-# dies if the def's scoring knobs or triage metadata hold unusable values...
-# the scoring knobs being the threshold overrides, positive ints for
-# max_score and find_time and a non-negative one for ban_time (0 meaning
-# eternal), a positive number for weight, and a boolean for eve_only, and the
-# triage metadata a non-empty msg and classtype, a known severity, a
-# non-negative int rev, and references and attack as lists of non-empty
-# strings... called by every handler's new, as the keys are legal on every
-# type
-sub _check_scoring_and_triage {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	foreach my $item ( 'max_score', 'find_time' ) {
-		if ( defined( $def->{$item} )
-			&& ( ref( $def->{$item} ) ne '' || $def->{$item} !~ /^[0-9]+$/ || !$def->{$item} ) )
-		{
-			die( 'The rule "' . $name . '" has a ' . $item . ', "' . $def->{$item} . '", that is not a positive int' );
-		}
-	}
-	if ( defined( $def->{ban_time} ) && ( ref( $def->{ban_time} ) ne '' || $def->{ban_time} !~ /^[0-9]+$/ ) ) {
-		die(      'The rule "'
-				. $name
-				. '" has a ban_time, "'
-				. $def->{ban_time}
-				. '", that is not a non-negative int of seconds' );
-	}
-	if (
-		defined( $def->{weight} )
-		&& (   ref( $def->{weight} ) ne ''
-			|| $def->{weight} !~ /^[0-9]+(?:\.[0-9]+)?$/
-			|| $def->{weight} + 0 <= 0 )
-		)
-	{
-		die( 'The rule "' . $name . '" has a weight, "' . $def->{weight} . '", that is not a positive number' );
-	}
-	if ( defined( $def->{eve_only} ) && ref( $def->{eve_only} ) ne '' ) {
-		die( 'The rule "' . $name . '" has a eve_only that is not a boolean' );
-	}
-	if ( defined( $def->{msg} ) && ( ref( $def->{msg} ) ne '' || $def->{msg} eq '' ) ) {
-		die( 'The rule "' . $name . '" has a msg that is not a non-empty string' );
-	}
-	if ( defined( $def->{severity} ) && ( ref( $def->{severity} ) ne '' || !exists( $SEVERITY{ $def->{severity} } ) ) )
-	{
-		die( 'The rule "' . $name . '" has a severity that is not one of info/low/medium/high/critical' );
-	}
-	if ( defined( $def->{classtype} ) && ( ref( $def->{classtype} ) ne '' || $def->{classtype} eq '' ) ) {
-		die( 'The rule "' . $name . '" has a classtype that is not a non-empty string' );
-	}
-	# the EVE rev... a non-negative integer, 0 the unversioned default
-	if ( defined( $def->{rev} ) && ( ref( $def->{rev} ) ne '' || $def->{rev} !~ /^\d+$/ ) ) {
-		die( 'The rule "' . $name . '" has a rev that is not a non-negative integer' );
-	}
-	foreach my $listkey ( 'references', 'attack' ) {
-		if ( defined( $def->{$listkey} ) ) {
-			_check_string_list( $def->{$listkey}, 'The rule "' . $name . '" has a ' . $listkey );
-		}
-	}
-
-	return;
-} ## end sub _check_scoring_and_triage
-
-# dies if the def's mark keys, mark, unmark, marked, not_marked, and
-# mark_only, hold unusable values... called by every handler's new, as the
-# keys are legal on every type. Names are constrained like rule names so
-# they ride tablets and commands cleanly.
-sub _check_marks {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	my %shapes = (
-		'mark' =>
-			{ 'name' => 'required', 'ttl' => 'ttl', 'var' => 'string', 'vars' => 'vars', 'value_var' => 'string' },
-		'unmark' => { 'name' => 'required', 'var' => 'string', 'vars' => 'vars' },
-		'marked' => {
-			'name'      => 'required',
-			'names'     => 'names',
-			'var'       => 'string',
-			'vars'      => 'vars',
-			'value_is'  => 'string',
-			'value_not' => 'string'
-		},
-		'not_marked' => {
-			'name'      => 'required',
-			'var'       => 'string',
-			'vars'      => 'vars',
-			'value_is'  => 'string',
-			'value_not' => 'string'
-		},
-	);
-
-	foreach my $key ( keys(%shapes) ) {
-		if ( !defined( $def->{$key} ) ) {
-			next;
-		}
-		my $where = 'The ' . $key . ' of the rule "' . $name . '"';
-		if ( !is_plain_arrayref( $def->{$key} ) || !@{ $def->{$key} } ) {
-			die( $where . ' is not a non-empty array' );
-		}
-		foreach my $entry ( @{ $def->{$key} } ) {
-			if ( !is_plain_hashref($entry) ) {
-				die( $where . ' contains a entry that is not a hash' );
-			}
-			$self->_check_keys( $entry, [ keys( %{ $shapes{$key} } ) ], $where . ' has a entry with' );
-			# a marked entry may carry names, a any-of list, in place of its
-			# one name... everything else requires the one
-			if ( defined( $shapes{$key}{names} ) && defined( $entry->{names} ) ) {
-				if ( defined( $entry->{name} ) ) {
-					die( $where . ' has a entry carrying both name and names' );
-				}
-				if ( !is_plain_arrayref( $entry->{names} ) || !@{ $entry->{names} } ) {
-					die( $where . ' has a entry whose names is not a non-empty array' );
-				}
-				foreach my $mark_name ( @{ $entry->{names} } ) {
-					if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ $NAME_RE ) {
-						die( $where . ' has a entry with a names entry not matching /^[a-zA-Z0-9_\-]+$/' );
-					}
-				}
-			} elsif ( !defined( $entry->{name} )
-				|| ref( $entry->{name} ) ne ''
-				|| $entry->{name} !~ $NAME_RE )
-			{
-				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
-			}
-			my $entry_name = $entry->{name} // join( '|', @{ $entry->{names} } );
-			if (
-				defined( $shapes{$key}{ttl} )
-				&& (  !defined( $entry->{ttl} )
-					|| ref( $entry->{ttl} ) ne ''
-					|| $entry->{ttl} !~ /^[0-9]+$/
-					|| !$entry->{ttl} )
-				)
-			{
-				die( $where . ' entry "' . $entry_name . '" lacks a ttl that is a positive int of seconds' );
-			} ## end if ( defined( $shapes{$key}{ttl} ) && ( !defined...))
-			# vars, a compound key... two or more captures joined into one
-			# brandable key, and never beside the single var
-			if ( defined( $entry->{vars} ) ) {
-				if ( defined( $entry->{var} ) ) {
-					die( $where . ' entry "' . $entry_name . '" carries both var and vars' );
-				}
-				_check_string_list( $entry->{vars}, $where . ' entry "' . $entry_name . '" has a vars' );
-			}
-			foreach my $string_key (
-				grep { defined( $shapes{$key}{$_} ) && $shapes{$key}{$_} eq 'string' }
-				keys( %{$entry} )
-				)
-			{
-				if (  !defined( $entry->{$string_key} )
-					|| ref( $entry->{$string_key} ) ne ''
-					|| $entry->{$string_key} eq '' )
-				{
-					die(      $where
-							. ' entry "'
-							. $entry_name
-							. '" has a '
-							. $string_key
-							. ' that is not a non-empty string' );
-				} ## end if ( !defined( $entry->{$string_key} ) || ...)
-			} ## end foreach my $string_key ( grep { defined( $shapes...)})
-			if ( defined( $entry->{value_is} ) && defined( $entry->{value_not} ) ) {
-				die( $where . ' entry "' . $entry_name . '" carries both value_is and value_not' );
-			}
-		} ## end foreach my $entry ( @{ $def->{$key} } )
-	} ## end foreach my $key ( keys(%shapes) )
-
-	# the sequence gate... ordered temporal correlation, a list of mark names
-	# that must all be set for the key and in the listed order by set time
-	if ( defined( $def->{sequence} ) ) {
-		my $where = 'The sequence of the rule "' . $name . '"';
-		if ( !is_plain_arrayref( $def->{sequence} ) || !@{ $def->{sequence} } ) {
-			die( $where . ' is not a non-empty array' );
-		}
-		foreach my $entry ( @{ $def->{sequence} } ) {
-			if ( !is_plain_hashref($entry) ) {
-				die( $where . ' contains a entry that is not a hash' );
-			}
-			$self->_check_keys( $entry, [qw( marks var vars )], $where . ' has a entry with' );
-			if ( !is_plain_arrayref( $entry->{marks} ) || scalar( @{ $entry->{marks} } ) < 2 ) {
-				die( $where . ' entry lacks a marks array of at least two mark names' );
-			}
-			foreach my $mark_name ( @{ $entry->{marks} } ) {
-				if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ $NAME_RE ) {
-					die( $where . ' entry has a mark name not matching /^[a-zA-Z0-9_\-]+$/' );
-				}
-			}
-			if ( defined( $entry->{var} ) && ( ref( $entry->{var} ) ne '' || $entry->{var} eq '' ) ) {
-				die( $where . ' entry has a var that is not a non-empty string' );
-			}
-			if ( defined( $entry->{vars} ) ) {
-				if ( defined( $entry->{var} ) ) {
-					die( $where . ' entry carries both var and vars' );
-				}
-				_check_string_list( $entry->{vars}, $where . ' entry has a vars' );
-			}
-		} ## end foreach my $entry ( @{ $def->{sequence} } )
-	} ## end if ( defined( $def->{sequence} ) )
-
-	return;
-} ## end sub _check_marks
-
-# dies if the def's track keys, track, tracked, not_tracked, and track_only,
-# hold unusable values, compiling the usable ones onto the object... called by
-# every handler's new, as the keys are legal on every type. Names are
-# constrained like mark names so they ride tablets and commands cleanly.
+# compiles the def's track keys, track, tracked, not_tracked, and track_only,
+# onto the object, dying on anything unusable... the entry shapes vet what
+# each entry holds, and this what a shape can not see. A track_only rule must
+# declare a track, a track declared twice leaves its key ambiguous, and a
+# tracked or not_tracked naming a record the rule declared no track for will
+# not load, the declaration being what the read is a read of.
 #
 # takes nothing. returns nothing, leaving tracks (a array ref of
 # { name, key, fields, ttl }) and track_gates ({ tracked, not_tracked }) on
 # the object, each entry of the latter carrying the key its declaration gave
 # so the runtime never has to look one up.
 #
-# two rulings are enforced here rather than left to surprise a operator at
-# three in the morning. A tracked or not_tracked naming a record the rule
-# declared no track for will not load, the declaration being what the read is
-# a read of. And a tracked entry carrying neither where nor into will not
-# load, doing nothing being worth saying out loud.
+#   $self->_compile_tracks;
+#   # $self->{tracks} is [ { 'name' => 'mail-queue', 'key' => ['QUEUE_ID'], 'fields' => undef, 'ttl' => 3600 } ]
 sub _compile_tracks {
 	my ($self) = @_;
 
@@ -1654,72 +1459,20 @@ sub _compile_tracks {
 	my %declared;
 	if ( defined( $def->{track} ) ) {
 		my $where = 'The track of the rule "' . $name . '"';
-		if ( !is_plain_arrayref( $def->{track} ) || !@{ $def->{track} } ) {
-			die( $where . ' is not a non-empty array' );
-		}
+		check_entries( $def->{track}, $ENTRY_SHAPES{track}, $where );
+
 		my @tracks;
 		foreach my $entry ( @{ $def->{track} } ) {
-			if ( !is_plain_hashref($entry) ) {
-				die( $where . ' contains a entry that is not a hash' );
-			}
-			$self->_check_keys( $entry, [qw( name key fields ttl )], $where . ' has a entry with' );
-			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ $NAME_RE ) {
-				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
-			}
 			if ( defined( $declared{ $entry->{name} } ) ) {
 				die( $where . ' declares "' . $entry->{name} . '" twice, which leaves its key ambiguous' );
 			}
-
-			# the key, a found var or a compound list of them. a list of one is
-			# the same thing as the plain string, so both compile to a list and
-			# the runtime has one shape to resolve
-			my @components;
-			if ( is_plain_arrayref( $entry->{key} ) ) {
-				if ( !@{ $entry->{key} } ) {
-					die( $where . ' entry "' . $entry->{name} . '" has a key that is a empty array' );
-				}
-				@components = @{ $entry->{key} };
-			} else {
-				@components = ( $entry->{key} );
-			}
-			foreach my $component (@components) {
-				if ( !defined($component) || ref($component) ne '' || $component eq '' ) {
-					die( $where . ' entry "' . $entry->{name} . '" has a key that is not a non-empty found var' );
-				}
-			}
-
-			# fields absent means everything found is contributed, which is not
-			# the same as a empty list, which means nothing is... the second is
-			# how a rule that only reads a record declares itself
-			my $fields;
-			if ( defined( $entry->{fields} ) ) {
-				if ( !is_plain_arrayref( $entry->{fields} ) ) {
-					die( $where . ' entry "' . $entry->{name} . '" has a fields that is not a array' );
-				}
-				foreach my $field ( @{ $entry->{fields} } ) {
-					if ( !defined($field) || ref($field) ne '' || $field eq '' ) {
-						die(      $where
-								. ' entry "'
-								. $entry->{name}
-								. '" has a fields entry that is not a non-empty string' );
-					}
-				}
-				$fields = [ @{ $entry->{fields} } ];
-			} ## end if ( defined( $entry->{fields} ) )
-
-			my $ttl = 3600;
-			if ( defined( $entry->{ttl} ) ) {
-				if ( ref( $entry->{ttl} ) ne '' || $entry->{ttl} !~ /^[0-9]+$/ || !$entry->{ttl} ) {
-					die( $where . ' entry "' . $entry->{name} . '" has a ttl that is not a positive int of seconds' );
-				}
-				$ttl = $entry->{ttl};
-			}
-
 			my $track = {
-				'name'   => $entry->{name},
-				'key'    => \@components,
-				'fields' => $fields,
-				'ttl'    => $ttl
+				'name' => $entry->{name},
+				# a list of one is the same thing as the plain string, so both
+				# compile to a list and the runtime has one shape to resolve
+				'key'    => is_plain_arrayref( $entry->{key} ) ? [ @{ $entry->{key} } ]    : [ $entry->{key} ],
+				'fields' => defined( $entry->{fields} )        ? [ @{ $entry->{fields} } ] : undef,
+				'ttl'    => $entry->{ttl} // 3600,
 			};
 			$declared{ $entry->{name} } = $track;
 			push( @tracks, $track );
@@ -1733,47 +1486,23 @@ sub _compile_tracks {
 			next;
 		}
 		my $where = 'The ' . $key . ' of the rule "' . $name . '"';
-		if ( !is_plain_arrayref( $def->{$key} ) || !@{ $def->{$key} } ) {
-			die( $where . ' is not a non-empty array' );
-		}
+		check_entries( $def->{$key}, $ENTRY_SHAPES{$key}, $where );
+
 		foreach my $entry ( @{ $def->{$key} } ) {
-			if ( !is_plain_hashref($entry) ) {
-				die( $where . ' contains a entry that is not a hash' );
-			}
-			$self->_check_keys(
-				$entry,
-				$key eq 'tracked' ? [qw( name where into )] : ['name'],
-				$where . ' has a entry with'
-			);
-			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ $NAME_RE ) {
-				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
-			}
 			if ( !defined( $declared{ $entry->{name} } ) ) {
 				die( $where . ' entry "' . $entry->{name} . '" names a record the rule declares no track for' );
 			}
 
 			my $gate = { 'name' => $entry->{name}, 'key' => $declared{ $entry->{name} }{key} };
-
-			if ( $key eq 'tracked' ) {
-				if ( !defined( $entry->{where} ) && !defined( $entry->{into} ) ) {
-					die(      $where
-							. ' entry "'
-							. $entry->{name}
-							. '" carries neither where nor into, so it does nothing' );
-				}
-				if ( defined( $entry->{where} ) ) {
-					# the ordinary gate vocabulary, judged against the stored
-					# record rather than the line... so a undef stored value
-					# already fails every operator but exists
-					$gate->{where}
-						= compile_gates( $entry->{where}, $where . ' entry "' . $entry->{name} . '" where' );
-				}
-				if ( defined( $entry->{into} ) ) {
-					_check_string_list( $entry->{into}, $where . ' entry "' . $entry->{name} . '" has a into' );
-					$gate->{into} = [ @{ $entry->{into} } ];
-				}
-			} ## end if ( $key eq 'tracked' )
-
+			if ( defined( $entry->{where} ) ) {
+				# the ordinary gate vocabulary, judged against the stored record
+				# rather than the line... so a undef stored value already fails
+				# every operator but exists
+				$gate->{where} = compile_gates( $entry->{where}, $where . ' entry "' . $entry->{name} . '" where' );
+			}
+			if ( defined( $entry->{into} ) ) {
+				$gate->{into} = [ @{ $entry->{into} } ];
+			}
 			push( @{ $gates->{$key} }, $gate );
 		} ## end foreach my $entry ( @{ $def->{$key} } )
 	} ## end foreach my $key ( 'tracked', 'not_tracked' )
@@ -1785,22 +1514,20 @@ sub _compile_tracks {
 	return;
 } ## end sub _compile_tracks
 
-# dies if the def's is/isnot gate of the named kind is malformed, and leaves a
-# sound one normalized on the object for its getter... the mode, its entries
-# as a list however the def wrote them, and vars as a list or undef. the token
-# and window names are resolved against the config later, by the galla, per
-# watcher.
+# normalizes the def's is/isnot gate of the named kind onto the object for its
+# getter, dying on a malformed one... the mode, its entries as a list however
+# the def wrote them, and vars as a list or undef. the token and window names
+# are resolved against the config later, by the galla, per watcher.
 #
 # args:
 #   $gate_key :: the gate's def key, a key of %IS_ISNOT_GATES, country or
 #                active_time
 #
-# returns nothing, dying on the first problem found. a def without the gate
-# passes and leaves nothing. otherwise the gate lands under its key with _gate
-# on the end, country_gate or active_time_gate, a hash ref of mode (is or
-# isnot), the gate's list key (entries or windows) holding the arrayref of its
-# entries, and vars, a arrayref of the found vars to check or undef to check
-# the offender or the clock.
+# returns nothing. a def without the gate leaves nothing. otherwise the gate
+# lands under its key with _gate on the end, country_gate or active_time_gate,
+# a hash ref of mode (is or isnot), the gate's list key (entries or windows)
+# holding the arrayref of its entries, and vars, a arrayref of the found vars
+# to check or undef to check the offender or the clock.
 #
 #   $self->_compile_is_isnot_gate('country');
 #   # $self->{country_gate} is { 'mode' => 'is', 'entries' => [ 'US' ], 'vars' => undef }
@@ -1812,117 +1539,67 @@ sub _compile_is_isnot_gate {
 		return;
 	}
 
-	my $shape = $IS_ISNOT_GATES{$gate_key};
-	my $where = 'The ' . $shape->{label} . ' gate of the rule "' . $self->{name} . '"';
+	my $gate = $IS_ISNOT_GATES{$gate_key};
+	check_hash( $gate_def, $gate->{shape}, 'The ' . $gate_key . ' gate of the rule "' . $self->{name} . '"' );
 
-	if ( !is_plain_hashref($gate_def) ) {
-		die( $where . ' is not a hash' );
-	}
-	$self->_check_keys( $gate_def, [qw( is isnot vars )], $where . ' has' );
-	if ( defined( $gate_def->{is} ) && defined( $gate_def->{isnot} ) ) {
-		die( $where . ' carries both is and isnot' );
-	}
-	if ( !defined( $gate_def->{is} ) && !defined( $gate_def->{isnot} ) ) {
-		die( $where . ' has neither is nor isnot' );
+	# a lone entry or var is a list of one, so each lands as a list
+	my $mode    = defined( $gate_def->{is} ) ? 'is' : 'isnot';
+	my $entries = $gate_def->{$mode};
+	my $vars    = $gate_def->{vars};
+	if ( defined($vars) ) {
+		$vars = is_plain_arrayref($vars) ? [ @{$vars} ] : [$vars];
 	}
 
-	my $mode = defined( $gate_def->{is} ) ? 'is' : 'isnot';
-
-	my @entries = is_plain_arrayref( $gate_def->{$mode} ) ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
-	if ( !@entries ) {
-		die( $where . ' ' . $mode . ' is empty' );
-	}
-	foreach my $entry (@entries) {
-		if ( !defined($entry) || ref($entry) ne '' || $entry !~ $shape->{entry_re} ) {
-			die( $where . ' ' . $mode . ' has a ' . $shape->{entry_noun} . ' that is not ' . $shape->{entry_shape} );
-		}
-	}
-
-	my $vars;
-	if ( defined( $gate_def->{vars} ) ) {
-		my @vars = is_plain_arrayref( $gate_def->{vars} ) ? @{ $gate_def->{vars} } : ( $gate_def->{vars} );
-		if ( !@vars ) {
-			die( $where . ' vars is empty' );
-		}
-		foreach my $var (@vars) {
-			if ( !defined($var) || ref($var) ne '' || $var eq '' ) {
-				die( $where . ' vars has a entry that is not a non-empty string' );
-			}
-		}
-		$vars = \@vars;
-	} ## end if ( defined( $gate_def->{vars} ) )
-
-	$self->{ $gate_key . '_gate' } = { 'mode' => $mode, $shape->{list_key} => \@entries, 'vars' => $vars };
+	$self->{ $gate_key . '_gate' } = {
+		'mode'            => $mode,
+		$gate->{list_key} => is_plain_arrayref($entries) ? [ @{$entries} ] : [$entries],
+		'vars'            => $vars,
+	};
 
 	return;
 } ## end sub _compile_is_isnot_gate
 
-# dies if the def's reverse_dns gate is malformed, compiling it onto the
-# object... a array of entries, each comparing the PTR names of an address
-# (a named found var, or var-less the offender) against a regexp (matches)
-# or another found value (matches_var), optionally negated, with forward
+# compiles the def's reverse_dns gate onto the object, dying on a malformed
+# one... a array of entries, each comparing the PTR names of an address (a
+# named found var, or var-less the offender) against a regexp (matches) or
+# another found value (matches_var), optionally negated, with forward
 # confirmation on unless refused. the galla owns the lookups and the
-# fail-closed rules, this only the shape
+# fail-closed rules, this only the shape.
+#
+# takes nothing. returns nothing. a def without the gate leaves nothing,
+# otherwise reverse_dns_gate holds a arrayref of entries, each a hash ref of
+# var, matches_var, negate, forward_confirm, on_nxdomain, on_servfail, and,
+# for a matches entry, the compiled regexp.
+#
+#   $self->_compile_reverse_dns;
+#   # $self->{reverse_dns_gate}[0]{on_servfail} is 'fail' for { matches: '\.example\.org$' }
 sub _compile_reverse_dns {
 	my ($self) = @_;
 
 	my $def = $self->{def};
-
 	if ( !defined( $def->{reverse_dns} ) ) {
 		return;
 	}
 
-	my $name  = $self->{name};
-	my $where = 'The reverse_dns gate of the rule "' . $name . '"';
-
-	if ( !is_plain_arrayref( $def->{reverse_dns} ) || !@{ $def->{reverse_dns} } ) {
-		die( $where . ' is not a array or is empty' );
-	}
+	my $where = 'The reverse_dns gate of the rule "' . $self->{name} . '"';
+	check_entries( $def->{reverse_dns}, $ENTRY_SHAPES{reverse_dns}, $where );
 
 	my @compiled;
 	foreach my ( $entry_int, $entry ) ( indexed @{ $def->{reverse_dns} } ) {
-		my $entry_where = $where . ' entry ' . $entry_int;
-		if ( !is_plain_hashref($entry) ) {
-			die( $entry_where . ' is not a hash' );
-		}
-		$self->_check_keys(
-			$entry,
-			[qw( var matches matches_var negate forward_confirm on_nxdomain on_servfail )],
-			$entry_where . ' has'
-		);
-		if ( defined( $entry->{matches} ) && defined( $entry->{matches_var} ) ) {
-			die( $entry_where . ' carries both matches and matches_var' );
-		}
-		if ( !defined( $entry->{matches} ) && !defined( $entry->{matches_var} ) ) {
-			die( $entry_where . ' has neither matches nor matches_var' );
-		}
-		foreach my $key ( 'var', 'matches', 'matches_var' ) {
-			if ( defined( $entry->{$key} ) && ( ref( $entry->{$key} ) ne '' || $entry->{$key} eq '' ) ) {
-				die( $entry_where . ' has a ' . $key . ' that is not a non-empty string' );
-			}
-		}
-		foreach my $key ( 'on_nxdomain', 'on_servfail' ) {
-			if ( defined( $entry->{$key} )
-				&& ( ref( $entry->{$key} ) ne '' || $entry->{$key} !~ /^(?:pass|fail|compare)$/ ) )
-			{
-				die( $entry_where . ' has a ' . $key . ' that is not one of pass, fail, or compare' );
-			}
-		}
-
 		my $compiled_entry = {
 			'var'             => $entry->{var},
 			'matches_var'     => $entry->{matches_var},
 			'negate'          => $entry->{negate}                                                       ? 1 : 0,
 			'forward_confirm' => ( defined( $entry->{forward_confirm} ) && !$entry->{forward_confirm} ) ? 0 : 1,
-			'on_nxdomain'     => defined( $entry->{on_nxdomain} ) ? $entry->{on_nxdomain}                   : 'compare',
-			'on_servfail'     => defined( $entry->{on_servfail} ) ? $entry->{on_servfail}                   : 'fail',
+			'on_nxdomain'     => $entry->{on_nxdomain} // 'compare',
+			'on_servfail'     => $entry->{on_servfail} // 'fail',
 		};
 		if ( defined( $entry->{matches} ) ) {
 			my $regexp = $entry->{matches};
 			try {
 				$compiled_entry->{regexp} = qr/$regexp/;
 			} catch ($caught) {
-				die( $entry_where . ' matches does not compile... ' . $caught );
+				die( $where . ' entry ' . $entry_int . ' matches does not compile... ' . $caught );
 			}
 		}
 		push( @compiled, $compiled_entry );
@@ -1932,17 +1609,15 @@ sub _compile_reverse_dns {
 	return;
 } ## end sub _compile_reverse_dns
 
-# dies if the def's namtar_list gate is malformed, and leaves a sound one
-# normalized on the object for its getter... a array of entries, each naming
-# one or more lists (list or lists) and a optional var to check instead of
-# the offender. the list names are resolved against the config later, by the
-# galla, per watcher.
+# normalizes the def's namtar_list gate onto the object for its getter, dying
+# on a malformed one... a array of entries, each naming one or more lists
+# (list or lists) and a optional var to check instead of the offender. the
+# list names are resolved against the config later, by the galla, per watcher.
 #
-# takes nothing. returns nothing, dying on the first problem found. a def
-# without the gate passes and leaves nothing. otherwise namtar_gate holds a
-# arrayref of entries, each a hash ref of lists, the arrayref of list names
-# whichever of list or lists the def used, and var, the found var to check or
-# undef for the offender.
+# takes nothing. returns nothing. a def without the gate leaves nothing,
+# otherwise namtar_gate holds a arrayref of entries, each a hash ref of lists,
+# the arrayref of list names whichever of list or lists the def used, and var,
+# the found var to check or undef for the offender.
 #
 #   $self->_compile_namtar;
 #   # $self->{namtar_gate} is [ { 'lists' => [ 'threatfeed' ], 'var' => 'SRC' } ]
@@ -1950,628 +1625,25 @@ sub _compile_namtar {
 	my ($self) = @_;
 
 	my $def = $self->{def};
-
 	if ( !defined( $def->{namtar_list} ) ) {
 		return;
 	}
 
-	my $name  = $self->{name};
-	my $where = 'The namtar_list gate of the rule "' . $name . '"';
+	check_entries(
+		$def->{namtar_list},
+		$ENTRY_SHAPES{namtar_list},
+		'The namtar_list gate of the rule "' . $self->{name} . '"'
+	);
 
-	if ( !is_plain_arrayref( $def->{namtar_list} ) || !@{ $def->{namtar_list} } ) {
-		die( $where . ' is not a non-empty array' );
-	}
 	my @compiled;
 	foreach my $entry ( @{ $def->{namtar_list} } ) {
-		if ( !is_plain_hashref($entry) ) {
-			die( $where . ' has a entry that is not a hash' );
-		}
-		$self->_check_keys( $entry, [qw( list lists var )], $where . ' has a entry with' );
-		if ( defined( $entry->{list} ) && defined( $entry->{lists} ) ) {
-			die( $where . ' has a entry carrying both list and lists' );
-		}
 		my $lists = $entry->{lists} // $entry->{list};
-		if ( !defined($lists) ) {
-			die( $where . ' has a entry lacking a list or lists' );
-		}
-		my @lists = is_plain_arrayref($lists) ? @{$lists} : ($lists);
-		if ( !@lists ) {
-			die( $where . ' has a entry with a empty lists' );
-		}
-		foreach my $list (@lists) {
-			if ( !defined($list) || ref($list) ne '' || $list !~ $NAME_RE ) {
-				die( $where . ' has a list name that is not a /^[a-zA-Z0-9_\-]+$/ string' );
-			}
-		}
-		if ( defined( $entry->{var} ) && ( ref( $entry->{var} ) ne '' || $entry->{var} eq '' ) ) {
-			die( $where . ' has a var that is not a non-empty string' );
-		}
-		push( @compiled, { 'lists' => \@lists, 'var' => $entry->{var} } );
-	} ## end foreach my $entry ( @{ $def->{namtar_list} } )
+		push( @compiled, { 'lists' => is_plain_arrayref($lists) ? [ @{$lists} ] : [$lists], 'var' => $entry->{var} } );
+	}
 	$self->{namtar_gate} = \@compiled;
 
 	return;
 } ## end sub _compile_namtar
-
-# checks the distinct-cardinality spec, dieing on anything unusable... a table
-# with a of naming the found var whose distinct values the galla counts
-sub _check_distinct {
-	my ($self) = @_;
-
-	my $def = $self->{def};
-
-	if ( !defined( $def->{distinct} ) ) {
-		return;
-	}
-	my $name = $self->{name};
-	my $spec = $def->{distinct};
-
-	if ( !is_plain_hashref($spec) ) {
-		die( 'The distinct of the rule "' . $name . '" is not a table' );
-	}
-	$self->_check_keys( $spec, [qw( of by )], 'The distinct of the rule "' . $name . '" has' );
-	if ( !defined( $spec->{of} ) || ref( $spec->{of} ) ne '' || $spec->{of} eq '' ) {
-		die(      'The distinct of the rule "'
-				. $name
-				. '" lacks a non-empty of naming the field to count distinct values of' );
-	}
-	if ( defined( $spec->{by} ) && ( ref( $spec->{by} ) ne '' || $spec->{by} eq '' ) ) {
-		die(      'The distinct of the rule "'
-				. $name
-				. '" has a by that is not a non-empty string naming the grouping field' );
-	}
-
-	return;
-} ## end sub _check_distinct
-
-# dies if any of the def's promoted-var keys is set to anything but a
-# non-empty string... each names the found var whose value the galla
-# promotes to the EVE top level. absent is fine, they default to the
-# literal src_ip, dest_ip, src_port, dest_port, and user fields
-sub _check_promoted_vars {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-	foreach my $item ( 'src_ip_var', 'dest_ip_var', 'src_port_var', 'dest_port_var', 'user_var' ) {
-		if ( !exists( $def->{$item} ) ) {
-			next;
-		}
-		if ( !defined( $def->{$item} ) || ref( $def->{$item} ) ne '' || $def->{$item} eq '' ) {
-			die( 'The ' . $item . ' of the rule "' . $name . '" is not a non-empty string' );
-		}
-	}
-
-	return;
-} ## end sub _check_promoted_vars
-
-# Names the first message_regexp whose shape leaves the offender open to being
-# chosen by whoever wrote the line, or undef when none does. Sets
-# needs_injection_test, which run_tests turns into a warning when the rule
-# carries no tests.injection to answer it... a warning and not a failure,
-# because the shape alone does not make a rule exploitable.
-#
-# The shape is a LAZY unbounded wildcard between the head of the pattern and the
-# offender token, with nothing anchoring the token's tail. Lazy takes the first
-# candidate it reaches, so wherever the log lets a client write text ahead of the
-# real field... an account name, a mail subject, a user agent... the client picks
-# the ban target by planting a copy of the delimiter. Every real instance of this
-# found in the shipped set had exactly this shape.
-#
-# Greedy is deliberately NOT flagged. It takes the LAST candidate, and a forgery
-# can only ever be planted ahead of the field the daemon writes, so the ordering
-# is itself the defence.
-#
-# This is a shape and nothing more. Whether a client can actually reach that
-# wildcard is a property of the log format, which no amount of reading the
-# pattern will settle: the two raw/palo-alto rules are the same shape and
-# opposite verdicts, one writing the account before the address and one after.
-# So this does not judge the pattern, and must not refuse it... it points at a
-# question only a test can answer, and the answer may well be "safe here".
-sub _detect_injection_shape {
-	my ($self) = @_;
-
-	my $def = $self->{def};
-
-	$self->{needs_injection_test} = undef;
-
-	foreach my $item ( @{ $def->{message_regexp} || [] } ) {
-		my $re = is_plain_hashref($item) ? $item->{regexp} : $item;
-		next if ( !defined($re) || ref($re) ne '' );
-
-		my ( $pre, $token, $post ) = $re =~ /^(.*?)%%%%(SRC|DEST|ADDR|HOST|IP4|IP6|SUBNET)%%%%(.*)$/s;
-		next if ( !defined($token) );
-
-		# an unbounded run that yields the shortest match... ".*?", "\S+?" and
-		# the like. a bounded one ("[^"]*", "{0,3}") cannot cross a delimiter
-		next if ( $pre !~ /(?:\.|\\S|\\w|\\d|\\D|\\W)[*+]\?/ );
-
-		# peel the tail down to whatever really has to be there... an all
-		# optional group, a trailing space run, and a word boundary each anchor
-		# nothing at all
-		my $tail    = $post;
-		my $peeling = 1;
-		while ($peeling) {
-			$peeling = 0;
-			$peeling = 1 if ( $tail =~ s/\((?:\?:)?[^()]*\)[?*]// );
-			$peeling = 1 if ( $tail =~ s/\\s\*// );
-			$peeling = 1 if ( $tail =~ s/\\b// );
-		}
-		next if ( $tail =~ /\S/ );
-
-		$self->{needs_injection_test} = 'the offender of "' . $re . '"';
-		return;
-	} ## end foreach my $item ( @{ $def->{message_regexp} ||...})
-
-	return;
-} ## end sub _detect_injection_shape
-
-# compiles the matcher of the syslog and raw types, which is one of two
-# things... a staged rule, whose stages are the whole matcher, or the
-# per-line message_regexp with its capture_regexp correlation, and either way
-# the ignore_regexp and the boolean. shared by the two types so a change to
-# what a regexp rule may carry lands once.
-#
-# message_regexp may be left off when something else does the matching...
-# message_json, whose decoded fields the gate tests, or mungers, whose
-# decomposed fields it tests the same way, which is what lets an appliance
-# rule name a parsed field as its offender instead of scanning the line for
-# an address. either makes the gate the matcher, so such a rule must carry
-# one.
-#
-# takes nothing, reading the def, the mungers, and message_json, which only
-# the syslog type sets, off the object... so it is called after those are
-# settled. returns nothing, dying on stages beside the per-line matchers, a
-# per with no stages, anything the compiles it calls refuse, or a rule that
-# would regard every line it decodes as a offense.
-#
-#   $self->_compile_message_matchers;
-sub _compile_message_matchers {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	# a staged rule... its stages are the whole matcher, exclusive with the
-	# per-line matchers and the keyed correlation
-	if ( defined( $def->{stages} ) ) {
-		my @beside = grep { defined( $def->{$_} ) } ( 'message_regexp', 'capture_regexp' );
-		if ( $self->{message_json} ) {
-			push( @beside, 'message_json' );
-		}
-		if (@beside) {
-			die(      'The rule "'
-					. $name
-					. '" has stages beside '
-					. join( ', ', @beside )
-					. '... stages are the whole matcher' );
-		}
-		$self->_compile_ignore_regexps;
-		$self->_compile_stages;
-		$self->_compile_boolean;
-		return;
-	} ## end if ( defined( $def->{stages} ) )
-	if ( defined( $def->{per} ) ) {
-		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
-	}
-
-	my $gate_may_match = ( $self->{message_json} || @{ $self->{mungers} } ) ? 1 : 0;
-	$self->_compile_message_regexps($gate_may_match);
-	$self->_compile_capture_regexps;
-
-	# an optional gate or selections+condition refines the match on its
-	# captures, and on the message_json or munger fields too... operators and
-	# decode over the extracted vars, those fields, and the reserved MESSAGE
-	$self->_compile_boolean;
-
-	# a message_json or munger rule with no message_regexp must match on
-	# something, else it would regard every line it decodes as a offense
-	if ( $gate_may_match && !@{ $self->{regexps} } && !$self->{has_boolean} ) {
-		die(      'The rule "'
-				. $name . '" is '
-				. ( $self->{message_json} ? 'message_json' : 'munger driven' )
-				. ' with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
-	}
-
-	return;
-} ## end sub _compile_message_matchers
-
-# compiles the def's message_regexp and ignore_regexp, expanding
-# %%%%TOKEN%%%% tokens into named captures, and populates regexps and
-# ignore_regexps on the object... shared by the handlers whose matching is
-# regexps against a message with something to extract. takes whether a
-# missing message_regexp is allowed, something else doing the matching
-sub _compile_message_regexps {
-	my ( $self, $allow_empty ) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	$self->{regexps} = [];
-
-	# does any pattern leave the offender open to being chosen by whoever wrote
-	# the line? run_tests turns a yes into a demand for a tests.injection entry
-	$self->_detect_injection_shape;
-
-	# a message_json rule may have no message_regexp, the json fields being
-	# what it matches on, so the caller can allow an empty list. a missing key
-	# is fine then; a present but malformed one is still an error
-	if ( !defined( $def->{message_regexp} ) && $allow_empty ) {
-		$self->_compile_ignore_regexps;
-		return;
-	}
-	if ( !is_plain_arrayref( $def->{message_regexp} ) || !@{ $def->{message_regexp} } ) {
-		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
-	}
-	foreach my $item ( @{ $def->{message_regexp} } ) {
-		if ( !defined($item) || ( ref($item) ne '' && !is_plain_hashref($item) ) ) {
-			die( 'The message_regexp of the rule "' . $name . '" contains a entry that is not a string or a hash' );
-		}
-		if ( is_plain_hashref($item) ) {
-			$self->_check_keys( $item, [qw( regexp key defer )],
-				'A message_regexp entry of the rule "' . $name . '" has' );
-			if ( !defined( $item->{regexp} ) || ref( $item->{regexp} ) ne '' ) {
-				die( 'A message_regexp entry of the rule "' . $name . '" lacks a regexp string' );
-			}
-			if ( !defined( $item->{key} ) ) {
-				die( 'A message_regexp hash entry of the rule "' . $name . '" lacks a key' );
-			}
-			$self->_correlation_key_components( $item->{key}, 'A message_regexp entry of the rule "' . $name . '"' );
-			if ( defined( $item->{defer} ) && ( $item->{defer} !~ /^[0-9]+$/ || !$item->{defer} ) ) {
-				die(      'The defer of a message_regexp entry of the rule "'
-						. $name
-						. '" is not a positive int of seconds' );
-			}
-		} ## end if ( is_plain_hashref($item) )
-	} ## end foreach my $item ( @{ $def->{message_regexp} } )
-
-	$self->_compile_ignore_regexps;
-
-	foreach my ( $entry_int, $item ) ( indexed @{ $def->{message_regexp} } ) {
-		my $regexp   = is_plain_hashref($item) ? $item->{regexp} : $item;
-		my $compiled = compile_tokened_regexp( $regexp,
-			'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
-		if ( is_plain_hashref($item) ) {
-			$compiled->{key} = $self->_correlation_key_components( $item->{key},
-				'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
-			$compiled->{defer} = $item->{defer};
-		}
-		push( @{ $self->{regexps} }, $compiled );
-	} ## end foreach my ( $entry_int, $item ) ( indexed @{ $def...})
-
-	return;
-} ## end sub _compile_message_regexps
-
-# compiles the def's ignore_regexp onto the object... tokens
-# work here too, but nothing is captured from them, so the aliases are
-# just thrown away. shared by the message_regexp and stages matchers
-sub _compile_ignore_regexps {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	$self->{ignore_regexps} = [];
-
-	if ( !defined( $def->{ignore_regexp} ) ) {
-		return;
-	}
-	if ( !is_plain_arrayref( $def->{ignore_regexp} ) ) {
-		die( 'The ignore_regexp of the rule "' . $name . '" is not a array' );
-	}
-	foreach my $item ( @{ $def->{ignore_regexp} } ) {
-		if ( !defined($item) || ref($item) ne '' ) {
-			die( 'The ignore_regexp of the rule "' . $name . '" contains a non-string entry' );
-		}
-	}
-
-	foreach my ( $ignore_int, $regexp ) ( indexed @{ $def->{ignore_regexp} } ) {
-		my $entry = compile_tokened_regexp( $regexp,
-			'The ignore_regexp entry ' . $ignore_int . ' of the rule "' . $name . '"' );
-		push( @{ $self->{ignore_regexps} }, $entry->{regexp} );
-	}
-
-	return;
-} ## end sub _compile_ignore_regexps
-
-# compiles the stages of a staged rule... ordered matchers with counted
-# hits and gap bounds, the in-rule temporal correlation. the per key
-# components ride the correlation key machinery, so envelope fields work
-# where the type carries them
-sub _compile_stages {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	if ( !is_plain_arrayref( $def->{stages} ) || !@{ $def->{stages} } ) {
-		die( 'The stages of the rule "' . $name . '" is not a array or is empty' );
-	}
-
-	my @compiled_stages;
-	foreach my ( $stage_int, $stage ) ( indexed @{ $def->{stages} } ) {
-		my $where = 'The stage ' . $stage_int . ' of the rule "' . $name . '"';
-		if ( !is_plain_hashref($stage) ) {
-			die( $where . ' is not a hash' );
-		}
-		$self->_check_keys( $stage, [qw( message_regexp count within skip )], $where . ' has' );
-		if ( !is_plain_arrayref( $stage->{message_regexp} ) || !@{ $stage->{message_regexp} } ) {
-			die( $where . ' lacks a message_regexp array or it is empty' );
-		}
-		foreach my $item ( 'count', 'within', 'skip' ) {
-			if ( defined( $stage->{$item} )
-				&& ( ref( $stage->{$item} ) ne '' || $stage->{$item} !~ /^[0-9]+$/ || !$stage->{$item} ) )
-			{
-				die( $where . ' has a ' . $item . ' that is not a positive int' );
-			}
-		}
-
-		my @matchers;
-		foreach my ( $entry_int, $regexp ) ( indexed @{ $stage->{message_regexp} } ) {
-			if ( !defined($regexp) || ref($regexp) ne '' ) {
-				die( $where . ' has a message_regexp entry that is not a string' );
-			}
-			push( @matchers, compile_tokened_regexp( $regexp, $where . ' message_regexp entry ' . $entry_int ) );
-		}
-
-		push(
-			@compiled_stages,
-			{
-				'matchers' => \@matchers,
-				'count'    => defined( $stage->{count} )  ? $stage->{count} + 0  : 1,
-				'within'   => defined( $stage->{within} ) ? $stage->{within} + 0 : undef,
-				'skip'     => defined( $stage->{skip} )   ? $stage->{skip} + 0   : undef,
-			}
-		);
-	} ## end foreach my ( $stage_int, $stage ) ( indexed @{ ...})
-	$self->{stages} = \@compiled_stages;
-
-	if ( defined( $def->{per} ) ) {
-		$self->{per_key} = $self->_correlation_key_components( $def->{per}, 'The per of the rule "' . $name . '"' );
-	}
-
-	return;
-} ## end sub _compile_stages
-
-# checks a message against a staged rule... ordered stages, counted hits,
-# and gap bounds, the state per (scope, per key) and memory only. returns
-# undef until the final stage completes, then the found carrying the
-# merged captures and the stage hits
-sub _check_stages {
-	my ( $self, $message, $scope, $line_ctx, $envelope, $munge ) = @_;
-
-	if ( !defined($message) ) {
-		return undef;
-	}
-
-	# 1.5, and lifted above the core so it stops the harvest too... a ignore
-	# hit is the operator saying this line is not evidence, which no amount of
-	# wanting a complete record overrides
-	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
-		if ( $message =~ $ignore ) {
-			return undef;
-		}
-	}
-
-	my $found = $self->_check_stages_core( $message, $scope, $line_ctx, $envelope, $munge );
-
-	# the harvest runs on every line of a sequence, not only the one that
-	# completed it... the completing line's whole accumulated field space when
-	# there is one, this line's munger enrichment when there is not
-	if ( defined( $self->{tracks} ) ) {
-		my $source
-			= defined($found)          ? $found->{data}
-			: is_plain_hashref($munge) ? $munge
-			:                            {};
-		$self->_track_sweep( [$source], $line_ctx );
-	}
-
-	return $found;
-} ## end sub _check_stages
-
-# how long, in seconds, a staged slot waits for its next stage when that stage
-# names no within of its own... also the life of a slot just opened
-my $STAGE_DEFAULT_WITHIN = 600;
-
-# the staged matcher proper, wrapped by _check_stages so the ignore veto and
-# the track sweep sit either side of it. returns undef until the final stage
-# completes, then the found carrying the merged captures and the stage hits
-sub _check_stages_core {
-	my ( $self, $message, $scope, $line_ctx, $envelope, $munge ) = @_;
-
-	$scope //= '';
-	# a missing line context reads as a empty one
-	if ( !is_plain_hashref($line_ctx) ) {
-		$line_ctx = {};
-	}
-	my $now = $line_ctx->{now} // time;
-	my $seq = $line_ctx->{seq};
-
-	my $stages = $self->{stages};
-	my $store  = $self->{stage_state}{$scope};
-	$store //= $self->{stage_state}{$scope} = {};
-
-	# which stages this line hits, tried lazily and remembered
-	my @stage_caps;
-	my $stage_match = sub {
-		my ($stage_int) = @_;
-		if ( !exists( $stage_caps[$stage_int] ) ) {
-			my $caps;
-			foreach my $matcher ( @{ $stages->[$stage_int]{matchers} } ) {
-				$caps = match_tokened( $matcher, $message );
-				if ( defined($caps) ) {
-					last;
-				}
-			}
-			$stage_caps[$stage_int] = $caps;
-		} ## end if ( !exists( $stage_caps[$stage_int] ) )
-		return $stage_caps[$stage_int];
-	}; ## end $stage_match = sub
-
-	# the slot key... the per components off this line's captures and the
-	# envelope, or the source for the keyless adjacency form
-	my $slot_key = sub {
-		my ($caps) = @_;
-		if ( !defined( $self->{per_key} ) ) {
-			return $line_ctx->{source} // '';
-		}
-		return $self->_correlation_key_value( { 'key' => $self->{per_key} }, $caps, $envelope );
-	};
-
-	# a hit on the stage a slot is awaiting advances it, gap bounds
-	# permitting... too late or too far kills the sequence, and the line
-	# may then head a fresh one below
-	foreach my ( $stage_int, $stage ) ( indexed @{$stages} ) {
-		my $caps = $stage_match->($stage_int);
-		if ( !defined($caps) ) {
-			next;
-		}
-		my $key_value = $slot_key->($caps);
-		if ( !defined($key_value) ) {
-			next;
-		}
-		my $slot = $store->{$key_value};
-		if ( !defined($slot) || $slot->{stage} != $stage_int ) {
-			next;
-		}
-		# a slot past its expiry is dead even if the sweeper has not gotten
-		# to it yet, same as the context and pending stores judge at read
-		if ( $slot->{expires} <= $now ) {
-			delete( $store->{$key_value} );
-			next;
-		}
-
-		my $gap_ok = 1;
-		if ( defined( $stage->{within} ) && ( $now - $slot->{last_time} ) > $stage->{within} ) {
-			$gap_ok = 0;
-		}
-		if (   $gap_ok
-			&& defined( $stage->{skip} )
-			&& defined($seq)
-			&& defined( $slot->{last_seq} )
-			&& ( $seq - $slot->{last_seq} - 1 ) > $stage->{skip} )
-		{
-			$gap_ok = 0;
-		}
-		if ( !$gap_ok ) {
-			delete( $store->{$key_value} );
-			last;
-		}
-
-		return $self->_stage_hit( $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge, $line_ctx );
-	} ## end foreach my ( $stage_int, $stage ) ( indexed @{$stages...})
-
-	# no slot advanced... a line matching the first stage heads a fresh
-	# sequence, but never tramples one already in flight for its key
-	my $caps = $stage_match->(0);
-	if ( !defined($caps) ) {
-		return undef;
-	}
-	my $key_value = $slot_key->($caps);
-	if ( !defined($key_value) || defined( $store->{$key_value} ) ) {
-		return undef;
-	}
-	# a fresh slot awaiting the first stage, the per scope slot count bounded
-	# the way the correlation context is bounded
-	App::Baphomet::Marks::bound_expiring_store( $store, $key_value, $now );
-	$store->{$key_value} = {
-		'stage'     => 0,
-		'count'     => 0,
-		'data'      => {},
-		'hits'      => [],
-		'last_time' => $now,
-		'last_seq'  => undef,
-		'expires'   => $now + $STAGE_DEFAULT_WITHIN,
-	};
-
-	return $self->_stage_hit( $store, $key_value, 0, $caps, $message, $now, $seq, $munge, $line_ctx );
-} ## end sub _check_stages_core
-
-# lands a hit on a slot's awaited stage... counts, merges captures later
-# stages authoritative, and fires the found when the final stage completes
-sub _stage_hit {
-	my ( $self, $store, $key_value, $stage_int, $caps, $message, $now, $seq, $munge, $line_ctx ) = @_;
-
-	my $slot  = $store->{$key_value};
-	my $stage = $self->{stages}[$stage_int];
-
-	$slot->{count}++;
-	$slot->{data} = { %{ $slot->{data} }, %{$caps} };
-	push( @{ $slot->{hits} }, { 'stage' => $stage_int, 'time' => $now, 'line' => $message } );
-	$slot->{last_time} = $now;
-	$slot->{last_seq}  = $seq;
-
-	if ( $slot->{count} < $stage->{count} ) {
-		$slot->{expires} = $now + ( $stage->{within} // $STAGE_DEFAULT_WITHIN );
-		return undef;
-	}
-
-	# the final stage completing is the found... the rule's boolean matcher
-	# filters the completed sequence like any other found
-	if ( $stage_int == scalar( @{ $self->{stages} } ) - 1 ) {
-		delete( $store->{$key_value} );
-		# the completing line's munger enrichment rides under the sequence's
-		# accumulated captures, which win on a clash... the same precedence a
-		# non-staged rule gives, and the completing line is what EVE records
-		my $data = $slot->{data};
-		if ( is_plain_hashref($munge) && %{$munge} ) {
-			$data = { %{$munge}, %{ $slot->{data} } };
-		}
-		my $found = { 'data' => $data, 'regexp' => undef, 'stages' => $slot->{hits} };
-		if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
-			if ( !$self->_offense_boolean_pass( $found->{data}, $message, $line_ctx ) ) {
-				return undef;
-			}
-		}
-		return $found;
-	} ## end if ( $stage_int == scalar( @{ $self->{stages...}}))
-
-	$slot->{stage}++;
-	$slot->{count} = 0;
-	my $next_stage = $self->{stages}[ $slot->{stage} ];
-	$slot->{expires} = $now + ( $next_stage->{within} // $STAGE_DEFAULT_WITHIN );
-
-	return undef;
-} ## end sub _stage_hit
-
-# compiles the def's capture_regexp onto the object... entries harvest
-# correlation context rather than being offenses, each a hash of a
-# tokened regexp, the capture name serving as the correlation key, and a
-# ttl for how long the harvested captures live
-sub _compile_capture_regexps {
-	my ($self) = @_;
-
-	my $def  = $self->{def};
-	my $name = $self->{name};
-
-	$self->{capture_regexps} = [];
-
-	if ( !defined( $def->{capture_regexp} ) ) {
-		return;
-	}
-	if ( !is_plain_arrayref( $def->{capture_regexp} ) || !@{ $def->{capture_regexp} } ) {
-		die( 'The capture_regexp of the rule "' . $name . '" is not a array or is empty' );
-	}
-
-	foreach my ( $entry_int, $item ) ( indexed @{ $def->{capture_regexp} } ) {
-		my $where = 'The capture_regexp entry ' . $entry_int . ' of the rule "' . $name . '"';
-		if ( !is_plain_hashref($item) || !defined( $item->{regexp} ) || !defined( $item->{key} ) ) {
-			die( $where . ' is not a hash with a regexp and a key' );
-		}
-		$self->_check_keys( $item, [qw( regexp key ttl )], $where . ' has' );
-		if ( defined( $item->{ttl} ) && ( $item->{ttl} !~ /^[0-9]+$/ || !$item->{ttl} ) ) {
-			die( $where . ' has a ttl that is not a positive int of seconds' );
-		}
-
-		my $compiled = compile_tokened_regexp( $item->{regexp}, $where );
-		$compiled->{key} = $self->_correlation_key_components( $item->{key}, $where );
-		$compiled->{ttl} = $item->{ttl} // 60;
-
-		push( @{ $self->{capture_regexps} }, $compiled );
-	} ## end foreach my ( $entry_int, $item ) ( indexed @{ $def...})
-
-	return;
-} ## end sub _compile_capture_regexps
 
 # validates a correlation key... a non-empty string or a non-empty array of
 # them, each component either a regexp capture name or a reserved envelope
@@ -2606,30 +1678,6 @@ sub _correlation_key_components {
 
 	return \@components;
 } ## end sub _correlation_key_components
-
-# resolves a compiled entry's correlation key against the folded captures
-# and the parsed envelope, captures never clashing with the syslog. names...
-# undef when any component is missing, several components joining under a
-# separator no log value can carry
-sub _correlation_key_value {
-	my ( $self, $entry, $caps, $envelope ) = @_;
-
-	my @values;
-	foreach my $component ( @{ $entry->{key} } ) {
-		my $value;
-		if ( $component =~ /^syslog\./ ) {
-			$value = defined($envelope) ? $envelope->{$component} : undef;
-		} else {
-			$value = $caps->{$component};
-		}
-		if ( !defined($value) ) {
-			return undef;
-		}
-		push( @values, $value );
-	} ## end foreach my $component ( @{ $entry->{key} } )
-
-	return join( "\x00", @values );
-} ## end sub _correlation_key_value
 
 # the tracked/not_tracked clause of the rule's boolean, run first among them
 # so that whatever a into lifts is readable by the gate and keywords that
@@ -2791,286 +1839,40 @@ sub _track_sweep {
 	return;
 } ## end sub _track_sweep
 
-# the most deferred offenses held per correlation key... past it the oldest
-# is dropped, so a key whose capture line never comes can not grow forever
-my $PENDING_PER_KEY_MAX = 100;
-
-# completes the offenses deferred under a key, now that a capture line has
-# brought its context... the pendings come off the key whether or not they
-# complete, a expired one simply being dropped.
+# compiles a def's match and ignore arrays onto matches and ignores, vetting
+# the field-and-regexp shape the two share... the per-entry compile differs by
+# type, tokened for json, plain and field-checked for http, so the caller
+# hands one in.
 #
 # args:
-#   $scope     :: the correlation scope, the watcher name
-#   $key_value :: the joined correlation key the capture line produced
-#   $context   :: hash ref of the capture line's data, which each completion
-#                 takes beneath the deferred offense's own, those winning
-#   $now       :: the current time, against which the pendings expire
+#   $compile_entry :: code ref taking a entry, a hash ref of field and regexp,
+#                     and the lead in for its die messages, and returning the
+#                     compiled entry
 #
-# returns a list of completions, each a found hash of data and regexp, the
-# regexp being what the deferred offense carried. empty when nothing was
-# waiting or all of it had expired.
+# returns nothing, dying on anything unusable. matches and ignores each gain
+# what the code ref returned for each of their entries, in the def's order.
 #
-#   push( @completions, $self->_complete_pendings( $scope, $key_value, $caps, $now ) );
-sub _complete_pendings {
-	my ( $self, $scope, $key_value, $context, $now ) = @_;
-
-	my $pendings = delete( $self->{pending}{$scope}{$key_value} );
-	if ( !defined($pendings) ) {
-		return ();
-	}
-
-	my @completions;
-	foreach my $pending ( @{$pendings} ) {
-		if ( $pending->{expires} <= $now ) {
-			next;
-		}
-		push( @completions, { 'data' => { %{$context}, %{ $pending->{caps} } }, 'regexp' => $pending->{regexp} } );
-	}
-
-	return @completions;
-} ## end sub _complete_pendings
-
-# parks a offense that can not be resolved yet under its correlation key, to
-# await a capture line with the same key... the line was a offense, just one
-# whose context has not arrived.
-#
-# args:
-#   $scope     :: the correlation scope, the watcher name
-#   $key_value :: the joined correlation key the offense produced
-#   $caps      :: hash ref of the offense's data, authoritative on completion
-#   $regexp    :: the index of the entry that matched, or undef for a json
-#                 rule with no match entries
-#   $defer     :: the seconds the offense waits before it is dropped
-#   $now       :: the current time
-#
-# returns nothing. at most $PENDING_PER_KEY_MAX wait per key, the oldest
-# dropped to make room.
-#
-#   $self->_park_pending( $scope, $key_value, $caps, 0, 60, $now );
-sub _park_pending {
-	my ( $self, $scope, $key_value, $caps, $regexp, $defer, $now ) = @_;
-
-	$self->{pending}{$scope}{$key_value} //= [];
-	my $pendings = $self->{pending}{$scope}{$key_value};
-	push( @{$pendings}, { 'caps' => $caps, 'regexp' => $regexp, 'expires' => $now + $defer } );
-	if ( scalar( @{$pendings} ) > $PENDING_PER_KEY_MAX ) {
-		shift( @{$pendings} );
-	}
-
-	return;
-} ## end sub _park_pending
-
-# folds a line's own offense and the completions its capture lines brought
-# into the one found a check returns... the offense leads, else the first
-# completion does, and the rest ride in its more.
-#
-# args:
-#   $found       :: the line's own found hash, or undef when it was not one
-#   $completions :: arrayref of completion found hashes, left untouched
-#
-# returns the leading found hash, carrying a more arrayref of the others when
-# there are any, or undef when there was neither.
-#
-#   return $self->_primary_found( $found, \@completions );
-sub _primary_found {
-	my ( $self, $found, $completions ) = @_;
-
-	my @rest    = @{$completions};
-	my $primary = $found // shift(@rest);
-	if ( defined($primary) && @rest ) {
-		$primary->{more} = \@rest;
-	}
-
-	return $primary;
-} ## end sub _primary_found
-
-# checks a message against the compiled capture, ignore, and message
-# regexps... returns undef or a found hash with the folded captures,
-# possibly carrying a more array of further completions when a capture
-# line resolved deferred offenses
-sub _check_message {
-	my ( $self, $message, $scope, $extra, $envelope, $line_ctx ) = @_;
-
-	if ( !defined($message) ) {
-		return undef;
-	}
-	$scope //= '';
-	# a missing line context reads as a empty one
-	if ( !is_plain_hashref($line_ctx) ) {
-		$line_ctx = {};
-	}
-	my $now = $line_ctx->{now} // time;
-
-	# a ignore_regexp match vetoes the line entirely
-	foreach my $ignore ( @{ $self->{ignore_regexps} } ) {
-		if ( $message =~ $ignore ) {
-			return undef;
-		}
-	}
-
-	# capture lines harvest context and may complete deferred offenses
-	my @completions;
-	foreach my $capture ( @{ $self->{capture_regexps} } ) {
-		my $caps = match_tokened( $capture, $message );
-		if ( !defined($caps) ) {
-			next;
-		}
-		my $key_value = $self->_correlation_key_value( $capture, $caps, $envelope );
-		if ( !defined($key_value) ) {
-			next;
-		}
-
-		$self->_context_store( $scope, $key_value, $caps, $capture->{ttl}, $now );
-		push( @completions, $self->_complete_pendings( $scope, $key_value, $caps, $now ) );
-	} ## end foreach my $capture ( @{ $self->{capture_regexps...}})
-
-	my $found;
-	foreach my ( $entry_int, $entry ) ( indexed @{ $self->{regexps} } ) {
-		my $caps = match_tokened( $entry, $message );
-		if ( !defined($caps) ) {
-			next;
-		}
-
-		# a entry with no key, or a key component that did not participate,
-		# has nothing to correlate, so it is the offense as it stands
-		my $key_value = defined( $entry->{key} ) ? $self->_correlation_key_value( $entry, $caps, $envelope ) : undef;
-		if ( !defined($key_value) ) {
-			$found = { 'data' => $caps, 'regexp' => $entry_int };
-			last;
-		}
-
-		my $stored = $self->{context}{$scope}{$key_value};
-		if ( defined($stored) && $stored->{expires} > $now ) {
-			my %data = ( %{ $stored->{data} }, %{$caps} );
-			$found = { 'data' => \%data, 'regexp' => $entry_int };
-			last;
-		}
-
-		if ( $entry->{defer} ) {
-			# park it awaiting a capture line with this key... it was the
-			# offense, so further entries are not tried
-			$self->_park_pending( $scope, $key_value, $caps, $entry_int, $entry->{defer}, $now );
-			last;
-		}
-
-		# unresolved and undeferred, so this entry is not a offense here...
-		# fall through to the remaining entries
-	} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
-
-	# message_json... with no message_regexp the offense is the extra fields
-	# themselves (the json body and syslog envelope), synthesized here so the
-	# gate below decides on them. with message_regexp present the regexp stays
-	# the matcher, so nothing is synthesized when it did not fire
-	if ( defined($extra) && !defined($found) && !@completions && !@{ $self->{regexps} } ) {
-		$found = { 'data' => {}, 'regexp' => undef };
-	}
-
-	# merge the extra json+envelope fields into the field space, the line's
-	# own captures winning on a clash, so the gate and ban_var see both
-	if ( defined($extra) ) {
-		if ( defined($found) ) {
-			$found->{data} = { %{$extra}, %{ $found->{data} } };
-		}
-		foreach my $completion (@completions) {
-			$completion->{data} = { %{$extra}, %{ $completion->{data} } };
-		}
-	}
-
-	# the field spaces the track sweep will harvest, taken here because the
-	# boolean below may drop the very records holding them and the harvest
-	# does not care whether the line was a offense. a line that matched
-	# nothing still contributes what the mungers and the JSON body gave it
-	my @sweep;
-	if ( defined( $self->{tracks} ) ) {
-		@sweep = map { $_->{data} }
-			grep { defined($_) } ( $found, @completions );
-		if ( !@sweep ) {
-			@sweep = ( $extra // {} );
-		}
-	}
-
-	# the rule's boolean matcher (the tracked clause, then the keywords, the
-	# gate, or the selections+condition, over the captures, and the json
-	# fields when message_json) filters the offense and each completion,
-	# dropping those that do not pass... none skips this
-	if ( $self->{has_boolean} || defined( $self->{track_gates} ) ) {
-		if ( defined($found) && !$self->_offense_boolean_pass( $found->{data}, $message, $line_ctx ) ) {
-			$found = undef;
-		}
-		@completions = grep { $self->_offense_boolean_pass( $_->{data}, $message, $line_ctx ) } @completions;
-	}
-
-	# the harvest, after the read above and never before it
-	if (@sweep) {
-		$self->_track_sweep( \@sweep, $line_ctx );
-	}
-
-	return $self->_primary_found( $found, \@completions );
-} ## end sub _check_message
-
-# flattens a message that is a JSON object into dotted-path fields, reusing
-# the json parser's flattener... a message that is not a JSON object gives
-# undef, so a message_json rule can refuse the line outright rather than
-# matching raw text it was told would be JSON
-sub _flatten_json_message {
-	my ( $self, $message ) = @_;
-
-	if ( !defined($message) ) {
-		return undef;
-	}
-	my $parsed;
-	eval { $parsed = App::Baphomet::Parser::parse( 'json', $message ); };
-	if ( is_plain_hashref($parsed) && is_plain_hashref( $parsed->{fields} ) ) {
-		return $parsed->{fields};
-	}
-
-	return undef;
-} ## end sub _flatten_json_message
-
-# stores harvested captures under (scope, key), bounding the per scope
-# key count... on hitting the cap expired entries are pruned first and
-# then the soonest to expire is evicted
-sub _context_store {
-	my ( $self, $scope, $key_value, $caps, $ttl, $now ) = @_;
-
-	my $context = $self->{context}{$scope};
-	$context //= $self->{context}{$scope} = {};
-
-	App::Baphomet::Marks::bound_expiring_store( $context, $key_value, $now );
-
-	$context->{$key_value} = { 'data' => $caps, 'expires' => $now + $ttl };
-
-	return;
-} ## end sub _context_store
-
-# compiles a def's match and ignore arrays onto matches and ignores,
-# validating the shared field-and-regexp shape... the per-entry compile
-# differs by type (tokened for json, plain and field-checked for http), so
-# the caller hands one in
+#   $self->_compile_match_ignore( sub { my ( $entry, $where ) = @_; ...; return $compiled; } );
 sub _compile_match_ignore {
 	my ( $self, $compile_entry ) = @_;
 
 	my $def  = $self->{def};
 	my $name = $self->{name};
 
-	foreach my $sort ( 'match', 'ignore' ) {
-		if ( !defined( $def->{$sort} ) ) {
+	foreach my $list_key ( 'match', 'ignore' ) {
+		if ( !defined( $def->{$list_key} ) ) {
 			next;
 		}
-		if ( !is_plain_arrayref( $def->{$sort} ) || !@{ $def->{$sort} } ) {
-			die( 'The ' . $sort . ' of the rule "' . $name . '" is not a array or is empty' );
-		}
+		my $where = 'The ' . $list_key . ' of the rule "' . $name . '"';
+		check_entries( $def->{$list_key}, { 'required' => { 'field' => 'scalar', 'regexp' => 'scalar' } }, $where );
 
-		foreach my ( $entry_int, $entry ) ( indexed @{ $def->{$sort} } ) {
-			my $where = 'The ' . $sort . ' entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( !is_plain_hashref($entry) || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
-				die( $where . ' is not a hash with a field and a regexp' );
-			}
-			$self->_check_keys( $entry, [qw( field regexp )], $where . ' has' );
-
-			push( @{ $self->{ $sort eq 'match' ? 'matches' : 'ignores' } }, $compile_entry->( $entry, $where ) );
+		foreach my ( $entry_int, $entry ) ( indexed @{ $def->{$list_key} } ) {
+			push(
+				@{ $self->{ $list_key eq 'match' ? 'matches' : 'ignores' } },
+				$compile_entry->( $entry, $where . ' entry ' . $entry_int )
+			);
 		}
-	} ## end foreach my $sort ( 'match', 'ignore' )
+	} ## end foreach my $list_key ( 'match', 'ignore' )
 
 	return;
 } ## end sub _compile_match_ignore
@@ -3260,11 +2062,8 @@ sub _compile_keywords {
 		$in     = '%%%ANY%%%';
 		$values = $kw;
 	} elsif ( is_plain_hashref($kw) ) {
-		$self->_check_keys( $kw, [qw( in values )], $where . ' has' );
-		$in = $kw->{in} // '%%%ANY%%%';
-		if ( ref($in) ne '' || $in eq '' ) {
-			die( $where . ' in is not a non-empty string naming a field, a %%%ANY:prefix%%%, or %%%ANY%%%' );
-		}
+		check_hash( $kw, { 'optional' => { 'in' => 'string', 'values' => 'any' } }, $where );
+		$in     = $kw->{in} // '%%%ANY%%%';
 		$values = $kw->{values};
 	} else {
 		die( $where . ' is not a list of strings or a table' );

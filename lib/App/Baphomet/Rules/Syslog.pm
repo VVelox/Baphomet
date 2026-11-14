@@ -5,8 +5,9 @@ use v5.40;
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
 use Ref::Util                   qw( is_plain_arrayref is_plain_hashref );
+use App::Baphomet::Parser       ();
 use App::Baphomet::Rules::Gates qw( compile_matchers matchers_hit );
-use base 'App::Baphomet::Rules::Base';
+use base 'App::Baphomet::Rules::MessageRegexp';
 
 =pod
 
@@ -391,21 +392,30 @@ sub check {
 		};
 	}
 
-	# mungers run first, their decoded fields laid down under the offense so
-	# the rule's own captures overwrite them on a name clash. a staged rule
-	# enriches the completed sequence from its final (completing) line
-	my $munge = $self->_munge_enrich($parsed);
-
-	if ( defined( $self->{stages} ) ) {
-		return $self->_check_stages( $parsed->{message}, $scope, $line_ctx, $envelope, $munge );
-	}
-
-	if ( defined($munge) && %{$munge} ) {
-		$extra = defined($extra) ? { %{$munge}, %{$extra} } : { %{$munge} };
-	}
-
-	return $self->_check_message( $parsed->{message}, $scope, $extra, $envelope, $line_ctx );
+	# the rest is the matcher the raw type shares... the mungers, then the
+	# stages or the regexps, then the boolean. the envelope and the json
+	# fields are this type's to pass it, a raw line having neither
+	return $self->SUPER::check( $parsed, $scope, $line_ctx, $envelope, $extra );
 } ## end sub check
+
+# flattens a message that is a JSON object into dotted-path fields, reusing
+# the json parser's flattener... a message that is not a JSON object gives
+# undef, so a message_json rule can refuse the line outright rather than
+# matching raw text it was told would be JSON
+sub _flatten_json_message {
+	my ( $self, $message ) = @_;
+
+	if ( !defined($message) ) {
+		return undef;
+	}
+	my $parsed;
+	eval { $parsed = App::Baphomet::Parser::parse( 'json', $message ); };
+	if ( is_plain_hashref($parsed) && is_plain_hashref( $parsed->{fields} ) ) {
+		return $parsed->{fields};
+	}
+
+	return undef;
+} ## end sub _flatten_json_message
 
 # builds the extra field space a message_json rule gates over... the JSON body
 # flattened (memoised on the parsed line so several rules share the one decode)

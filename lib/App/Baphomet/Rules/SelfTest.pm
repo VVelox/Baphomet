@@ -115,8 +115,7 @@ sub run_tests {
 	# half-built staged sequence or correlation window under a reused scope and
 	# complete it spuriously. reset them so run_tests is idempotent
 	$self->{stage_state} = {};
-	$self->{context}     = {};
-	$self->{pending}     = {};
+	$self->{correlation} = { 'context' => {}, 'pending' => {} };
 
 	my $tests = $self->{def}{tests};
 	if ( !is_plain_hashref($tests) ) {

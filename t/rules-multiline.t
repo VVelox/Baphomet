@@ -136,6 +136,30 @@ $lookup->sweep_state( time + 120 );
 $found = $lookup->check( raw_line('qBBB: user unknown'), 's' );
 ok( !defined($found), 'expired context does not resolve' );
 
+# asking after a key does not create the scope it asked in, so a lookup that
+# found nothing leaves nothing for the context tablet
+is( $lookup->dump_state, undef, 'a keyed lookup that missed leaves no state to dump' );
+
+# what is dumped restores into a rule fresh from a restart, less whatever
+# expired while it was down
+$lookup->check( raw_line('qCCC: from someone relay [192.0.2.52]'), 's' );
+my $dumped = $lookup->dump_state;
+is_deeply(
+	[ sort( keys( %{$dumped} ) ) ],
+	[ 'context', 'pending' ],
+	'the dumped state is the context and the pendings'
+);
+
+my $restarted = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 )->load('raw/lookup');
+$restarted->restore_state( $dumped, time );
+$found = $restarted->check( raw_line('qCCC: user unknown'), 's' );
+is( $found->{data}{SRC}, '192.0.2.52', 'dumped context resolves a offense after a restart' );
+
+my $down_too_long = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 )->load('raw/lookup');
+$down_too_long->restore_state( $dumped, time + 120 );
+$found = $down_too_long->check( raw_line('qCCC: user unknown'), 's' );
+ok( !defined($found), 'context that expired while down is not restored' );
+
 # plain string entries still work alongside keyed ones
 write_rule( 'raw/mixed', <<'EOR' );
 ---

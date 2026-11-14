@@ -174,7 +174,7 @@ write_config('[ "%json/mygroup%", "json/extra" ]');
 my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'ids' );
 ok( !$galla->{perror}, 'a watcher with a group builds without error' );
 is_deeply(
-	$galla->{watchers}{eve}{rules},
+	[ map { $_->{name} } @{ $galla->{watchers}{eve}{bindings} } ],
 	[ 'json/a', 'json/b', 'json/c', 'json/extra' ],
 	'the group expanded in place, deduped, ahead of the explicit rule'
 );

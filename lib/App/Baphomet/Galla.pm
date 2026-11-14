@@ -11,7 +11,7 @@ use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
 use File::Spec                               ();
-use List::Util                               qw( any max mesh min sum0 uniqstr );
+use List::Util                               qw( any max min sum0 uniqstr );
 use Path::Tiny                               qw( path );
 use Text::CSV_XS                             ();
 use JSON::MaybeXS                            qw( encode_json decode_json );
@@ -360,7 +360,39 @@ sub new {
 			$self->warn;
 		}
 
-		my @rule_objs;
+		# what each rule below is bound against, all of it layered for this
+		# watcher... the lists the country, namtar_list, and active_time gates
+		# import from, the operator's per-rule config table, and the settings
+		my $watcher_country_codes = resolve_country_codes( $config, $kur_settings, $watcher );
+		my $watcher_namtar_lists  = resolve_namtar_lists( $config, $kur_settings, $watcher );
+		my $watcher_active_time   = resolve_active_time( $config, $kur_settings, $watcher );
+		my $rule_config
+			= resolve_rule_config( $kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); } );
+		my $settings = resolve_settings( $config, $kur_settings, $watcher );
+
+		# one binding per rule, in the config's order... what the rule means on
+		# this watcher. rule objects are shared across watchers while everything
+		# above layers per watcher, so what is resolved against it lives on the
+		# binding and not on the rule. none of it changes once the galla is up,
+		# so it is resolved here, once, and not again on every match. each is a
+		# hash of...
+		#
+		#    - name :: The rule's name, type and all.
+		#    - rule :: The compiled rule object.
+		#    - watcher :: The watcher's name.
+		#    - country_gate :: The rule's country gate resolved against the
+		#          watcher's lists, undef for a rule with out one.
+		#    - namtar_gate :: The same for its namtar_list gate.
+		#    - active_gate :: The same for its active_time gate.
+		#    - eve_only :: 1 if the rule only observes on this watcher, 0 if not.
+		#    - max_score :: The score a subject has to reach to be banished.
+		#    - find_time :: The seconds its hits have to land with in to count.
+		#    - ban_time :: The seconds a ban lasts, undef for the kur's default.
+		#    - weight :: What one hit adds to the score.
+		#    - own_bucket :: True if the rule counts in a bucket of its own
+		#          and not the one the rest of the galla's rules share.
+		#    - eve :: A hash of what every EVE event of the pair says of the rule.
+		my @bindings;
 		foreach my $rule_name (@rule_names) {
 			my $rule;
 			try {
@@ -383,7 +415,7 @@ sub new {
 			# watcher's parser can not feed is caught here, loudly, rather
 			# than silently matching nothing
 			my ($rule_type) = split( /\//, $rule_name );
-			if ( defined($rule) && !App::Baphomet::Rules::type_accepts_parser( $rule_type, $parser ) ) {
+			if ( !App::Baphomet::Rules::type_accepts_parser( $rule_type, $parser ) ) {
 				$self->{perror} = 1;
 				$self->{error}  = 6;
 				$self->{errorString}
@@ -397,43 +429,112 @@ sub new {
 					. $parser
 					. '" does not produce';
 				$self->warn;
-			} ## end if ( defined($rule) && !App::Baphomet::Rules::type_accepts_parser...)
+			} ## end if ( !App::Baphomet::Rules::type_accepts_parser...)
 
-			push( @rule_objs, $rule );
-		} ## end foreach my $rule_name (@rule_names)
-
-		# resolve each rule's country, namtar_list, and active_time gates
-		# against this watcher's layered lists... rule objects are shared
-		# across watchers but the lists layer per watcher, so each resolved
-		# gate lives on the binding, not the rule, in arrays parallel to
-		# rule_objs. a import of a undefined list is fatal, like a bad rule.
-		# the namtar files themselves are loaded and mtime refreshed on the
-		# galla, not frozen here, while active_time compiles to pure config
-		# nothing reloads
-		my $watcher_country_codes = resolve_country_codes( $config, $kur_settings, $watcher );
-		my $watcher_namtar_lists  = resolve_namtar_lists( $config, $kur_settings, $watcher );
-		my $watcher_active_time   = resolve_active_time( $config, $kur_settings, $watcher );
-		my ( @country_gates, @namtar_gates, @active_gates );
-		for my $rule_int ( 0 .. $#rule_objs ) {
-			my $rule_obj = $rule_objs[$rule_int];
+			# the rule's country, namtar_list, and active_time gates, resolved
+			# against this watcher's lists. a import of a undefined list is
+			# fatal, like a bad rule. the namtar files themselves are loaded and
+			# mtime refreshed on the galla, not frozen here, while active_time
+			# compiles to pure config nothing reloads
+			my $where = 'The rule "' . $rule_name . '" of the watcher "' . $watcher_name . '"';
 			my ( $country_gate, $namtar_gate, $active_gate );
-			if ( defined($rule_obj) ) {
-				my $where = 'The rule "' . $rule_names[$rule_int] . '" of the watcher "' . $watcher_name . '"';
-				try {
-					$country_gate = $self->_resolve_country_gate( $rule_obj, $watcher_country_codes, $where );
-					$namtar_gate  = $self->_resolve_namtar_gate( $rule_obj, $watcher_namtar_lists, $where );
-					$active_gate  = $self->_resolve_active_time_gate( $rule_obj, $watcher_active_time, $where );
-				} catch ($caught) {
-					$self->{perror}      = 1;
-					$self->{error}       = 6;
-					$self->{errorString} = $caught;
-					$self->warn;
+			try {
+				$country_gate = $self->_resolve_country_gate( $rule, $watcher_country_codes, $where );
+				$namtar_gate  = $self->_resolve_namtar_gate( $rule, $watcher_namtar_lists, $where );
+				$active_gate  = $self->_resolve_active_time_gate( $rule, $watcher_active_time, $where );
+			} catch ($caught) {
+				$self->{perror}      = 1;
+				$self->{error}       = 6;
+				$self->{errorString} = $caught;
+				$self->warn;
+			}
+
+			# the operator's per-rule config table for this rule, if any... it
+			# beats both the rule file's own numbers and, for the presentation
+			# knobs, the watcher-resolved defaults
+			my $rule_cfg = $rule_config->{$rule_name} // {};
+
+			# observe mode... the config's eve_only for the rule wins, then the
+			# rule's own, then the watcher-resolved one, so a deployment can be
+			# set observe at any level and a trusted rule opt back in either in
+			# its file or from the config
+			my $eve_only = $rule_cfg->{eve_only} // $rule->eve_only // $settings->{eve_only};
+
+			# how a hit of the rule is counted. when the watcher allows it, the
+			# rule's own thresholds and weight speak over the watcher's... without
+			# the consent every weight is 1, so a shipped rule can not reshape the
+			# tuning. the per-rule config table lays over the top of that, beating
+			# the rule file's numbers and honored regardless of the consent... it
+			# is the operator's own hand, not a shipped default
+			my $allow     = $settings->{allow_per_rule_thresholds};
+			my %overrides = $allow ? %{ $rule->thresholds } : ();
+			foreach my $threshold ( 'max_score', 'find_time', 'ban_time' ) {
+				if ( defined( $rule_cfg->{$threshold} ) ) {
+					$overrides{$threshold} = $rule_cfg->{$threshold};
 				}
-			} ## end if ( defined($rule_obj) )
-			push( @country_gates, $country_gate );
-			push( @namtar_gates,  $namtar_gate );
-			push( @active_gates,  $active_gate );
-		} ## end for my $rule_int ( 0 .. $#rule_objs )
+			}
+			my $weight = 1;
+			if ( defined( $rule_cfg->{weight} ) ) {
+				$weight = $rule_cfg->{weight} + 0;
+			} elsif ($allow) {
+				$weight = $rule->weight;
+			}
+
+			# a rule overriding how counting works gets a bucket of its own, so
+			# its window does not cross-contaminate the shared one, while a
+			# ban_time-only override counts in the shared bucket and only bans
+			# differently. the bucket is keyed by rule name across the galla, so a
+			# config max_score or find_time on a rule shared by two watchers of
+			# one kur shares the one bucket
+			my $own_bucket = defined( $overrides{max_score} ) || defined( $overrides{find_time} );
+
+			# what every EVE event of the pair says of the rule. gid, sid, and rev
+			# are the Suricata alert.gid/signature_id/rev analogues and always
+			# integers... gid 0 shipped / 1 override, sid the rule name's hash, rev
+			# the def's or 0 when unversioned. the effective severity is the
+			# config's for the rule, then the rule's own, then the watcher-resolved
+			# default_severity. category is Suricata's alert.category, the
+			# classtype put into prose, so a reader never meets the slug and the
+			# field lines up with a Suricata event of the same class
+			my %eve = (
+				'msg'        => $rule->msg,
+				'gid'        => $rule->gid,
+				'sid'        => $rule->sid,
+				'rev'        => $rule->rev // 0,
+				'rule'       => $rule->info,
+				'severity'   => $rule_cfg->{severity} // $rule->severity // $settings->{default_severity},
+				'category'   => $rule->category,
+				'references' => $rule->references,
+				'attack'     => $rule->attack,
+			);
+			# the first five are always emitted, the rest only when set
+			foreach my $when_set ( 'severity', 'category', 'references', 'attack' ) {
+				if ( !defined( $eve{$when_set} ) ) {
+					delete( $eve{$when_set} );
+				}
+			}
+
+			# max_score is made a number as the events render it as the threshold,
+			# and one quoted in a rule file or the config would render as a string
+			push(
+				@bindings,
+				{
+					'name'         => $rule_name,
+					'rule'         => $rule,
+					'watcher'      => $watcher_name,
+					'country_gate' => $country_gate,
+					'namtar_gate'  => $namtar_gate,
+					'active_gate'  => $active_gate,
+					'eve_only'     => $eve_only,
+					'max_score'    => ( $overrides{max_score} // $settings->{max_score} ) + 0,
+					'find_time'    => $overrides{find_time} // $settings->{find_time},
+					'ban_time'     => $overrides{ban_time}  // $settings->{ban_time},
+					'weight'       => $weight,
+					'own_bucket'   => $own_bucket,
+					'eve'          => \%eve,
+				}
+			);
+		} ## end foreach my $rule_name (@rule_names)
 
 		# the joiner, compiled... check_kur_def already vetted it, so a die
 		# here is the same config error it already flagged
@@ -453,19 +554,13 @@ sub new {
 			'journal_matches' => $is_journal ? [ watcher_journal($watcher) ] : [],
 			'parser'          => $parser,
 			'join'            => $join_compiled,
-			'rules'           => \@rule_names,
-			'rule_objs'       => \@rule_objs,
+			'bindings'        => \@bindings,
 			# the prefilter... which field of a record picks the rules worth
 			# offering it to, and the lazily filled index of that field's
-			# values to the rules. see _index_field and _rule_candidates
-			'index_field'   => _index_field( \@rule_objs ),
-			'rule_index'    => {},
-			'country_gates' => \@country_gates,
-			'namtar_gates'  => \@namtar_gates,
-			'active_gates'  => \@active_gates,
-			'rule_config'   =>
-				resolve_rule_config( $kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); } ),
-			'settings'        => resolve_settings( $config, $kur_settings, $watcher ),
+			# values to the bindings. see _index_field and _rule_candidates
+			'index_field'     => _index_field( \@bindings ),
+			'rule_index'      => {},
+			'settings'        => $settings,
 			'wheels'          => {},
 			'journal_wheel'   => undef,
 			'journal_delay'   => 1,
@@ -485,7 +580,8 @@ sub new {
 	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
 		my $built = $self->{watchers}{$watcher_name};
 
-		foreach my $rule_obj ( grep { defined($_) } @{ $built->{rule_objs} } ) {
+		foreach my $binding ( @{ $built->{bindings} } ) {
+			my $rule_obj = $binding->{rule};
 			if ( $rule_obj->is_detection ) {
 				$has_detection = 1;
 			}
@@ -500,19 +596,15 @@ sub new {
 					$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
 				}
 			}
-		} ## end foreach my $rule_obj ( grep { defined($_) } @{ ...})
-
-		if ( any { defined($_) } @{ $built->{country_gates} } ) {
-			$country_gated = 1;
-		}
-
-		foreach my $gate ( grep { defined($_) } @{ $built->{namtar_gates} } ) {
-			foreach my $entry ( @{$gate} ) {
+			if ( defined( $binding->{country_gate} ) ) {
+				$country_gated = 1;
+			}
+			foreach my $entry ( @{ $binding->{namtar_gate} // [] } ) {
 				foreach my $slot ( @{ $entry->{slots} } ) {
 					$namtar_slots{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) } = $slot;
 				}
 			}
-		}
+		} ## end foreach my $binding ( @{ $built->{bindings} } )
 
 		# a resolve usedns with out the machinery behind it behaves as no
 		if ( $built->{settings}{usedns} ne 'no' && !defined( $self->{dns_resolve} ) ) {
@@ -810,16 +902,15 @@ sub checkpoint {
 	my @context_lines;
 	my %seen;
 	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
-		my $rules = $self->{watchers}{$watcher_name}{rules};
-		my $objs  = $self->{watchers}{$watcher_name}{rule_objs};
-		foreach my ( $rule_name, $rule_obj ) ( mesh( $rules, $objs ) ) {
-			if ( !defined($rule_obj) || $seen{$rule_name} ) {
+		foreach my $binding ( @{ $self->{watchers}{$watcher_name}{bindings} } ) {
+			my $rule_name = $binding->{name};
+			if ( $seen{$rule_name} ) {
 				next;
 			}
 			$seen{$rule_name} = 1;
 			my $line;
 			try {
-				my $state = $rule_obj->dump_state;
+				my $state = $binding->{rule}->dump_state;
 				if ( defined($state) ) {
 					$line = encode_json( { 'rule' => $rule_name, 'state' => $state } );
 				}
@@ -832,7 +923,7 @@ sub checkpoint {
 			if ( defined($line) ) {
 				push( @context_lines, $line );
 			}
-		} ## end foreach my ( $rule_name, $rule_obj ) ( mesh( $rules...))
+		} ## end foreach my $binding ( @{ $self->{watchers}{$watcher_name...}})
 	} ## end foreach my $watcher_name ( sort( keys( %{ $self...})))
 	$self->{tablet}->write( 'context', \@context_lines );
 
@@ -2158,30 +2249,26 @@ my $rule_index_max = 1024;
 #
 # Args...
 #
-#    - rule_objs :: The watcher's arrayref of compiled rule objects, undef
-#          entries and all.
+#    - bindings :: The watcher's arrayref of bindings, of which only the
+#          rule of each is read.
 #
 # Returns the field name as a plain string, the reserved '%%%DAEMON%%%' for
 # the syslog daemon (which is a field of the parsed envelope rather than of
 # the record's field space), or undef for a watcher with nothing to index on,
 # whose lines are then offered to every rule as they were before.
 sub _index_field {
-	my ($rule_objs) = @_;
+	my ($bindings) = @_;
 
 	my %pinning;
 	my %values;
-	my $live = 0;
-	foreach my $rule_obj ( @{$rule_objs} ) {
-		if ( !defined($rule_obj) ) {
-			next;
-		}
+	foreach my $binding ( @{$bindings} ) {
+		my $rule_obj = $binding->{rule};
 		# a rule that gates on a daemon settles it... a daemons list is
 		# required of the one type that has one and names few daemons each,
 		# so nothing a gate could offer beats it
 		if ( !$rule_obj->accepts_daemon(undef) ) {
 			return '%%%DAEMON%%%';
 		}
-		$live++;
 		my $discriminators = $rule_obj->gate_discriminators;
 		foreach my $field ( keys( %{$discriminators} ) ) {
 			$pinning{$field}++;
@@ -2189,13 +2276,13 @@ sub _index_field {
 				$values{$field}{$value} = 1;
 			}
 		}
-	} ## end foreach my $rule_obj ( @{$rule_objs} )
+	} ## end foreach my $binding ( @{$bindings} )
 
 	my $best;
 	my $best_score;
 	foreach my $field ( sort( keys(%pinning) ) ) {
 		my $distinct = scalar( keys( %{ $values{$field} } ) );
-		my $score    = ( $live - $pinning{$field} ) + ( $pinning{$field} / $distinct );
+		my $score    = ( scalar( @{$bindings} ) - $pinning{$field} ) + ( $pinning{$field} / $distinct );
 		if ( !defined($best_score) || $score < $best_score ) {
 			$best       = $field;
 			$best_score = $score;
@@ -2205,9 +2292,9 @@ sub _index_field {
 	return $best;
 } ## end sub _index_field
 
-# the ordered rule indices a record could possibly match, from the watcher's
-# rule index... what _process_record walks instead of every rule on the
-# watcher.
+# the bindings whose rule a record could possibly match, in order, from the
+# watcher's rule index... what _process_record walks instead of every rule on
+# the watcher.
 #
 # Both halves rest on the same contract: a rule the index leaves out would
 # have refused the line before doing or remembering anything, so skipping the
@@ -2226,12 +2313,12 @@ sub _index_field {
 #          The index field is read from its envelope for the daemon, from its
 #          flattened fields otherwise.
 #
-# Returns an arrayref of indices into the watcher's rule_objs and rules
-# arrays, ascending, so walking it keeps the config's rule order and with it
-# the overlap semantics. A watcher with no index field returns every index,
+# Returns an arrayref of the watcher's bindings, in the order the watcher
+# holds them, so walking it keeps the config's rule order and with it the
+# overlap semantics. A watcher with no index field returns every binding,
 # built once and held, so it walks exactly what it always did.
 #
-#    foreach my $rule_int ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) { ... }
+#    foreach my $binding ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) { ... }
 sub _rule_candidates {
 	my ( $self, $watcher, $parsed ) = @_;
 
@@ -2259,18 +2346,14 @@ sub _rule_candidates {
 	}
 
 	my @candidates;
-	my $rule_objs = $watcher->{rule_objs};
-	foreach my ( $rule_int, $rule_obj ) ( indexed @{$rule_objs} ) {
-		if ( !defined($rule_obj) ) {
-			next;
-		}
+	foreach my $binding ( @{ $watcher->{bindings} } ) {
 		if ( !defined($field) ) {
-			push( @candidates, $rule_int );
+			push( @candidates, $binding );
 			next;
 		}
 		if ( $field eq '%%%DAEMON%%%' ) {
-			if ( $rule_obj->accepts_daemon($daemon) ) {
-				push( @candidates, $rule_int );
+			if ( $binding->{rule}->accepts_daemon($daemon) ) {
+				push( @candidates, $binding );
 			}
 			next;
 		}
@@ -2278,11 +2361,11 @@ sub _rule_candidates {
 		# a rule naming no value for the indexed field constrains it not at
 		# all, so it is a candidate for every line... only one that pins the
 		# field is asked whether this value is among what it pins
-		my $pinned = $rule_obj->gate_discriminators->{$field};
+		my $pinned = $binding->{rule}->gate_discriminators->{$field};
 		if ( !defined($pinned) || ( defined($value) && $pinned->{$value} ) ) {
-			push( @candidates, $rule_int );
+			push( @candidates, $binding );
 		}
-	} ## end foreach my ( $rule_int, $rule_obj ) ( indexed @...)
+	} ## end foreach my $binding ( @{ $watcher->{bindings} })
 
 	if ( scalar( keys( %{ $watcher->{rule_index} } ) ) >= $rule_index_max ) {
 		$watcher->{rule_index} = {};
@@ -2343,9 +2426,9 @@ sub _process_record {
 	# _rule_candidates
 	my $overlap = $watcher->{settings}{overlap};
 	my $demoted = 0;
-	foreach my $rule_int ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) {
-		my $rule_obj  = $watcher->{rule_objs}[$rule_int];
-		my $rule_name = $watcher->{rules}[$rule_int];
+	foreach my $binding ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) {
+		my $rule_obj  = $binding->{rule};
+		my $rule_name = $binding->{name};
 		my $found     = $rule_obj->check( $parsed, $watcher_name, $line_ctx );
 		if ( !defined($found) ) {
 			next;
@@ -2358,23 +2441,10 @@ sub _process_record {
 		my $track_only   = $rule_obj->track_only;
 		my $mark_only    = $rule_obj->mark_only || $track_only;
 		my $is_detection = $rule_obj->is_detection;
-		my $country_gate = $watcher->{country_gates}[$rule_int];
-		my $namtar_gate  = $watcher->{namtar_gates}[$rule_int];
-		my $active_gate  = $watcher->{active_gates}[$rule_int];
 
-		# the operator's per-rule config table for this rule, if any... it beats
-		# both the rule file's own numbers and, for the presentation knobs,
-		# the watcher-resolved defaults
-		my $rule_cfg = $watcher->{rule_config}{$rule_name} || {};
-
-		# observe mode... the config's eve_only for the rule wins, then the
-		# rule's own, then the watcher-resolved one, so a deployment can be set
-		# observe at any level and a trusted rule opt back in either in its file
-		# or from the config. observe_ignored, a watcher setting, lets observe
-		# mode also watch what ignore_ips would drop
-		my $eve_only        = $rule_cfg->{eve_only} // $rule_obj->eve_only // $watcher->{settings}{eve_only};
-		my $observe_ignored = $watcher->{settings}{observe_ignored};
-		my $track_only_eve  = $watcher->{settings}{track_only_eve_store};
+		# observe mode, as the binding resolved it for the rule on this watcher
+		my $eve_only       = $binding->{eve_only};
+		my $track_only_eve = $watcher->{settings}{track_only_eve_store};
 
 		# a capture line may have completed several deferred offenses
 		my @all_found = ( $found, is_plain_arrayref( $found->{more} ) ? @{ $found->{more} } : () );
@@ -2401,10 +2471,10 @@ sub _process_record {
 			# the first veto ending it, as the country and reverse_dns gates do
 			# GeoIP and DNS lookups a earlier veto should spare
 			if (   !$self->_mark_gates_pass( $gates, $one->{data}, undef, $now )
-				|| !$self->_country_gate_pass( $country_gate, $one->{data}, undef )
-				|| !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef )
+				|| !$self->_country_gate_pass( $binding->{country_gate}, $one->{data}, undef )
+				|| !$self->_namtar_gate_pass( $binding->{namtar_gate}, $one->{data}, undef )
 				|| !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef )
-				|| !$self->_active_time_pass( $active_gate, $one->{data}, $now ) )
+				|| !$self->_active_time_pass( $binding->{active_gate}, $one->{data}, $now ) )
 			{
 				next;
 			}
@@ -2412,21 +2482,18 @@ sub _process_record {
 			$self->_tick( 'matched', $watcher_name, $rule_name );
 
 			# the EVE context for this match, shared by the found event and
-			# any banish it triggers... watcher and rule_name ride along
-			# for the stats and the ledger. the effective severity is the
-			# config's for the rule, then the rule's own, then the
-			# watcher-resolved default_severity
-			my $severity = $rule_cfg->{severity} // $rule_obj->severity // $watcher->{settings}{default_severity};
-			my $context  = {
+			# any banish it triggers... the binding is what the event says of
+			# the rule, and watcher and rule_name ride along for the stats and
+			# the ledger
+			my $context = {
 				'source'    => $source,
 				'raw'       => $line,
 				'parsed'    => $parsed,
 				'found'     => $one->{data},
 				'stages'    => $one->{stages},
-				'rule'      => $rule_obj,
+				'binding'   => $binding,
 				'rule_name' => $rule_name,
 				'watcher'   => $watcher_name,
-				'severity'  => $severity,
 			};
 
 			# a ban_not_internal rule banishes the end of the flow that is
@@ -2514,8 +2581,8 @@ sub _process_record {
 						my ($ip) = @_;
 						return
 							   $self->_mark_gates_pass( $gates, $one->{data}, $ip, $now )
-							&& $self->_country_gate_pass( $country_gate, $one->{data}, $ip )
-							&& $self->_namtar_gate_pass( $namtar_gate, $one->{data}, $ip )
+							&& $self->_country_gate_pass( $binding->{country_gate}, $one->{data}, $ip )
+							&& $self->_namtar_gate_pass( $binding->{namtar_gate}, $one->{data}, $ip )
 							&& $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip );
 					}
 				);
@@ -2557,8 +2624,7 @@ sub _process_record {
 
 			my $score;
 			foreach my $subject_value (@to_count) {
-				my $registered = $self->_register_hit( $watcher_name, $subject_value, $context, $count_eve_only,
-					$observe_ignored, $is_detection );
+				my $registered = $self->_register_hit( $binding, $subject_value, $context, $count_eve_only );
 				if ( defined($registered) ) {
 					$context->{subject_scores}{$subject_value} = $registered;
 					$score //= $registered;
@@ -2605,15 +2671,29 @@ sub _process_record {
 			}
 			# overlap all just keeps going, every firing rule judging for real
 		} ## end if ($consumed)
-	} ## end foreach my $rule_int ( @{ $self->_rule_candidates...})
+	} ## end foreach my $binding ( @{ $self->_rule_candidates...})
 
 	return;
 } ## end sub _process_record
 
 # builds the raw/parsed/found/rule/path/score fields of a EVE event from a
-# match context... only assembled when the EVE log is on. score is the
-# offender's accumulated weighted score, equal to the raw hit tally when no
-# weights are in play
+# match context... only assembled when the EVE log is on.
+#
+# args:
+#   $context :: the match context _process_record built. reads source, raw,
+#               parsed, found, stages, threshold, and binding, the last for
+#               the rule and for what every event of it says of the rule
+#   $score   :: the offender's accumulated weighted score, equal to the raw
+#               hit tally when no weights are in play, or undef where nothing
+#               was counted
+#   $set     :: arrayref of the brands the match set, defaulting to the
+#               context's marks_set
+#   $lifted  :: arrayref of the brands the match lifted, defaulting to the
+#               context's unmarked
+#
+# returns a hashref of the fields, a empty one when the EVE log is off.
+#
+#   my $fields = $self->_eve_fields( $context, $score );
 sub _eve_fields {
 	my ( $self, $context, $score, $set, $lifted ) = @_;
 
@@ -2632,7 +2712,8 @@ sub _eve_fields {
 	# / src_port / dest_port / user defaults... all five always emitted, null
 	# when the named var is absent, so a consumer can lean on them being there
 	my $found   = is_plain_hashref( $context->{found} ) ? $context->{found} : {};
-	my $rule    = $context->{rule};
+	my $binding = $context->{binding};
+	my $rule    = $binding->{rule};
 	my $tracked = $self->_track_eve( $rule, $found, time );
 
 	return {
@@ -2650,23 +2731,12 @@ sub _eve_fields {
 		'user'      => $found->{ $rule->user_var },
 		# what each ban_var or detection_var named, and what each is worth
 		$self->_subject_var_fields($context),
-		'msg' => $context->{rule}->msg,
-		# the Suricata alert.gid/signature_id/rev analogues, always integers...
-		# gid 0 shipped / 1 override, sid the rule name's hash, rev the def's or
-		# 0 when unversioned
-		'gid'  => $context->{rule}->gid,
-		'sid'  => $context->{rule}->sid,
-		'rev'  => defined( $context->{rule}->rev ) ? $context->{rule}->rev : 0,
-		'rule' => $context->{rule}->info,
-		defined( $context->{severity} ) ? ( 'severity' => $context->{severity} ) : (),
-		# Suricata's alert.category, promoted to the top level... the rule
-		# carries the short classtype and the event carries the prose, so a
-		# reader never meets the slug and the field lines up with a Suricata
-		# event of the same class
-		defined( $context->{rule}->category )   ? ( 'category'   => $context->{rule}->category )   : (),
-		defined( $context->{rule}->references ) ? ( 'references' => $context->{rule}->references ) : (),
-		defined( $context->{rule}->attack )     ? ( 'attack'     => $context->{rule}->attack )     : (),
-		defined($score)                         ? ( 'score'      => $score )                       : (),
+		# what the event says of the rule, the same for every event of the
+		# rule on this watcher and so built when the two were bound... msg,
+		# gid, sid, rev, and rule always, and severity, category, references,
+		# and attack when set
+		%{ $binding->{eve} },
+		defined($score) ? ( 'score' => $score ) : (),
 		# the score the offender had to reach, so the event reads on its own...
 		# absent along with the score when nothing was counted, a mark_only rule
 		# or a result whose every candidate was ignored or internal
@@ -3809,79 +3879,73 @@ sub _ingest_mark_event {
 	return;
 } ## end sub _ingest_mark_event
 
-# registers a match of a IP, banning it once its accumulated score reaches
-# max_score with in find_time seconds... each match deposits the rule's
-# weight, so a heavy signature bans faster and several different rules against
-# one IP sum toward the one judgment. returns the IP's live score, or undef
-# when the IP is ignored and not being observed. in eve_only observe mode it
-# counts into a shadow bucket kept wholly apart from the real ones and raises
-# a alert instead of banishing, so nothing is sent to Kur
+# registers a match of a subject, banning it once its accumulated score
+# reaches max_score with in find_time seconds... each match deposits the
+# rule's weight, so a heavy signature bans faster and several different rules
+# against one IP sum toward the one judgment. in eve_only observe mode, and
+# for a detection rule, it counts into a shadow bucket kept wholly apart from
+# the real ones and raises a alert or a sighted instead of banishing, so
+# nothing is sent to Kur.
+#
+# args:
+#   $binding  :: the binding of the rule that matched to its watcher, as new
+#                built it... names the watcher and holds the max_score,
+#                find_time, ban_time, and weight the hit is counted with and
+#                whether the rule counts in a bucket of its own
+#   $ip       :: the subject to count, a offender's address or, for a
+#                detection rule, whatever its detection_var named
+#   $context  :: the match context _process_record built, on which the
+#                threshold and any crossing are left for the events to read
+#   $eve_only :: true to count the hit in observe mode, the binding's own
+#                eve_only or one forced by a demotion under overlap shadow
+#
+# returns the subject's live score, or undef when it is ignored and not being
+# observed or a distinct rule's grouping key is missing.
+#
+#   my $score = $self->_register_hit( $binding, '192.0.2.7', $context, $binding->{eve_only} );
 sub _register_hit {
-	my ( $self, $watcher_name, $ip, $context, $eve_only, $observe_ignored, $detection ) = @_;
+	my ( $self, $binding, $ip, $context, $eve_only ) = @_;
+
+	my $watcher_name = $binding->{watcher};
+	my $detection    = $binding->{rule}->is_detection;
 
 	# the ignored never accumulate so much as a counter... unless observe mode
-	# is told to watch what ignore_ips would otherwise drop. a detection subject
-	# is not necessarily a IP and never banishes, so ignore_ips does not apply
+	# is told, by the watcher's observe_ignored, to watch what ignore_ips would
+	# otherwise drop. a detection subject is not necessarily a IP and never
+	# banishes, so ignore_ips does not apply
 	if ( !$detection && ip_ignored( $self->{ignore_ips}, $ip ) ) {
-		if ( !( $eve_only && $observe_ignored ) ) {
+		if ( !( $eve_only && $self->{watchers}{$watcher_name}{settings}{observe_ignored} ) ) {
 			$self->_tick( 'ignored', $watcher_name );
 			return undef;
 		}
 	}
 
-	my $settings = $self->{watchers}{$watcher_name}{settings};
-	my $now      = time;
+	my $now = time;
 
 	# detection rules, like observe mode, count into the shadow families so
 	# they can never cause or delay a real ban
 	my $use_shadow = ( $eve_only || $detection );
 
-	# when the watcher allows it, the rule's own thresholds and weight speak
-	# over the watcher's... a rule overriding how counting works gets its own
-	# bucket, so its window does not cross-contaminate the shared one, while a
-	# ban_time-only override counts in the shared bucket and only bans
-	# differently. without the consent every weight is 1, so a shipped rule
-	# can not reshape the tuning. the operator's per-rule config table lays
-	# over the top of that, beating the rule file's numbers and honored
-	# regardless of the consent... it is the operator's own hand, not a shipped
-	# default. the per-rule bucket is keyed by rule name across the galla, so a
-	# config max_score/find_time on a rule shared by two watchers of one kur
-	# shares the one bucket
-	my $allow    = $settings->{allow_per_rule_thresholds};
-	my $rule_cfg = {};
-	if ( defined( $context->{rule_name} ) ) {
-		my $watcher_rule_config = $self->{watchers}{$watcher_name}{rule_config} || {};
-		if ( defined( $watcher_rule_config->{ $context->{rule_name} } ) ) {
-			$rule_cfg = $watcher_rule_config->{ $context->{rule_name} };
-		}
-	}
-	my $yaml_overrides = $allow ? $context->{rule}->thresholds : {};
-	my $overrides      = {
-		%{$yaml_overrides},
-		map { defined( $rule_cfg->{$_} ) ? ( $_ => $rule_cfg->{$_} ) : () } ( 'max_score', 'find_time', 'ban_time' )
-	};
-	my $max_score = $overrides->{max_score} // $settings->{max_score};
-	my $find_time = $overrides->{find_time} // $settings->{find_time};
-	my $ban_time  = defined( $overrides->{ban_time} ) ? $overrides->{ban_time} : $settings->{ban_time};
-	my $weight    = 1;
-	if ( defined( $rule_cfg->{weight} ) ) {
-		$weight = $rule_cfg->{weight} + 0;
-	} elsif ($allow) {
-		$weight = $context->{rule}->weight;
-	}
+	# what the hit is counted with was resolved when the rule was bound to the
+	# watcher... the rule's own numbers over the watcher's where it consents,
+	# and the operator's per-rule config table over both
+	my $max_score = $binding->{max_score};
+	my $find_time = $binding->{find_time};
+	my $ban_time  = $binding->{ban_time};
+	my $weight    = $binding->{weight};
 
 	# the threshold this hit is racing rides the context, so every event the
 	# match raises carries it beside the score... a score of 3 says nothing on
 	# its own, and the number it is measured against is the one thing a reader
 	# would otherwise have to go and dig out of the config, after resolving the
 	# watcher over the kur over the global and the per-rule table over all
-	# three. resolved here rather than passed, the way the marks already are
-	$context->{threshold} = $max_score + 0;
+	# three
+	$context->{threshold} = $max_score;
 
 	# the score, by one of two counting schemes... each clears its own bucket
 	# on a crossing, then the crossing itself is shared below
 	my $score;
-	my $distinct = defined( $context->{rule} ) ? $context->{rule}->distinct : undef;
+	my $distinct = $binding->{rule}->distinct;
 	if ( defined($distinct) ) {
 		# distinct-cardinality counting... instead of summing hits, the bucket is
 		# the set of distinct values of the rule's `of` field, keyed by the
@@ -3893,7 +3957,7 @@ sub _register_hit {
 		# lands on the current offender, so a non-bannable key like a username
 		# still banishes the source that tipped it over
 		my $dcounters = $use_shadow ? $self->{shadow_distinct_counters} : $self->{distinct_counters};
-		my $rule_name = $context->{rule_name};
+		my $rule_name = $binding->{name};
 		my $of_value  = $context->{found}{ $distinct->{of} };
 		my $key       = defined( $distinct->{by} ) ? $context->{found}{ $distinct->{by} } : $ip;
 		if ( !defined($key) || $key eq '' ) {
@@ -3944,9 +4008,8 @@ sub _register_hit {
 		my $rule_counters = $use_shadow ? $self->{shadow_rule_counters} : $self->{rule_counters};
 
 		my $bucket = $counters;
-		if ( defined( $overrides->{max_score} ) || defined( $overrides->{find_time} ) ) {
-			$rule_counters->{ $context->{rule_name} } //= {};
-			$bucket = $rule_counters->{ $context->{rule_name} };
+		if ( $binding->{own_bucket} ) {
+			$bucket = $rule_counters->{ $binding->{name} } //= {};
 		}
 
 		$bucket->{$ip} //= [];
@@ -3970,7 +4033,7 @@ sub _register_hit {
 		# the number it had to reach... a rule naming several vars leaves the
 		# reader no way to tell which of them tipped over otherwise
 		if ( is_plain_hashref( $context->{subject_crossed} ) ) {
-			$context->{subject_crossed}{$ip} = $max_score + 0;
+			$context->{subject_crossed}{$ip} = $max_score;
 		}
 		# the terminal event it raises is held until the caller has counted the
 		# rest of the offenders, so it carries the whole score map
@@ -5393,7 +5456,8 @@ sub _sweep {
 	# across watchers, so sweep each once
 	my %swept;
 	foreach my $watcher_name ( keys( %{ $self->{watchers} } ) ) {
-		foreach my $rule_obj ( @{ $self->{watchers}{$watcher_name}{rule_objs} } ) {
+		foreach my $binding ( @{ $self->{watchers}{$watcher_name}{bindings} } ) {
+			my $rule_obj = $binding->{rule};
 			if ( !$swept{$rule_obj} ) {
 				$swept{$rule_obj} = 1;
 				$rule_obj->sweep_state($now);
@@ -5433,7 +5497,7 @@ sub _cmd_status {
 	foreach my ( $watcher_name, $watcher ) ( %{ $self->{watchers} } ) {
 		$watchers->{$watcher_name} = {
 			'parser'   => $watcher->{parser},
-			'rules'    => $watcher->{rules},
+			'rules'    => [ map { $_->{name} } @{ $watcher->{bindings} } ],
 			'settings' => $watcher->{settings},
 			$self->_watcher_following( $watcher, 'logs' ),
 		};

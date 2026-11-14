@@ -42,6 +42,7 @@ lib/App/Baphomet/ClayTablet.pm
 lib/App/Baphomet/ClayTablet/File.pm
 lib/App/Baphomet/ClayTablet/Redis.pm
 lib/App/Baphomet/Config.pm
+lib/App/Baphomet/Correlation.pm
 lib/App/Baphomet/Geo.pm
 lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
@@ -67,10 +68,12 @@ lib/App/Baphomet/Rules/Gates.pm
 lib/App/Baphomet/Rules/HTTP.pm
 lib/App/Baphomet/Rules/HTTPError.pm
 lib/App/Baphomet/Rules/JSON.pm
+lib/App/Baphomet/Rules/MessageRegexp.pm
 lib/App/Baphomet/Rules/Raw.pm
 lib/App/Baphomet/Rules/SelfTest.pm
 lib/App/Baphomet/Rules/Syslog.pm
 lib/App/Baphomet/Rules/Tokens.pm
+lib/App/Baphomet/Shape.pm
 Makefile.PL
 MANIFEST			This list of files
 rc/freebsd/baphomet
@@ -440,6 +443,7 @@ t/pod-coverage.t
 t/pod.t
 t/recidive.t
 t/rule-config.t
+t/rule-def-shapes.t
 t/rule-distinct.t
 t/rule-gate-http.t
 t/rule-gate-syslog.t
@@ -472,7 +476,9 @@ t/stop-wait.t
 t/subject-vars.t
 t/subnet-bans.t
 t/tracked.t
+t/unit-correlation.t
 t/unit-marks.t
+t/unit-shape.t
 t/unit-tracks.t
 t/unit-rdns.t
 t/unit-geo.t

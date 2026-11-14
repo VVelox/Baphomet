@@ -4,9 +4,12 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util                    qw( is_plain_arrayref is_plain_hashref );
+use Ref::Util qw( is_plain_hashref );
+use App::Baphomet::Correlation
+	qw( correlation_key context_put context_get pending_park pending_complete fold_completions );
 use App::Baphomet::Rules::Gates  qw( compile_gates gates_pass );
 use App::Baphomet::Rules::Tokens qw( compile_tokened_regexp match_tokened );
+use App::Baphomet::Shape         qw( check_entries check_value );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -225,30 +228,25 @@ sub _compile {
 	}
 
 	# the correlation layer... capture entries harvest context under a key,
-	# and a rule-level key makes the offense resolve through it. the stores,
-	# the sweeping, and the key helpers are the base class's, shared with the
-	# syslog and raw types... here a key component is a flattened field path
-	# or a capture, there being no envelope
+	# and a rule-level key makes the offense resolve through it. the store is
+	# App::Baphomet::Correlation's and the sweeping and the key vetting are
+	# the base class's, all shared with the syslog and raw types... here a key
+	# component is a flattened field path or a capture, there being no
+	# envelope
 	$self->{captures} = [];
 	if ( defined( $def->{capture} ) ) {
-		if ( !is_plain_arrayref( $def->{capture} ) || !@{ $def->{capture} } ) {
-			die( 'The capture of the rule "' . $name . '" is not a array or is empty' );
-		}
+		my $captures_where = 'The capture of the rule "' . $name . '"';
+		check_entries(
+			$def->{capture},
+			{
+				'required' => { 'key'  => 'any' },
+				'optional' => { 'gate' => 'any', 'match' => 'any', 'ttl' => 'seconds' },
+				'any_of'   => [ [ 'gate', 'match', 'so it would harvest every line' ] ],
+			},
+			$captures_where
+		);
 		foreach my ( $entry_int, $entry ) ( indexed @{ $def->{capture} } ) {
-			my $where = 'The capture entry ' . $entry_int . ' of the rule "' . $name . '"';
-			if ( !is_plain_hashref($entry) ) {
-				die( $where . ' is not a hash' );
-			}
-			$self->_check_keys( $entry, [qw( gate match key ttl )], $where . ' has' );
-			if ( !defined( $entry->{key} ) ) {
-				die( $where . ' lacks a key' );
-			}
-			if ( !defined( $entry->{gate} ) && !defined( $entry->{match} ) ) {
-				die( $where . ' has neither a gate nor a match... it would harvest every line' );
-			}
-			if ( defined( $entry->{ttl} ) && ( $entry->{ttl} !~ /^[0-9]+$/ || !$entry->{ttl} ) ) {
-				die( $where . ' has a ttl that is not a positive int of seconds' );
-			}
+			my $where = $captures_where . ' entry ' . $entry_int;
 
 			my $compiled = {
 				'key'     => $self->_correlation_key_components( $entry->{key}, $where ),
@@ -260,15 +258,13 @@ sub _compile {
 				$compiled->{gates} = compile_gates( $entry->{gate}, $where . ' gate' );
 			}
 			if ( defined( $entry->{match} ) ) {
-				if ( !is_plain_arrayref( $entry->{match} ) || !@{ $entry->{match} } ) {
-					die( $where . ' has a match that is not a array or is empty' );
-				}
+				check_entries(
+					$entry->{match},
+					{ 'required' => { 'field' => 'scalar', 'regexp' => 'scalar' } },
+					$where . ' match'
+				);
 				foreach my ( $match_int, $match ) ( indexed @{ $entry->{match} } ) {
 					my $match_where = $where . ' match entry ' . $match_int;
-					if ( !is_plain_hashref($match) || !defined( $match->{field} ) || !defined( $match->{regexp} ) ) {
-						die( $match_where . ' is not a hash with a field and a regexp' );
-					}
-					$self->_check_keys( $match, [qw( field regexp )], $match_where . ' has' );
 					push(
 						@{ $compiled->{matches} },
 						{
@@ -284,15 +280,13 @@ sub _compile {
 
 	if ( defined( $def->{key} ) ) {
 		$self->{correlation_key}
-			= { 'key' => $self->_correlation_key_components( $def->{key}, 'The key of the rule "' . $name . '"' ) };
+			= $self->_correlation_key_components( $def->{key}, 'The key of the rule "' . $name . '"' );
 	}
 	if ( defined( $def->{defer} ) ) {
 		if ( !defined( $def->{key} ) ) {
 			die( 'The rule "' . $name . '" has a defer but no key for it to wait on' );
 		}
-		if ( ref( $def->{defer} ) ne '' || $def->{defer} !~ /^[0-9]+$/ || !$def->{defer} ) {
-			die( 'The defer of the rule "' . $name . '" is not a positive int of seconds' );
-		}
+		check_value( $def->{defer}, 'seconds', 'The defer of the rule "' . $name . '"' );
 		$self->{defer} = $def->{defer};
 	}
 
@@ -453,12 +447,12 @@ sub check {
 		# flattened fields, fields authoritative, same as a found's data
 		my %context = ( %{$capture_caps}, %{$fields} );
 
-		my $key_value = $self->_correlation_key_value( $capture, \%context, undef );
+		my $key_value = correlation_key( $capture->{key}, \%context, undef );
 		if ( !defined($key_value) ) {
 			next;
 		}
-		$self->_context_store( $scope, $key_value, \%context, $capture->{ttl}, $now );
-		push( @completions, $self->_complete_pendings( $scope, $key_value, \%context, $now ) );
+		context_put( $self->{correlation}, $scope, $key_value, \%context, $capture->{ttl}, $now );
+		push( @completions, pending_complete( $self->{correlation}, $scope, $key_value, \%context, $now ) );
 	} ## end foreach my $capture ( @{ $self->{captures} } )
 
 	# the offense itself... the tracked clause and the boolean pre-filter,
@@ -503,24 +497,25 @@ sub check {
 	# the same key... a key component that does not resolve leaves the
 	# offense standing plain, mirroring the syslog type
 	if ( defined($found) && defined( $self->{correlation_key} ) ) {
-		my $key_value = $self->_correlation_key_value( $self->{correlation_key}, $found->{data}, undef );
+		my $key_value = correlation_key( $self->{correlation_key}, $found->{data}, undef );
 		if ( defined($key_value) ) {
-			my $stored = $self->{context}{$scope}{$key_value};
-			if ( defined($stored) && $stored->{expires} > $now ) {
-				$found->{data} = { %{ $stored->{data} }, %{ $found->{data} } };
+			my $stored_data = context_get( $self->{correlation}, $scope, $key_value, $now );
+			if ( defined($stored_data) ) {
+				$found->{data} = { %{$stored_data}, %{ $found->{data} } };
 			} else {
 				# unresolved, so not a offense on this line... parked to
 				# await a capture with this key when the rule defers, else
 				# simply dropped, the syslog type's fall-through
 				if ( $self->{defer} ) {
-					$self->_park_pending( $scope, $key_value, $found->{data}, $found->{regexp}, $self->{defer}, $now );
+					pending_park( $self->{correlation}, $scope, $key_value, $found->{data}, $found->{regexp},
+						$self->{defer}, $now );
 				}
 				$found = undef;
-			}
+			} ## end else [ if ( defined($stored_data) ) ]
 		} ## end if ( defined($key_value) )
 	} ## end if ( defined($found) && defined( $self->{correlation_key...}))
 
-	return $self->_primary_found( $found, \@completions );
+	return fold_completions( $found, \@completions );
 } ## end sub check
 
 =head2 ban_var

@@ -10,6 +10,9 @@ use Net::Patricia ();
 use Path::Tiny    qw( path );
 use Socket        qw( AF_INET AF_INET6 inet_pton inet_ntop );
 use TOML::Tiny    qw( from_toml );
+# the int and severity checks are the ones a rule def is vetted with, so a
+# setting and the rule key it stands in for are held to the same thing
+use App::Baphomet::Shape qw( is_kind is_non_negative_int is_positive_int );
 
 =pod
 
@@ -581,15 +584,15 @@ sub load_config {
 		die($times_error);
 	}
 
-	if ( !_is_positive_int( $config->{timeout} ) ) {
+	if ( !is_positive_int( $config->{timeout} ) ) {
 		die( 'timeout, "' . $config->{timeout} . '", is not a positive int of seconds' );
 	}
 
-	if ( !_is_non_negative_int( $config->{checkpoint} ) ) {
+	if ( !is_non_negative_int( $config->{checkpoint} ) ) {
 		die( 'checkpoint, "' . $config->{checkpoint} . '", is not a non-negative int of seconds' );
 	}
 
-	if ( !_is_non_negative_int( $config->{ledger_keep} ) ) {
+	if ( !is_non_negative_int( $config->{ledger_keep} ) ) {
 		die( 'ledger_keep, "' . $config->{ledger_keep} . '", is not a non-negative int of seconds' );
 	}
 
@@ -649,7 +652,7 @@ sub load_config {
 		die( 'The top level ' . $usedns_error );
 	}
 	foreach my $item ( 'usedns_timeout', 'usedns_max_addrs', 'rdns_timeout' ) {
-		if ( !_is_positive_int( $config->{$item} ) ) {
+		if ( !is_positive_int( $config->{$item} ) ) {
 			die( $item . ', "' . $config->{$item} . '", is not a positive int' );
 		}
 	}
@@ -729,13 +732,13 @@ sub _check_recidive {
 	if ( !defined( $recidive->{kur} ) || ref( $recidive->{kur} ) ne '' || $recidive->{kur} !~ /^[a-zA-Z0-9\-]+$/ ) {
 		die('recidive lacks a kur naming where recidivists are banished, matching /^[a-zA-Z0-9\-]+$/');
 	}
-	if ( defined( $recidive->{max_score} ) && !_is_positive_int( $recidive->{max_score} ) ) {
+	if ( defined( $recidive->{max_score} ) && !is_positive_int( $recidive->{max_score} ) ) {
 		die('recidive max_score is not a positive int');
 	}
-	if ( defined( $recidive->{find_time} ) && !_is_positive_int( $recidive->{find_time} ) ) {
+	if ( defined( $recidive->{find_time} ) && !is_positive_int( $recidive->{find_time} ) ) {
 		die('recidive find_time is not a positive int of seconds');
 	}
-	if ( defined( $recidive->{ban_time} ) && !_is_non_negative_int( $recidive->{ban_time} ) ) {
+	if ( defined( $recidive->{ban_time} ) && !is_non_negative_int( $recidive->{ban_time} ) ) {
 		die('recidive ban_time is not a non-negative int of seconds');
 	}
 
@@ -863,16 +866,14 @@ my %watcher_key_ref_types = (
 	),
 );
 
-# the severity levels a default_severity may name... matches the rule-side
-# set in App::Baphomet::Rules::Base, kept local to avoid a load-order coupling
-my %valid_severity = map { $_ => 1 } qw( info low medium high critical );
-
 # returns a bare error string if the passed default_severity is set and not a
-# valid level, undef otherwise... the caller supplies its own context lead
+# valid level, undef otherwise... the caller supplies its own context lead.
+# the levels are the severity kind's, the one scale a rule's own severity is
+# held to
 sub _severity_error {
 	my ($value) = @_;
 
-	if ( defined($value) && ( ref($value) ne '' || !$valid_severity{$value} ) ) {
+	if ( defined($value) && !is_kind( $value, 'severity' ) ) {
 		return 'default_severity is not one of info/low/medium/high/critical';
 	}
 
@@ -1192,7 +1193,7 @@ sub compile_ignore_ips {
 		}
 
 		$prefix //= $bits;
-		if ( !_is_non_negative_int($prefix) || $prefix > $bits ) {
+		if ( !is_non_negative_int($prefix) || $prefix > $bits ) {
 			die( $where . ' entry "' . $entry . '" has a invalid prefix length' );
 		}
 
@@ -1294,7 +1295,7 @@ sub ip_network {
 
 	# a IPv4 mapped IPv6 is really IPv4, so it nets under the v4 prefix
 	my ( $packed, $bits ) = _pack_ip($ip);
-	if ( !defined($packed) || !_is_non_negative_int($prefix) || $prefix < 1 || $prefix > $bits ) {
+	if ( !defined($packed) || !is_non_negative_int($prefix) || $prefix < 1 || $prefix > $bits ) {
 		return undef;
 	}
 
@@ -1505,7 +1506,7 @@ sub watcher_join {
 		die( $where . 'has a join continuation that does not compile... ' . $caught );
 	}
 	foreach my $key ( 'max_lines', 'flush_after' ) {
-		if ( defined( $join->{$key} ) && !_is_positive_int( $join->{$key} ) ) {
+		if ( defined( $join->{$key} ) && !is_positive_int( $join->{$key} ) ) {
 			die( $where . 'has a join ' . $key . ' that is not a positive int' );
 		}
 	}
@@ -2026,36 +2027,6 @@ sub _rule_config_error {
 	return undef;
 } ## end sub _rule_config_error
 
-# whether a value is a whole number of zero or more, written as plain digits.
-#
-# args:
-#   $value :: the setting as the config gave it
-#
-# returns 1 when it is, else 0... a ref, undef, a sign, a point, or a space
-# all fail.
-#
-#   if ( !_is_non_negative_int( $config->{checkpoint} ) ) { die(...) }
-sub _is_non_negative_int {
-	my ($value) = @_;
-
-	return ( defined($value) && ref($value) eq '' && $value =~ /^[0-9]+$/ ) ? 1 : 0;
-}
-
-# whether a value is a whole number of one or more, written as plain digits.
-#
-# args:
-#   $value :: the setting as the config gave it
-#
-# returns 1 when it is, else 0. a value that is all zeros fails only when perl
-# reads it as false, so "0" fails and "00" passes, as it always has.
-#
-#   if ( !_is_positive_int( $config->{timeout} ) ) { die(...) }
-sub _is_positive_int {
-	my ($value) = @_;
-
-	return ( _is_non_negative_int($value) && $value ) ? 1 : 0;
-}
-
 # returns a error string if any count, time, or subnet prefix setting in the
 # passed hash is invalid, undef otherwise... the settings are checked in a
 # fixed order and the first bad one answers
@@ -2076,7 +2047,7 @@ sub _times_error {
 		if ( !defined($value) ) {
 			next;
 		}
-		my $valid = $kind eq 'positive' ? _is_positive_int($value) : _is_non_negative_int($value);
+		my $valid = $kind eq 'positive' ? is_positive_int($value) : is_non_negative_int($value);
 		if ( !$valid ) {
 			return 'a ' . $key . ', "' . $value . '", that is not ' . $what;
 		}
@@ -2087,7 +2058,7 @@ sub _times_error {
 	foreach my $prefix_setting ( [ 'ban_subnet_v4', 32 ], [ 'ban_subnet_v6', 128 ] ) {
 		my ( $key, $bits ) = @{$prefix_setting};
 		my $value = $settings->{$key};
-		if ( defined($value) && !( _is_non_negative_int($value) && $value >= 1 && $value <= $bits ) ) {
+		if ( defined($value) && !( is_non_negative_int($value) && $value >= 1 && $value <= $bits ) ) {
 			return 'a ' . $key . ', "' . $value . '", that is not a prefix length of 1..' . $bits;
 		}
 	}

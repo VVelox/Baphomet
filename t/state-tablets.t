@@ -73,15 +73,16 @@ close($fh);
 my $galla = App::Baphomet::Galla->new( config => $dir . '/config.toml', name => 'sshd' );
 
 # counters... a couple of hits, below threshold
-$galla->_register_hit( 'authlog', '9.9.9.9' );
-$galla->_register_hit( 'authlog', '9.9.9.9' );
-$galla->_register_hit( 'authlog', '8.8.8.8' );
+my $binding = $galla->{watchers}{authlog}{bindings}[0];
+$galla->_register_hit( $binding, '9.9.9.9' );
+$galla->_register_hit( $binding, '9.9.9.9' );
+$galla->_register_hit( $binding, '8.8.8.8' );
 
 # a pending ban
 $galla->{pending_bans}{'7.7.7.7'} = 300;
 
 # a deferred correlation... offense parked awaiting its end connection
-my $rule = $galla->{watchers}{authlog}{rule_objs}[0];
+my $rule = $binding->{rule};
 $rule->check( App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: [conn42] auth failed' ),
 	'authlog' );
 
@@ -126,8 +127,8 @@ is( $accused->{accused}{'8.8.8.8'}{hits}, 1, 'accused shows the other defendant'
 ok( defined( $accused->{accused}{'9.9.9.9'}{first} ), 'accused carries the first hit epoch' );
 
 # the restored deferred offense completes when its capture line arrives
-my $reborn_rule = $reborn->{watchers}{authlog}{rule_objs}[0];
-my $found = $reborn_rule->check(
+my $reborn_binding = $reborn->{watchers}{authlog}{bindings}[0];
+my $found          = $reborn_binding->{rule}->check(
 	App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:51 mail01 sshd[1]: [conn42] end connection 5.5.5.5:1234' ),
 	'authlog'
 );
@@ -147,9 +148,9 @@ my @sent;
 	no warnings 'redefine';
 	*App::Baphomet::Galla::_send_ban = sub { push( @sent, $_[1] ); return; };
 }
-$reborn->_register_hit( 'authlog', '9.9.9.9' );
-$reborn->_register_hit( 'authlog', '9.9.9.9' );
-$reborn->_register_hit( 'authlog', '9.9.9.9' );
+$reborn->_register_hit( $reborn_binding, '9.9.9.9' );
+$reborn->_register_hit( $reborn_binding, '9.9.9.9' );
+$reborn->_register_hit( $reborn_binding, '9.9.9.9' );
 ok( ( grep { $_ eq '9.9.9.9' } @sent ), 'a restored counter reaches the threshold and bans' );
 
 #
