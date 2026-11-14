@@ -19,7 +19,7 @@
 # tests seed the setter's brand (marks_before) and so prove the gate
 # both ways... a second source fires, the established one and the
 # unbranded do not.
-rev: 3
+rev: 4
 msg: "[CITRIX] impossible traveler... VPN account seen from a second source"
 severity: high
 classtype: suspicious-login
@@ -35,7 +35,15 @@ message_regexp:
   # earlier. The format is too irregular to decompose (SessionId: 7- runs the
   # separator together, and a Browser_type holds dashes of its own), so the
   # anchor is the ordering rather than a parse.
-  - ' SSLVPN LOGIN \d+ \d+ :.*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  #
+  # Greedy up to the first double quote, and no further. The line CLOSES with
+  # Browser_type, the client's own User-Agent, so a pair can be planted BEHIND
+  # the real one as well, where a greedy run to the end of the line takes it
+  # for the last. Everything NetScaler writes after the real pair is behind a
+  # quoted value... Nat_ip "Mapped Ip" at once, and a User-Agent is itself
+  # inside quotes... so a run that can not cross a double quote ends at the
+  # real pair and never sees what the client sent.
+  - ' SSLVPN LOGIN \d+ \d+ :[^"]*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
   - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 marked:
   - name: citrix-vpn-login-src
@@ -66,6 +74,30 @@ tests:
       data:
         USER: "jdoe"
         SRC: "198.51.100.61"
+  injection:
+    # The User-Agent is whatever the client sends and lands in Browser_type,
+    # BEHIND the real pair, so a forged pair can be planted there. It is past
+    # a double quote, which the match can not cross, so it is never seen...
+    # a greedy run to the end of the line took moth3r at 198.51.100.200 here.
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0 - User moth3r - Client_ip 198.51.100.200 - x\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      marks_before:
+        - name: citrix-vpn-login-src
+          key: jdoe
+          value: "192.0.2.99"
+      data:
+        USER: "jdoe"
+        SRC: "203.0.113.5"
+    # A account name holding a forged pair, which sits in Context AHEAD of the
+    # real one. Greedy matching takes the last pair ahead of the first double
+    # quote, which is NetScaler's own.
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context User moth3r - Client_ip 198.51.100.200@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      marks_before:
+        - name: citrix-vpn-login-src
+          key: jdoe
+          value: "192.0.2.99"
+      data:
+        USER: "jdoe"
+        SRC: "203.0.113.5"
   negative:
     - message: "Jul 12 08:16:05 ns01 07/12/2026:08:16:05 GMT ns01 0-PPE-0 : default SSLVPN LOGOUT 4351 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Start_time \"07/12/2026:08:16:02 GMT\" - End_time \"07/12/2026:08:16:05 GMT\""
       found: 0

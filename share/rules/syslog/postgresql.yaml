@@ -12,7 +12,7 @@
 # own PROGRAM gate is narrower than the daemons regexp above, matching only
 # `postgres` and `postgresql`, so a per-cluster syslog_ident such as
 # `postgres-16` still matches the rule but arrives without the account.
-rev: 4
+rev: 5
 msg: "[POSTGRESQL] password authentication failure"
 severity: high
 classtype: brute-force
@@ -27,8 +27,24 @@ daemons:
 mungers:
   - postgresql
 message_regexp:
-  - '\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
-  - '\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
+  # The account name is whatever the client sent, spaces and all, and it is
+  # on the line up to twice... in the prefix when log_line_prefix holds %u,
+  # and always in the quoted tail. A name such as `x host=203.0.113.222 y`
+  # therefore plants a second host=, and one holding the failure text itself
+  # plants a second copy of that. Nothing in the line says which copy
+  # PostgreSQL wrote, so the two leading lookaheads refuse to guess: a line
+  # with two host= is not taken by the host= pattern, and a line holding the
+  # failure text twice is taken by neither. A doubled host= still falls to the
+  # second pattern, which lands on the address sitting directly ahead of the
+  # one real FATAL. A doubled failure text matches nothing at all, which is
+  # the safe way to fail... no account has such a name, so nothing guessable
+  # is being let through.
+  #
+  # What this can not cover is a log_line_prefix ending in %u or %d, such as
+  # `%h %u `, as a account NAMED for a address then sits directly ahead of
+  # FATAL where the client address is expected. Keep %h the last field.
+  - '^(?!.*\bhost=.*\bhost=)(?!.*password authentication failed for user.*password authentication failed for user).*?\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
+  - '^(?!.*password authentication failed for user.*password authentication failed for user).*?\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
 src_ip_var: SRC
 user_var: pgsql_user
 ban_var:
@@ -56,7 +72,39 @@ tests:
       found: 1
       data:
         SRC: "198.51.100.7"
+  injection:
+    # a second host= planted through the account name, ahead of the real one
+    # in a prefix that leads with the user. The host= pattern stands aside and
+    # the address directly ahead of FATAL is the one taken
+    - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] user=x host=203.0.113.222 y,db=maindb,host=198.51.100.5 FATAL:  password authentication failed for user "x host=203.0.113.222 y"'
+      data:
+        SRC: "198.51.100.5"
+    # the same name against a prefix with no host= of its own... the planted
+    # one is then in the line twice, prefix and tail, so it is not taken
+    - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] x host=203.0.113.222 y@maindb 198.51.100.5 FATAL:  password authentication failed for user "x host=203.0.113.222 y"'
+      data:
+        SRC: "198.51.100.5"
+    # and against a prefix holding only the address, where the planted host=
+    # is in the tail alone, with no failure text after it to complete a match
+    - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] 198.51.100.5 FATAL:  password authentication failed for user "x host=203.0.113.222 y"'
+      data:
+        SRC: "198.51.100.5"
+    # a account named for a address, ahead of the real one... it is not
+    # directly ahead of FATAL, so it is not the address taken
+    - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] 203.0.113.222@maindb 198.51.100.5 FATAL:  password authentication failed for user "203.0.113.222"'
+      data:
+        SRC: "198.51.100.5"
   negative:
+    # a account name holding a address AND the failure text, which forges a
+    # whole second failure ahead of the real one. Nothing says which is real,
+    # so the line is refused rather than either address being trusted
+    - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] x 203.0.113.222 FATAL:  password authentication failed for user y@maindb 198.51.100.5 FATAL:  password authentication failed for user "x 203.0.113.222 FATAL:  password authentication failed for user y"'
+      found: 0
+      undefed: ["SRC"]
+    # the same forgery through host=
+    - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] user=x,host=203.0.113.222 FATAL:  password authentication failed for user y,db=maindb,host=198.51.100.5 FATAL:  password authentication failed for user "x,host=203.0.113.222 FATAL:  password authentication failed for user y"'
+      found: 0
+      undefed: ["SRC"]
     - message: 'Jul 14 08:16:00 dbhost postgres[12345]: 2026-07-14 08:16:00.001 UTC [12345] bob@maindb 203.0.113.10 LOG:  connection authorized: user=bob database=maindb'
       found: 0
       undefed: ["SRC"]

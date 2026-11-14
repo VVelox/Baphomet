@@ -3,7 +3,7 @@
 # fail2ban postfix filter, translated to Baphomet and simplified. Pairs
 # with syslog/postfix, which handles the rejects... a maillog watcher
 # usually wants both, via a rule array.
-rev: 4
+rev: 5
 msg: "[POSTFIX] SASL authentication failure"
 severity: high
 classtype: brute-force
@@ -15,9 +15,16 @@ daemons:
 mungers:
   - postfix
 message_regexp:
-  - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
+  # The account is captured here rather than taken from the postfix munger...
+  # the munger names postfix_sasl_username only on the client=..., sasl_username=
+  # lines of a login that worked, never on this warning. Postfix 3.8 and later
+  # append `, sasl_username=<account>` to the failure, and older ones log no
+  # account at all, so the capture is optional and USER is simply absent there.
+  # It sits after the address and is anchored on the end of the line, so the
+  # account a client chose can name itself but can not move the offender.
+  - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)(?:.*, sasl_username=(?<USER>\S+)\s*$)?'
 src_ip_var: SRC
-user_var: postfix_sasl_username
+user_var: USER
 ban_var:
   - SRC
 tests:
@@ -47,6 +54,20 @@ tests:
       found: 1
       data:
         SRC: "192.0.2.40"
+    # Postfix 3.8 and later name the account on the failure
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[3937]: warning: unknown[192.0.2.40]: SASL LOGIN authentication failed: UGFzc3dvcmQ6, sasl_username=neti@example.com"
+      found: 1
+      data:
+        SRC: "192.0.2.40"
+        USER: "neti@example.com"
+  injection:
+    # the account is client chosen, so one shaped like the head of the line
+    # tries to plant a second address... it is behind the real one and inside
+    # the account capture, so the offender stays the offender
+    - message: "Jul 12 08:15:50 mail01 postfix/smtpd[3937]: warning: unknown[192.0.2.40]: SASL LOGIN authentication failed: UGFzc3dvcmQ6, sasl_username=unknown[203.0.113.222]:"
+      data:
+        SRC: "192.0.2.40"
+        USER: "unknown[203.0.113.222]:"
   negative:
     - message: "Feb  3 08:29:28 mail postfix/smtpd[21022]: warning: unknown[1.1.1.1]: SASL LOGIN authentication failed: Connection lost to authentication server"
       found: 0

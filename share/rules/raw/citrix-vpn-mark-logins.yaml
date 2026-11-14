@@ -12,7 +12,7 @@
 # carried as this brand. NetScaler emits syslog natively but stuffs
 # the date where the program name goes, so this is a raw rule
 # anchored on the SSLVPN module tokens, never on line start.
-rev: 4
+rev: 5
 msg: "[CITRIX] brand VPN account with source"
 severity: info
 classtype: not-suspicious
@@ -28,7 +28,15 @@ message_regexp:
   # earlier. The format is too irregular to decompose (SessionId: 7- runs the
   # separator together, and a Browser_type holds dashes of its own), so the
   # anchor is the ordering rather than a parse.
-  - ' SSLVPN LOGIN \d+ \d+ :.*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  #
+  # Greedy up to the first double quote, and no further. The line CLOSES with
+  # Browser_type, the client's own User-Agent, so a pair can be planted BEHIND
+  # the real one as well, where a greedy run to the end of the line takes it
+  # for the last. Everything NetScaler writes after the real pair is behind a
+  # quoted value... Nat_ip "Mapped Ip" at once, and a User-Agent is itself
+  # inside quotes... so a run that can not cross a double quote ends at the
+  # real pair and never sees what the client sent.
+  - ' SSLVPN LOGIN \d+ \d+ :[^"]*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 src_ip_var: SRC
 user_var: USER
 ban_var:
@@ -78,6 +86,20 @@ tests:
       found: 0
       undefed: ["SRC", "USER"]
   injection:
+    # The brand has to land on the account and the source NetScaler wrote, or
+    # a logged in user could rewrite where another account was last seen.
+    # The User-Agent is whatever the client sends and lands in Browser_type,
+    # BEHIND the real pair, so a forged pair can be planted there. It is past
+    # a double quote, which the match can not cross, so it is never seen...
+    # a greedy run to the end of the line took moth3r at 198.51.100.200 here.
+    - message: "Jul 12 08:16:02 ns01 07/12/2026:08:16:02 GMT ns01 0-PPE-0 : default SSLVPN LOGIN 4350 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Client_ip 203.0.113.5 - Nat_ip \"Mapped Ip\" - Vserver 192.0.2.1:443 - Browser_type \"Mozilla/5.0 - User moth3r - Client_ip 198.51.100.200 - x\" - SSLVPN_client_type ICA - Group(s) \"N/A\""
+      data:
+        USER: "jdoe"
+        SRC: "203.0.113.5"
+      marks_expected:
+        - name: citrix-vpn-login-src
+          key: jdoe
+          value: "203.0.113.5"
     # An account name holding a forged "User x - Client_ip y" pair, which sits
     # in Context ahead of the real one. Greedy matching takes the last pair, so
     # both the brand's key and its value stay NetScaler's own... lazy matching
