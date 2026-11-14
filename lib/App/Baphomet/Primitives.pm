@@ -48,7 +48,9 @@ L</primitives>.
 =cut
 
 # the offender tokens Baphomet owns... a Log-Munger primitive of the same
-# name is dropped so those keep their capturing meaning in _expand_token
+# name is dropped so those keep their capturing meaning when
+# App::Baphomet::Rules::Tokens expands a rule regexp, which tries the
+# offender tokens first and a fragment only for a name that is not one
 my %reserved = map { $_ => 1 } qw( IP4 IP6 ADDR DNS HOST SUBNET SRC DEST );
 
 # the cache file name under the cache dir... not galla.<kur>.* like the
@@ -95,8 +97,9 @@ and writing the cache best-effort (a unwritable dir just means the next
 galla resolves again, never a failure). With no configured dir it resolves
 live and still memoizes. Dies loudly if Log-Munger can not be loaded or
 its C<base> can not be resolved... the fragments are a declared
-dependency, so this is C<_expand_token>'s lazy getter and a failure means
-a rule that uses a fragment can not load.
+dependency, so this is the lazy getter L<App::Baphomet::Rules::Tokens>
+expands a fragment through and a failure means a rule that uses a fragment
+can not load.
 
     my $primitives = App::Baphomet::Primitives::primitives();
 

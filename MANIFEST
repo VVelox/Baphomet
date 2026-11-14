@@ -63,11 +63,14 @@ lib/App/Baphomet/Parser/Syslog.pm
 lib/App/Baphomet/RDNS.pm
 lib/App/Baphomet/Rules.pm
 lib/App/Baphomet/Rules/Base.pm
+lib/App/Baphomet/Rules/Gates.pm
 lib/App/Baphomet/Rules/HTTP.pm
 lib/App/Baphomet/Rules/HTTPError.pm
 lib/App/Baphomet/Rules/JSON.pm
 lib/App/Baphomet/Rules/Raw.pm
+lib/App/Baphomet/Rules/SelfTest.pm
 lib/App/Baphomet/Rules/Syslog.pm
+lib/App/Baphomet/Rules/Tokens.pm
 Makefile.PL
 MANIFEST			This list of files
 rc/freebsd/baphomet

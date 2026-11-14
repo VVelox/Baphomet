@@ -4,7 +4,9 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util qw( is_plain_arrayref is_plain_hashref );
+use Ref::Util                    qw( is_plain_arrayref is_plain_hashref );
+use App::Baphomet::Rules::Gates  qw( compile_gates gates_pass );
+use App::Baphomet::Rules::Tokens qw( compile_tokened_regexp match_tokened );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -206,7 +208,7 @@ sub new {
 			my ( $entry, $where ) = @_;
 			return {
 				'field' => $entry->{field},
-				'entry' => $self->_compile_tokened_regexp( $entry->{regexp}, $where ),
+				'entry' => compile_tokened_regexp( $entry->{regexp}, $where ),
 			};
 		}
 	);
@@ -254,7 +256,7 @@ sub new {
 				'matches' => [],
 			};
 			if ( defined( $entry->{gate} ) ) {
-				$compiled->{gates} = $self->_compile_gates( $entry->{gate}, $where . ' gate' );
+				$compiled->{gates} = compile_gates( $entry->{gate}, $where . ' gate' );
 			}
 			if ( defined( $entry->{match} ) ) {
 				if ( !is_plain_arrayref( $entry->{match} ) || !@{ $entry->{match} } ) {
@@ -274,7 +276,7 @@ sub new {
 						@{ $compiled->{matches} },
 						{
 							'field' => $match->{field},
-							'entry' => $self->_compile_tokened_regexp( $match->{regexp}, $match_where ),
+							'entry' => compile_tokened_regexp( $match->{regexp}, $match_where ),
 						}
 					);
 				} ## end foreach my ( $match_int, $match ) ( indexed @{ ...})
@@ -422,7 +424,7 @@ sub check {
 
 	# a ignore hit vetoes the line entirely, context harvest included
 	foreach my $ignore ( @{ $self->{ignores} } ) {
-		if ( defined( $self->_match_tokened( $ignore->{entry}, $fields->{ $ignore->{field} } ) ) ) {
+		if ( defined( match_tokened( $ignore->{entry}, $fields->{ $ignore->{field} } ) ) ) {
 			return undef;
 		}
 	}
@@ -432,13 +434,13 @@ sub check {
 	# event is rarely shaped like the offense
 	my @completions;
 	foreach my $capture ( @{ $self->{captures} } ) {
-		if ( defined( $capture->{gates} ) && !$self->_gates_pass( $capture->{gates}, $fields, undef ) ) {
+		if ( defined( $capture->{gates} ) && !gates_pass( $capture->{gates}, $fields, undef ) ) {
 			next;
 		}
 		my $capture_caps;
 		if ( @{ $capture->{matches} } ) {
 			foreach my $match ( @{ $capture->{matches} } ) {
-				$capture_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
+				$capture_caps = match_tokened( $match->{entry}, $fields->{ $match->{field} } );
 				if ( defined($capture_caps) ) {
 					last;
 				}
@@ -484,7 +486,7 @@ sub check {
 		my $matched;
 		my $caps = {};
 		foreach my ( $entry_int, $match ) ( indexed @{ $self->{matches} } ) {
-			my $match_caps = $self->_match_tokened( $match->{entry}, $fields->{ $match->{field} } );
+			my $match_caps = match_tokened( $match->{entry}, $fields->{ $match->{field} } );
 			if ( defined($match_caps) ) {
 				$matched = $entry_int;
 				$caps    = $match_caps;

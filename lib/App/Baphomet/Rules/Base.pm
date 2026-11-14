@@ -4,21 +4,18 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util                 qw( is_plain_arrayref is_plain_hashref );
-use Regexp::IPv4              qw( $IPv4_re );
-use Regexp::IPv6              qw( $IPv6_re );
-use MIME::Base64              qw( decode_base64 );
-use Digest::MD5               qw( md5 );
-use Encode                    ();
-use List::Util                qw( any uniqstr );
-use App::Baphomet::Parser     ();
-use App::Baphomet::Config     qw( compile_ignore_ips ip_ignored );
-use App::Baphomet::Marks      ();
-use App::Baphomet::Tracks     qw( track_key track_get track_put );
-use App::Baphomet::RDNS       ();
-use App::Baphomet::Geo        ();
-use App::Baphomet::Offense    ();
-use App::Baphomet::Primitives ();
+use Ref::Util             qw( is_plain_arrayref is_plain_hashref );
+use Digest::MD5           qw( md5 );
+use List::Util            qw( uniqstr );
+use App::Baphomet::Parser ();
+use App::Baphomet::Marks  ();
+use App::Baphomet::Tracks qw( track_key track_get track_put );
+use App::Baphomet::Rules::Gates
+	qw( compile_matchers matchers_hit compile_gates gates_pass compile_condition eval_condition );
+use App::Baphomet::Rules::Tokens qw( compile_tokened_regexp match_tokened );
+# run_tests takes the rule as its first argument, so importing it here is what
+# makes it a method of every rule... $rule->run_tests
+use App::Baphomet::Rules::SelfTest qw( run_tests );
 
 =pod
 
@@ -36,8 +33,12 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-The bits common to every rule handler... the embedded test runner and the
-string-or-C<//regexp//> matcher lists. Not usable on its own... see
+The bits common to every rule handler... the def checks, the getters the
+galla reads a rule through, and the regexp, staged, correlated, and tracked
+matching the types share. The gate vocabulary is
+L<App::Baphomet::Rules::Gates>, the C<%%%%TOKEN%%%%> regexps
+L<App::Baphomet::Rules::Tokens>, and the embedded test runner
+L<App::Baphomet::Rules::SelfTest>. Not usable on its own... see
 L<App::Baphomet::Rules::Syslog> and L<App::Baphomet::Rules::HTTP> for the
 handlers.
 
@@ -1905,1010 +1906,15 @@ sub restore_state {
 
 =head2 run_tests
 
-Runs the tests embedded in the rule. Returns a hash as below. Does not die
-on test failures... that is the caller's call to make.
-
-    {
-        'pass'     => 3,
-        'fail'     => 0,
-        'failures' => [],
-    }
+Runs the tests embedded in the rule, returning a hash of C<pass>, C<fail>,
+and C<failures>. Does not die on test failures... that is the caller's call
+to make. The runner is L<App::Baphomet::Rules::SelfTest/run_tests>, imported
+here so it is a method of every rule, and what it does per test entry is
+documented there.
 
     my $results = $rule->run_tests;
 
-Each test entry runs the galla's own order per message... parse, match,
-the data-keyed mark gates against a throwaway store, then the rule's
-brands applied, so C<found> counts what would really have fired. The
-store starts empty per entry, seedable via C<marks_before> (each
-C<< {name, key, value?, set?, ttl?} >>, C<key> a string or a list joined
-as a C<vars> compound is), and assertable after the run via
-C<marks_expected> (each C<< {name, key, value?, absent?} >>). Time is a
-virtual clock, base 1000000000, threaded through matching and the store
-both... a C<messages> entry may be a hash C<< {message, advance?|at?,
-found_after?, marks_after?, tracked_after?} >> to steer it and assert
-mid-run. Var-less mark gates are offender-time and run only in the
-galla's ban path, so they are not provable here... key a testable gate by
-C<var>/C<vars>, as the shipped readers do.
-
-The tracked-record store gets the same treatment, a throwaway per entry
-seedable via C<tracked_before> (each C<< {name, key, fields, ttl?} >>) and
-assertable via C<tracked_expected> (each
-C<< {name, key, fields?, absent?} >>). A rule that both harvests and reads
-is better proved without the seed at all: a multiline C<messages> test
-walks a harvest line and a reading line through one scope, so the record
-the gate reads is one the rule really built.
-
-A C<dns> fixture (C<ptr> and C<forward> maps, answers a list, C<nxdomain>,
-or C<servfail>, anything unfixtured answering servfail) stands in for the
-resolver, and a C<geo> fixture (a C<countries> map and the C<lists> a
-C<%%%country_codes{name}%%%> token resolves against) for the GeoIP
-locator... with one present the reverse_dns or country gate runs exactly
-as in the galla, and absent it the gate is skipped as it always was.
-
 =cut
-
-sub run_tests {
-	my ($self) = @_;
-
-	my $results = {
-		'pass'     => 0,
-		'fail'     => 0,
-		'failures' => [],
-		'warnings' => [],
-	};
-
-	# start from clean matching state. each test entry already gets its own
-	# correlation scope, but the per-object stores outlive a single run... so a
-	# repeat call (load validates once, a harness may run again) could inherit a
-	# half-built staged sequence or correlation window under a reused scope and
-	# complete it spuriously. reset them so run_tests is idempotent
-	$self->{stage_state} = {};
-	$self->{context}     = {};
-	$self->{pending}     = {};
-
-	my $tests = $self->{def}{tests};
-	if ( !is_plain_hashref($tests) ) {
-		return $results;
-	}
-
-	# a typo'd section name would otherwise mean zero tests and a clean
-	# load, quietly defeating the prove-itself-at-load design
-	foreach my $section ( keys( %{$tests} ) ) {
-		if ( $section !~ /^(?:positive|negative|injection)$/ ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, 'unknown tests section "' . $section . '"' );
-		}
-	}
-
-	# A pattern that reaches its offender over a lazy wildcard takes the first
-	# candidate on the line, so where anything a client writes can precede the
-	# real field, the client picks the ban target. Whether that is so depends on
-	# the log and not on the pattern, which no reading of the rule can settle...
-	# so this is a warning and not a failure, and the rule loads either way. A
-	# tests.injection entry answers it, whichever way the answer goes.
-	if ( $self->{needs_injection_test} && !is_plain_arrayref( $tests->{injection} ) ) {
-		push(
-			@{ $results->{warnings} },
-			$self->{needs_injection_test}
-				. ' is reached over a lazy wildcard with nothing anchoring it, so the first candidate on the'
-				. ' line wins. If a client can write ahead of the real field they choose who is banned.'
-				. ' A tests.injection entry settles whether that is reachable here'
-		);
-	}
-
-	foreach my $sort ( 'positive', 'negative', 'injection' ) {
-		if ( !defined( $tests->{$sort} ) ) {
-			next;
-		}
-		if ( !is_plain_arrayref( $tests->{$sort} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $sort . ' tests is not a array' );
-			next;
-		}
-
-		# any failure below records itself and moves on with next TEST... the
-		# entry is done the moment one check fails, and reaching the bottom is
-		# a pass
-		my $test_int = 0;
-	TEST: foreach my $test ( @{ $tests->{$sort} } ) {
-			my $where = $sort . ' test ' . $test_int;
-			$test_int++;
-
-			if ( !is_plain_hashref($test)
-				|| ( !defined( $test->{message} ) && !is_plain_arrayref( $test->{messages} ) ) )
-			{
-				$results->{fail}++;
-				push( @{ $results->{failures} }, $where . ' is not a hash with a message or a messages array' );
-				next TEST;
-			}
-
-			# a injection test with no data block asserts only that the forged
-			# line matched, which is the half that was never in doubt... naming
-			# the offender is the whole assertion
-			if ( $sort eq 'injection' && !is_plain_hashref( $test->{data} ) ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' has no data block naming the offender the forged line must still aim at'
-				);
-				next TEST;
-			}
-
-			# a typo'd assertion key would otherwise be a assertion that
-			# never runs... the very silence this machinery exists to end
-			my @unknown_keys = grep {
-				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo)$/
-			} keys( %{$test} );
-			if (@unknown_keys) {
-				foreach my $test_key (@unknown_keys) {
-					$results->{fail}++;
-					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
-				}
-				next TEST;
-			}
-
-			my @messages = defined( $test->{message} ) ? ( $test->{message} ) : @{ $test->{messages} };
-
-			my $parser = $test->{parser} // $self->{def}{test_parser} // $self->default_test_parser;
-
-			# each test entry gets a throwaway correlation scope of its own,
-			# a throwaway mark store, and a virtual clock... the galla state
-			# a rule file may seed, exercise, and assert with no galla up
-			my $test_scope = 'run_tests ' . $where;
-			my %marks_store;
-			my %tracked_store;
-			my $clock = 1_000_000_000;
-
-			if ( defined( $test->{marks_before} )
-				&& $self->_test_marks_seed( \%marks_store, $test->{marks_before}, $clock, $where, $results ) )
-			{
-				next TEST;
-			}
-
-			if ( defined( $test->{tracked_before} )
-				&& $self->_test_tracked_seed( \%tracked_store, $test->{tracked_before}, $clock, $where, $results ) )
-			{
-				next TEST;
-			}
-
-			# the dns fixture, when the test carries one... a resolver the
-			# reverse_dns gate judges over, so the gate runs here exactly as
-			# it would in the galla. absent the fixture the gate is skipped
-			my $dns_resolver;
-			if ( defined( $test->{dns} ) ) {
-				$dns_resolver = $self->_test_dns_resolver( $test->{dns}, $where, $results );
-				if ( !defined($dns_resolver) ) {
-					next TEST;
-				}
-			}
-
-			# the geo fixture likewise... a locator and the named code lists
-			# a %%%country_codes{...}%%% token resolves against, so the
-			# country gate runs here exactly as it would in the galla
-			my ( $geo_locator, $geo_gate );
-			if ( defined( $test->{geo} ) ) {
-				my $geo_lists;
-				( $geo_locator, $geo_lists ) = $self->_test_geo_locator( $test->{geo}, $where, $results );
-				if ( !defined($geo_locator) ) {
-					next TEST;
-				}
-				try {
-					$geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where );
-				} catch ($caught) {
-					$results->{fail}++;
-					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $caught );
-					next TEST;
-				}
-			} ## end if ( defined( $test->{geo} ) )
-
-			my $gates        = $self->mark_gates;
-			my $marks        = $self->marks;
-			my $unmarks      = $self->unmarks;
-			my $is_detection = $self->is_detection;
-			my $rdns_gate    = defined($dns_resolver) ? $self->reverse_dns : undef;
-
-			# the data-level gates that vet each result once, in the galla's
-			# order and through the same shared App::Baphomet::Offense pass...
-			# the mark gates always, the reverse_dns and vars country gates when
-			# a fixture stands in. namtar and active_time are galla-only, not
-			# fixtured here. each takes the result's data
-			my @data_gates = (
-				sub {
-					my ($data) = @_;
-					return App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $data, undef, $clock );
-				}
-			);
-			if ( defined($rdns_gate) ) {
-				push(
-					@data_gates,
-					sub {
-						my ($data) = @_;
-						return App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, undef );
-					}
-				);
-			}
-			if ( defined($geo_gate) ) {
-				push(
-					@data_gates,
-					sub {
-						my ($data) = @_;
-						return App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, undef );
-					}
-				);
-			}
-
-			# the per-offender gates a rule file can fixture... the var-less
-			# reverse_dns and country gates. a var-less mark gate is
-			# offender-time, not provable here, as the tests section documents,
-			# so it is not among them. takes the result's data and the offender,
-			# undef when no fixtured gate is var-less
-			my $rdns_has_varless = defined($rdns_gate) && any { !defined( $_->{var} ) } @{$rdns_gate};
-			my $geo_varless      = defined($geo_gate)  && !defined( $geo_gate->{vars} );
-			my $offender_gate;
-			if ( $rdns_has_varless || $geo_varless ) {
-				$offender_gate = sub {
-					my ( $data, $ip ) = @_;
-					if ( $rdns_has_varless
-						&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
-					{
-						return 0;
-					}
-					if ( $geo_varless
-						&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
-					{
-						return 0;
-					}
-					return 1;
-				}; ## end $offender_gate = sub
-			} ## end if ( $rdns_has_varless || $geo_varless )
-
-			my @found_all;
-			my $message_index = -1;
-			foreach my $message_entry (@messages) {
-				$message_index++;
-				my $message = $message_entry;
-				my ( $found_after, $marks_after, $tracked_after );
-				if ( is_plain_hashref($message_entry) ) {
-					my @unknown_entry_keys = grep { !/^(?:message|advance|at|found_after|marks_after|tracked_after)$/ }
-						keys( %{$message_entry} );
-					if (@unknown_entry_keys) {
-						foreach my $entry_key (@unknown_entry_keys) {
-							$results->{fail}++;
-							push(
-								@{ $results->{failures} },
-								$where . ' has a messages entry with the unknown key "' . $entry_key . '"'
-							);
-						}
-						next TEST;
-					} ## end if (@unknown_entry_keys)
-					if ( !defined( $message_entry->{message} ) ) {
-						$results->{fail}++;
-						push( @{ $results->{failures} }, $where . ' has a messages entry hash with no message' );
-						next TEST;
-					}
-					$message = $message_entry->{message};
-					# the clock steered ahead of the line, absolute or relative
-					if ( defined( $message_entry->{at} ) ) {
-						$clock = $message_entry->{at};
-					} elsif ( defined( $message_entry->{advance} ) ) {
-						$clock += $message_entry->{advance};
-					}
-					$found_after   = $message_entry->{found_after};
-					$marks_after   = $message_entry->{marks_after};
-					$tracked_after = $message_entry->{tracked_after};
-				} ## end if ( is_plain_hashref($message_entry) )
-
-				my $parsed;
-				try {
-					$parsed = App::Baphomet::Parser::parse( $parser, $message );
-				} catch ($caught) {
-					$results->{fail}++;
-					push( @{ $results->{failures} }, $where . ' has a unusable parser... ' . $caught );
-					next TEST;
-				}
-				if ( !defined($parsed) ) {
-					$results->{fail}++;
-					push(
-						@{ $results->{failures} },
-						$where . ' message did not parse via ' . $parser . '... "' . $message . '"'
-					);
-					next TEST;
-				}
-
-				# the line context a staged rule's skip bound reads... the
-				# message index is the sequence with in the test entry, and
-				# now the virtual clock, so windows prove deterministically
-				my $found = $self->check(
-					$parsed,
-					$test_scope,
-					{
-						'seq'    => $message_index,
-						'source' => '',
-						'now'    => $clock,
-						# the throwaway record store, the seam the tracked
-						# clause and the track sweep both read... a rule that
-						# tracks proves it cold, the same way branding does
-						'tracked' => \%tracked_store,
-					}
-				);
-
-				# a capture line may have completed several deferred offenses
-				my @results_of_line;
-				if ( defined($found) ) {
-					@results_of_line = ( $found, is_plain_arrayref( $found->{more} ) ? @{ $found->{more} } : () );
-				}
-				foreach my $one (@results_of_line) {
-					my $data = $one->{data};
-
-					# data_gate_pass takes argument-less checks, so each gate
-					# is bound to this result's data
-					my @data_checks = map {
-						my $gate_check = $_;
-						sub { return $gate_check->($data); }
-					} @data_gates;
-					if ( !App::Baphomet::Offense::data_gate_pass( \@data_checks ) ) {
-						next;
-					}
-
-					# offenders as the galla resolves them, sans the
-					# usedns/internal filtering no test needs... a detection
-					# rule has none
-					my @offenders;
-					if ( !$is_detection ) {
-						@offenders = grep { defined($_) } map { $data->{$_} } $self->ban_var;
-					}
-
-					# the survivor filter and the branding of survivors run
-					# through the shared App::Baphomet::Offense core, the same
-					# the galla uses, so the self-test can not drift from the
-					# engine
-					my $result_offender_gate;
-					if ( defined($offender_gate) ) {
-						$result_offender_gate = sub { return $offender_gate->( $data, $_[0] ); };
-					}
-					my $offense = App::Baphomet::Offense::resolve_offense(
-						'store'     => \%marks_store,
-						'marks'     => $marks,
-						'unmarks'   => $unmarks,
-						'data'      => $data,
-						'offenders' => \@offenders,
-						'now'       => $clock,
-						'gate'      => $result_offender_gate,
-					);
-					if ( $offense->{fired} ) {
-						push( @found_all, $one );
-					}
-				} ## end foreach my $one (@results_of_line)
-
-				# the mid-run assertions a hash entry carries
-				my $after_where = $where . ' after message ' . $message_index;
-				if ( defined($found_after) && scalar(@found_all) != $found_after ) {
-					$results->{fail}++;
-					push(
-						@{ $results->{failures} },
-						$where
-							. ' expected found_after='
-							. $found_after
-							. ' but had found='
-							. scalar(@found_all)
-							. ' after message '
-							. $message_index
-					);
-					next TEST;
-				} ## end if ( defined($found_after) && scalar(@found_all...))
-				if ( defined($marks_after)
-					&& $self->_test_marks_assert( \%marks_store, $marks_after, $clock, $after_where, $results ) )
-				{
-					next TEST;
-				}
-				if ( defined($tracked_after)
-					&& $self->_test_tracked_assert( \%tracked_store, $tracked_after, $clock, $after_where,
-						$results ) )
-				{
-					next TEST;
-				}
-			} ## end foreach my $message_entry (@messages)
-
-			# a injection test is a positive by default, and deliberately so: the
-			# thing being proven is that a forged line STILL MATCHES and merely
-			# aims right. Hardening one of these by tightening the field run
-			# until the forged line stops matching at all looks like a fix and is
-			# not... it trades a wrong ban for no ban, so a brute forcer who
-			# plants the right bytes simply goes uncounted, and silently. That
-			# happened once already, to syslog/dovecot, and this default is what
-			# would have caught it
-			my $expected_found = 1;
-			if ( defined( $test->{found} ) ) {
-				$expected_found = $test->{found};
-			} elsif ( $sort eq 'negative' ) {
-				$expected_found = 0;
-			}
-			my $got_found = scalar(@found_all);
-
-			if ( $got_found != $expected_found ) {
-				my $last_message = is_plain_hashref( $messages[-1] ) ? $messages[-1]{message} : $messages[-1];
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where
-						. ' expected found='
-						. $expected_found
-						. ' but got found='
-						. $got_found
-						. ' for "'
-						. $last_message . '"'
-				);
-				next TEST;
-			} ## end if ( $got_found != $expected_found )
-
-			my $found = @found_all ? $found_all[-1] : undef;
-
-			if ( is_plain_hashref( $test->{data} ) ) {
-				foreach my $key ( sort( keys( %{ $test->{data} } ) ) ) {
-					my $got = defined($found) ? $found->{data}{$key} : undef;
-					if ( !defined($got) || $got ne $test->{data}{$key} ) {
-						$results->{fail}++;
-						push(
-							@{ $results->{failures} },
-							$where
-								. ' expected data.'
-								. $key . '="'
-								. $test->{data}{$key}
-								. '" but got '
-								. ( defined($got) ? '"' . $got . '"' : 'undef' )
-						);
-						next TEST;
-					} ## end if ( !defined($got) || $got ne $test->{data...})
-				} ## end foreach my $key ( sort( keys( %{ $test->{data} ...})))
-			} ## end if ( is_plain_hashref( $test->{data} ) )
-
-			if ( is_plain_arrayref( $test->{undefed} ) ) {
-				foreach my $key ( @{ $test->{undefed} } ) {
-					my $got = defined($found) ? $found->{data}{$key} : undef;
-					if ( defined($got) ) {
-						$results->{fail}++;
-						push(
-							@{ $results->{failures} },
-							$where . ' expected ' . $key . ' to be undef but got "' . $got . '"'
-						);
-						next TEST;
-					}
-				} ## end foreach my $key ( @{ $test->{undefed} } )
-			} ## end if ( is_plain_arrayref( $test->{undefed} ))
-
-			if ( defined( $test->{marks_expected} )
-				&& $self->_test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results ) )
-			{
-				next TEST;
-			}
-
-			if ( defined( $test->{tracked_expected} )
-				&& $self->_test_tracked_assert( \%tracked_store, $test->{tracked_expected}, $clock, $where,
-					$results ) )
-			{
-				next TEST;
-			}
-
-			$results->{pass}++;
-		} ## end TEST: foreach my $test ( @{ $tests->{$sort} } )
-	} ## end foreach my $sort ( 'positive', 'negative', 'injection')
-
-	return $results;
-} ## end sub run_tests
-
-# builds the resolver pair from a test entry's dns fixture... ptr maps a
-# address to its names, forward a name to its addresses, either answer a
-# list, the string nxdomain (authoritative absence), or servfail (a
-# failure). anything unfixtured answers servfail, fail-closed as an
-# unanswerable question is in the galla. returns undef on a malformed
-# fixture, the failure pushed
-sub _test_dns_resolver {
-	my ( $self, $fixture, $where, $results ) = @_;
-
-	if ( !is_plain_hashref($fixture) ) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' dns is not a hash' );
-		return undef;
-	}
-	foreach my $fixture_key ( keys( %{$fixture} ) ) {
-		if ( $fixture_key !~ /^(?:ptr|forward)$/ ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' dns has the unknown key "' . $fixture_key . '"' );
-			return undef;
-		}
-		if ( !is_plain_hashref( $fixture->{$fixture_key} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' dns ' . $fixture_key . ' is not a hash' );
-			return undef;
-		}
-		foreach my ( $subject, $answer ) ( %{ $fixture->{$fixture_key} } ) {
-			if ( !is_plain_arrayref($answer) && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' dns '
-						. $fixture_key . ' "'
-						. $subject
-						. '" is not a list of names/addresses, nxdomain, or servfail'
-				);
-				return undef;
-			} ## end if ( !is_plain_arrayref($answer) && ( ref(...)))
-		} ## end foreach my ( $subject, $answer ) ( %{ $fixture->...})
-	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
-
-	my $answer_for = sub {
-		my ( $map, $subject ) = @_;
-		my $answer = defined($map) ? $map->{$subject} : undef;
-		if ( !defined($answer) || ( !ref($answer) && $answer eq 'servfail' ) ) {
-			return undef;
-		}
-		if ( !ref($answer) && $answer eq 'nxdomain' ) {
-			return [];
-		}
-		return $answer;
-	}; ## end $answer_for = sub
-
-	return {
-		'reverse' => sub { return $answer_for->( $fixture->{ptr},     $_[0] ); },
-		'forward' => sub { return $answer_for->( $fixture->{forward}, $_[0] ); },
-	};
-} ## end sub _test_dns_resolver
-
-# builds the locator and code lists from a test entry's geo fixture...
-# countries maps a address to its ISO code, or the string unknown for a
-# address the database would not place, and lists names the code sets a
-# %%%country_codes{name}%%% token resolves against. anything unfixtured is
-# unknown, fail-closed as an unplaceable address is in the galla. returns
-# (locator, lists), or a lone undef on a malformed fixture, the failure
-# pushed
-sub _test_geo_locator {
-	my ( $self, $fixture, $where, $results ) = @_;
-
-	if ( !is_plain_hashref($fixture) ) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' geo is not a hash' );
-		return undef;
-	}
-	foreach my $fixture_key ( keys( %{$fixture} ) ) {
-		if ( $fixture_key !~ /^(?:countries|lists)$/ ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' geo has the unknown key "' . $fixture_key . '"' );
-			return undef;
-		}
-		if ( !is_plain_hashref( $fixture->{$fixture_key} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' geo ' . $fixture_key . ' is not a hash' );
-			return undef;
-		}
-	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
-	foreach my $address ( keys( %{ $fixture->{countries} || {} } ) ) {
-		my $code = $fixture->{countries}{$address};
-		if ( ref($code) ne '' || $code !~ /^(?:[a-zA-Z]{2}|unknown)$/ ) {
-			$results->{fail}++;
-			push(
-				@{ $results->{failures} },
-				$where . ' geo countries "' . $address . '" is not a 2-letter code or unknown'
-			);
-			return undef;
-		}
-	} ## end foreach my $address ( keys( %{ $fixture->{countries...}}))
-	foreach my $list_name ( keys( %{ $fixture->{lists} || {} } ) ) {
-		if ( !is_plain_arrayref( $fixture->{lists}{$list_name} ) ) {
-			$results->{fail}++;
-			push( @{ $results->{failures} }, $where . ' geo lists "' . $list_name . '" is not a array' );
-			return undef;
-		}
-	}
-
-	my $countries = $fixture->{countries} || {};
-	my $locator   = sub {
-		my ($address) = @_;
-		my $code = $countries->{$address};
-		if ( !defined($code) || $code eq 'unknown' ) {
-			return undef;
-		}
-		return uc($code);
-	};
-
-	return ( $locator, $fixture->{lists} || {} );
-} ## end sub _test_geo_locator
-
-# checks one marks_before, tracked_before, marks_expected/marks_after, or
-# tracked_expected/tracked_after entry for the shape all four share... a hash
-# with a name, a key, nothing its list does not allow, and for a tracked seed
-# a fields hash. what each list then does with a sound entry is its own.
-#
-# args:
-#   $entry        :: the list entry as the rule file wrote it
-#   $label        :: what the entry is, for the failure text... 'marks_before
-#                    entry', 'tracked_before entry', 'marks assertion', or
-#                    'tracked assertion'
-#   $allowed      :: arrayref of the keys the entry may carry
-#   $needs_fields :: true when the entry must also carry a fields hash
-#   $where        :: the test entry's where string, leading each failure
-#   $results      :: the run_tests results hash, each failure counted and
-#                    pushed onto its failures
-#
-# returns true when the entry is malformed, false when it is sound. a entry
-# missing what it needs is one failure, and otherwise every unknown key is one
-# failure each, not just the first found.
-#
-#   if ( _test_store_entry_malformed( $seed, 'marks_before entry', [ 'name', 'key', 'value', 'set', 'ttl' ],
-#       0, $where, $results ) )
-#   {
-#       return 1;
-#   }
-sub _test_store_entry_malformed {
-	my ( $entry, $label, $allowed, $needs_fields, $where, $results ) = @_;
-
-	if (   !is_plain_hashref($entry)
-		|| !defined( $entry->{name} )
-		|| !defined( $entry->{key} )
-		|| ( $needs_fields && !is_plain_hashref( $entry->{fields} ) ) )
-	{
-		my $lacking = $needs_fields ? 'a name, key, and fields hash' : 'a name and key';
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' lacking ' . $lacking );
-		return 1;
-	} ## end if ( !is_plain_hashref($entry) || !defined...)
-
-	my %allowed_keys = map  { $_ => 1 } @{$allowed};
-	my @unknown_keys = grep { !$allowed_keys{$_} } keys( %{$entry} );
-	foreach my $unknown_key (@unknown_keys) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' with the unknown key "' . $unknown_key . '"' );
-	}
-
-	return @unknown_keys ? 1 : 0;
-} ## end sub _test_store_entry_malformed
-
-# turns a seed or assertion key into the key the throwaway store holds it
-# under, and the form failure text shows it in... a list is a vars compound,
-# joined the way the store joins one, and shown joined on | for reading.
-#
-# args:
-#   $key :: the key as the rule file wrote it, a string or a arrayref of the
-#           compound's parts
-#
-# returns a two item list, the store key and the shown key. both are the
-# string itself for a plain key.
-#
-#   my ( $store_key, $shown ) = _test_store_key( [ '192.0.2.7', 'admin' ] );
-#   # $store_key is "192.0.2.7\x1fadmin", $shown is "192.0.2.7|admin"
-sub _test_store_key {
-	my ($key) = @_;
-
-	if ( is_plain_arrayref($key) ) {
-		return ( join( "\x1f", @{$key} ), join( '|', @{$key} ) );
-	}
-	return ( $key, $key );
-}
-
-# seeds a test entry's throwaway tracked store from its tracked_before...
-# records earlier lines of a transaction would have left, without which a
-# reading rule's tracked gate can never be armed from its own file. a
-# multiline messages: test can build the record for real instead, walking a
-# harvest line and a reading line through one scope, which is the better
-# proof where the rule file owns both halves.
-#
-# args:
-#   $store   :: the throwaway tracked store hash ref
-#   $seeds   :: the tracked_before list, each a hash of name, key (a string,
-#               or a array for a compound key), fields (the hash the record
-#               holds), and a optional ttl defaulting to 3600
-#   $clock   :: the virtual clock, which the ttl counts from
-#   $where   :: the test entry's where string, for failures
-#   $results :: the run_tests results hash
-#
-# returns true on a malformed list or entry, the failure pushed, false on
-# success.
-#
-#     tracked_before:
-#       - name: mail-queue
-#         key: 1C36D185729
-#         fields: { postfix_client_ip: 203.0.113.9 }
-sub _test_tracked_seed {
-	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
-
-	if ( !is_plain_arrayref($seeds) ) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' tracked_before is not a array' );
-		return 1;
-	}
-
-	foreach my $seed ( @{$seeds} ) {
-		if (
-			_test_store_entry_malformed(
-				$seed,
-				'tracked_before entry',
-				[ 'name', 'key', 'fields', 'ttl' ],
-				1, $where, $results
-			)
-			)
-		{
-			return 1;
-		} ## end if ( _test_store_entry_malformed( $seed, 'tracked_before entry'...))
-		my ($key) = _test_store_key( $seed->{key} );
-		my $ttl = $seed->{ttl} // 3600;
-		$store->{ $seed->{name} }{$key} = {
-			'expires' => $clock + $ttl,
-			'fields'  => { %{ $seed->{fields} } },
-		};
-	} ## end foreach my $seed ( @{$seeds} )
-
-	return 0;
-} ## end sub _test_tracked_seed
-
-# asserts a tracked_expected/tracked_after list against the throwaway tracked
-# store... that the record is live and holds the named fields by default,
-# that it is not live at all under absent. every assertion is checked, so one
-# run reports every miss.
-#
-# args:
-#   $store    :: the throwaway tracked store hash ref
-#   $expected :: the assertion list, each a hash of name, key (a string or a
-#                compound array), and either fields (a hash of field to
-#                expected value, each compared as a string) or a true absent
-#   $clock    :: the virtual clock, which liveness is judged at
-#   $where    :: the where string for failures, the test entry's, plus the
-#                message index for a tracked_after
-#   $results  :: the run_tests results hash
-#
-# returns true on any miss, the failures pushed, false when every assertion
-# held.
-#
-#     tracked_expected:
-#       - name: mail-queue
-#         key: 1C36D185729
-#         fields: { postfix_to: victim@example.org }
-sub _test_tracked_assert {
-	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
-
-	if ( !is_plain_arrayref($expected) ) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' tracked assertion is not a array' );
-		return 1;
-	}
-
-	my $failed = 0;
-	foreach my $expect ( @{$expected} ) {
-		if (
-			_test_store_entry_malformed(
-				$expect,
-				'tracked assertion',
-				[ 'name', 'key', 'fields', 'absent' ],
-				0, $where, $results
-			)
-			)
-		{
-			$failed = 1;
-			next;
-		} ## end if ( _test_store_entry_malformed( $expect,...))
-
-		my ( $key, $shown ) = _test_store_key( $expect->{key} );
-		my $record = track_get( $store, $expect->{name}, $key, $clock );
-
-		if ( $expect->{absent} ) {
-			if ( defined($record) ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' expected no live ' . $expect->{name} . ' record for "' . $shown . '" but found one'
-				);
-				$failed = 1;
-			}
-			next;
-		} ## end if ( $expect->{absent} )
-
-		if ( !defined($record) ) {
-			$results->{fail}++;
-			push(
-				@{ $results->{failures} },
-				$where . ' expected a live ' . $expect->{name} . ' record for "' . $shown . '" but found none'
-			);
-			$failed = 1;
-			next;
-		}
-
-		if ( !is_plain_hashref( $expect->{fields} ) ) {
-			next;
-		}
-		foreach my $field ( sort( keys( %{ $expect->{fields} } ) ) ) {
-			my $got  = $record->{$field};
-			my $want = $expect->{fields}{$field};
-			if ( !defined($got) || "$got" ne "$want" ) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' '
-						. $expect->{name}
-						. ' record "'
-						. $shown
-						. '" field '
-						. $field
-						. ' expected "'
-						. $want
-						. '" but got '
-						. ( defined($got) ? '"' . $got . '"' : 'undef' )
-				);
-				$failed = 1;
-			} ## end if ( !defined($got) || "$got" ne "$want" )
-		} ## end foreach my $field ( sort( keys( %{ $expect->{fields...}})))
-	} ## end foreach my $expect ( @{$expected} )
-
-	return $failed;
-} ## end sub _test_tracked_assert
-
-# seeds a test entry's throwaway mark store from its marks_before... brands
-# other rules would have set, without which a reader rule's gate can never be
-# armed from its own file.
-#
-# args:
-#   $store   :: the throwaway mark store hash ref
-#   $seeds   :: the marks_before list, each a hash of name, key (a string, or
-#               a array for a vars compound), a optional value, a optional
-#               set time defaulting to the clock, and a optional ttl
-#               defaulting to 3600
-#   $clock   :: the virtual clock, which the ttl counts from
-#   $where   :: the test entry's where string, for failures
-#   $results :: the run_tests results hash
-#
-# returns true on a malformed list or entry, the failure pushed, false on
-# success.
-#
-#     marks_before:
-#       - name: brute_force
-#         key: 192.0.2.7
-#         value: ssh
-sub _test_marks_seed {
-	my ( $self, $store, $seeds, $clock, $where, $results ) = @_;
-
-	if ( !is_plain_arrayref($seeds) ) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' marks_before is not a array' );
-		return 1;
-	}
-
-	foreach my $seed ( @{$seeds} ) {
-		if (
-			_test_store_entry_malformed(
-				$seed,
-				'marks_before entry',
-				[ 'name', 'key', 'value', 'set', 'ttl' ],
-				0, $where, $results
-			)
-			)
-		{
-			return 1;
-		} ## end if ( _test_store_entry_malformed( $seed, 'marks_before entry'...))
-		my ($key) = _test_store_key( $seed->{key} );
-		my $ttl = $seed->{ttl} // 3600;
-		$store->{ $seed->{name} }{$key} = {
-			'expires' => $clock + $ttl,
-			'set'     => $seed->{set} // $clock,
-			defined( $seed->{value} ) ? ( 'value' => $seed->{value} ) : (),
-		};
-	} ## end foreach my $seed ( @{$seeds} )
-
-	return 0;
-} ## end sub _test_marks_seed
-
-# asserts a marks_expected/marks_after list against the throwaway mark
-# store... that the mark is live and, when a value is named, holds it, or
-# under absent that it is not live at all. every assertion is checked, so one
-# run reports every miss.
-#
-# args:
-#   $store    :: the throwaway mark store hash ref
-#   $expected :: the assertion list, each a hash of name, key (a string or a
-#                vars compound array), and either a optional value, compared
-#                as a string, or a true absent
-#   $clock    :: the virtual clock, which liveness is judged at
-#   $where    :: the where string for failures, the test entry's, plus the
-#                message index for a marks_after
-#   $results  :: the run_tests results hash
-#
-# returns true on any miss, the failures pushed, false when every assertion
-# held.
-#
-#     marks_expected:
-#       - name: brute_force
-#         key: 192.0.2.7
-#         value: ssh
-sub _test_marks_assert {
-	my ( $self, $store, $expected, $clock, $where, $results ) = @_;
-
-	if ( !is_plain_arrayref($expected) ) {
-		$results->{fail}++;
-		push( @{ $results->{failures} }, $where . ' marks assertion is not a array' );
-		return 1;
-	}
-
-	my $failed = 0;
-	foreach my $expect ( @{$expected} ) {
-		if (
-			_test_store_entry_malformed(
-				$expect,
-				'marks assertion',
-				[ 'name', 'key', 'value', 'absent' ],
-				0, $where, $results
-			)
-			)
-		{
-			$failed = 1;
-			next;
-		} ## end if ( _test_store_entry_malformed( $expect,...))
-
-		my ( $key, $shown ) = _test_store_key( $expect->{key} );
-		my $mark = $store->{ $expect->{name} }{$key};
-		my $live = defined($mark) && $mark->{expires} > $clock;
-		if ( $expect->{absent} ) {
-			if ($live) {
-				$results->{fail}++;
-				push(
-					@{ $results->{failures} },
-					$where . ' expected no live mark ' . $expect->{name} . ' on "' . $shown . '" but one is'
-				);
-				$failed = 1;
-			}
-			next;
-		} ## end if ( $expect->{absent} )
-		if ( !$live ) {
-			$results->{fail}++;
-			push(
-				@{ $results->{failures} },
-				$where . ' expected a live mark ' . $expect->{name} . ' on "' . $shown . '" but found none'
-			);
-			$failed = 1;
-			next;
-		}
-		if ( defined( $expect->{value} )
-			&& ( !defined( $mark->{value} ) || $mark->{value} ne $expect->{value} ) )
-		{
-			$results->{fail}++;
-			push(
-				@{ $results->{failures} },
-				$where
-					. ' expected mark '
-					. $expect->{name} . ' on "'
-					. $shown
-					. '" to hold value "'
-					. $expect->{value}
-					. '" but it holds '
-					. ( defined( $mark->{value} ) ? '"' . $mark->{value} . '"' : 'none' )
-			);
-			$failed = 1;
-		} ## end if ( defined( $expect->{value} ) && ( !defined...))
-	} ## end foreach my $expect ( @{$expected} )
-
-	return $failed;
-} ## end sub _test_marks_assert
-
-# the TLD atom, like the label atoms ahead of it, may not end on a hyphen
-my $dns_re = qr/(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?/;
-
-# the IPv4 mapped IPv6 form, ::ffff:1.2.3.4, spelled out and tried ahead of
-# the plain IPv6 atom. $IPv6_re is an alternation of the address forms and,
-# unanchored, the first arm to succeed wins rather than the longest... on
-# "::ffff:1.2.3.4" the compressed arm matches "::ffff:1" and the engine stops
-# there, so a token built as (v4|v6) would hand the ban path a truncated
-# address, "::ffff:218" for "::ffff:218.249.210.161". Naming the mapped form
-# first makes the longest form win. Downstream already reads the ::ffff: form
-# as its IPv4 self... see ignore_ips and the family/CIDR bucketing in
-# App::Baphomet::Config... so the whole address is what wants capturing.
-my $v4mapped_re = qr/::[fF]{4}:$IPv4_re/;
-my $addr_re     = qr/(?:$v4mapped_re|$IPv4_re|$IPv6_re)/;
-
-my %tokens = (
-	'IP4'    => qr/$IPv4_re/,
-	'IP6'    => qr/(?:$v4mapped_re|$IPv6_re)/,
-	'ADDR'   => $addr_re,
-	'DNS'    => $dns_re,
-	'HOST'   => qr/(?:$addr_re|$dns_re)/,
-	'SUBNET' => qr/$addr_re(?:\/(?:12[0-8]|1[01][0-9]|[1-9]?[0-9])(?![0-9]))?/,
-	'SRC'    => $addr_re,
-	'DEST'   => $addr_re,
-);
 
 # the severity scale, worst last... the ordinal is unused for now but keeps
 # the order canonical if anything ever wants to sort or compare
@@ -3301,7 +2307,7 @@ sub _compile_tracks {
 					# record rather than the line... so a undef stored value
 					# already fails every operator but exists
 					$gate->{where}
-						= $self->_compile_gates( $entry->{where}, $where . ' entry "' . $entry->{name} . '" where' );
+						= compile_gates( $entry->{where}, $where . ' entry "' . $entry->{name} . '" where' );
 				}
 				if ( defined( $entry->{into} ) ) {
 					_check_string_list( $entry->{into}, $where . ' entry "' . $entry->{name} . '" has a into' );
@@ -3675,7 +2681,7 @@ sub _compile_message_regexps {
 
 	foreach my ( $entry_int, $item ) ( indexed @{ $def->{message_regexp} } ) {
 		my $regexp   = is_plain_hashref($item) ? $item->{regexp} : $item;
-		my $compiled = $self->_compile_tokened_regexp( $regexp,
+		my $compiled = compile_tokened_regexp( $regexp,
 			'The message_regexp entry ' . $entry_int . ' of the rule "' . $name . '"' );
 		if ( is_plain_hashref($item) ) {
 			$compiled->{key} = $self->_correlation_key_components( $item->{key},
@@ -3711,7 +2717,7 @@ sub _compile_ignore_regexps {
 	}
 
 	foreach my ( $ignore_int, $regexp ) ( indexed @{ $def->{ignore_regexp} } ) {
-		my $entry = $self->_compile_tokened_regexp( $regexp,
+		my $entry = compile_tokened_regexp( $regexp,
 			'The ignore_regexp entry ' . $ignore_int . ' of the rule "' . $name . '"' );
 		push( @{ $self->{ignore_regexps} }, $entry->{regexp} );
 	}
@@ -3759,8 +2765,7 @@ sub _compile_stages {
 			if ( !defined($regexp) || ref($regexp) ne '' ) {
 				die( $where . ' has a message_regexp entry that is not a string' );
 			}
-			push( @matchers,
-				$self->_compile_tokened_regexp( $regexp, $where . ' message_regexp entry ' . $entry_int ) );
+			push( @matchers, compile_tokened_regexp( $regexp, $where . ' message_regexp entry ' . $entry_int ) );
 		}
 
 		push(
@@ -3847,7 +2852,7 @@ sub _check_stages_core {
 		if ( !exists( $stage_caps[$stage_int] ) ) {
 			my $caps;
 			foreach my $matcher ( @{ $stages->[$stage_int]{matchers} } ) {
-				$caps = $self->_match_tokened( $matcher, $message );
+				$caps = match_tokened( $matcher, $message );
 				if ( defined($caps) ) {
 					last;
 				}
@@ -4015,7 +3020,7 @@ sub _compile_capture_regexps {
 			die( $where . ' has a ttl that is not a positive int of seconds' );
 		}
 
-		my $compiled = $self->_compile_tokened_regexp( $item->{regexp}, $where );
+		my $compiled = compile_tokened_regexp( $item->{regexp}, $where );
 		$compiled->{key} = $self->_correlation_key_components( $item->{key}, $where );
 		$compiled->{ttl} = $item->{ttl} // 60;
 
@@ -4083,70 +3088,6 @@ sub _correlation_key_value {
 	return join( "\x00", @values );
 } ## end sub _correlation_key_value
 
-# compiles a single regexp string, expanding %%%%TOKEN%%%% tokens into
-# named captures... returns a hash of the compiled regexp, the original,
-# the alias map for folding, and whether SRC and DEST are paired in it...
-# $where is the lead in for error messages
-sub _compile_tokened_regexp {
-	my ( $self, $regexp, $where ) = @_;
-
-	my %aliases;
-	my $expanded = $regexp;
-	# token names may carry underscores now that the primitive fragment
-	# library (TIMESTAMP_ISO8601, DATE_US, ...) rides the same syntax
-	$expanded =~ s/%%%%([A-Z0-9_]+)%%%%/$self->_expand_token( $1, \%aliases, $where, $regexp )/ge;
-
-	my $compiled;
-	try {
-		$compiled = qr/$expanded/;
-	} catch ($caught) {
-		die( $where . ', "' . $regexp . '", does not compile... ' . $caught );
-	}
-
-	return {
-		'regexp'   => $compiled,
-		'original' => $regexp,
-		'aliases'  => \%aliases,
-		'paired'   => ( defined( $aliases{SRC} ) && defined( $aliases{DEST} ) ) ? 1 : 0,
-	};
-} ## end sub _compile_tokened_regexp
-
-# expands a single token occurrence. two flavors, dispatched by which map
-# the name is in. the offender tokens (SRC/ADDR/HOST/...) are CAPTURING:
-# each becomes a named capture (?<NAME>...) whose name is the found field,
-# numbered on repeat since perl forbids duplicate capture names in one
-# regexp. the primitive fragments (INT/USERNAME/TIMESTAMP_ISO8601/...) are
-# NON-capturing: each becomes a bare (?:...) building block that adds no
-# field, so a author composes patterns without hand-rolling sub-regexps
-# and wraps one in their own (?<FIELD>...) when they do want the capture.
-# an offender token wins any name collision, being checked first
-sub _expand_token {
-	my ( $self, $token, $aliases, $where, $original ) = @_;
-
-	if ( defined( $tokens{$token} ) ) {
-		if ( !defined( $aliases->{$token} ) ) {
-			$aliases->{$token} = [$token];
-			return '(?<' . $token . '>' . $tokens{$token} . ')';
-		}
-
-		my $alias = $token . '_' . ( scalar( @{ $aliases->{$token} } ) + 1 );
-		push( @{ $aliases->{$token} }, $alias );
-
-		return '(?<' . $alias . '>' . $tokens{$token} . ')';
-	} ## end if ( defined( $tokens{$token} ) )
-
-	# a primitive fragment... non-capturing, so it may repeat freely and
-	# nest inside a caller's own capture without aliasing. resolved lazily
-	# (and cached) from Log-Munger's base library the first time any rule
-	# reaches for one, so a offender-tokens-only deployment never pays it
-	my $primitives = App::Baphomet::Primitives::primitives();
-	if ( defined( $primitives->{$token} ) ) {
-		return '(?:' . $primitives->{$token} . ')';
-	}
-
-	die( $where . ', "' . $original . '", uses the unknown token "' . $token . '"' );
-} ## end sub _expand_token
-
 # the tracked/not_tracked clause of the rule's boolean, run first among them
 # so that whatever a into lifts is readable by the gate and keywords that
 # follow. reading here rather than galla side is the decision the whole
@@ -4199,7 +3140,7 @@ sub _tracked_pass {
 			next;
 		} ## end if ( !defined($record) )
 
-		if ( defined( $gate->{where} ) && !$self->_gates_pass( $gate->{where}, $record, undef ) ) {
+		if ( defined( $gate->{where} ) && !gates_pass( $gate->{where}, $record, undef ) ) {
 			return 0;
 		}
 
@@ -4427,7 +3368,7 @@ sub _check_message {
 	# capture lines harvest context and may complete deferred offenses
 	my @completions;
 	foreach my $capture ( @{ $self->{capture_regexps} } ) {
-		my $caps = $self->_match_tokened( $capture, $message );
+		my $caps = match_tokened( $capture, $message );
 		if ( !defined($caps) ) {
 			next;
 		}
@@ -4442,7 +3383,7 @@ sub _check_message {
 
 	my $found;
 	foreach my ( $entry_int, $entry ) ( indexed @{ $self->{regexps} } ) {
-		my $caps = $self->_match_tokened( $entry, $message );
+		my $caps = match_tokened( $entry, $message );
 		if ( !defined($caps) ) {
 			next;
 		}
@@ -4559,70 +3500,6 @@ sub _context_store {
 	return;
 } ## end sub _context_store
 
-# checks a value against a single compiled tokened entry... returns undef
-# for no match, or the captures hash with numbered token occurrences
-# folded back under the plain token name... a SRC/DEST paired entry with
-# only one of the two captured is not regarded as matched
-sub _match_tokened {
-	my ( $self, $entry, $value ) = @_;
-
-	if ( !defined($value) || $value !~ $entry->{regexp} ) {
-		return undef;
-	}
-
-	my %caps = %+;
-
-	foreach my $token ( keys( %{ $entry->{aliases} } ) ) {
-		foreach my $alias ( @{ $entry->{aliases}{$token} } ) {
-			if ( defined( $caps{$alias} ) && !defined( $caps{$token} ) ) {
-				$caps{$token} = $caps{$alias};
-			}
-			if ( $alias ne $token ) {
-				delete( $caps{$alias} );
-			}
-		}
-	} ## end foreach my $token ( keys( %{ $entry->{aliases} ...}))
-
-	# SRC/DEST only regard as being found if matched together
-	if ( $entry->{paired} && ( !defined( $caps{SRC} ) || !defined( $caps{DEST} ) ) ) {
-		return undef;
-	}
-
-	return \%caps;
-} ## end sub _match_tokened
-
-# compiles a list of string-or-//regexp// entries into a matcher hash...
-# entries starting and ending with // are regexps, the rest are string
-# equality checks... $where is for error messages
-sub _compile_matchers {
-	my ( $self, $list, $where ) = @_;
-
-	my $matchers = {
-		'strings' => {},
-		'regexps' => [],
-	};
-
-	foreach my $item ( @{$list} ) {
-		if ( !defined($item) || ref($item) ne '' ) {
-			die( $where . ' contains a non-string entry' );
-		}
-		if ( $item =~ /^\/\/(.*)\/\/$/ ) {
-			my $regexp = $1;
-			my $compiled;
-			try {
-				$compiled = qr/$regexp/;
-			} catch ($caught) {
-				die( $where . ' entry "' . $item . '" does not compile... ' . $caught );
-			}
-			push( @{ $matchers->{regexps} }, $compiled );
-		} else {
-			$matchers->{strings}{$item} = 1;
-		}
-	} ## end foreach my $item ( @{$list} )
-
-	return $matchers;
-} ## end sub _compile_matchers
-
 # compiles a def's match and ignore arrays onto matches and ignores,
 # validating the shared field-and-regexp shape... the per-entry compile
 # differs by type (tokened for json, plain and field-checked for http), so
@@ -4656,532 +3533,6 @@ sub _compile_match_ignore {
 	return;
 } ## end sub _compile_match_ignore
 
-# checks a value against a matcher hash from _compile_matchers... a undef
-# value never matches
-sub _matchers_hit {
-	my ( $self, $matchers, $value ) = @_;
-
-	if ( !defined($value) ) {
-		return 0;
-	}
-
-	if ( defined( $matchers->{strings}{$value} ) ) {
-		return 1;
-	}
-
-	foreach my $regexp ( @{ $matchers->{regexps} } ) {
-		if ( $value =~ $regexp ) {
-			return 1;
-		}
-	}
-
-	return 0;
-} ## end sub _matchers_hit
-
-# the typed field operators, the opt-in richer form of a gate entry. legacy
-# entries (field + values, equality or //regex//) are untouched and never reach
-# here... this only fires for an entry carrying op/value/all/negate
-our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt lt ge le cidr exists );
-
-# the comparators, resolved once at compile time onto the predicate as
-# op_code so the per-line path dispatches straight to a static code ref
-# instead of re-matching the op name per candidate
-my %PREDICATE_NUM_OPS = (
-	'gt' => sub { return ( $_[0] > $_[1] )  ? 1 : 0; },
-	'lt' => sub { return ( $_[0] < $_[1] )  ? 1 : 0; },
-	'ge' => sub { return ( $_[0] >= $_[1] ) ? 1 : 0; },
-	'le' => sub { return ( $_[0] <= $_[1] ) ? 1 : 0; },
-);
-my %PREDICATE_STR_OPS = (
-	'eq'         => sub { return ( $_[0] eq $_[1] )                               ? 1 : 0; },
-	'contains'   => sub { return ( index( $_[0], $_[1] ) >= 0 )                   ? 1 : 0; },
-	'startswith' => sub { return ( substr( $_[0], 0, length( $_[1] ) ) eq $_[1] ) ? 1 : 0; },
-	'endswith'   => sub {
-		return ( length( $_[1] ) <= length( $_[0] ) && substr( $_[0], length( $_[0] ) - length( $_[1] ) ) eq $_[1] )
-			? 1
-			: 0;
-	},
-);
-
-# the decode transforms, each string -> zero or more candidate strings, run
-# left to right over a field value before the operator so an obfuscated payload
-# is compared decoded. a transform that can not decode yields no candidate and
-# that branch drops. base64offset yields the three alignment candidates
-our %PREDICATE_TRANSFORMS = (
-	'lower' => sub { return ( lc( $_[0] ) ); },
-	'upper' => sub { return ( uc( $_[0] ) ); },
-	'url'   => sub {
-		my $string = $_[0];
-		$string =~ s/%([0-9A-Fa-f]{2})/chr(hex($1))/ge;
-		return ($string);
-	},
-	'windash' => sub {
-		my $string = $_[0];
-		# the unicode dash variants a Windows flag accepts, folded to ascii -
-		$string =~ s/[\x{2010}\x{2011}\x{2012}\x{2013}\x{2014}\x{2015}]/-/g;
-		return ($string);
-	},
-	'base64' => sub {
-		my $decoded;
-		eval { $decoded = decode_base64( $_[0] ); };
-		return ( defined($decoded) && $decoded ne '' ) ? ($decoded) : ();
-	},
-	'base64offset' => sub {
-		my $string = $_[0];
-		my @out;
-		foreach my $offset ( 0, 1, 2 ) {
-			my $slice = substr( $string, $offset );
-			my $trim  = length($slice) - ( length($slice) % 4 );
-			if ( $trim <= 0 ) {
-				next;
-			}
-			my $decoded;
-			eval { $decoded = decode_base64( substr( $slice, 0, $trim ) ); };
-			if ( defined($decoded) && $decoded ne '' ) {
-				push( @out, $decoded );
-			}
-		} ## end foreach my $offset ( 0, 1, 2 )
-		return @out;
-	},
-	'utf16le' => sub {
-		my $d;
-		eval { $d = Encode::decode( 'UTF-16LE', $_[0], Encode::FB_CROAK() ); };
-		return defined($d) ? ($d) : ();
-	},
-	'utf16be' => sub {
-		my $d;
-		eval { $d = Encode::decode( 'UTF-16BE', $_[0], Encode::FB_CROAK() ); };
-		return defined($d) ? ($d) : ();
-	},
-	'utf16' => sub {
-		my $d;
-		eval { $d = Encode::decode( 'UTF-16', $_[0], Encode::FB_CROAK() ); };
-		return defined($d) ? ($d) : ();
-	},
-);
-# wide is a Sigma alias for utf16le
-$PREDICATE_TRANSFORMS{wide} = $PREDICATE_TRANSFORMS{utf16le};
-
-# the gate entry keys only the predicate form carries... a entry naming any of
-# them is a predicate, else it is the legacy field/values form
-my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref decode );
-
-# compiles a predicate entry into a runnable form, dieing on anything
-# unusable. shape: { field, op (default eq), value | values, all, negate }.
-# op eq/contains/startswith/endswith are string tests, re a regexp (tokened),
-# gt/lt/ge/le numeric, cidr a v4/v6 membership reusing the ignore-list machine
-sub _compile_predicate {
-	my ( $self, $entry, $where ) = @_;
-
-	foreach my $key ( keys( %{$entry} ) ) {
-		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|fieldref|decode)$/ ) {
-			die( $where . ' has the unknown key "' . $key . '"' );
-		}
-	}
-
-	my $op = $entry->{op} // 'eq';
-	if ( ref($op) ne '' || !$PREDICATE_OPS{$op} ) {
-		die( $where . ' has the unknown op "' . ( ref($op) ? ref($op) : $op ) . '"' );
-	}
-
-	# nocase case-folds the string and re comparisons... meaningless on the
-	# numeric and cidr ops, so a set there is a mistake worth naming
-	my $nocase = $entry->{nocase} ? 1 : 0;
-	if ( $nocase && ( $op eq 'cidr' || $op =~ /^(?:gt|lt|ge|le)$/ ) ) {
-		die( $where . ' nocase does not apply to the ' . $op . ' op' );
-	}
-
-	# fieldref names another field to compare against, its value the needle
-	# resolved from the line at match time rather than a literal. it stands in
-	# for value/values and only the string ops, which compare a needle, take it
-	my $fieldref = $entry->{fieldref};
-	if ( defined($fieldref) ) {
-		if ( ref($fieldref) ne '' || $fieldref eq '' ) {
-			die( $where . ' fieldref is not a non-empty field name' );
-		}
-		if ( exists( $entry->{value} ) || exists( $entry->{values} ) ) {
-			die( $where . ' sets both fieldref and a literal value' );
-		}
-		if ( $op !~ /^(?:eq|contains|startswith|endswith)$/ ) {
-			die( $where . ' fieldref works only with the eq, contains, startswith, and endswith ops' );
-		}
-	} ## end if ( defined($fieldref) )
-
-	# exists tests only whether the field is present, so it takes no needle...
-	# negate turns it into the field-absent test, Sigma's C<|exists: false>
-	if ( $op eq 'exists' ) {
-		if (   exists( $entry->{value} )
-			|| exists( $entry->{values} )
-			|| defined($fieldref)
-			|| exists( $entry->{decode} )
-			|| $nocase
-			|| $entry->{all} )
-		{
-			die( $where . ' the exists op takes no value, fieldref, decode, nocase, or all' );
-		}
-		return {
-			'field'  => $entry->{field},
-			'op'     => 'exists',
-			'negate' => $entry->{negate} ? 1 : 0,
-		};
-	} ## end if ( $op eq 'exists' )
-
-	my @values;
-	if ( defined($fieldref) ) {
-		# no literal needle... the referenced field is resolved at match time
-	} elsif ( exists( $entry->{values} ) ) {
-		if ( !is_plain_arrayref( $entry->{values} ) || !@{ $entry->{values} } ) {
-			die( $where . ' values is not a non-empty array' );
-		}
-		@values = @{ $entry->{values} };
-	} elsif ( exists( $entry->{value} ) ) {
-		@values = ( $entry->{value} );
-	} else {
-		die( $where . ' lacks a value or values' );
-	}
-	foreach my $v (@values) {
-		if ( !defined($v) || ref($v) ne '' ) {
-			die( $where . ' has a non-scalar value' );
-		}
-	}
-
-	my $predicate = {
-		'field'    => $entry->{field},
-		'op'       => $op,
-		'all'      => $entry->{all}    ? 1 : 0,
-		'negate'   => $entry->{negate} ? 1 : 0,
-		'nocase'   => $nocase,
-		'fieldref' => $fieldref,
-	};
-
-	if ( exists( $entry->{decode} ) ) {
-		if ( !is_plain_arrayref( $entry->{decode} ) || !@{ $entry->{decode} } ) {
-			die( $where . ' decode is not a non-empty array' );
-		}
-		foreach my $transform ( @{ $entry->{decode} } ) {
-			if ( !defined($transform) || ref($transform) ne '' || !$PREDICATE_TRANSFORMS{$transform} ) {
-				die(      $where
-						. ' has the unknown decode transform "'
-						. ( defined($transform) ? ( ref($transform) ? ref($transform) : $transform ) : 'undef' )
-						. '"' );
-			}
-		}
-		$predicate->{decode} = [ @{ $entry->{decode} } ];
-	} ## end if ( exists( $entry->{decode} ) )
-
-	if ( $op eq 're' ) {
-		my @regexps;
-		foreach my $v (@values) {
-			# a leading (?i) applies to the whole pattern, token expansions
-			# and all, so nocase folds a re without touching the tokens
-			my $pat = $nocase ? '(?i)' . $v : $v;
-			push( @regexps, $self->_compile_tokened_regexp( $pat, $where )->{regexp} );
-		}
-		$predicate->{regexps} = \@regexps;
-		$predicate->{kind}    = 're';
-	} elsif ( defined( $PREDICATE_NUM_OPS{$op} ) ) {
-		my @numbers;
-		foreach my $v (@values) {
-			if ( $v !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
-				die( $where . ' op ' . $op . ' needs numeric values, got "' . $v . '"' );
-			}
-			push( @numbers, $v + 0 );
-		}
-		$predicate->{numbers} = \@numbers;
-		$predicate->{kind}    = 'num';
-		$predicate->{op_code} = $PREDICATE_NUM_OPS{$op};
-	} elsif ( $op eq 'cidr' ) {
-		# dies on a bad CIDR, exactly as the ignore/namtar lists do
-		$predicate->{cidr} = compile_ignore_ips( \@values, $where );
-		$predicate->{kind} = 'cidr';
-	} elsif ( defined($fieldref) ) {
-		# the needle is the referenced field, injected at match time, so there
-		# are no static strings to compile
-		$predicate->{kind}    = 'string';
-		$predicate->{op_code} = $PREDICATE_STR_OPS{$op};
-	} else {
-		# nocase folds the needles once here, the candidate folded to match at
-		# test time, so a case-insensitive compare costs no per-hit lc of these
-		$predicate->{strings} = $nocase ? [ map { lc } @values ] : \@values;
-		$predicate->{kind}    = 'string';
-		$predicate->{op_code} = $PREDICATE_STR_OPS{$op};
-	}
-
-	return $predicate;
-} ## end sub _compile_predicate
-
-# runs a compiled predicate's operator against one field value, without its
-# negate... _gate_hit applies negate, once per value for a plain gate and once
-# over the whole fan for a keyword gate, so a keyword's OR stays clean. a
-# missing field is a false core, except under exists, which tests presence.
-#
-# args:
-#   $predicate :: a compiled predicate from _compile_predicate
-#   $value     :: the field value, undef when the field is absent
-#   $ref       :: the referenced field's value for a fieldref predicate, the
-#                 needle compared against, else undef
-#
-# returns 1 when the operator holds for the value, or for any candidate its
-# decode chain fans it out to, else 0.
-#
-#   my $core = $self->_predicate_core( $gate->{predicate}, $data->{user} );
-sub _predicate_core {
-	my ( $self, $predicate, $value, $ref ) = @_;
-
-	# exists tests presence, so it must see undef rather than short-circuit on
-	# it... negate (applied by the caller) flips it to the field-absent test
-	if ( $predicate->{op} eq 'exists' ) {
-		return defined($value) ? 1 : 0;
-	}
-
-	if ( !defined($value) ) {
-		return 0;
-	}
-
-	# the field value, run through any decode chain into one or more candidate
-	# strings, the operator matching if any candidate satisfies it. with no
-	# decode the candidate is just the value, so this is the plain path. $ref is
-	# the referenced field's value for a fieldref predicate, the dynamic needle
-	foreach my $candidate ( $self->_decode_candidates( $predicate->{decode}, "$value" ) ) {
-		if ( $self->_predicate_test_one( $predicate, $candidate, $ref ) ) {
-			return 1;
-		}
-	}
-
-	return 0;
-} ## end sub _predicate_core
-
-# applies a predicate's decode chain to a value, fanning out... each transform
-# maps every current candidate to zero or more, so base64offset widens and a
-# failed decode narrows. no decode chain is the value unchanged
-sub _decode_candidates {
-	my ( $self, $decode, $value ) = @_;
-
-	if ( !defined($decode) ) {
-		return ($value);
-	}
-
-	my @candidates = ($value);
-	foreach my $transform ( @{$decode} ) {
-		my @next;
-		foreach my $candidate (@candidates) {
-			push( @next, $PREDICATE_TRANSFORMS{$transform}->($candidate) );
-		}
-		@candidates = @next;
-		if ( !@candidates ) {
-			return ();
-		}
-	} ## end foreach my $transform ( @{$decode} )
-
-	return @candidates;
-} ## end sub _decode_candidates
-
-# tests one candidate string against a predicate's operator and values. $ref,
-# the referenced field's value, is the dynamic needle for a fieldref predicate.
-# the operator was resolved to kind and op_code at compile time and the any/all
-# folds are inlined, as this is the innermost per-line call
-sub _predicate_test_one {
-	my ( $self, $predicate, $value, $ref ) = @_;
-
-	my $kind = $predicate->{kind};
-
-	# the string ops... eq/contains/startswith/endswith. under nocase the
-	# needle was folded at compile time, so folding the candidate here makes
-	# the compare case-insensitive
-	if ( $kind eq 'string' ) {
-		my $candidate = $predicate->{nocase} ? lc($value) : $value;
-
-		# a fieldref predicate compares against another field's live value,
-		# injected as the needle here, folded to match under nocase since it
-		# was not folded at compile time... an absent referenced field is a
-		# non-match
-		my $needles = $predicate->{strings};
-		if ( defined( $predicate->{fieldref} ) ) {
-			if ( !defined($ref) ) {
-				return 0;
-			}
-			$needles = [ $predicate->{nocase} ? lc($ref) : $ref ];
-		}
-
-		my $test = $predicate->{op_code};
-		if ( $predicate->{all} ) {
-			foreach my $needle ( @{$needles} ) {
-				if ( !$test->( $candidate, $needle ) ) {
-					return 0;
-				}
-			}
-			return 1;
-		}
-		foreach my $needle ( @{$needles} ) {
-			if ( $test->( $candidate, $needle ) ) {
-				return 1;
-			}
-		}
-		return 0;
-	} ## end if ( $kind eq 'string' )
-
-	if ( $kind eq 're' ) {
-		if ( $predicate->{all} ) {
-			foreach my $regexp ( @{ $predicate->{regexps} } ) {
-				if ( $value !~ $regexp ) {
-					return 0;
-				}
-			}
-			return 1;
-		}
-		foreach my $regexp ( @{ $predicate->{regexps} } ) {
-			if ( $value =~ $regexp ) {
-				return 1;
-			}
-		}
-		return 0;
-	} ## end if ( $kind eq 're' )
-
-	if ( $kind eq 'num' ) {
-		if ( $value !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
-			return 0;
-		}
-		my $number = $value + 0;
-		my $test   = $predicate->{op_code};
-		if ( $predicate->{all} ) {
-			foreach my $threshold ( @{ $predicate->{numbers} } ) {
-				if ( !$test->( $number, $threshold ) ) {
-					return 0;
-				}
-			}
-			return 1;
-		}
-		foreach my $threshold ( @{ $predicate->{numbers} } ) {
-			if ( $test->( $number, $threshold ) ) {
-				return 1;
-			}
-		}
-		return 0;
-	} ## end if ( $kind eq 'num' )
-
-	# cidr
-	return ip_ignored( $predicate->{cidr}, $value ) ? 1 : 0;
-} ## end sub _predicate_test_one
-
-# compiles a rule's gate array into runnable entries, each either a legacy
-# field/values matcher set or a typed predicate. shared by every type that
-# carries a gate... json runs it as a pre-filter over parsed fields, syslog and
-# raw as a post-match refinement over the captures, and a selection is one such
-# gate list too. $where_prefix names it in errors, so a selection reads clearly
-sub _compile_gates {
-	my ( $self, $gate_def, $where_prefix ) = @_;
-
-	if ( !is_plain_arrayref($gate_def) || !@{$gate_def} ) {
-		die( $where_prefix . ' is not a array or is empty' );
-	}
-
-	my @gates;
-	my $entry_int = 0;
-	foreach my $entry ( @{$gate_def} ) {
-		my $where = $where_prefix . ' entry ' . $entry_int;
-		if ( !is_plain_hashref($entry) || !defined( $entry->{field} ) ) {
-			die( $where . ' is not a hash with a field' );
-		}
-		my $gate;
-		if ( any { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS ) {
-			$gate = { 'field' => $entry->{field}, 'predicate' => $self->_compile_predicate( $entry, $where ) };
-		} else {
-			if ( !is_plain_arrayref( $entry->{values} ) ) {
-				die( $where . ' is not a hash with a field and a values array' );
-			}
-			foreach my $key ( keys( %{$entry} ) ) {
-				if ( $key !~ /^(?:field|values)$/ ) {
-					die( $where . ' has the unknown key "' . $key . '"' );
-				}
-			}
-			$gate = { 'field' => $entry->{field}, 'matchers' => $self->_compile_matchers( $entry->{values}, $where ) };
-		} ## end else [ if ( any { exists( $entry->{$_} ) } @PREDICATE_ONLY_KEYS)]
-
-		# the reserved keyword fields, flagged at compile so the runtime fans
-		# the predicate over many values... %%%ANY%%% every field, %%%ANY:pre%%%
-		# the subtree at or under `pre`, so a keyword can search everything or
-		# just a known branch without touching the rest
-		if ( $entry->{field} eq '%%%ANY%%%' ) {
-			$gate->{keyword} = 1;
-		} elsif ( $entry->{field} =~ /^%%%ANY:(.+)%%%$/ ) {
-			$gate->{keyword} = 1;
-			$gate->{prefix}  = $1;
-		}
-		# the keyword fan carries no referenced value, so a fieldref under it
-		# would compile and then silently never match
-		if ( $gate->{keyword} && defined( $gate->{predicate} ) && defined( $gate->{predicate}{fieldref} ) ) {
-			die( $where . ' pairs fieldref with a keyword field, which can never match' );
-		}
-		$gate->{code} = _compile_gate_code($gate);
-		push( @gates, $gate );
-		$entry_int++;
-	} ## end foreach my $entry ( @{$gate_def} )
-
-	return \@gates;
-} ## end sub _compile_gates
-
-# compiles one gate to the code ref that runs it, or undef for a gate shape
-# that is left to _gate_hit.
-#
-# _gate_hit asks the same three questions of every gate on every line...
-# keyword or not, predicate or matchers, MESSAGE or a plain field... and the
-# answers were settled when the rule was read. Resolving them once here, into
-# a closure that does only what this gate needs, is where the saving is: a
-# plain gate becomes one hash lookup with no branching around it, and the
-# _gate_hit and _matchers_hit frames both go.
-#
-# Only the plain-matchers shape compiles, which is the shape the per-line
-# path is made of. A keyword fan, a typed predicate, and the MESSAGE field
-# each keep their branching at runtime and stay with _gate_hit... they are
-# the rare shapes, MESSAGE only reaching a gate at all after a syslog rule's
-# regexp has already matched, so compiling them would restate three more
-# paths to buy nothing.
-#
-# The closure takes ( $self, $data ) rather than closing over the rule, so
-# nothing holds a reference back to the object it is stored on. A gate whose
-# values carry a //regexp// hands the test to _matchers_hit rather than
-# restating the walk... it is the strings-only case that is worth
-# specializing, and it is the only one specialized here.
-#
-# Args...
-#
-#    - gate :: One compiled gate, as built above.
-#
-# Returns a code ref taking ( $self, $data ) and returning 1 or 0, or undef
-# when the gate is a shape this does not compile.
-#
-#    my $code = _compile_gate_code($gate);
-#    my $hit = defined($code) ? $code->( $self, $data ) : $self->_gate_hit( $gate, $data, $message );
-sub _compile_gate_code {
-	my ($gate) = @_;
-
-	if ( $gate->{keyword} || defined( $gate->{predicate} ) || !defined( $gate->{field} ) ) {
-		return undef;
-	}
-	if ( $gate->{field} eq 'MESSAGE' ) {
-		return undef;
-	}
-
-	my $field    = $gate->{field};
-	my $matchers = $gate->{matchers};
-
-	if ( @{ $matchers->{regexps} } ) {
-		return sub {
-			my ( $self, $data ) = @_;
-
-			return $self->_matchers_hit( $matchers, $data->{$field} );
-		};
-	}
-
-	my $strings = $matchers->{strings};
-
-	return sub {
-		my $value = $_[1]->{$field};
-
-		return ( defined($value) && $strings->{$value} ) ? 1 : 0;
-	};
-} ## end sub _compile_gate_code
-
 # compiles a rule's boolean matcher, the flat gate or the selections+condition
 # form, onto the object... they are mutually exclusive, a condition needs
 # selections and the reverse. shared by every type that carries a gate, so json,
@@ -5194,7 +3545,7 @@ sub _compile_boolean {
 	}
 
 	if ( defined( $def->{gate} ) ) {
-		$self->{gates} = $self->_compile_gates( $def->{gate}, 'The gate of the rule "' . $name . '"' );
+		$self->{gates} = compile_gates( $def->{gate}, 'The gate of the rule "' . $name . '"' );
 	}
 
 	if ( defined( $def->{selections} ) ) {
@@ -5209,12 +3560,12 @@ sub _compile_boolean {
 			if ( $sel_name !~ /^[A-Za-z_][A-Za-z0-9_]*$/ || $sel_name =~ /^(?:and|or|not|of|them|all)$/i ) {
 				die( 'The selection name "' . $sel_name . '" of the rule "' . $name . '" is not a plain identifier' );
 			}
-			$compiled{$sel_name} = $self->_compile_gates( $def->{selections}{$sel_name},
+			$compiled{$sel_name} = compile_gates( $def->{selections}{$sel_name},
 				'The selection "' . $sel_name . '" of the rule "' . $name . '"' );
 		}
 		$self->{selections} = \%compiled;
 		$self->{condition_ast}
-			= $self->_compile_condition( $def->{condition}, \%compiled, 'The condition of the rule "' . $name . '"' );
+			= compile_condition( $def->{condition}, \%compiled, 'The condition of the rule "' . $name . '"' );
 	} elsif ( defined( $def->{condition} ) ) {
 		die( 'The rule "' . $name . '" has a condition but no selections' );
 	}
@@ -5278,7 +3629,7 @@ sub _compile_field_gates {
 			die( 'The ' . $field . ' of the rule "' . $name . '" is not a array or is empty' );
 		}
 		$self->{field_gates}{$field}
-			= $self->_compile_matchers( $def->{$field}, 'The ' . $field . ' of the rule "' . $name . '"' );
+			= compile_matchers( $def->{$field}, 'The ' . $field . ' of the rule "' . $name . '"' );
 	} ## end foreach my $field ( @{$fields} )
 
 	return;
@@ -5297,7 +3648,7 @@ sub _field_gates_pass {
 	my ( $self, $parsed ) = @_;
 
 	foreach my $field ( keys( %{ $self->{field_gates} } ) ) {
-		if ( !$self->_matchers_hit( $self->{field_gates}{$field}, $parsed->{$field} ) ) {
+		if ( !matchers_hit( $self->{field_gates}{$field}, $parsed->{$field} ) ) {
 			return 0;
 		}
 	}
@@ -5381,7 +3732,7 @@ sub _compile_keywords {
 	# one contains-predicate gate over the chosen field, reusing the whole
 	# operator/decode/keyword machinery
 	$self->{keyword_gates}
-		= $self->_compile_gates( [ { 'field' => $in, 'op' => 'contains', 'values' => $values } ], $where );
+		= compile_gates( [ { 'field' => $in, 'op' => 'contains', 'values' => $values } ], $where );
 
 	return;
 } ## end sub _compile_keywords
@@ -5394,12 +3745,13 @@ sub _boolean_pass {
 	my ( $self, $data, $message ) = @_;
 
 	# the common rule... a gate list and nothing else, every entry of it
-	# compiled. walking the code refs is the whole judgment, so the keyword,
-	# condition, and gate-shape questions below are not asked per line and
-	# neither _gates_pass nor _gate_hit is entered. see _compile_gate_code
+	# compiled to a code ref that does only what that one gate needs. walking
+	# the code refs is the whole judgment, so the keyword, condition, and
+	# gate-shape questions below are not asked per line and gates_pass, with
+	# the general per-gate test behind it, is never entered
 	if ( defined( $self->{gate_code} ) ) {
 		foreach my $code ( @{ $self->{gate_code} } ) {
-			if ( !$code->( $self, $data ) ) {
+			if ( !$code->($data) ) {
 				return 0;
 			}
 		}
@@ -5409,7 +3761,7 @@ sub _boolean_pass {
 	# the keywords shorthand, ANDed ahead of the gate or selections so it
 	# composes with either or stands alone
 	if ( is_plain_arrayref( $self->{keyword_gates} ) && @{ $self->{keyword_gates} } ) {
-		if ( !$self->_gates_pass( $self->{keyword_gates}, $data, $message ) ) {
+		if ( !gates_pass( $self->{keyword_gates}, $data, $message ) ) {
 			return 0;
 		}
 	}
@@ -5422,288 +3774,18 @@ sub _boolean_pass {
 		my $eval_sel = sub {
 			my ($sel_name) = @_;
 			if ( !exists( $results{$sel_name} ) ) {
-				$results{$sel_name} = $self->_gates_pass( $self->{selections}{$sel_name}, $data, $message );
+				$results{$sel_name} = gates_pass( $self->{selections}{$sel_name}, $data, $message );
 			}
 			return $results{$sel_name};
 		};
-		return $self->_eval_condition( $self->{condition_ast}, $eval_sel );
+		return eval_condition( $self->{condition_ast}, $eval_sel );
 	} ## end if ( defined( $self->{condition_ast} ) )
 
 	if ( is_plain_arrayref( $self->{gates} ) && @{ $self->{gates} } ) {
-		return $self->_gates_pass( $self->{gates}, $data, $message );
+		return gates_pass( $self->{gates}, $data, $message );
 	}
 
 	return 1;
 } ## end sub _boolean_pass
-
-# the core... runs a given gate list (ANDed) over a data hash, true when all
-# pass. shared by each selection of the boolean form, by the json type's
-# capture entries, and by the keyword fan, the rule's own gate list having
-# been taken by the compiled path in _boolean_pass before reaching here. an
-# entry that compiled is run through its code ref, the rest through
-# _gate_hit, so a list of mixed shapes still pays only for what it is
-sub _gates_pass {
-	my ( $self, $gates, $data, $message ) = @_;
-
-	foreach my $gate ( @{$gates} ) {
-		my $code = $gate->{code};
-		if ( defined($code) ) {
-			if ( !$code->( $self, $data ) ) {
-				return 0;
-			}
-		} elsif ( !$self->_gate_hit( $gate, $data, $message ) ) {
-			return 0;
-		}
-	} ## end foreach my $gate ( @{$gates} )
-
-	return 1;
-} ## end sub _gates_pass
-
-# tests one gate against a data hash, true when it holds. an ordinary gate reads
-# its one field (MESSAGE reaching the whole message); a keyword gate fans its
-# predicate over many field values, matching if any hits, so a string can be
-# searched across every field or a subtree
-sub _gate_hit {
-	my ( $self, $gate, $data, $message ) = @_;
-
-	if ( $gate->{keyword} ) {
-		my @values = $self->_keyword_values( $data, $message, $gate->{prefix} );
-		my $hit    = 0;
-		foreach my $value (@values) {
-			# the predicate core, no negate, so the fan is a clean OR
-			my $core
-				= defined( $gate->{predicate} )
-				? $self->_predicate_core( $gate->{predicate}, $value )
-				: $self->_matchers_hit( $gate->{matchers}, $value );
-			if ($core) {
-				$hit = 1;
-				last;
-			}
-		} ## end foreach my $value (@values)
-		# a negated keyword means no field matched, so negate the whole fan once
-		if ( defined( $gate->{predicate} ) && $gate->{predicate}{negate} ) {
-			$hit = $hit ? 0 : 1;
-		}
-		return $hit;
-	} ## end if ( $gate->{keyword} )
-
-	my $value
-		= ( $gate->{field} eq 'MESSAGE' && defined($message) && !exists( $data->{MESSAGE} ) )
-		? $message
-		: $data->{ $gate->{field} };
-	if ( !defined( $gate->{predicate} ) ) {
-		return $self->_matchers_hit( $gate->{matchers}, $value );
-	}
-
-	# a fieldref predicate's needle is another field's live value, resolved
-	# here where the data hash is in hand and threaded into the compare
-	my $ref;
-	if ( defined( $gate->{predicate}{fieldref} ) ) {
-		$ref = $data->{ $gate->{predicate}{fieldref} };
-	}
-	my $hit = $self->_predicate_core( $gate->{predicate}, $value, $ref );
-	# a missing field is a false core, so a plain predicate misses and a
-	# negated one holds, matching Sigma's "field absent" semantics
-	if ( $gate->{predicate}{negate} ) {
-		$hit = $hit ? 0 : 1;
-	}
-	return $hit;
-} ## end sub _gate_hit
-
-# the values a keyword gate fans over... every field value plus the message for
-# a bare %%%ANY%%%, or the values whose flattened path is the prefix or under it
-# for a scoped %%%ANY:prefix%%%, so nothing unrelated is searched
-sub _keyword_values {
-	my ( $self, $data, $message, $prefix ) = @_;
-
-	if ( defined($prefix) ) {
-		my @values;
-		my $under = $prefix . '.';
-		foreach my $field ( keys( %{$data} ) ) {
-			if ( $field eq $prefix || index( $field, $under ) == 0 ) {
-				push( @values, $data->{$field} );
-			}
-		}
-		return @values;
-	} ## end if ( defined($prefix) )
-
-	my @values = values( %{$data} );
-	if ( defined($message) ) {
-		push( @values, $message );
-	}
-	return @values;
-} ## end sub _keyword_values
-
-# parses a Sigma-style condition string over the named selections into an AST,
-# dieing on a syntax error or a reference to a unknown selection. the grammar
-# is or > and > not > primary, primary being a paren group, a selection name,
-# or a quantifier... "all of them", "1 of them", "N of <prefix>_*"
-sub _compile_condition {
-	my ( $self, $string, $selections, $where ) = @_;
-
-	if ( !defined($string) || ref($string) ne '' || $string !~ /\S/ ) {
-		die( $where . ' is not a non-empty string' );
-	}
-
-	my @tokens;
-	while ( $string =~ /\G\s*([()]|[^\s()]+)/gc ) {
-		push( @tokens, $1 );
-	}
-
-	my $pos  = 0;
-	my $peek = sub { return $pos < scalar(@tokens) ? $tokens[$pos] : undef; };
-	my $next = sub { return $tokens[ $pos++ ]; };
-
-	my ( $parse_or, $parse_and, $parse_not, $parse_primary );
-
-	$parse_primary = sub {
-		my $tok = $peek->();
-		if ( !defined($tok) ) {
-			die( $where . ' ends unexpectedly' );
-		}
-		if ( $tok eq '(' ) {
-			$next->();
-			my $node  = $parse_or->();
-			my $close = $next->();
-			if ( !defined($close) || $close ne ')' ) {
-				die( $where . ' has an unbalanced paren' );
-			}
-			return $node;
-		}
-		# a quantifier... (all|N) of (them | <prefix>_*)
-		if (   ( lc($tok) eq 'all' || $tok =~ /^[0-9]+$/ )
-			&& defined( $tokens[ $pos + 1 ] )
-			&& lc( $tokens[ $pos + 1 ] ) eq 'of' )
-		{
-			my $qty = $next->();
-			$next->();    # of
-			my $target = $next->();
-			if ( !defined($target) ) {
-				die( $where . ' has an "of" with no target' );
-			}
-			my @names = $self->_cond_resolve( $target, $selections, $where );
-			# a *-pattern matching nothing would make "all of" vacuously
-			# true, turning a typo into match-everything
-			if ( !@names ) {
-				die( $where . ' has an "of" target "' . $target . '" that covers no selections' );
-			}
-			my $threshold = ( lc($qty) eq 'all' ) ? scalar(@names) : $qty + 0;
-			if ( $threshold < 1 ) {
-				die( $where . ' asks for 0 of, which is vacuously true' );
-			}
-			if ( $threshold > scalar(@names) ) {
-				die(      $where
-						. ' asks for '
-						. $threshold . ' of '
-						. scalar(@names)
-						. ' selections, which can never be met' );
-			}
-			return [ 'count', $threshold, \@names ];
-		} ## end if ( ( lc($tok) eq 'all' || $tok =~ /^[0-9]+$/...))
-		my $name = $next->();
-		if ( $name =~ /^(?:and|or|not|of|them|all)$/i || $name eq ')' ) {
-			die( $where . ' has a misplaced "' . $name . '"' );
-		}
-		if ( !exists( $selections->{$name} ) ) {
-			die( $where . ' references the unknown selection "' . $name . '"' );
-		}
-		return [ 'sel', $name ];
-	}; ## end $parse_primary = sub
-
-	$parse_not = sub {
-		my $tok = $peek->();
-		if ( defined($tok) && lc($tok) eq 'not' ) {
-			$next->();
-			return [ 'not', $parse_not->() ];
-		}
-		return $parse_primary->();
-	};
-
-	$parse_and = sub {
-		my $node = $parse_not->();
-		while ( defined( $peek->() ) && lc( $peek->() ) eq 'and' ) {
-			$next->();
-			$node = [ 'and', $node, $parse_not->() ];
-		}
-		return $node;
-	};
-
-	$parse_or = sub {
-		my $node = $parse_and->();
-		while ( defined( $peek->() ) && lc( $peek->() ) eq 'or' ) {
-			$next->();
-			$node = [ 'or', $node, $parse_and->() ];
-		}
-		return $node;
-	};
-
-	my $ast = $parse_or->();
-	if ( $pos != scalar(@tokens) ) {
-		die( $where . ' has trailing tokens after "' . $tokens[$pos] . '"' );
-	}
-
-	return $ast;
-} ## end sub _compile_condition
-
-# resolves a quantifier target to the list of selection names it covers...
-# "them" is all, a trailing * is a name prefix, else a single named selection
-sub _cond_resolve {
-	my ( $self, $target, $selections, $where ) = @_;
-
-	if ( lc($target) eq 'them' ) {
-		my @names = sort( keys( %{$selections} ) );
-		return @names;
-	}
-	if ( $target =~ /^(.*)\*$/ ) {
-		my $prefix = $1;
-		my @names  = grep { index( $_, $prefix ) == 0 } sort( keys( %{$selections} ) );
-		return @names;
-	}
-	if ( !exists( $selections->{$target} ) ) {
-		die( $where . ' has an "of" target "' . $target . '" that is not a selection or a *-pattern' );
-	}
-	return ($target);
-} ## end sub _cond_resolve
-
-# folds a condition AST, asking $eval_sel for each selection's boolean as
-# needed... the and/or arms short-circuit and the count fold bails as soon
-# as the threshold is met or unreachable
-sub _eval_condition {
-	my ( $self, $ast, $eval_sel ) = @_;
-
-	my $op = $ast->[0];
-	if ( $op eq 'sel' ) {
-		return $eval_sel->( $ast->[1] ) ? 1 : 0;
-	}
-	if ( $op eq 'not' ) {
-		return $self->_eval_condition( $ast->[1], $eval_sel ) ? 0 : 1;
-	}
-	if ( $op eq 'and' ) {
-		return ( $self->_eval_condition( $ast->[1], $eval_sel ) && $self->_eval_condition( $ast->[2], $eval_sel ) )
-			? 1
-			: 0;
-	}
-	if ( $op eq 'or' ) {
-		return ( $self->_eval_condition( $ast->[1], $eval_sel ) || $self->_eval_condition( $ast->[2], $eval_sel ) )
-			? 1
-			: 0;
-	}
-	# count... at least threshold of the named selections are true
-	my ( $threshold, $names ) = ( $ast->[1], $ast->[2] );
-	my $hits      = 0;
-	my $remaining = scalar( @{$names} );
-	foreach my $name ( @{$names} ) {
-		$remaining--;
-		if ( $eval_sel->($name) ) {
-			$hits++;
-			if ( $hits >= $threshold ) {
-				return 1;
-			}
-		} elsif ( ( $hits + $remaining ) < $threshold ) {
-			return 0;
-		}
-	} ## end foreach my $name ( @{$names} )
-	return 0;
-} ## end sub _eval_condition
 
 1;

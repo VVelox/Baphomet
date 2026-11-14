@@ -4,7 +4,8 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util qw( is_plain_arrayref is_plain_hashref );
+use Ref::Util                   qw( is_plain_arrayref is_plain_hashref );
+use App::Baphomet::Rules::Gates qw( compile_matchers matchers_hit );
 use base 'App::Baphomet::Rules::Base';
 
 =pod
@@ -298,7 +299,7 @@ sub new {
 
 	# compile the daemons list... //...// entries are regexps, the rest are
 	# string equality checks, the shared matcher shape
-	$self->{daemon_matchers} = $self->_compile_matchers( $def->{daemons}, 'The daemons of the rule "' . $name . '"' );
+	$self->{daemon_matchers} = compile_matchers( $def->{daemons}, 'The daemons of the rule "' . $name . '"' );
 
 	# when the daemon logs a JSON object as its message, decode it into fields
 	# the gate can test... message_regexp is then optional, the gate matching
@@ -371,7 +372,7 @@ L<App::Baphomet::Rules::Base/accepts_daemon>.
 sub accepts_daemon {
 	my ( $self, $daemon ) = @_;
 
-	return $self->_matchers_hit( $self->{daemon_matchers}, $daemon );
+	return matchers_hit( $self->{daemon_matchers}, $daemon );
 }
 
 =head2 check
@@ -397,7 +398,7 @@ sub check {
 	# the daemon gate... nothing above it touches state, which is what lets
 	# the galla's daemon index skip the call entirely for a rule this line
 	# could never match. see accepts_daemon
-	if ( !$self->_matchers_hit( $self->{daemon_matchers}, $parsed->{daemon} ) ) {
+	if ( !matchers_hit( $self->{daemon_matchers}, $parsed->{daemon} ) ) {
 		return undef;
 	}
 
