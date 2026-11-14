@@ -42,9 +42,9 @@ L<App::Baphomet::Rules::SelfTest>. Not usable on its own... see
 L<App::Baphomet::Rules::Syslog> and L<App::Baphomet::Rules::HTTP> for the
 handlers.
 
-A handler is expected to provide C<check>, taking a parsed line and
-returning undef or a hash with a C<data> hash of what got captured, and to
-override L</default_test_parser> if C<bsd_syslog> is not the right default
+A handler is expected to provide C<_compile>, which L</new> calls to check
+and compile the def, and C<check>, taking a parsed line and returning undef
+or a hash with a C<data> hash of what got captured, and to override L</default_test_parser> if C<bsd_syslog> is not the right default
 for its tests.
 
 A rule def may carry a top level C<test_parser> key, which sets the
@@ -70,6 +70,49 @@ L<App::Baphomet::Rules::HTTP>, L<App::Baphomet::Rules::HTTPError>, and
 L<App::Baphomet::Rules::JSON>.
 
 =head1 METHODS
+
+=head2 new
+
+Initiates the object and compiles the passed rule def. Every handler
+inherits this, and provides the C<_compile> it calls to check and compile
+the def the way its type reads one. Will die on a invalid or uncompilable
+def.
+
+    - name :: The rule name, for error messages.
+        Default :: unnamed
+
+    - def :: The rule def hash, as parsed from the YAML.
+        Default :: undef
+
+    my $rule = App::Baphomet::Rules::Syslog->new( 'name' => 'syslog/sshd', 'def' => $def );
+
+=cut
+
+sub new {
+	my ( $class, %opts ) = @_;
+
+	# mungers and gates start empty rather than absent, every type being
+	# asked for its mungers and every type carrying the boolean, though only
+	# some rules set either
+	my $name = $opts{name} // 'unnamed';
+	my $self = bless(
+		{
+			'name'    => $name,
+			'def'     => $opts{def},
+			'mungers' => [],
+			'gates'   => [],
+			# a stable 31-bit unsigned integer from the name, the top four bytes
+			# of its MD5... masked to stay a positive value that survives tools
+			# treating a sid as a signed 32-bit int
+			'sid' => unpack( 'N', substr( md5($name), 0, 4 ) ) & 0x7fffffff,
+		},
+		ref($class) || $class
+	);
+
+	$self->_compile;
+
+	return $self;
+} ## end sub new
 
 =head2 default_test_parser
 
@@ -229,8 +272,7 @@ Returns a hash of the rule's own threshold overrides, max_score,
 find_time, and ban_time, holding only the keys the def actually sets...
 a empty hash for a rule carrying none. The galla is what has the watcher
 settings and decides if these are honored, per its
-C<allow_per_rule_thresholds>... this just exposes the def keys. Cached,
-as the def does not change.
+C<allow_per_rule_thresholds>... this just exposes the def keys.
 
     my $thresholds = $rule->thresholds;
     if ( %{$thresholds} ) { ... }
@@ -240,18 +282,8 @@ as the def does not change.
 sub thresholds {
 	my ($self) = @_;
 
-	if ( !defined( $self->{thresholds} ) ) {
-		my $thresholds = {};
-		foreach my $item ( 'max_score', 'find_time', 'ban_time' ) {
-			if ( defined( $self->{def}{$item} ) ) {
-				$thresholds->{$item} = $self->{def}{$item};
-			}
-		}
-		$self->{thresholds} = $thresholds;
-	}
-
 	return $self->{thresholds};
-} ## end sub thresholds
+}
 
 =head2 weight
 
@@ -561,7 +593,7 @@ sub set_gid {
 
 Returns the rule's EVE signature id, the Suricata C<alert.signature_id>
 analogue... a stable positive integer derived from the rule name, so
-C<syslog/sshd> always hashes to the same value. Built once and cached.
+C<syslog/sshd> always hashes to the same value.
 
     my $sid = $rule->sid;
 
@@ -570,15 +602,8 @@ C<syslog/sshd> always hashes to the same value. Built once and cached.
 sub sid {
 	my ($self) = @_;
 
-	if ( !defined( $self->{sid} ) ) {
-		# a stable 31-bit unsigned integer from the name, the top four bytes
-		# of its MD5... masked to stay a positive value that survives tools
-		# treating a sid as a signed 32-bit int
-		$self->{sid} = unpack( 'N', substr( md5( $self->{name} ), 0, 4 ) ) & 0x7fffffff;
-	}
-
 	return $self->{sid};
-} ## end sub sid
+}
 
 =head2 rev
 
@@ -633,8 +658,9 @@ sub unmarks {
 
 =head2 mark_gates
 
-Returns the rule's mark gates as a hash of two arrays, C<marked> and
-C<not_marked>, either possibly empty. Each entry keys by C<var> or the
+Returns the rule's mark gates as a hash of three arrays, C<marked>,
+C<not_marked>, and C<sequence>, any possibly empty. Each marked or
+not_marked entry keys by C<var> or the
 compound C<vars>, or var-less by the offender IP. A marked entry names its
 brand with C<name>, or with C<names> holds on any of a list, and either
 kind of entry may carry one of C<value_is> or C<value_not>, naming a
@@ -651,17 +677,8 @@ counts if every gate holds.
 sub mark_gates {
 	my ($self) = @_;
 
-	# pure rule data, so built once... this is asked for on every match
-	if ( !defined( $self->{_mark_gates} ) ) {
-		$self->{_mark_gates} = {
-			'marked'     => is_plain_arrayref( $self->{def}{marked} )     ? $self->{def}{marked}     : [],
-			'not_marked' => is_plain_arrayref( $self->{def}{not_marked} ) ? $self->{def}{not_marked} : [],
-			'sequence'   => is_plain_arrayref( $self->{def}{sequence} )   ? $self->{def}{sequence}   : [],
-		};
-	}
-
-	return $self->{_mark_gates};
-} ## end sub mark_gates
+	return $self->{mark_gates};
+}
 
 =head2 mark_only
 
@@ -749,12 +766,15 @@ Each rule type calls this and makes its own C<ban_var> requirement conditional
 on the return, so a detection rule need not name a offender it will never
 banish. Returns 1 for a detection rule, 0 otherwise. Dies on a malformed def.
 
-    my $is_detection = $self->_check_detection_var( $def, $name );
+    my $is_detection = $self->_check_detection_var;
 
 =cut
 
 sub _check_detection_var {
-	my ( $self, $def, $name ) = @_;
+	my ($self) = @_;
+
+	my $def  = $self->{def};
+	my $name = $self->{name};
 
 	if ( !exists( $def->{detection_var} ) ) {
 		return 0;
@@ -799,39 +819,54 @@ my @COMMON_DEF_KEYS = qw(
 # not be forgotten in one type... that the def is a hash, that it names only
 # the common keys and the type's own, then the scoring and triage keys, the
 # gate family, and the tests shape. the _check_ steps only validate, while the
-# _compile_ ones, the tracks and the reverse_dns gate, also compile what they
-# vet onto the object.
+# _compile_ ones, the tracks and the country, namtar_list, active_time, and
+# reverse_dns gates, also compile what they vet onto the object.
 #
 # args:
-#   $def       :: the rule's def, as read from its file
-#   $name      :: the rule's name, for the die messages
 #   $type_keys :: arrayref of the def keys this type allows past the common
 #                 ones, its matcher keys
 #
-# returns nothing, dying on the first problem found.
+# returns nothing, dying on the first problem found. a sound def also leaves
+# thresholds, mark_gates, and info on the object, the views of it their
+# getters hand the galla.
 #
-#   $self->_check_common( $def, $name, [ 'status', 'method', 'match', 'ignore' ] );
+#   $self->_check_common( [ 'status', 'method', 'match', 'ignore' ] );
 sub _check_common {
-	my ( $self, $def, $name, $type_keys ) = @_;
+	my ( $self, $type_keys ) = @_;
+
+	my $def  = $self->{def};
+	my $name = $self->{name};
 
 	if ( !is_plain_hashref($def) ) {
 		die( 'The def for the rule "' . $name . '" is not a hash' );
 	}
 	$self->_check_keys( $def, [ @COMMON_DEF_KEYS, @{$type_keys} ], 'The rule "' . $name . '" has' );
 
-	$self->_check_scoring_and_triage($def);
-	$self->_check_marks($def);
-	$self->_compile_tracks($def);
-	$self->_check_is_isnot_gate( $def, 'country' );
-	$self->_check_namtar($def);
-	$self->_check_is_isnot_gate( $def, 'active_time' );
-	$self->_compile_reverse_dns($def);
-	$self->_check_distinct($def);
-	$self->_check_promoted_vars($def);
+	$self->_check_scoring_and_triage;
+	$self->_check_marks;
+	$self->_compile_tracks;
+	$self->_compile_is_isnot_gate('country');
+	$self->_compile_namtar;
+	$self->_compile_is_isnot_gate('active_time');
+	$self->_compile_reverse_dns;
+	$self->_check_distinct;
+	$self->_check_promoted_vars;
 
 	if ( defined( $def->{tests} ) && !is_plain_hashref( $def->{tests} ) ) {
 		die( 'The tests of the rule "' . $name . '" is not a hash' );
 	}
+
+	# the views of the def the galla asks for on every match, built once now
+	# that the def is known sound rather than on each asking... the threshold
+	# overrides the def actually sets, the mark gates each as a array however
+	# few the def carries, and the def less its tests for the EVE rule field,
+	# which the tests would bloat for no value
+	$self->{thresholds}
+		= { map { $_ => $def->{$_} } grep { defined( $def->{$_} ) } ( 'max_score', 'find_time', 'ban_time' ) };
+	$self->{mark_gates} = { map { $_ => $def->{$_} // [] } ( 'marked', 'not_marked', 'sequence' ) };
+	my %def_less_tests = %{$def};
+	delete( $def_less_tests{tests} );
+	$self->{info} = { 'name' => $name, 'def' => \%def_less_tests };
 
 	return;
 } ## end sub _check_common
@@ -840,9 +875,12 @@ sub _check_common {
 # says which it was... shared by the types with a free-form ban_var (the
 # http pair chisel theirs to a fixed field)
 sub _check_ban_var {
-	my ( $self, $def, $name ) = @_;
+	my ($self) = @_;
 
-	if ( $self->_check_detection_var( $def, $name ) ) {
+	my $def  = $self->{def};
+	my $name = $self->{name};
+
+	if ( $self->_check_detection_var ) {
 		return 1;
 	}
 
@@ -901,7 +939,7 @@ gate is a hash of C<mode> (C<is> or C<isnot>), C<entries> (the raw list, 2-
 letter codes and C<%%%country_codes{name}%%%> imports still unexpanded, as
 the config to expand against is the galla's per watcher), and C<vars> (the
 found vars to check the country of, or undef to check the offender IP). The
-galla resolves the imports and does the lookups. Cached.
+galla resolves the imports and does the lookups.
 
     my $country = $rule->country;
 
@@ -910,7 +948,7 @@ galla resolves the imports and does the lookups. Cached.
 sub country {
 	my ($self) = @_;
 
-	return $self->_is_isnot_parsed('country');
+	return $self->{country_gate};
 }
 
 =head2 reverse_dns
@@ -938,7 +976,7 @@ The gate is a array of entries, each a hash of C<lists> (the named list
 references, still unresolved as the config to resolve against is the
 galla's per watcher) and C<var> (the found var to check, or undef for the
 offender IP). The galla resolves the list names to files and does the
-membership tests. Cached.
+membership tests.
 
     foreach my $entry ( @{ $rule->namtar_list } ) { ... }
 
@@ -947,28 +985,8 @@ membership tests. Cached.
 sub namtar_list {
 	my ($self) = @_;
 
-	if ( !exists( $self->{namtar_parsed} ) ) {
-		my $def = $self->{def}{namtar_list};
-		if ( !is_plain_arrayref($def) ) {
-			$self->{namtar_parsed} = undef;
-		} else {
-			my @entries;
-			foreach my $entry ( @{$def} ) {
-				my $lists = $entry->{lists} // $entry->{list};
-				push(
-					@entries,
-					{
-						'lists' => [ is_plain_arrayref($lists) ? @{$lists} : ($lists) ],
-						'var'   => $entry->{var},
-					}
-				);
-			} ## end foreach my $entry ( @{$def} )
-			$self->{namtar_parsed} = \@entries;
-		} ## end else [ if ( !is_plain_arrayref($def) ) ]
-	} ## end if ( !exists( $self->{namtar_parsed} ) )
-
-	return $self->{namtar_parsed};
-} ## end sub namtar_list
+	return $self->{namtar_gate};
+}
 
 =head2 active_time
 
@@ -977,7 +995,7 @@ The gate is a hash of C<mode> (C<is> or C<isnot>), C<windows> (the named
 window references, still unresolved as the config to resolve against is the
 galla's per watcher), and C<vars> (the found vars holding the times to
 check, or undef to check the current time). The galla resolves the window
-names to specs and does the time tests. Cached.
+names to specs and does the time tests.
 
     my $active = $rule->active_time;
 
@@ -986,47 +1004,8 @@ names to specs and does the time tests. Cached.
 sub active_time {
 	my ($self) = @_;
 
-	return $self->_is_isnot_parsed('active_time');
+	return $self->{active_time_gate};
 }
-
-# normalizes a is/isnot gate for its getter, once per rule... the mode, its
-# entries as a list however the def wrote them, and vars as a list or undef.
-#
-# args:
-#   $gate_key :: the gate's def key, a key of %IS_ISNOT_GATES, country or
-#                active_time
-#
-# returns undef when the rule has no such gate, else a hash ref of mode (is
-# or isnot), the gate's list key (entries or windows) holding the arrayref of
-# its entries, and vars, a arrayref of the found vars to check or undef to
-# check the offender or the clock.
-#
-#   my $parsed = $self->_is_isnot_parsed('country');
-#   # { 'mode' => 'is', 'entries' => [ 'US' ], 'vars' => undef }
-sub _is_isnot_parsed {
-	my ( $self, $gate_key ) = @_;
-
-	if ( exists( $self->{is_isnot_parsed}{$gate_key} ) ) {
-		return $self->{is_isnot_parsed}{$gate_key};
-	}
-
-	my $gate_def = $self->{def}{$gate_key};
-	my $parsed;
-	if ( is_plain_hashref($gate_def) ) {
-		my $mode = defined( $gate_def->{is} ) ? 'is' : 'isnot';
-		my $vars;
-		if ( is_plain_arrayref( $gate_def->{vars} ) ) {
-			$vars = $gate_def->{vars};
-		} elsif ( defined( $gate_def->{vars} ) ) {
-			$vars = [ $gate_def->{vars} ];
-		}
-		my @entries = is_plain_arrayref( $gate_def->{$mode} ) ? @{ $gate_def->{$mode} } : ( $gate_def->{$mode} );
-		$parsed = { 'mode' => $mode, $IS_ISNOT_GATES{$gate_key}{list_key} => \@entries, 'vars' => $vars };
-	} ## end if ( is_plain_hashref($gate_def) )
-
-	$self->{is_isnot_parsed}{$gate_key} = $parsed;
-	return $parsed;
-} ## end sub _is_isnot_parsed
 
 =head2 distinct
 
@@ -1151,7 +1130,7 @@ divergence being deliberate (a looser parse than the munger had).
 sub mungers {
 	my ($self) = @_;
 
-	return is_plain_arrayref( $self->{mungers} ) ? @{ $self->{mungers} } : ();
+	return @{ $self->{mungers} };
 }
 
 # validates and stores the mungers key... a non-empty array of non-empty
@@ -1160,9 +1139,11 @@ sub mungers {
 # lazily on first use (or prewarmed by the galla), so a rule declaring none
 # never so much as loads Log::Munger
 sub _compile_mungers {
-	my ( $self, $def, $name ) = @_;
+	my ($self) = @_;
 
-	$self->{mungers} = [];
+	my $def  = $self->{def};
+	my $name = $self->{name};
+
 	if ( !defined( $def->{mungers} ) ) {
 		return;
 	}
@@ -1190,7 +1171,7 @@ my %munge_processor_cache;
 sub _munge_processor {
 	my ($self) = @_;
 
-	if ( !is_plain_arrayref( $self->{mungers} ) || !@{ $self->{mungers} } ) {
+	if ( !@{ $self->{mungers} } ) {
 		return undef;
 	}
 
@@ -1246,7 +1227,7 @@ sub _munge_processor {
 sub _munge_enrich {
 	my ( $self, $parsed ) = @_;
 
-	if ( !is_plain_arrayref( $self->{mungers} ) || !@{ $self->{mungers} } || !is_plain_hashref($parsed) ) {
+	if ( !@{ $self->{mungers} } || !is_plain_hashref($parsed) ) {
 		return undef;
 	}
 	if ( !defined( $parsed->{message} ) ) {
@@ -1286,7 +1267,6 @@ sub _munge_enrich {
 
 Returns the rule's name and def with the embedded tests stripped, for the
 EVE log's rule field... the tests would bloat every event for no value.
-Cached, as the def does not change.
 
     my $info = $rule->info;
 
@@ -1295,14 +1275,8 @@ Cached, as the def does not change.
 sub info {
 	my ($self) = @_;
 
-	if ( !defined( $self->{info} ) ) {
-		my %def = %{ $self->{def} };
-		delete( $def{tests} );
-		$self->{info} = { 'name' => $self->{name}, 'def' => \%def };
-	}
-
 	return $self->{info};
-} ## end sub info
+}
 
 =head2 dump_state
 
@@ -1453,8 +1427,9 @@ sub _check_string_list {
 # strings... called by every handler's new, as the keys are legal on every
 # type
 sub _check_scoring_and_triage {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	foreach my $item ( 'max_score', 'find_time' ) {
@@ -1511,8 +1486,9 @@ sub _check_scoring_and_triage {
 # keys are legal on every type. Names are constrained like rule names so
 # they ride tablets and commands cleanly.
 sub _check_marks {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	my %shapes = (
@@ -1651,7 +1627,7 @@ sub _check_marks {
 # every handler's new, as the keys are legal on every type. Names are
 # constrained like mark names so they ride tablets and commands cleanly.
 #
-# takes the def hash ref. returns nothing, leaving tracks (a array ref of
+# takes nothing. returns nothing, leaving tracks (a array ref of
 # { name, key, fields, ttl }) and track_gates ({ tracked, not_tracked }) on
 # the object, each entry of the latter carrying the key its declaration gave
 # so the runtime never has to look one up.
@@ -1662,8 +1638,9 @@ sub _check_marks {
 # a read of. And a tracked entry carrying neither where nor into will not
 # load, doing nothing being worth saying out loud.
 sub _compile_tracks {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	if ( !defined( $def->{track} ) && !defined( $def->{tracked} ) && !defined( $def->{not_tracked} ) ) {
@@ -1808,23 +1785,29 @@ sub _compile_tracks {
 	return;
 } ## end sub _compile_tracks
 
-# dies if the def's is/isnot gate of the named kind is malformed... the token
+# dies if the def's is/isnot gate of the named kind is malformed, and leaves a
+# sound one normalized on the object for its getter... the mode, its entries
+# as a list however the def wrote them, and vars as a list or undef. the token
 # and window names are resolved against the config later, by the galla, per
 # watcher.
 #
 # args:
-#   $def      :: the rule's def
 #   $gate_key :: the gate's def key, a key of %IS_ISNOT_GATES, country or
 #                active_time
 #
 # returns nothing, dying on the first problem found. a def without the gate
-# passes.
+# passes and leaves nothing. otherwise the gate lands under its key with _gate
+# on the end, country_gate or active_time_gate, a hash ref of mode (is or
+# isnot), the gate's list key (entries or windows) holding the arrayref of its
+# entries, and vars, a arrayref of the found vars to check or undef to check
+# the offender or the clock.
 #
-#   $self->_check_is_isnot_gate( $def, 'country' );
-sub _check_is_isnot_gate {
-	my ( $self, $def, $gate_key ) = @_;
+#   $self->_compile_is_isnot_gate('country');
+#   # $self->{country_gate} is { 'mode' => 'is', 'entries' => [ 'US' ], 'vars' => undef }
+sub _compile_is_isnot_gate {
+	my ( $self, $gate_key ) = @_;
 
-	my $gate_def = $def->{$gate_key};
+	my $gate_def = $self->{def}{$gate_key};
 	if ( !defined($gate_def) ) {
 		return;
 	}
@@ -1855,6 +1838,7 @@ sub _check_is_isnot_gate {
 		}
 	}
 
+	my $vars;
 	if ( defined( $gate_def->{vars} ) ) {
 		my @vars = is_plain_arrayref( $gate_def->{vars} ) ? @{ $gate_def->{vars} } : ( $gate_def->{vars} );
 		if ( !@vars ) {
@@ -1865,10 +1849,13 @@ sub _check_is_isnot_gate {
 				die( $where . ' vars has a entry that is not a non-empty string' );
 			}
 		}
+		$vars = \@vars;
 	} ## end if ( defined( $gate_def->{vars} ) )
 
+	$self->{ $gate_key . '_gate' } = { 'mode' => $mode, $shape->{list_key} => \@entries, 'vars' => $vars };
+
 	return;
-} ## end sub _check_is_isnot_gate
+} ## end sub _compile_is_isnot_gate
 
 # dies if the def's reverse_dns gate is malformed, compiling it onto the
 # object... a array of entries, each comparing the PTR names of an address
@@ -1877,7 +1864,9 @@ sub _check_is_isnot_gate {
 # confirmation on unless refused. the galla owns the lookups and the
 # fail-closed rules, this only the shape
 sub _compile_reverse_dns {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
+
+	my $def = $self->{def};
 
 	if ( !defined( $def->{reverse_dns} ) ) {
 		return;
@@ -1943,12 +1932,24 @@ sub _compile_reverse_dns {
 	return;
 } ## end sub _compile_reverse_dns
 
-# dies if the def's namtar_list gate is malformed... a array of entries,
-# each naming one or more lists (list or lists) and a optional var to check
-# instead of the offender. the list names are resolved against the config
-# later, by the galla, per watcher
-sub _check_namtar {
-	my ( $self, $def ) = @_;
+# dies if the def's namtar_list gate is malformed, and leaves a sound one
+# normalized on the object for its getter... a array of entries, each naming
+# one or more lists (list or lists) and a optional var to check instead of
+# the offender. the list names are resolved against the config later, by the
+# galla, per watcher.
+#
+# takes nothing. returns nothing, dying on the first problem found. a def
+# without the gate passes and leaves nothing. otherwise namtar_gate holds a
+# arrayref of entries, each a hash ref of lists, the arrayref of list names
+# whichever of list or lists the def used, and var, the found var to check or
+# undef for the offender.
+#
+#   $self->_compile_namtar;
+#   # $self->{namtar_gate} is [ { 'lists' => [ 'threatfeed' ], 'var' => 'SRC' } ]
+sub _compile_namtar {
+	my ($self) = @_;
+
+	my $def = $self->{def};
 
 	if ( !defined( $def->{namtar_list} ) ) {
 		return;
@@ -1960,6 +1961,7 @@ sub _check_namtar {
 	if ( !is_plain_arrayref( $def->{namtar_list} ) || !@{ $def->{namtar_list} } ) {
 		die( $where . ' is not a non-empty array' );
 	}
+	my @compiled;
 	foreach my $entry ( @{ $def->{namtar_list} } ) {
 		if ( !is_plain_hashref($entry) ) {
 			die( $where . ' has a entry that is not a hash' );
@@ -1984,15 +1986,19 @@ sub _check_namtar {
 		if ( defined( $entry->{var} ) && ( ref( $entry->{var} ) ne '' || $entry->{var} eq '' ) ) {
 			die( $where . ' has a var that is not a non-empty string' );
 		}
+		push( @compiled, { 'lists' => \@lists, 'var' => $entry->{var} } );
 	} ## end foreach my $entry ( @{ $def->{namtar_list} } )
+	$self->{namtar_gate} = \@compiled;
 
 	return;
-} ## end sub _check_namtar
+} ## end sub _compile_namtar
 
 # checks the distinct-cardinality spec, dieing on anything unusable... a table
 # with a of naming the found var whose distinct values the galla counts
 sub _check_distinct {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
+
+	my $def = $self->{def};
 
 	if ( !defined( $def->{distinct} ) ) {
 		return;
@@ -2023,8 +2029,9 @@ sub _check_distinct {
 # promotes to the EVE top level. absent is fine, they default to the
 # literal src_ip, dest_ip, src_port, dest_port, and user fields
 sub _check_promoted_vars {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 	foreach my $item ( 'src_ip_var', 'dest_ip_var', 'src_port_var', 'dest_port_var', 'user_var' ) {
 		if ( !exists( $def->{$item} ) ) {
@@ -2062,7 +2069,9 @@ sub _check_promoted_vars {
 # So this does not judge the pattern, and must not refuse it... it points at a
 # question only a test can answer, and the answer may well be "safe here".
 sub _detect_injection_shape {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
+
+	my $def = $self->{def};
 
 	$self->{needs_injection_test} = undef;
 
@@ -2097,26 +2106,98 @@ sub _detect_injection_shape {
 	return;
 } ## end sub _detect_injection_shape
 
-# compiles the message_regexp and ignore_regexp of the passed def,
-# expanding %%%%TOKEN%%%% tokens into named captures, and populates
-# regexps and ignore_regexps on the object... shared by the handlers
-# whose matching is regexps against a message with something to extract
-sub _compile_message_regexps {
-	my ( $self, $def, $allow_empty ) = @_;
+# compiles the matcher of the syslog and raw types, which is one of two
+# things... a staged rule, whose stages are the whole matcher, or the
+# per-line message_regexp with its capture_regexp correlation, and either way
+# the ignore_regexp and the boolean. shared by the two types so a change to
+# what a regexp rule may carry lands once.
+#
+# message_regexp may be left off when something else does the matching...
+# message_json, whose decoded fields the gate tests, or mungers, whose
+# decomposed fields it tests the same way, which is what lets an appliance
+# rule name a parsed field as its offender instead of scanning the line for
+# an address. either makes the gate the matcher, so such a rule must carry
+# one.
+#
+# takes nothing, reading the def, the mungers, and message_json, which only
+# the syslog type sets, off the object... so it is called after those are
+# settled. returns nothing, dying on stages beside the per-line matchers, a
+# per with no stages, anything the compiles it calls refuse, or a rule that
+# would regard every line it decodes as a offense.
+#
+#   $self->_compile_message_matchers;
+sub _compile_message_matchers {
+	my ($self) = @_;
 
+	my $def  = $self->{def};
+	my $name = $self->{name};
+
+	# a staged rule... its stages are the whole matcher, exclusive with the
+	# per-line matchers and the keyed correlation
+	if ( defined( $def->{stages} ) ) {
+		my @beside = grep { defined( $def->{$_} ) } ( 'message_regexp', 'capture_regexp' );
+		if ( $self->{message_json} ) {
+			push( @beside, 'message_json' );
+		}
+		if (@beside) {
+			die(      'The rule "'
+					. $name
+					. '" has stages beside '
+					. join( ', ', @beside )
+					. '... stages are the whole matcher' );
+		}
+		$self->_compile_ignore_regexps;
+		$self->_compile_stages;
+		$self->_compile_boolean;
+		return;
+	} ## end if ( defined( $def->{stages} ) )
+	if ( defined( $def->{per} ) ) {
+		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
+	}
+
+	my $gate_may_match = ( $self->{message_json} || @{ $self->{mungers} } ) ? 1 : 0;
+	$self->_compile_message_regexps($gate_may_match);
+	$self->_compile_capture_regexps;
+
+	# an optional gate or selections+condition refines the match on its
+	# captures, and on the message_json or munger fields too... operators and
+	# decode over the extracted vars, those fields, and the reserved MESSAGE
+	$self->_compile_boolean;
+
+	# a message_json or munger rule with no message_regexp must match on
+	# something, else it would regard every line it decodes as a offense
+	if ( $gate_may_match && !@{ $self->{regexps} } && !$self->{has_boolean} ) {
+		die(      'The rule "'
+				. $name . '" is '
+				. ( $self->{message_json} ? 'message_json' : 'munger driven' )
+				. ' with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
+	}
+
+	return;
+} ## end sub _compile_message_matchers
+
+# compiles the def's message_regexp and ignore_regexp, expanding
+# %%%%TOKEN%%%% tokens into named captures, and populates regexps and
+# ignore_regexps on the object... shared by the handlers whose matching is
+# regexps against a message with something to extract. takes whether a
+# missing message_regexp is allowed, something else doing the matching
+sub _compile_message_regexps {
+	my ( $self, $allow_empty ) = @_;
+
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	$self->{regexps} = [];
 
 	# does any pattern leave the offender open to being chosen by whoever wrote
 	# the line? run_tests turns a yes into a demand for a tests.injection entry
-	$self->_detect_injection_shape($def);
+	$self->_detect_injection_shape;
 
 	# a message_json rule may have no message_regexp, the json fields being
 	# what it matches on, so the caller can allow an empty list. a missing key
 	# is fine then; a present but malformed one is still an error
 	if ( !defined( $def->{message_regexp} ) && $allow_empty ) {
-		$self->_compile_ignore_regexps($def);
+		$self->_compile_ignore_regexps;
 		return;
 	}
 	if ( !is_plain_arrayref( $def->{message_regexp} ) || !@{ $def->{message_regexp} } ) {
@@ -2144,7 +2225,7 @@ sub _compile_message_regexps {
 		} ## end if ( is_plain_hashref($item) )
 	} ## end foreach my $item ( @{ $def->{message_regexp} } )
 
-	$self->_compile_ignore_regexps($def);
+	$self->_compile_ignore_regexps;
 
 	foreach my ( $entry_int, $item ) ( indexed @{ $def->{message_regexp} } ) {
 		my $regexp   = is_plain_hashref($item) ? $item->{regexp} : $item;
@@ -2161,12 +2242,13 @@ sub _compile_message_regexps {
 	return;
 } ## end sub _compile_message_regexps
 
-# compiles the ignore_regexp of the passed def onto the object... tokens
+# compiles the def's ignore_regexp onto the object... tokens
 # work here too, but nothing is captured from them, so the aliases are
 # just thrown away. shared by the message_regexp and stages matchers
 sub _compile_ignore_regexps {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	$self->{ignore_regexps} = [];
@@ -2197,8 +2279,9 @@ sub _compile_ignore_regexps {
 # components ride the correlation key machinery, so envelope fields work
 # where the type carries them
 sub _compile_stages {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	if ( !is_plain_arrayref( $def->{stages} ) || !@{ $def->{stages} } ) {
@@ -2451,13 +2534,14 @@ sub _stage_hit {
 	return undef;
 } ## end sub _stage_hit
 
-# compiles the capture_regexp of the passed def... entries harvest
+# compiles the def's capture_regexp onto the object... entries harvest
 # correlation context rather than being offenses, each a hash of a
 # tokened regexp, the capture name serving as the correlation key, and a
 # ttl for how long the harvested captures live
 sub _compile_capture_regexps {
-	my ( $self, $def ) = @_;
+	my ($self) = @_;
 
+	my $def  = $self->{def};
 	my $name = $self->{name};
 
 	$self->{capture_regexps} = [];
@@ -2964,7 +3048,10 @@ sub _context_store {
 # differs by type (tokened for json, plain and field-checked for http), so
 # the caller hands one in
 sub _compile_match_ignore {
-	my ( $self, $def, $name, $compile_entry ) = @_;
+	my ( $self, $compile_entry ) = @_;
+
+	my $def  = $self->{def};
+	my $name = $self->{name};
 
 	foreach my $sort ( 'match', 'ignore' ) {
 		if ( !defined( $def->{$sort} ) ) {
@@ -2993,7 +3080,10 @@ sub _compile_match_ignore {
 # selections and the reverse. shared by every type that carries a gate, so json,
 # syslog, and raw all get the operators, decode, and the boolean form uniformly
 sub _compile_boolean {
-	my ( $self, $def, $name ) = @_;
+	my ($self) = @_;
+
+	my $def  = $self->{def};
+	my $name = $self->{name};
 
 	if ( defined( $def->{gate} ) && defined( $def->{selections} ) ) {
 		die( 'The rule "' . $name . '" has both a gate and selections, which are two forms of the same thing' );
@@ -3025,7 +3115,7 @@ sub _compile_boolean {
 		die( 'The rule "' . $name . '" has a condition but no selections' );
 	}
 
-	$self->_compile_keywords( $def, $name );
+	$self->_compile_keywords;
 
 	# whether any boolean filter exists at all, judged once here... the one
 	# answer to it. the per-line paths read it to skip building the field
@@ -3064,17 +3154,18 @@ sub _compile_boolean {
 # must hit.
 #
 # args:
-#   $def    :: the rule's def
-#   $name   :: the rule's name, for the die messages
 #   $fields :: arrayref of the def keys that are field gates, each named for
 #              the parsed field it gates, as status and method are
 #
 # returns nothing. the compiled gates land in $self->{field_gates}, keyed by
 # field. a gate key that is set but is not a non-empty array dies.
 #
-#   $self->_compile_field_gates( $def, $name, [ 'status', 'method' ] );
+#   $self->_compile_field_gates( [ 'status', 'method' ] );
 sub _compile_field_gates {
-	my ( $self, $def, $name, $fields ) = @_;
+	my ( $self, $fields ) = @_;
+
+	my $def  = $self->{def};
+	my $name = $self->{name};
 
 	foreach my $field ( @{$fields} ) {
 		if ( !defined( $def->{$field} ) ) {
@@ -3153,7 +3244,10 @@ sub _boolean_and_harvest {
 # %%%ANY%%%; the { in, values } form searches a named path, a %%%ANY:prefix%%%
 # subtree, or %%%ANY%%%, so a rule can scope the search when it knows the path
 sub _compile_keywords {
-	my ( $self, $def, $name ) = @_;
+	my ($self) = @_;
+
+	my $def  = $self->{def};
+	my $name = $self->{name};
 
 	if ( !defined( $def->{keywords} ) ) {
 		return;

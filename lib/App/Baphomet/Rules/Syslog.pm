@@ -259,7 +259,8 @@ L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 =head2 new
 
 Initiates the object, compiling the passed rule def. Will die on a invalid
-or uncompilable def.
+or uncompilable def. Inherited from L<App::Baphomet::Rules::Base>, which
+calls this type's own compile of the def.
 
     - name :: The rule name, for error messages.
         Default :: unnamed
@@ -269,31 +270,30 @@ or uncompilable def.
 
 =cut
 
-sub new {
-	my ( $blank, %opts ) = @_;
-
-	my $self = {
-		name            => $opts{name} // 'unnamed',
-		def             => $opts{def},
-		daemon_matchers => undef,
-		gates           => [],
-		message_json    => 0,
-	};
-	bless( $self, ref($blank) || $blank );
+# compiles the rule's def onto the object, this type's half of new... checks
+# the def, then compiles the daemons gate, the message_json switch, the
+# matchers, and the boolean. called once, by the new every handler inherits
+# from App::Baphomet::Rules::Base, after it has set name and def.
+#
+# takes nothing. returns nothing, dying on a invalid or uncompilable def.
+#
+#   $self->_compile;
+sub _compile {
+	my ($self) = @_;
 
 	my $name = $self->{name};
-	my $def  = $opts{def};
+	my $def  = $self->{def};
 
-	$self->_check_common( $def, $name,
+	$self->_check_common(
 		[qw( daemons message_regexp ignore_regexp capture_regexp message_json stages per ban_var mungers )] );
 
 	# the optional Log-Munger enrichment pass... validated and stored here,
 	# the processor built lazily (or prewarmed by the galla)
-	$self->_compile_mungers( $def, $name );
+	$self->_compile_mungers;
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var... daemons is required either way
-	$self->_check_ban_var( $def, $name );
+	$self->_check_ban_var;
 	if ( !is_plain_arrayref( $def->{daemons} ) || !@{ $def->{daemons} } ) {
 		die( 'The rule "' . $name . '" lacks a daemons array or it is empty' );
 	}
@@ -317,47 +317,14 @@ sub new {
 		'syslog.pid'    => 1,
 	};
 
-	# a staged rule... its stages are the whole matcher, exclusive with the
-	# per-line matchers and the keyed correlation
-	if ( defined( $def->{stages} ) ) {
-		if ( defined( $def->{message_regexp} ) || defined( $def->{capture_regexp} ) || $self->{message_json} ) {
-			die(      'The rule "'
-					. $name
-					. '" has stages beside message_regexp, capture_regexp, or message_json... stages are the whole matcher'
-			);
-		}
-		$self->_compile_ignore_regexps($def);
-		$self->_compile_stages($def);
-		$self->_compile_boolean( $def, $name );
-		return $self;
-	} ## end if ( defined( $def->{stages} ) )
-	if ( defined( $def->{per} ) ) {
-		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
-	}
+	# the stages or the per-line regexps, with the ignores and the boolean...
+	# shared with the raw type. message_json and the mungers, both settled
+	# above, are what may stand in for a message_regexp, the gate then being
+	# the matcher
+	$self->_compile_message_matchers;
 
-	# the token and regexp machinery lives in the base class. message_regexp may
-	# be left off when something else does the matching... message_json, whose
-	# decoded fields the gate tests, or mungers, whose decomposed fields it
-	# tests the same way. Either makes the gate the matcher
-	$self->_compile_message_regexps( $def, $self->{message_json} || scalar @{ $self->{mungers} } );
-	$self->_compile_capture_regexps($def);
-
-	# an optional gate or selections+condition refines the match on its
-	# captures, and when message_json on the decoded fields too... operators and
-	# decode over the extracted vars, the json fields, and the reserved MESSAGE
-	$self->_compile_boolean( $def, $name );
-
-	# a message_json or munger rule with no message_regexp must match on
-	# something, else it would regard every line it decodes as a offense
-	if ( ( $self->{message_json} || @{ $self->{mungers} } ) && !@{ $self->{regexps} } && !$self->{has_boolean} ) {
-		die(      'The rule "'
-				. $name . '" is '
-				. ( $self->{message_json} ? 'message_json' : 'munger driven' )
-				. ' with no message_regexp and no gate, selections, or keywords, so it would banish every line' );
-	}
-
-	return $self;
-} ## end sub new
+	return;
+} ## end sub _compile
 
 =head2 accepts_daemon
 

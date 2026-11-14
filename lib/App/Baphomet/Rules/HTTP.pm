@@ -127,7 +127,8 @@ my %fields = map { $_ => 1 } (
 =head2 new
 
 Initiates the object, compiling the passed rule def. Will die on a invalid
-or uncompilable def.
+or uncompilable def. Inherited from L<App::Baphomet::Rules::Base>, which
+calls this type's own compile of the def.
 
     - name :: The rule name, for error messages.
         Default :: unnamed
@@ -137,35 +138,38 @@ or uncompilable def.
 
 =cut
 
-sub new {
-	my ( $blank, %opts ) = @_;
-
-	my $self = {
-		name        => $opts{name} // 'unnamed',
-		def         => $opts{def},
-		field_gates => {},
-		matches     => [],
-		ignores     => [],
-	};
-	bless( $self, ref($blank) || $blank );
+# compiles the rule's def onto the object, this type's half of new... checks
+# the def, then compiles the status and method gates, the boolean, and the
+# match and ignore entries. called once, by the new every handler inherits
+# from App::Baphomet::Rules::Base, after it has set name and def.
+#
+# takes nothing. returns nothing, dying on a invalid or uncompilable def.
+#
+#   $self->_compile;
+sub _compile {
+	my ($self) = @_;
 
 	my $name = $self->{name};
-	my $def  = $opts{def};
+	my $def  = $self->{def};
 
-	$self->_check_common( $def, $name, [qw( status method match ignore )] );
+	# the slots only this type fills, empty till the def says otherwise
+	$self->{field_gates} = {};
+	$self->{matches}     = [];
+	$self->{ignores}     = [];
+
+	$self->_check_common( [qw( status method match ignore )] );
 
 	# an http rule banishes host by default, but naming a detection_var (a URI,
 	# a user-agent) makes it detection-only, counting by that instead
-	$self->_check_detection_var( $def, $name );
+	$self->_check_detection_var;
 
-	$self->_compile_field_gates( $def, $name, [ 'status', 'method' ] );
+	$self->_compile_field_gates( [ 'status', 'method' ] );
 
 	# the generic gate / selections / keywords over the parsed fields, the same
 	# operator, decode, and boolean machinery the json type uses
-	$self->_compile_boolean( $def, $name );
+	$self->_compile_boolean;
 
 	$self->_compile_match_ignore(
-		$def, $name,
 		sub {
 			my ( $entry, $where ) = @_;
 			if ( !defined( $fields{ $entry->{field} } ) ) {
@@ -188,8 +192,8 @@ sub new {
 				. '" has no gates, selections, keywords, or matches... it would regard nothing as a offense' );
 	}
 
-	return $self;
-} ## end sub new
+	return;
+} ## end sub _compile
 
 =head2 check
 

@@ -67,7 +67,8 @@ single purpose app logs rather than busy shared ones.
 =head2 new
 
 Initiates the object, compiling the passed rule def. Will die on a invalid
-or uncompilable def.
+or uncompilable def. Inherited from L<App::Baphomet::Rules::Base>, which
+calls this type's own compile of the def.
 
     - name :: The rule name, for error messages.
         Default :: unnamed
@@ -77,71 +78,36 @@ or uncompilable def.
 
 =cut
 
-sub new {
-	my ( $blank, %opts ) = @_;
+# compiles the rule's def onto the object, this type's half of new... checks
+# the def, then compiles the matchers and the boolean. called once, by the new
+# every handler inherits from App::Baphomet::Rules::Base, after it has set
+# name and def.
+#
+# takes nothing. returns nothing, dying on a invalid or uncompilable def.
+#
+#   $self->_compile;
+sub _compile {
+	my ($self) = @_;
 
-	my $self = {
-		name  => $opts{name} // 'unnamed',
-		def   => $opts{def},
-		gates => [],
-	};
-	bless( $self, ref($blank) || $blank );
-
-	my $name = $self->{name};
-	my $def  = $opts{def};
-
-	$self->_check_common( $def, $name, [qw( message_regexp ignore_regexp capture_regexp stages per ban_var mungers )] );
+	$self->_check_common( [qw( message_regexp ignore_regexp capture_regexp stages per ban_var mungers )] );
 
 	# the optional Log-Munger enrichment pass... a raw line has only its
 	# message to feed, no syslog envelope
-	$self->_compile_mungers( $def, $name );
+	$self->_compile_mungers;
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var
-	$self->_check_ban_var( $def, $name );
+	$self->_check_ban_var;
 
-	# a staged rule... its stages are the whole matcher, exclusive with the
-	# per-line matchers and the keyed correlation. the raw type has no
-	# envelope, so a per naming syslog.* refuses in the shared compile
-	if ( defined( $def->{stages} ) ) {
-		if ( defined( $def->{message_regexp} ) || defined( $def->{capture_regexp} ) ) {
-			die(      'The rule "'
-					. $name
-					. '" has stages beside message_regexp or capture_regexp... stages are the whole matcher' );
-		}
-		$self->_compile_ignore_regexps($def);
-		$self->_compile_stages($def);
-		$self->_compile_boolean( $def, $name );
-		return $self;
-	} ## end if ( defined( $def->{stages} ) )
-	if ( defined( $def->{per} ) ) {
-		die( 'The rule "' . $name . '" has a per but no stages for it to key' );
-	}
+	# the stages or the per-line regexps, with the ignores and the boolean...
+	# shared with the syslog type. the raw type has no envelope, so a per or a
+	# key naming syslog.* is refused in there, and its mungers, settled above,
+	# are what may stand in for a message_regexp, the gate then being the
+	# matcher
+	$self->_compile_message_matchers;
 
-	# the token and regexp machinery lives in the base class. message_regexp may
-	# be left off when the rule carries mungers, the decomposed fields being
-	# what the gate matches on... the same concession message_json has on
-	# syslog rules, and what lets an appliance rule name a parsed field as its
-	# offender instead of scanning the line for an address
-	$self->_compile_message_regexps( $def, scalar @{ $self->{mungers} } );
-	$self->_compile_capture_regexps($def);
-
-	# an optional gate or selections+condition refines the match on its
-	# captures, and with mungers on the decomposed fields too... operators and
-	# decode over the extracted vars, and MESSAGE
-	$self->_compile_boolean( $def, $name );
-
-	# a munger rule with no message_regexp must match on something, else it
-	# would regard every line the munger decomposes as a offense
-	if ( @{ $self->{mungers} } && !@{ $self->{regexps} } && !$self->{has_boolean} ) {
-		die(      'The rule "'
-				. $name
-				. '" is munger driven with no message_regexp and no gate, selections, or keywords, so it would banish every line'
-		);
-	}
-
-	return $self;
-} ## end sub new
+	return;
+} ## end sub _compile
 
 =head2 check
 

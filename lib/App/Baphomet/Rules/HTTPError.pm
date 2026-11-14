@@ -113,7 +113,8 @@ documented under L<App::Baphomet::Rules::Base/"RULE FORMAT">.
 =head2 new
 
 Initiates the object, compiling the passed rule def. Will die on a invalid
-or uncompilable def.
+or uncompilable def. Inherited from L<App::Baphomet::Rules::Base>, which
+calls this type's own compile of the def.
 
     - name :: The rule name, for error messages.
         Default :: unnamed
@@ -123,32 +124,36 @@ or uncompilable def.
 
 =cut
 
-sub new {
-	my ( $blank, %opts ) = @_;
-
-	my $self = {
-		name           => $opts{name} // 'unnamed',
-		def            => $opts{def},
-		field_gates    => {},
-		regexps        => [],
-		ignore_regexps => [],
-	};
-	bless( $self, ref($blank) || $blank );
+# compiles the rule's def onto the object, this type's half of new... checks
+# the def, then compiles the level and module gates, the boolean, and the
+# regexps. called once, by the new every handler inherits from
+# App::Baphomet::Rules::Base, after it has set name and def.
+#
+# takes nothing. returns nothing, dying on a invalid or uncompilable def.
+#
+#   $self->_compile;
+sub _compile {
+	my ($self) = @_;
 
 	my $name = $self->{name};
-	my $def  = $opts{def};
+	my $def  = $self->{def};
 
-	$self->_check_common( $def, $name, [qw( level module message_regexp ignore_regexp )] );
+	# the slots only this type fills, empty till the def says otherwise
+	$self->{field_gates}    = {};
+	$self->{regexps}        = [];
+	$self->{ignore_regexps} = [];
+
+	$self->_check_common( [qw( level module message_regexp ignore_regexp )] );
 
 	# an http_error rule banishes client by default, but naming a detection_var
 	# makes it detection-only, counting by that instead
-	$self->_check_detection_var( $def, $name );
+	$self->_check_detection_var;
 
-	$self->_compile_field_gates( $def, $name, [ 'level', 'module' ] );
+	$self->_compile_field_gates( [ 'level', 'module' ] );
 
 	# the generic gate / selections / keywords over the parsed fields, the same
 	# machinery the json type uses, ANDed ahead of the message_regexp match
-	$self->_compile_boolean( $def, $name );
+	$self->_compile_boolean;
 
 	if ( !is_plain_arrayref( $def->{message_regexp} ) || !@{ $def->{message_regexp} } ) {
 		die( 'The rule "' . $name . '" lacks a message_regexp array or it is empty' );
@@ -181,8 +186,8 @@ sub new {
 		} ## end foreach my ( $entry_int, $regexp ) ( indexed @{...})
 	} ## end foreach my $sort ( 'message_regexp', 'ignore_regexp')
 
-	return $self;
-} ## end sub new
+	return;
+} ## end sub _compile
 
 =head2 check
 

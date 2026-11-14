@@ -169,7 +169,8 @@ dotted field path, the json type's one wrinkle.
 =head2 new
 
 Initiates the object, compiling the passed rule def. Will die on a invalid
-or uncompilable def.
+or uncompilable def. Inherited from L<App::Baphomet::Rules::Base>, which
+calls this type's own compile of the def.
 
     - name :: The rule name, for error messages.
         Default :: unnamed
@@ -179,33 +180,35 @@ or uncompilable def.
 
 =cut
 
-sub new {
-	my ( $blank, %opts ) = @_;
-
-	my $self = {
-		name    => $opts{name} // 'unnamed',
-		def     => $opts{def},
-		gates   => [],
-		matches => [],
-		ignores => [],
-	};
-	bless( $self, ref($blank) || $blank );
+# compiles the rule's def onto the object, this type's half of new... checks
+# the def, then compiles the boolean, the match and ignore entries, and the
+# correlation layer. called once, by the new every handler inherits from
+# App::Baphomet::Rules::Base, after it has set name and def.
+#
+# takes nothing. returns nothing, dying on a invalid or uncompilable def.
+#
+#   $self->_compile;
+sub _compile {
+	my ($self) = @_;
 
 	my $name = $self->{name};
-	my $def  = $opts{def};
+	my $def  = $self->{def};
 
-	$self->_check_common( $def, $name, [qw( match ignore capture key defer ban_var )] );
+	# the slots only this type fills, empty till the def says otherwise
+	$self->{matches} = [];
+	$self->{ignores} = [];
+
+	$self->_check_common( [qw( match ignore capture key defer ban_var )] );
 
 	# a detection-only rule counts by its detection_var subject and never
 	# banishes, so it needs no ban_var
-	$self->_check_ban_var( $def, $name );
+	$self->_check_ban_var;
 
 	# the flat gate or the boolean selections+condition form, compiled in the
 	# base class and shared with the syslog and raw types
-	$self->_compile_boolean( $def, $name );
+	$self->_compile_boolean;
 
 	$self->_compile_match_ignore(
-		$def, $name,
 		sub {
 			my ( $entry, $where ) = @_;
 			return {
@@ -293,8 +296,8 @@ sub new {
 		$self->{defer} = $def->{defer};
 	}
 
-	return $self;
-} ## end sub new
+	return;
+} ## end sub _compile
 
 =head2 gate_discriminators
 
