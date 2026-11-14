@@ -80,8 +80,9 @@ Optional, the shared predicate matcher run over the parsed access-log fields
 (host, method, path, status, referer, user_agent, ...) as a pre-filter ANDed
 ahead of the matches. So a C<gate> with the typed operators and C<decode>, a
 C<selections>/C<condition> boolean, or a C<keywords> / C<%%%ANY%%%> search
-across the fields all work here. See
-L<App::Baphomet::Rules::Base/"The predicate gate"> for the forms.
+across the fields all work here. See the predicate gate section of
+F<docs/rules.md> for the forms,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#gate--selections--condition--keywords>.
 
 =head2 match
 

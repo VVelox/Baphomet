@@ -44,7 +44,8 @@ not load. This is what runs them... a throwaway mark store, tracked-record
 store, and virtual clock per test entry, with the DNS and GeoIP lookups
 fixtured, so a rule proves its matching, its brands, and its gates with no
 galla up. What a test entry may hold is documented for rule authors under
-L<App::Baphomet::Rules::Base/tests>.
+the tests section of F<docs/rules.md>,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#tests>.
 
 L</run_tests> takes the rule as its first argument and
 L<App::Baphomet::Rules::Base> imports it, which makes it a method of every
@@ -126,7 +127,6 @@ sub run_tests {
 	# load, quietly defeating the prove-itself-at-load design
 	foreach my $section ( keys( %{$tests} ) ) {
 		if ( $section !~ /^(?:positive|negative|injection)$/ ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, 'unknown tests section "' . $section . '"' );
 		}
 	}
@@ -152,7 +152,6 @@ sub run_tests {
 			next;
 		}
 		if ( !is_plain_arrayref( $tests->{$sort} ) ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, $sort . ' tests is not a array' );
 			next;
 		}
@@ -168,7 +167,6 @@ sub run_tests {
 			if ( !is_plain_hashref($test)
 				|| ( !defined( $test->{message} ) && !is_plain_arrayref( $test->{messages} ) ) )
 			{
-				$results->{fail}++;
 				push( @{ $results->{failures} }, $where . ' is not a hash with a message or a messages array' );
 				next TEST;
 			}
@@ -177,7 +175,6 @@ sub run_tests {
 			# line matched, which is the half that was never in doubt... naming
 			# the offender is the whole assertion
 			if ( $sort eq 'injection' && !is_plain_hashref( $test->{data} ) ) {
-				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
 					$where . ' has no data block naming the offender the forged line must still aim at'
@@ -192,7 +189,6 @@ sub run_tests {
 			} keys( %{$test} );
 			if (@unknown_keys) {
 				foreach my $test_key (@unknown_keys) {
-					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has the unknown key "' . $test_key . '"' );
 				}
 				next TEST;
@@ -246,7 +242,6 @@ sub run_tests {
 				try {
 					$geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where );
 				} catch ($caught) {
-					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $caught );
 					next TEST;
 				}
@@ -258,60 +253,13 @@ sub run_tests {
 			my $is_detection = $self->is_detection;
 			my $rdns_gate    = defined($dns_resolver) ? $self->reverse_dns : undef;
 
-			# the data-level gates that vet each result once, in the galla's
-			# order and through the same shared App::Baphomet::Offense pass...
-			# the mark gates always, the reverse_dns and vars country gates when
-			# a fixture stands in. namtar and active_time are galla-only, not
-			# fixtured here. each takes the result's data
-			my @data_gates = (
-				sub {
-					my ($data) = @_;
-					return App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $data, undef, $clock );
-				}
-			);
-			if ( defined($rdns_gate) ) {
-				push(
-					@data_gates,
-					sub {
-						my ($data) = @_;
-						return App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, undef );
-					}
-				);
-			}
-			if ( defined($geo_gate) ) {
-				push(
-					@data_gates,
-					sub {
-						my ($data) = @_;
-						return App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, undef );
-					}
-				);
-			}
-
-			# the per-offender gates a rule file can fixture... the var-less
-			# reverse_dns and country gates. a var-less mark gate is
-			# offender-time, not provable here, as the tests section documents,
-			# so it is not among them. takes the result's data and the offender,
-			# undef when no fixtured gate is var-less
+			# whether a fixtured gate is var-less, which makes it a per-offender
+			# gate, judged for each offender of a result rather than once for the
+			# result. a var-less mark gate is offender-time too, but is not
+			# provable here, as the tests section documents, so it is not among
+			# them
 			my $rdns_has_varless = defined($rdns_gate) && any { !defined( $_->{var} ) } @{$rdns_gate};
 			my $geo_varless      = defined($geo_gate)  && !defined( $geo_gate->{vars} );
-			my $offender_gate;
-			if ( $rdns_has_varless || $geo_varless ) {
-				$offender_gate = sub {
-					my ( $data, $ip ) = @_;
-					if ( $rdns_has_varless
-						&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
-					{
-						return 0;
-					}
-					if ( $geo_varless
-						&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
-					{
-						return 0;
-					}
-					return 1;
-				}; ## end $offender_gate = sub
-			} ## end if ( $rdns_has_varless || $geo_varless )
 
 			my @found_all;
 			my $message_index = -1;
@@ -324,16 +272,14 @@ sub run_tests {
 						keys( %{$message_entry} );
 					if (@unknown_entry_keys) {
 						foreach my $entry_key (@unknown_entry_keys) {
-							$results->{fail}++;
 							push(
 								@{ $results->{failures} },
 								$where . ' has a messages entry with the unknown key "' . $entry_key . '"'
 							);
 						}
 						next TEST;
-					} ## end if (@unknown_entry_keys)
+					}
 					if ( !defined( $message_entry->{message} ) ) {
-						$results->{fail}++;
 						push( @{ $results->{failures} }, $where . ' has a messages entry hash with no message' );
 						next TEST;
 					}
@@ -353,12 +299,10 @@ sub run_tests {
 				try {
 					$parsed = App::Baphomet::Parser::parse( $parser, $message );
 				} catch ($caught) {
-					$results->{fail}++;
 					push( @{ $results->{failures} }, $where . ' has a unusable parser... ' . $caught );
 					next TEST;
 				}
 				if ( !defined($parsed) ) {
-					$results->{fail}++;
 					push(
 						@{ $results->{failures} },
 						$where . ' message did not parse via ' . $parser . '... "' . $message . '"'
@@ -391,15 +335,23 @@ sub run_tests {
 				foreach my $one (@results_of_line) {
 					my $data = $one->{data};
 
-					# data_gate_pass takes argument-less checks, so each gate
-					# is bound to this result's data
-					my @data_checks = map {
-						my $gate_check = $_;
-						sub { return $gate_check->($data); }
-					} @data_gates;
-					if ( !App::Baphomet::Offense::data_gate_pass( \@data_checks ) ) {
+					# the data-level gates vet the result once, in the galla's
+					# order... the mark gates always, the reverse_dns and vars
+					# country gates when a fixture stands in. namtar and
+					# active_time are galla-only, not fixtured here. the first
+					# veto ends it, as it does in the galla, where it spares the
+					# lookups a later gate would make, and a vetoed result did
+					# not fire, so it is neither branded nor counted as found
+					if (
+						!App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $data, undef, $clock )
+						|| ( defined($rdns_gate)
+							&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, undef ) )
+						|| ( defined($geo_gate)
+							&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, undef ) )
+						)
+					{
 						next;
-					}
+					} ## end if ( !App::Baphomet::Marks::mark_gates_pass...)
 
 					# offenders as the galla resolves them, sans the
 					# usedns/internal filtering no test needs... a detection
@@ -413,10 +365,23 @@ sub run_tests {
 					# through the shared App::Baphomet::Offense core, the same
 					# the galla uses, so the self-test can not drift from the
 					# engine
-					my $result_offender_gate;
-					if ( defined($offender_gate) ) {
-						$result_offender_gate = sub { return $offender_gate->( $data, $_[0] ); };
-					}
+					my $offender_gate;
+					if ( $rdns_has_varless || $geo_varless ) {
+						$offender_gate = sub {
+							my ($ip) = @_;
+							if ( $rdns_has_varless
+								&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
+							{
+								return 0;
+							}
+							if ( $geo_varless
+								&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
+							{
+								return 0;
+							}
+							return 1;
+						}; ## end $offender_gate = sub
+					} ## end if ( $rdns_has_varless || $geo_varless )
 					my $offense = App::Baphomet::Offense::resolve_offense(
 						'store'     => \%marks_store,
 						'marks'     => $marks,
@@ -424,7 +389,7 @@ sub run_tests {
 						'data'      => $data,
 						'offenders' => \@offenders,
 						'now'       => $clock,
-						'gate'      => $result_offender_gate,
+						'gate'      => $offender_gate,
 					);
 					if ( $offense->{fired} ) {
 						push( @found_all, $one );
@@ -434,7 +399,6 @@ sub run_tests {
 				# the mid-run assertions a hash entry carries
 				my $after_where = $where . ' after message ' . $message_index;
 				if ( defined($found_after) && scalar(@found_all) != $found_after ) {
-					$results->{fail}++;
 					push(
 						@{ $results->{failures} },
 						$where
@@ -477,7 +441,6 @@ sub run_tests {
 
 			if ( $got_found != $expected_found ) {
 				my $last_message = is_plain_hashref( $messages[-1] ) ? $messages[-1]{message} : $messages[-1];
-				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
 					$where
@@ -497,7 +460,6 @@ sub run_tests {
 				foreach my $key ( sort( keys( %{ $test->{data} } ) ) ) {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( !defined($got) || $got ne $test->{data}{$key} ) {
-						$results->{fail}++;
 						push(
 							@{ $results->{failures} },
 							$where
@@ -516,7 +478,6 @@ sub run_tests {
 				foreach my $key ( @{ $test->{undefed} } ) {
 					my $got = defined($found) ? $found->{data}{$key} : undef;
 					if ( defined($got) ) {
-						$results->{fail}++;
 						push(
 							@{ $results->{failures} },
 							$where . ' expected ' . $key . ' to be undef but got "' . $got . '"'
@@ -542,6 +503,9 @@ sub run_tests {
 		} ## end TEST: foreach my $test ( @{ $tests->{$sort} } )
 	} ## end foreach my $sort ( 'positive', 'negative', 'injection')
 
+	# every failure above pushed its text, so the count is the list's length
+	$results->{fail} = scalar( @{ $results->{failures} } );
+
 	return $results;
 } ## end sub run_tests
 
@@ -555,24 +519,20 @@ sub _test_dns_resolver {
 	my ( $fixture, $where, $results ) = @_;
 
 	if ( !is_plain_hashref($fixture) ) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' dns is not a hash' );
 		return undef;
 	}
 	foreach my $fixture_key ( keys( %{$fixture} ) ) {
 		if ( $fixture_key !~ /^(?:ptr|forward)$/ ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' dns has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
 		if ( !is_plain_hashref( $fixture->{$fixture_key} ) ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' dns ' . $fixture_key . ' is not a hash' );
 			return undef;
 		}
 		foreach my ( $subject, $answer ) ( %{ $fixture->{$fixture_key} } ) {
 			if ( !is_plain_arrayref($answer) && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
-				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
 					$where . ' dns '
@@ -614,18 +574,15 @@ sub _test_geo_locator {
 	my ( $fixture, $where, $results ) = @_;
 
 	if ( !is_plain_hashref($fixture) ) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' geo is not a hash' );
 		return undef;
 	}
 	foreach my $fixture_key ( keys( %{$fixture} ) ) {
 		if ( $fixture_key !~ /^(?:countries|lists)$/ ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' geo has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
 		if ( !is_plain_hashref( $fixture->{$fixture_key} ) ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' geo ' . $fixture_key . ' is not a hash' );
 			return undef;
 		}
@@ -633,7 +590,6 @@ sub _test_geo_locator {
 	foreach my $address ( keys( %{ $fixture->{countries} || {} } ) ) {
 		my $code = $fixture->{countries}{$address};
 		if ( ref($code) ne '' || $code !~ /^(?:[a-zA-Z]{2}|unknown)$/ ) {
-			$results->{fail}++;
 			push(
 				@{ $results->{failures} },
 				$where . ' geo countries "' . $address . '" is not a 2-letter code or unknown'
@@ -643,7 +599,6 @@ sub _test_geo_locator {
 	} ## end foreach my $address ( keys( %{ $fixture->{countries...}}))
 	foreach my $list_name ( keys( %{ $fixture->{lists} || {} } ) ) {
 		if ( !is_plain_arrayref( $fixture->{lists}{$list_name} ) ) {
-			$results->{fail}++;
 			push( @{ $results->{failures} }, $where . ' geo lists "' . $list_name . '" is not a array' );
 			return undef;
 		}
@@ -696,15 +651,13 @@ sub _test_store_entry_malformed {
 		|| ( $needs_fields && !is_plain_hashref( $entry->{fields} ) ) )
 	{
 		my $lacking = $needs_fields ? 'a name, key, and fields hash' : 'a name and key';
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' lacking ' . $lacking );
 		return 1;
-	} ## end if ( !is_plain_hashref($entry) || !defined...)
+	}
 
 	my %allowed_keys = map  { $_ => 1 } @{$allowed};
 	my @unknown_keys = grep { !$allowed_keys{$_} } keys( %{$entry} );
 	foreach my $unknown_key (@unknown_keys) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' has a ' . $label . ' with the unknown key "' . $unknown_key . '"' );
 	}
 
@@ -760,7 +713,6 @@ sub _test_tracked_seed {
 	my ( $store, $seeds, $clock, $where, $results ) = @_;
 
 	if ( !is_plain_arrayref($seeds) ) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' tracked_before is not a array' );
 		return 1;
 	}
@@ -814,7 +766,6 @@ sub _test_tracked_assert {
 	my ( $store, $expected, $clock, $where, $results ) = @_;
 
 	if ( !is_plain_arrayref($expected) ) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' tracked assertion is not a array' );
 		return 1;
 	}
@@ -839,7 +790,6 @@ sub _test_tracked_assert {
 
 		if ( $expect->{absent} ) {
 			if ( defined($record) ) {
-				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
 					$where . ' expected no live ' . $expect->{name} . ' record for "' . $shown . '" but found one'
@@ -850,7 +800,6 @@ sub _test_tracked_assert {
 		} ## end if ( $expect->{absent} )
 
 		if ( !defined($record) ) {
-			$results->{fail}++;
 			push(
 				@{ $results->{failures} },
 				$where . ' expected a live ' . $expect->{name} . ' record for "' . $shown . '" but found none'
@@ -866,7 +815,6 @@ sub _test_tracked_assert {
 			my $got  = $record->{$field};
 			my $want = $expect->{fields}{$field};
 			if ( !defined($got) || "$got" ne "$want" ) {
-				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
 					$where . ' '
@@ -913,7 +861,6 @@ sub _test_marks_seed {
 	my ( $store, $seeds, $clock, $where, $results ) = @_;
 
 	if ( !is_plain_arrayref($seeds) ) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' marks_before is not a array' );
 		return 1;
 	}
@@ -968,7 +915,6 @@ sub _test_marks_assert {
 	my ( $store, $expected, $clock, $where, $results ) = @_;
 
 	if ( !is_plain_arrayref($expected) ) {
-		$results->{fail}++;
 		push( @{ $results->{failures} }, $where . ' marks assertion is not a array' );
 		return 1;
 	}
@@ -993,7 +939,6 @@ sub _test_marks_assert {
 		my $live = defined($mark) && $mark->{expires} > $clock;
 		if ( $expect->{absent} ) {
 			if ($live) {
-				$results->{fail}++;
 				push(
 					@{ $results->{failures} },
 					$where . ' expected no live mark ' . $expect->{name} . ' on "' . $shown . '" but one is'
@@ -1003,7 +948,6 @@ sub _test_marks_assert {
 			next;
 		} ## end if ( $expect->{absent} )
 		if ( !$live ) {
-			$results->{fail}++;
 			push(
 				@{ $results->{failures} },
 				$where . ' expected a live mark ' . $expect->{name} . ' on "' . $shown . '" but found none'
@@ -1014,7 +958,6 @@ sub _test_marks_assert {
 		if ( defined( $expect->{value} )
 			&& ( !defined( $mark->{value} ) || $mark->{value} ne $expect->{value} ) )
 		{
-			$results->{fail}++;
 			push(
 				@{ $results->{failures} },
 				$where

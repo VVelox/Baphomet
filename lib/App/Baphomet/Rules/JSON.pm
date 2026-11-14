@@ -69,7 +69,8 @@ C<request.client_ip>), and the reserved C<%%%ANY%%%> / C<%%%ANY:prefix%%%>
 fan a predicate over every field or a subtree. A rule may carry C<gate> or
 C<selections>/C<condition>, not both, and needs at least a gate or a
 L</match>. The full vocabulary... operators, C<decode>, the quantifiers... is
-documented under L<App::Baphomet::Rules::Base/"The predicate gate">.
+documented under the predicate gate section of F<docs/rules.md>,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#gate--selections--condition--keywords>.
 
     gate:
       - field: c
@@ -139,7 +140,8 @@ stands plain on its own data). There is no envelope on this type, so
 C<syslog.*> components are a load error, those names being reserved.
 Correlation state is per watcher, in memory only, and bounded... a galla
 restart forgets pending correlations. Test with the C<messages:> array
-form (see L<App::Baphomet::Rules::Base/tests>).
+form, documented under the tests section of F<docs/rules.md>,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#tests>.
 
 =head2 ban_var
 
@@ -234,11 +236,7 @@ sub new {
 			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' is not a hash' );
 			}
-			foreach my $key ( keys( %{$entry} ) ) {
-				if ( $key !~ /^(?:gate|match|key|ttl)$/ ) {
-					die( $where . ' has the unknown key "' . $key . '"' );
-				}
-			}
+			$self->_check_keys( $entry, [qw( gate match key ttl )], $where . ' has' );
 			if ( !defined( $entry->{key} ) ) {
 				die( $where . ' lacks a key' );
 			}
@@ -267,11 +265,7 @@ sub new {
 					if ( !is_plain_hashref($match) || !defined( $match->{field} ) || !defined( $match->{regexp} ) ) {
 						die( $match_where . ' is not a hash with a field and a regexp' );
 					}
-					foreach my $key ( keys( %{$match} ) ) {
-						if ( $key !~ /^(?:field|regexp)$/ ) {
-							die( $match_where . ' has the unknown key "' . $key . '"' );
-						}
-					}
+					$self->_check_keys( $match, [qw( field regexp )], $match_where . ' has' );
 					push(
 						@{ $compiled->{matches} },
 						{

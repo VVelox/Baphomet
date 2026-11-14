@@ -43,8 +43,9 @@ What a rule's C<gate>, C<selections>, C<condition>, and C<keywords> are
 made of... the string-or-C<//regexp//> matcher lists, the typed predicates
 with their operators and decode chains, the gate lists built from either,
 and the Sigma-style condition that folds named selections. The vocabulary
-itself is documented for rule authors under
-L<App::Baphomet::Rules::Base/"The predicate gate">.
+itself is documented for rule authors under the predicate gate section of
+F<docs/rules.md>,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#gate--selections--condition--keywords>.
 
 Everything here is a plain function holding no rule state. A def's gate
 array goes in and a compiled list comes out, then a compiled list and a

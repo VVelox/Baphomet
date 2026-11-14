@@ -396,7 +396,8 @@ a matched line carries a value for, that value gets counted. Usually just
 syslog/raw, a flattened field or capture on json; the http and http_error
 types do not use `ban_var` at all, their offender is fixed (see
 [how the types differ](#how-the-types-differ)). A rule names `ban_var` or
-`detection_var`, never both.
+`detection_var`, never both, and the syslog, raw, and json types require one
+of the two.
 
 Naming several is ordinary... both ends of a flow, say. Each is counted in
 its own bucket, each is judged by the per-offender gates on its own, and a
@@ -615,7 +616,8 @@ before it is trusted to act... CrowdSec's simulation, on a rule. The rule's
 own `eve_only` layers over the watcher-resolved one, so a deployment can be
 set observe at any level and a trusted rule opt back in with
 `eve_only: false`. The gates all still run; observe mode changes the
-consequence, not the matching.
+consequence, not the matching. Unlike the thresholds and `weight`, it is
+honored whether or not `allow_per_rule_thresholds` is on.
 
 Observe mode differs from a [detection rule](#detection_var): observe mode is
 a would-be ban held back and shown as an `alert`, still keyed to an offender
@@ -630,7 +632,8 @@ Optional, on every rule type. A short human-readable signature naming what
 the rule detects, the Sagan/Suricata `msg` convention... a `[TAG]
 description` line like `[SSHD] authentication failure` or `[SURICATA]
 Attempted Administrator Privilege Gain`. It is written to every EVE event
-the rule produces as the top-level `.msg` field (see [eve](eve.md)), so a SOC
+the rule produces as the top-level `.msg` field (Suricata's
+`alert.signature`, promoted... see [eve](eve.md)), so a SOC
 analyst or a jq one-liner reads what tripped without decoding the raw line.
 When a rule sets none, `.msg` falls back to the rule's name (`syslog/sshd`),
 so it is always present. Inert to matching.
@@ -648,8 +651,9 @@ written to EVE beside `msg` when set (see [eve](eve.md)):
   (e.g. `brute-force`, `web-application-attack`, `trojan-activity`). Emitted as
   `.category`, in words rather than as the slug, the way Snort and Suricata keep
   the slug in the rule and the description in their `classification.config`...
-  `misc-attack` reads downstream as `Misc Attack`. Free-form; a classtype
-  Baphomet's table does not know becomes its slug title-cased.
+  `misc-attack` reads downstream as `Misc Attack`. Free-form; the shipped
+  suricata rules carry their Suricata class here, and a classtype Baphomet's
+  table does not know becomes its slug title-cased.
 - `references` — an array of URLs, CVE ids, or doc links.
 - `attack` — an array of MITRE ATT&CK technique ids (e.g. `T1110`).
 - `rev` — the rule's revision, a non-negative integer, Suricata's
@@ -740,7 +744,8 @@ forged lines it must still aim right on. Each is a hash...
 A test may use `messages`, an array of lines fed through in order, instead of
 a single `message`, with `found` the expected count across the sequence...
 this is how [correlation](#syslog-rules) rules, whose offense and address
-span lines, are tested. The whole `test_parser` key sets a rule-wide default
+span lines, are tested. `data` then asserts against the last result found.
+The whole `test_parser` key sets a rule-wide default
 parser for its tests.
 
 Each test entry runs the galla's own order per line... parse, match, the
@@ -1119,37 +1124,136 @@ capture.
 ### gate / selections / condition / keywords
 
 The predicate layer, a boolean refinement over a line's fields or captures,
-ANDed ahead of the type's own matching. Every type has it.
-
-- **`gate`** — a list of field predicates, ANDed. The legacy form is
-  `{field, values: [ ... ]}` where an entry is a string equality or a
-  `//regexp//`. The typed form, detected by any of an `op`, `value`, `all`,
-  `negate`, `nocase`, `fieldref`, or `decode` key, is
-  `{field, op, value|values, all?, negate?, nocase?, fieldref?, decode?}` with
-  operators `eq`, `contains`, `startswith`, `endswith`, `re`, `gt`/`lt`/`ge`/`le`,
-  `cidr`, and `exists` (the field is present, any value... `negate` makes it the
-  field-absent test), an optional `decode` chain (base64, utf16, url, ...) run before
-  the operator, `negate` that also holds when the field is absent, and `nocase`
-  to case-fold the compare (default off, Baphomet matching case-sensitively...
-  Sigma's default-insensitive match is `nocase: true`). In place of a literal
-  value, `fieldref` names another field to compare against (its live value the
-  needle, Sigma's `|fieldref`), so two fields can be required to agree — or,
-  with `negate`, to differ.
-- **`keywords`** — shorthand for a `contains` over a field, or over every
-  field. A plain list searches everything; the `{in, values}` form scopes it
-  to a path or subtree.
-- **`selections` / `condition`** — the boolean form, and an alternative to
-  `gate` (a rule uses one or the other). `selections` is a table of named
-  predicate lists; `condition` composes them with `and`/`or`/`not`, parens,
-  and the quantifiers `all of them`, `1 of them`, and `N of <prefix>_*`...
-  the OR, nesting, and N-of-M a flat gate can not express, the Sigma model.
+ANDed ahead of the type's own matching. Every type has it, in three forms:
+a flat [`gate`](#gate) list, the [`keywords`](#keywords) shorthand, and the
+boolean [`selections` / `condition`](#selections--condition).
 
 What a `field` names depends on the type... a regexp capture (syslog/raw), a
 flattened dotted path (json), a parsed access/error-log field (http,
-http_error). The reserved `%%%ANY%%%` and `%%%ANY:<prefix>%%%` fan a
-predicate over every field or a subtree. See
-[`App::Baphomet::Rules::JSON`](https://metacpan.org/pod/App::Baphomet::Rules::JSON)
-for the full operator and decode reference.
+http_error). Three names are reserved:
+
+- `%%%ANY%%%` :: Fans the predicate over every field value and, on syslog
+      and raw, the message.
+- `%%%ANY:<prefix>%%%` :: Fans it over just the fields at or under `prefix`.
+- `MESSAGE` :: On syslog and raw, the whole message.
+
+#### gate
+
+Optional, a list of entries, ANDed. Each names a field and the values it
+must have. A field the line does not carry never matches.
+
+The legacy form is `{field, values: [ ... ]}`, where a values entry starting
+and ending with `//` is a regexp and everything else is string equality:
+
+```yaml
+gate:
+  - field: event_type
+    values: [ alert ]
+  - field: alert.category
+    values: [ "//Attack$//", "Misc activity" ]
+```
+
+The typed form is opt-in, detected by the presence of an `op`, `value`,
+`all`, `negate`, `nocase`, `fieldref`, or `decode` key. A plain
+`field`/`values` entry stays the legacy form above.
+
+```yaml
+gate:
+  - { field: event,     op: eq,       value: auth_fail }
+  - { field: bytes_out, op: gt,       value: 1000000 }
+  - { field: src,       op: cidr,     values: [ 10.0.0.0/8, 2001:db8::/32 ] }
+  - { field: cmd,       op: contains, values: [ psexec, mimikatz ], all: false }
+  - { field: user,      op: eq,       value: healthcheck, negate: true }
+```
+
+- `op` :: The operator.
+    - default :: `eq`
+    - `eq` / `contains` / `startswith` / `endswith` :: The string tests.
+    - `re` :: A regexp, [tokens](#message_regexp) included.
+    - `gt` / `lt` / `ge` / `le` :: Numeric. The field is read as a number,
+          and one that is not a number is treated as missing.
+    - `cidr` :: IPv4 or IPv6 membership.
+    - `exists` :: The field is present, whatever its value... Sigma's
+          `|exists`. It takes no value, and with `negate` it is the
+          field-absent test.
+- `value` / `values` :: One scalar or a non-empty list. The entry holds if
+      any of them does, or all of them when `all` is true.
+- `fieldref` :: Names another field to compare against instead of a literal,
+      its value at match time being what is compared, Sigma's `|fieldref`. It
+      stands in for `value`/`values`, and only `eq`, `contains`,
+      `startswith`, and `endswith` take it.
+- `all` :: Require every value to match rather than any.
+    - default :: false
+- `negate` :: Invert the entry.
+- `nocase` :: Case-fold the compare.
+    - default :: false
+- `decode` :: A list of transforms run left to right over the field value
+      before the operator, so an obfuscated payload is compared decoded.
+
+`fieldref` is how a rule says two fields must agree, or with `negate` must
+not... `{ field: auth_user, op: eq, fieldref: cert_user }`. Setting it beside
+a `value` or `values` is an error, and a referenced field the line does not
+carry is a non-match. It folds under `nocase` and its source decodes under
+`decode` like any other compare.
+
+A negated entry also holds when the field is absent, matching Sigma's
+field-absent semantics.
+
+Baphomet matches case-sensitively, so `nocase` is what gives Sigma's
+default-insensitive matching, and a Sigma `|cased` field is just the
+default. It applies to the string ops and to `re`, and is an error on the
+numeric and cidr ops, where it means nothing.
+
+The `decode` transforms are `base64`, `base64offset` (the three alignment
+candidates), `utf16le` / `utf16be` / `utf16` (`wide` being an alias for
+`utf16le`), `windash`, `url`, `lower`, and `upper`. A transform that can not
+decode a value drops that candidate, so a bad decode simply does not match.
+`decode: [ base64, utf16le ]` with `op: contains` is the PowerShell `-enc`
+shape.
+
+#### keywords
+
+Optional, shorthand for a `contains` over the keyword field. A plain list
+searches every field:
+
+```yaml
+keywords: [ mimikatz, sekurlsa, "Invoke-Mimikatz" ]
+```
+
+The table form scopes it with `in`... a field path, a `%%%ANY:prefix%%%`
+subtree, or `%%%ANY%%%`, which is the default... so nothing unrelated is
+searched when the path is known:
+
+```yaml
+keywords:
+  in: process.command_line
+  values: [ mimikatz ]
+```
+
+Keywords are ANDed ahead of any `gate` or `selections`, and may stand alone
+as the whole matcher.
+
+#### selections / condition
+
+Optional, the boolean form and an alternative to `gate`... a rule carries
+one or the other. `selections` is a table of named selections, each a list
+of gate entries, legacy or typed, ANDed together. `condition` is a string
+composing the selections with `and`, `or`, `not`, parens, and the
+quantifiers `all of them`, `1 of them`, and `N of <prefix>_*`. That gives
+the OR, the nesting, and the N-of-M a flat gate can not express, the Sigma
+detection model.
+
+```yaml
+selections:
+  auth:  [ { field: event, op: eq, value: authFailure } ]
+  admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
+  trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
+condition: "auth and admin and not trust"
+```
+
+A selection referenced but not defined, an unbalanced paren, or a stray
+token is a load-time error, as is a `condition` without `selections` or
+`selections` beside a `gate`.
 
 ### marks... cross-rule state, keyed by anything
 
@@ -1246,6 +1350,34 @@ galla state... visible with `baphomet marked`, surviving a restart via a
 marks tablet, unlike correlation context. Scope is the galla, so marks
 cross watchers and rules but not kurs. Each mark name is capped, and the
 ignored are never branded.
+
+#### sequence... marks in order
+
+`marked` asks whether brands are set. `sequence` asks whether they were set
+in order... a rule watching several stages, one `mark_only` rule branding
+each, fires only when they happened in sequence. Legal on every rule type.
+
+```yaml
+sequence:
+  - marks: [ recon, foothold, exfil ]
+    var: HOST
+```
+
+An array of entries, every one required to hold, each a hash of:
+
+- `marks` :: Two or more mark names that must all be set for the key, in the
+      listed order by when each first fired.
+- `var` / `vars` :: Optional, at most one of them. The capture keying the
+      correlation, or several joined into one compound key, as on a `mark`.
+      Without either the key is the offender IP.
+
+A stage that is missing, expired, or out of order fails the gate. The
+ordering compares each brand's first-seen time, which a later re-branding
+does not move, and two stages in the same instant count as in order. That
+time survives a restart and rides the fleet mark sync bus, so a fleet-shared
+sequence correlates stages seen on different machines. Unordered
+correlation, all stages present in any order, is the plain `marked` gate
+over the same brands.
 
 #### The standard brands
 
@@ -1490,7 +1622,8 @@ max_score: 1
 The gate is a array of entries. Each names one or more lists (`lists`, or
 `list` for one) and, optionally, the found var to check (resolved like
 `ban_var`, so JSON dotted paths work); without a var it checks the offender
-IP. A value on **any** of an entry's lists satisfies it (union), and
+IP. A value on **any** of an entry's lists satisfies it (union), even across
+flavors, and
 **every** entry must hold. Like the country gate, a var entry is data-keyed
 and vets the whole result while a var-less one filters offenders.
 
@@ -1536,6 +1669,10 @@ checked against what DNS says about the client. The gate that finally
 ports `apache-fakegooglebot` (shipped as `http/fakegooglebot`): a
 user-agent claiming Googlebot whose client does not reverse into Google's
 domains is a pretender.
+
+It sits behind the galla's `enable_rdns` consent, on by default, and rides
+the optional `Net::DNS` and `POE::Component::Client::DNS` modules (see
+[install](install.md)).
 
 ```yaml
 reverse_dns:

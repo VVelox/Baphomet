@@ -77,7 +77,8 @@ Optional, the shared predicate matcher run over the parsed error fields
 message_regexp match. The typed operators and C<decode>, the
 C<selections>/C<condition> boolean, and C<keywords> / C<%%%ANY%%%> search all
 work here; the C<message> field carries the error text, so keywords search it.
-See L<App::Baphomet::Rules::Base/"The predicate gate"> for the forms.
+See the predicate gate section of F<docs/rules.md> for the forms,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#gate--selections--condition--keywords>.
 
 =head2 message_regexp
 

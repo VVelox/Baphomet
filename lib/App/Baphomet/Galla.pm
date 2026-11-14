@@ -2397,24 +2397,17 @@ sub _process_record {
 			# the data-level gates vet the whole result once... the var-keyed
 			# mark and country gates, the namtar and reverse_dns gates, and
 			# active_time. a veto means the rule did not really fire, so it
-			# neither counts nor consumes the line. ran through the shared
-			# App::Baphomet::Offense pass so the self-tester keeps the same
-			# short-circuit-and-veto shape
-			if (
-				!App::Baphomet::Offense::data_gate_pass(
-					[
-						sub { return $self->_mark_gates_pass( $gates, $one->{data}, undef, $now ); },
-						sub { return $self->_country_gate_pass( $country_gate, $one->{data}, undef ); },
-						sub { return $self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef ); },
-						sub { return $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef ); }
-						,
-						sub { return $self->_active_time_pass( $active_gate, $one->{data}, $now ); },
-					]
-				)
-				)
+			# neither counts nor consumes the line. judged in this order with
+			# the first veto ending it, as the country and reverse_dns gates do
+			# GeoIP and DNS lookups a earlier veto should spare
+			if (   !$self->_mark_gates_pass( $gates, $one->{data}, undef, $now )
+				|| !$self->_country_gate_pass( $country_gate, $one->{data}, undef )
+				|| !$self->_namtar_gate_pass( $namtar_gate, $one->{data}, undef )
+				|| !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef )
+				|| !$self->_active_time_pass( $active_gate, $one->{data}, $now ) )
 			{
 				next;
-			} ## end if ( !App::Baphomet::Offense::data_gate_pass...)
+			}
 
 			$self->_tick( 'matched', $watcher_name, $rule_name );
 

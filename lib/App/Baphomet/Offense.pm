@@ -7,7 +7,7 @@ no feature 'unicode_strings';
 use Exporter             qw( import );
 use App::Baphomet::Marks ();
 
-our @EXPORT_OK = qw( resolve_offense data_gate_pass );
+our @EXPORT_OK = qw( resolve_offense );
 
 =head1 NAME
 
@@ -56,37 +56,6 @@ once: the survivor filter, the gated-out verdict, and the branding of the
 survivors (and only the survivors) via L<App::Baphomet::Marks>.
 
 =head1 FUNCTIONS
-
-=head2 data_gate_pass
-
-Runs a result's data-level gates, the ones evaluated once per result (the
-var-keyed mark, country, namtar, and reverse_dns gates, and active_time)
-rather than per offender. Takes an ordered arrayref of check closures,
-each returning true to pass, and returns true only when every one holds...
-short-circuiting on the first veto, since these gates do DNS and GeoIP
-lookups a earlier veto should spare. A data veto means the whole result
-did not fire: the caller brands nobody and emits nothing, exactly as a
-per-offender full veto does in L</resolve_offense>. Both the galla and the
-rule self-tester run their data pass through here so the "all gates, short
-circuit, veto skips the result" shape can not drift between them; the set
-of gates differs (the self-tester can not fixture namtar or active_time),
-but the shape does not.
-
-    next if !data_gate_pass( [ sub { ... }, sub { ... } ] );
-
-=cut
-
-sub data_gate_pass {
-	my ($checks) = @_;
-
-	foreach my $check ( @{$checks} ) {
-		if ( !$check->() ) {
-			return 0;
-		}
-	}
-
-	return 1;
-} ## end sub data_gate_pass
 
 =head2 resolve_offense
 

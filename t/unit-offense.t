@@ -8,24 +8,9 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Offense qw( resolve_offense data_gate_pass );
+use App::Baphomet::Offense qw( resolve_offense );
 
 my $now = 1_000_000_000;
-
-#
-# data_gate_pass... all checks must hold, and it short-circuits on the
-# first veto so a later gate's lookup is spared
-#
-
-ok( data_gate_pass( [ sub { 1 }, sub { 1 } ] ), 'all passing is a pass' );
-ok( data_gate_pass( [] ), 'no checks is a vacuous pass' );
-{
-	my @ran;
-	my $ok = data_gate_pass(
-		[ sub { push( @ran, 'a' ); 1 }, sub { push( @ran, 'b' ); 0 }, sub { push( @ran, 'c' ); 1 } ] );
-	ok( !$ok, 'a veto anywhere fails the pass' );
-	is_deeply( \@ran, [ 'a', 'b' ], 'and it short-circuits... the check after the veto never runs' );
-}
 
 # a gate predicate that passes only the listed IPs
 sub only {

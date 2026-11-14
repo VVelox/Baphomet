@@ -225,7 +225,8 @@ C<syslog.*> envelope. Here the C<field> names a capture... a token capture
 like C<SRC>, a named group like C<CMD>, or the reserved C<MESSAGE> for the
 whole message. The entry forms, operators, and C<decode>, along with
 C<selections>/C<condition> and C<keywords>, are the shared predicate
-vocabulary documented under L<App::Baphomet::Rules::Base/"The predicate gate">.
+vocabulary documented under the predicate gate section of F<docs/rules.md>,
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#gate--selections--condition--keywords>.
 
     message_regexp:
       - 'ran command (?<CMD>\S+) as %%%%SRC%%%%'

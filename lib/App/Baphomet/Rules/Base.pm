@@ -54,548 +54,20 @@ a non-default format, like a nginx rule of the http_error type.
 
 =head1 RULE FORMAT
 
-Every rule, whatever its type, is a YAML hash, and most of its keys are
-common to all types and documented here. The C<check> matcher... how a raw
-line becomes a match, and where the offender is dug from... is the
-type-specific part, documented in each handler:
-L<App::Baphomet::Rules::Syslog>, L<App::Baphomet::Rules::Raw>,
+Every rule, whatever its type, is a YAML hash. What its keys are and what
+each one means is documented in F<docs/rules.md>, which ships in the dist
+and reads online at
+L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md>. That is
+the one reference for the format... the keys common to every type and each
+type's own alike... so none of it is repeated here.
+
+The common keys are under its sections on naming the offender, how it is
+counted, triage metadata, tests, refining a match with the gates, and
+enriching a match with mungers. The matcher keys, the part that differs by
+type, are under each type's own section there and summarized in the
+handlers: L<App::Baphomet::Rules::Syslog>, L<App::Baphomet::Rules::Raw>,
 L<App::Baphomet::Rules::HTTP>, L<App::Baphomet::Rules::HTTPError>, and
 L<App::Baphomet::Rules::JSON>.
-
-A rule matches a line, names the offender it is counted against, says how it
-is counted and when it bans, carries triage metadata, and proves itself with
-embedded tests. Optional gates... marks, geography, blocklists, time... can
-refine a match after the fact.
-
-Where a key names a found var (C<ban_var>, a mark's C<var>, a gate's
-C<vars>), it resolves against the matched line's data: a regexp capture on
-the syslog, raw, and json types, or a flattened dotted field path on json, so
-C<SRC> and C<request.client_ip> are both legal names for whatever they
-name.
-
-=head2 Naming the offender
-
-=head3 ban_var
-
-The captures or fields whose value is the offender... the thing a hit is
-registered against and, at the threshold, handed to Ereshkigal to banish.
-Usually just C<SRC>. Each name that a matched line carries a value for is
-counted. The http and http_error types do not use C<ban_var>, their offender
-being the parsed C<host> / C<client>; the syslog, raw, and json types require
-it (or C<detection_var>). A rule names one or the other, never both.
-
-=head3 detection_var
-
-The parallel of C<ban_var> for a B<detection-only rule>, named in place of
-it. The captures or fields to count by, under no obligation to be a
-address... a username, a hostname, a URI, a service, or a IP when that is
-what you want. Its presence makes the rule detection-only: it runs the whole
-match/count/threshold path like any other, but never banishes. Each match
-writes a C<sighting> to the EVE log and a subject crossing C<max_score>
-within C<find_time> writes a C<sighted> naming it, nothing going to Kur.
-Counting rides the shadow buckets, so a detection rule can never tip a real
-ban over its threshold, and C<ignore_ips> does not apply. Loading one forces
-C<eve_enable> on, so it is never a silent no-op. On the http and http_error
-types a C<detection_var> overrides the default C<host> / C<client> counting.
-
-=head3 ban_not_internal
-
-When true, an offender that is one of your own hosts is spared the ban... the
-C<internal> config field, which defaults to C<ignore_ips>. With more than one
-C<ban_var> this bans only the external ends of a flow: the external src of an
-inbound attack, the external dest of an outbound callout, both ends of a
-transit flow, neither of a host-to-host one. With a single offender... one
-C<ban_var>, or the http/http_error fixed C<host>/C<client>... it simply skips
-the ban when that offender is internal. Legal on every type, since any of them
-can produce an IP to banish; set C<internal> wider than C<ignore_ips> to spare
-internal offenders from a rule without globally ignoring them.
-
-=head2 How it is counted
-
-=head3 max_score / find_time / ban_time / weight
-
-The rule's own word on how it is counted and how long the ban runs, the first
-four honored only when the watcher's C<allow_per_rule_thresholds> config
-setting is on, at which point the layering is rule over watcher over kur over
-global. A rule overriding C<max_score> or C<find_time> is counted in its own
-bucket, apart from the shared per-IP count, while a C<ban_time>-only override
-counts in the shared bucket and just bans with its own duration.
-
-C<max_score> is the accumulated score at which an offender is banished, not a
-plain retry count... each match deposits the rule's C<weight> (a positive
-number, default 1), so a heavy signature bans faster and several rules
-against one IP sum toward the one judgment. With every weight 1 the score is
-just the hit count.
-
-=head3 eve_only
-
-A boolean putting the rule in B<observe mode>, honored whatever the consent
-setting and layering over the watcher's own C<eve_only>. Its matches are
-written to EVE but never counted toward a real ban... a would-be banish
-surfaces as an C<alert> event and each match as C<noted> rather than
-C<found>. Set it false to opt one rule back in to real banning under a
-watcher or kur that is observing. Distinct from a detection rule: observe
-mode is a real rule held back, still keyed to a offender IP, while a
-detection rule never bans and counts any subject.
-
-=head3 distinct
-
-Switches counting from summing hits to counting the distinct values of a
-field, the SIEM distinct-count and value_count. A table of C<of> (the found
-field whose distinct values are counted) and optional C<by> (the grouping
-field, default the offender IP). The score is the size of the distinct set
-within C<find_time>, banning at C<max_score>. With no C<by> the set is keyed
-by the offender and the offender is banished... N distinct users from one
-source is credential stuffing, C<distinct: { of: USER }>. With a C<by> the
-set is keyed by that field and the I<current offender> is banished instead,
-since the key may not be bannable... N distinct sources against one account
-is distributed spray, C<distinct: { of: SRC, by: USER }> with
-C<ban_var: [ SRC ]>. An offender-keyed set resets on firing; a by-keyed one
-does not, catching every further source while the key stays over threshold.
-Pairs with C<eve_only> for detect-without-banning.
-
-=head2 Triage metadata
-
-=head3 msg
-
-A short human-readable signature naming what the rule detects, the
-Sagan/Suricata C<msg> convention... a C<[TAG] description> line. It is written
-to every EVE event the rule produces as the top-level C<msg> field (Suricata's
-C<alert.signature>, promoted), so tooling reads what tripped without decoding
-the raw line. When a rule sets none it falls back to the rule's name, so the
-field is always present. Inert to matching.
-
-=head3 severity / classtype / references / attack
-
-Triage metadata, all inert to matching and all written to EVE beside C<msg>
-when set:
-
-    - severity :: One of info, low, medium, high, or critical. Emitted as the
-          top-level EVE C<severity>. When the rule sets none the config's
-          C<default_severity> (global/kur/watcher) fills in, and absent that
-          too the field is omitted.
-
-    - classtype :: The rule's class, the short Snort/Sagan/Suricata classtype
-          slug... C<brute-force>, C<misc-attack>. Emitted as the EVE
-          C<category>, in words rather than as the slug: the way Snort and
-          Suricata carry the slug in the rule and the description in their
-          C<classification.config>, so C<misc-attack> reads downstream as
-          C<Misc Attack>. Free-form; the shipped suricata rules carry their
-          Suricata class here, and one the table does not know becomes its
-          slug title-cased. See L</category>.
-
-    - references :: An array of URLs, CVE ids, or doc links. Emitted as EVE
-          C<references>.
-
-    - attack :: An array of MITRE ATT&CK technique ids. Emitted as EVE
-          C<attack>.
-
-Together with C<msg> these are the Suricata/Sagan C<alert> metadata set,
-flattened to top-level EVE fields for triage.
-
-=head2 The predicate gate
-
-A boolean refinement over a line's fields or captures, ANDed ahead of the
-type's own matching. Every type has it. What a C<field> names depends on the
-type... a capture (syslog, raw), a flattened dotted path (json), or a parsed
-access/error-log field (http, http_error). The reserved C<%%%ANY%%%> fans a
-predicate over every field value (and, on syslog/raw, the message), and
-C<%%%ANY:E<lt>prefixE<gt>%%%> over just the fields at or under C<prefix>. On
-syslog and raw, the reserved C<MESSAGE> names the whole message.
-
-=head3 gate
-
-Optional, ANDed. Each entry names a field and the values it must have...
-values entries starting and ending with C<//> are regexps, everything else is
-string equality. A field the line does not carry never matches a gate.
-
-An entry may instead use the typed operator form, opt-in and detected by the
-presence of an C<op>, C<value>, C<all>, C<negate>, C<nocase>, C<fieldref>, or
-C<decode> key (a plain C<field>/C<values> entry stays the legacy
-equality/regexp form above):
-
-    gate:
-      - { field: event,     op: eq,       value: auth_fail }
-      - { field: bytes_out, op: gt,       value: 1000000 }
-      - { field: src,       op: cidr,     values: [ 10.0.0.0/8, 2001:db8::/32 ] }
-      - { field: cmd,       op: contains, values: [ psexec, mimikatz ], all: false }
-      - { field: user,      op: eq,       value: healthcheck, negate: true }
-
-    - op :: eq (default), contains, startswith, endswith, re (a tokened
-          regexp), gt/lt/ge/le (numeric, the field coerced, a non-number
-          missing), cidr (v4/v6 membership), or exists (the field is present,
-          any value... Sigma's C<|exists>, taking no value; with C<negate> it
-          is the field-absent test).
-    - value / values :: one scalar or a non-empty list, matching if any holds,
-          or all when C<all> is true.
-    - fieldref :: names another field to compare against instead of a literal,
-          its value the needle resolved from the line at match time, Sigma's
-          C<|fieldref>... so a rule can say two fields must (with C<negate>,
-          must not) agree, C<{ field: auth_user, op: eq, fieldref: cert_user }>.
-          Stands in for value/values (a error to set both), and only the string
-          ops eq/contains/startswith/endswith take it. A absent referenced field
-          is a non-match. Folds under C<nocase> and decodes the source under
-          C<decode> like any other compare.
-    - all :: require every value to match rather than any. Default false.
-    - negate :: invert the entry. A negated entry holds when the field is
-          absent, matching Sigma's field-absent semantics.
-    - nocase :: case-fold the compare, so the match is case-insensitive.
-          Default off, since Baphomet matches case-sensitively... this is
-          Sigma's default-insensitive matching, and a Sigma C<|cased> field is
-          just the default. Applies to the string ops and C<re> (baked in as
-          C<(?i)>); a error on the numeric and cidr ops, where it is meaningless.
-    - decode :: a list of transforms run left to right over the field value
-          before the operator, so an obfuscated payload is compared decoded...
-          base64, base64offset (the three alignment candidates), utf16le /
-          utf16be / utf16 (wide an alias for utf16le), windash, url, lower,
-          upper. A transform that can not decode drops that candidate, so a
-          bad decode simply does not match. C<decode: [ base64, utf16le ]>
-          with C<op: contains> is the PowerShell -enc shape.
-
-=head3 keywords
-
-Optional, shorthand for a C<contains> over the keyword field. A plain list
-searches every field:
-
-    keywords: [ mimikatz, sekurlsa, "Invoke-Mimikatz" ]
-
-or the table form scopes it with C<in>, a field path, a C<%%%ANY:prefix%%%>
-subtree, or C<%%%ANY%%%> (the default)... so nothing unrelated is searched
-when the path is known:
-
-    keywords:
-      in: process.command_line
-      values: [ mimikatz ]
-
-Keywords are ANDed ahead of any L</gate> or L</selections / condition>, and
-may stand alone as the whole matcher.
-
-=head3 selections / condition
-
-Optional, the boolean form and an alternative to L</gate> (a rule may not
-carry both). C<selections> is a table of named selections, each a list of
-gate entries (the same predicate and legacy forms) ANDed together.
-C<condition> is a string composing the selections with C<and>, C<or>, C<not>,
-parens, and the quantifiers C<all of them>, C<1 of them>, and
-C<N of E<lt>prefixE<gt>_*>. It is the pre-filter, ANDed ahead of the matches,
-and gives the OR, arbitrary nesting, and N-of-M the flat gate can not... the
-Sigma detection model.
-
-    selections:
-      auth:  [ { field: event, op: eq, value: authFailure } ]
-      admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
-      trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
-    condition: "auth and admin and not trust"
-
-A selection referenced but not defined, an unbalanced paren, or a stray token
-is a load-time error, as is a condition without selections or the two present
-together.
-
-=head2 Marks... cross-rule state
-
-=head3 mark / unmark / marked / not_marked / mark_only
-
-Marks are a galla wide, expiring, named store one rule brands and another
-gates on, so rules can carry state across each other the way correlation
-carries it across lines... Sagan's xbits and flexbits. The key defaults to
-the offender IP but any capture or field can be it (C<var>), and a value can
-be harvested from the line too (C<value_var>).
-
-    - mark :: Array of brands to set on match, each a hash of C<name> and
-          C<ttl>, and optionally C<var> (key by this capture instead of the
-          offender IP) and C<value_var> (store this capture on the brand).
-
-    - unmark :: Array of brands to lift on match, each C<name> and optionally
-          C<var>.
-
-    - marked :: Gate array, ANDed... the result only counts if every named
-          brand is set. Each a hash of C<name>, optionally C<var>, and at most
-          one of C<value_is> or C<value_not> naming a capture the stored value
-          must equal or differ from. A var entry is checked against the line's
-          captures, a var-less one against each offender.
-
-    - not_marked :: The inverse gate... the result only counts if none of the
-          named brands is set.
-
-    - mark_only :: When true the rule only brands and gates, never counting
-          toward a ban, and does not consume the line, so matching falls
-          through to the later rules.
-
-A rule whose mark gates veto, like a mark_only rule, falls through rather than
-consuming the line, so the brander and the gater can both fire on it. Marks
-live per galla, cross watchers and rules but not kurs, survive a restart, and
-are visible with C<baphomet marked>. The ignored are never branded. See
-C<syslog/sshd-mark-users> and C<syslog/sshd-spray> for a shipped pair.
-
-=head3 sequence
-
-Ordered temporal correlation, an array of entries each naming a list of
-C<marks> that must all be set for the key and in the listed order by when each
-first fired, and optionally a C<var> keying the correlation (its capture, or
-var-less the offender). So a rule watching several stages... one mark_only
-rule branding each... fires only when they happened in sequence.
-
-    sequence:
-      - marks: [ recon, foothold, exfil ]
-        var: HOST
-
-A stage that is missing, expired, or out of order fails the gate. Marks carry
-a first-seen time the ordering compares; two stages in the same instant count
-as in order. The set time survives a restart and rides the fleet mark sync
-bus, so a fleet-shared sequence correlates stages seen on different machines.
-Unordered correlation (all stages present, any order) is the plain C<marked>
-gate over the same brands.
-
-=head2 Tracked records... state that accumulates across lines
-
-=head3 track / tracked / not_tracked / track_only
-
-A daemon that logs one transaction over several lines spreads the facts about
-it across all of them. Postfix is the clearest case: the client address arrives
-on the C<smtpd> line, the sender and recipient on C<cleanup>, the delivery
-verdict on C<local> or C<smtp> an hour later, and the only thing joining them
-is the queue id. The line that finally says something worth banning on is
-rarely the line that says who to ban.
-
-Where a mark holds one scalar per branded key, a tracked record holds a hash
-that accumulates. Later lines lay their fields over the record rather than
-replacing it, so each stage of a transaction contributes what it knows.
-
-    - track :: Array of records this rule is party to, each a hash of C<name>,
-          C<key> (the found var holding the joining id, or a array of them for
-          a compound key), and optionally C<fields> (the found vars to
-          contribute, defaulting to everything found) and C<ttl> (seconds,
-          default 3600). This declares and harvests; it never gates.
-
-    - tracked :: Gate array, ANDed... each a hash of C<name> and at least one
-          of C<where> (predicate entries judged against the B<stored> record,
-          the ordinary gate vocabulary) and C<into> (stored fields to lift into
-          this line's offense). It carries no key of its own, taking the one
-          the C<track> beside it declared.
-
-    - not_tracked :: The inverse gate, each a hash of C<name> alone... it means
-          "no live record for this key" and nothing else. "A record exists but
-          does not match" is already C<tracked> with a negated C<where>.
-
-    - track_only :: When true the rule only harvests, never counting toward a
-          ban, and does not consume the line, exactly as C<mark_only>.
-
-C<into> is the whole point. The bounce fires on the C<local> line, and
-C<ban_var> names an address that only ever appeared on an C<smtpd> line an
-hour earlier:
-
-    track:
-      - name: mail-queue
-        key: postfix_queueid
-        fields: [ postfix_status ]
-    tracked:
-      - name: mail-queue
-        where:
-          - { field: postfix_sasl_username, op: exists }
-          - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
-        into: [ postfix_client_ip ]
-    ban_var: [ postfix_client_ip ]
-
-A C<tracked> or C<not_tracked> naming a record the rule declared no C<track>
-for will not load. The declaration is what the read is a read of, and requiring
-it means a rule that reads is always also a rule that harvests... a reader with
-nothing of its own to add says so with C<fields: []>, which still refreshes the
-record on every sighting. Nor will a C<tracked> entry carrying neither C<where>
-nor C<into> load, doing nothing being worth saying out loud.
-
-Four states a read can find:
-
-    - the key does not resolve :: no veto. The line is not part of a tracked
-          transaction, which is not evidence of anything... a postfix C<NOQUEUE>
-          reject carries no queue id and must sail through.
-
-    - the key resolves, no record, C<where> present :: veto, failing closed,
-          which is how country, namtar_list, and reverse_dns all behave.
-
-    - the key resolves, no record, C<into> only :: no veto. Nothing lifts, so a
-          C<ban_var> naming a lifted field simply finds nothing.
-
-    - a record exists but C<where> names a field no line ever supplied :: the
-          entry fails and the gate vetoes, a undef value failing every operator
-          but C<exists>... which makes C<< { op: exists, negate: true } >> the
-          never-appeared test.
-
-The harvest runs whether or not the message regexps hit and whether or not the
-boolean passed, a record being a record of the transaction rather than of
-offenses. Only the type gate and C<ignore> stop it, the one because a postfix
-track has no business reading sshd lines and the other because C<ignore> is the
-operator saying this line is not evidence. Records live per galla, are never
-fleet synced, survive a restart, and are visible with C<baphomet tracked>.
-
-=head2 The geography, blocklist, time, and reverse DNS gates
-
-=head3 country
-
-A gate that only lets a match count when a IP is in, or not in, a set of
-countries, needing the C<geoip_db> config setting and the optional
-IP::Geolocation::MMDB module. A hash of:
-
-    - is / isnot :: Exactly one. A list of ISO 3166 2-letter codes and
-          C<%%%country_codes{name}%%%> imports of named lists from the config
-          (resolved per watcher). A bare string is a one-element list. is
-          counts only IPs in the set, isnot only those not in it.
-
-    - vars :: Optional. Found vars to check the country of instead of the
-          offender. Without it the gate is offender-keyed, checked per ban_var
-          candidate in the ban loop. With it the gate is data-keyed, checked
-          once per result against those vars and vetoing the whole result on a
-          failure... so a rule can gate on the geography of a value it is not
-          banning.
-
-The gate fails closed: a IP that does not locate, or a missing database,
-blocks the count rather than risking a wrong ban. A galla with country gated
-rules and no database says so loudly at start.
-
-=head3 namtar_list
-
-A gate that only lets a match count when a value is on a named blocklist, the
-inverse of ignore_ips. The lists are named in the config's C<namtar_lists>,
-layered per watcher and reloaded on mtime change. Each list is a cidr list
-matched by address containment, or a string list matched by exact (optionally
-case-folded) equality, so the gate reaches beyond the offender IP to any
-captured field. The flavor is set on the list in the config, not the rule. A
-array of entries, each:
-
-    - list / lists :: One or more named lists to check against. A value on any
-          of them (union) satisfies the entry, even across flavors.
-
-    - var :: Optional. The found var to check. With it the entry is data-keyed
-          and vets the whole result, without it the entry is offender-keyed
-          and filters candidates... so a rule can gate on a captured field it
-          is not banning.
-
-Every entry must hold. The gate fails closed: a value on no list, or a list
-whose file is unreadable, blocks the count. ignore_ips still wins, so a
-ignored IP is never banished even when blocklisted.
-
-=head3 active_time
-
-A gate that only lets a match count when a time is in, or not in, named
-windows from the config's C<active_time>, resolved per watcher. A hash of:
-
-    - is / isnot :: Exactly one. A window name or a list of them. Multiple are
-          unioned. is counts only when the time is in a window, isnot only
-          when in none.
-
-    - vars :: Optional. Found vars holding the time to check, read as a epoch
-          or a ISO 8601 datetime. Without it the gate checks the current time.
-          A value that does not parse fails closed.
-
-Unlike the other gates active_time is never per-offender... time is a property
-of the line, so it is checked once per result and vetoes the whole result.
-Times are local.
-
-=head3 reverse_dns
-
-A gate comparing the PTR names of an address against a regexp or another
-found value, negatable... behind the galla's C<enable_rdns> consent (on by
-default) and the optional Net::DNS module. A array of entries, all
-required to hold:
-
-    reverse_dns:
-      - matches: '\.google(?:bot)?\.com$'
-        negate: true
-      - var: SRC
-        matches_var: CLAIM
-        forward_confirm: false
-
-    - var :: The found value holding the address to reverse. With out it
-          the gate checks each offender in the ban loop; with it, once
-          per result, vetoing the whole result.
-
-    - matches / matches_var :: Exactly one. A Perl regexp any PTR name
-          must satisfy, or another found value the PTR must equal
-          (case-folded, trailing dots stripped).
-
-    - negate :: Invert the comparison.
-
-    - forward_confirm :: On by default... a PTR name only participates
-          when it resolves back to the address, a spoofed PTR being as
-          good as absent.
-
-    - on_nxdomain / on_servfail :: What an authoritative empty PTR set
-          (on_nxdomain, default C<compare>) or a lookup failure anywhere
-          in the entry (on_servfail, default C<fail>) becomes...
-          C<compare> runs the comparison over whatever names there are,
-          C<pass> satisfies the entry outright, C<fail> vetoes outright.
-          pass and fail are terminal verdicts... negate never touches
-          them. A servfail during forward confirmation under C<compare>
-          leaves that one name unconfirmed and carries on.
-
-Under the defaults, authoritative absence is data... an empty PTR set
-compares false, so negate counts the client with no reverse DNS... while
-a lookup failure vetoes regardless of negate. Everything else always
-fails closed... no resolver, a non-address value, a missing matches_var.
-Beware C<on_servfail: pass> or C<compare> on a negated gate... it means
-a DNS outage counts everyone, the trade being coverage over the
-outage-can-not-misaim guarantee. Lookups are per match, bounded and
-cached galla-side; a C<dns> fixture in a rule's embedded tests stands in
-for the resolver, so the gate is provable from the rule's own file...
-see L</run_tests>.
-
-=head2 Enrichment... mungers
-
-An optional list of Log-Munger decoders to run over the line before the
-rule's own C<message_regexp>, folding their decoded fields into the offense.
-
-    mungers:
-      - sshd
-
-Each entry is a B<leaf> munger... a L<Log::Munger> rule file (C<sshd>,
-C<postfix>, C<http_access_logs>, ...) named with out its C<.yaml>. Log-Munger
-resolves a file's own dependencies, so only the relevant decoder is named,
-never C<base>. A set builds one C<Log::Munger::LogProcessor>, memoized and
-shared by every rule naming it.
-
-The line is fed as the fields the parser already split out. For a syslog
-rule the message maps to Log-Munger's C<MESSAGE>, the daemon to its
-C<PROGRAM> gate, the level to C<PRIORITY>, the facility to C<FACILITY>; a raw
-rule has only its message. The munger's first matching rule decides, and its
-captures come back as the enrichment... laid down B<underneath> the rule's
-own captures, so a C<message_regexp> capture of the same name overwrites (a
-looser or different read chosen on purpose), while everything the munger
-decoded that the rule did not recapture rides along.
-
-Supported on C<syslog> and C<raw> rules, staged ones included... a staged
-rule enriches the completed sequence from its final, sequence-completing
-line (the line whose C<raw> the event carries). The
-dependency is optional but not fail-soft... a missing L<Log::Munger> or a
-munger file that will not resolve is fatal, surfaced as a die the loader (or
-the galla's load-time prewarm, as a C<log_drek> error) raises rather than
-silently skipping the enrichment. A malformed C<mungers> key is refused when
-the rule loads.
-
-=head2 tests
-
-Positive and negative tests for verifying the rule works. These are ran at
-load time and a rule failing its own tests refuses to load. Each test is a
-hash with the keys below. A top level C<test_parser> key sets the default
-parser for all of them.
-
-    - message :: The full log line to test with. Either this or messages is
-          required.
-
-    - messages :: A array of lines fed through in order, for testing
-          correlation... each test entry runs in its own throwaway scope,
-          found is the expected count of found results across the sequence,
-          and data asserts against the last of them.
-
-    - parser :: The parser to parse it with. Defaults to the handler's own
-          (C<bsd_syslog> for syslog, C<http_access> for http, and so on).
-
-    - found :: If the rule should match the line or not, 1 or 0. Defaults to 1
-          for positive, 0 for negative.
-
-    - data :: For positive tests, a hash of capture names to the values they
-          should of captured.
-
-    - undefed :: For negative tests, a array of capture names that should not
-          be defined.
 
 =head1 METHODS
 
@@ -697,16 +169,23 @@ sub sweep_state {
 
 	$now //= time;
 
-	foreach my $scope ( keys( %{ $self->{context} } ) ) {
-		foreach my $key ( keys( %{ $self->{context}{$scope} } ) ) {
-			if ( $self->{context}{$scope}{$key}{expires} <= $now ) {
-				delete( $self->{context}{$scope}{$key} );
+	# correlation context and staged rule slots are kept the same way, per
+	# scope and key with a expires, so the one walk drops the dead of either...
+	# for a staged slot that is a sequence nothing has fed since its stage's
+	# within, or the default hold
+	foreach my $store_name ( 'context', 'stage_state' ) {
+		my $store = $self->{$store_name};
+		foreach my $scope ( keys( %{$store} ) ) {
+			foreach my $key ( keys( %{ $store->{$scope} } ) ) {
+				if ( $store->{$scope}{$key}{expires} <= $now ) {
+					delete( $store->{$scope}{$key} );
+				}
 			}
-		}
-		if ( !keys( %{ $self->{context}{$scope} } ) ) {
-			delete( $self->{context}{$scope} );
-		}
-	} ## end foreach my $scope ( keys( %{ $self->{context} }...))
+			if ( !%{ $store->{$scope} } ) {
+				delete( $store->{$scope} );
+			}
+		} ## end foreach my $scope ( keys( %{$store} ) )
+	} ## end foreach my $store_name ( 'context', 'stage_state')
 
 	foreach my $scope ( keys( %{ $self->{pending} } ) ) {
 		foreach my $key ( keys( %{ $self->{pending}{$scope} } ) ) {
@@ -721,19 +200,6 @@ sub sweep_state {
 			delete( $self->{pending}{$scope} );
 		}
 	} ## end foreach my $scope ( keys( %{ $self->{pending} }...))
-
-	# staged rule slots... a sequence nothing has fed since its stage's
-	# within (or the default hold) is dead
-	foreach my $scope ( keys( %{ $self->{stage_state} } ) ) {
-		foreach my $key ( keys( %{ $self->{stage_state}{$scope} } ) ) {
-			if ( $self->{stage_state}{$scope}{$key}{expires} <= $now ) {
-				delete( $self->{stage_state}{$scope}{$key} );
-			}
-		}
-		if ( !keys( %{ $self->{stage_state}{$scope} } ) ) {
-			delete( $self->{stage_state}{$scope} );
-		}
-	} ## end foreach my $scope ( keys( %{ $self->{stage_state...}}))
 
 	return;
 } ## end sub sweep_state
@@ -1311,6 +777,11 @@ sub _check_detection_var {
 	return 1;
 } ## end sub _check_detection_var
 
+# what the name of a mark, a tracked record, a namtar list, or a active_time
+# window must look like... the alphabet of a rule name, so one rides tablets,
+# commands, and config tables cleanly
+my $NAME_RE = qr/^[a-zA-Z0-9_\-]+$/;
+
 # the def keys every rule type allows, the ones _check_common goes on to
 # vet... a type adds only its own matcher keys to these
 my @COMMON_DEF_KEYS = qw(
@@ -1346,12 +817,7 @@ sub _check_common {
 	if ( !is_plain_hashref($def) ) {
 		die( 'The def for the rule "' . $name . '" is not a hash' );
 	}
-	my %allowed_keys = map { $_ => 1 } ( @COMMON_DEF_KEYS, @{$type_keys} );
-	foreach my $key ( keys( %{$def} ) ) {
-		if ( !$allowed_keys{$key} ) {
-			die( 'The rule "' . $name . '" has the unknown key "' . $key . '"' );
-		}
-	}
+	$self->_check_keys( $def, [ @COMMON_DEF_KEYS, @{$type_keys} ], 'The rule "' . $name . '" has' );
 
 	$self->_check_scoring_and_triage($def);
 	$self->_check_marks($def);
@@ -1422,7 +888,7 @@ my %IS_ISNOT_GATES = (
 	'active_time' => {
 		'label'       => 'active_time',
 		'list_key'    => 'windows',
-		'entry_re'    => qr/^[a-zA-Z0-9_\-]+$/,
+		'entry_re'    => $NAME_RE,
 		'entry_noun'  => 'window name',
 		'entry_shape' => 'a /^[a-zA-Z0-9_\-]+$/ string',
 	},
@@ -1920,6 +1386,35 @@ documented there.
 # the order canonical if anything ever wants to sort or compare
 our %SEVERITY = ( 'info' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical' => 4 );
 
+# dies if a hash of a def carries a key it should not... the typo guard, a
+# misspelled key otherwise being a setting that silently never applies. the
+# keys are walked sorted, so of several unknown keys the one named is always
+# the same, rather than whichever the hash happened to hand back first.
+#
+# args:
+#   $hash    :: the hash ref to check, a def or one entry of a def list
+#   $allowed :: arrayref of the keys the hash may carry
+#   $prefix  :: the start of the die message, naming the rule and what the
+#               hash is, up to and including its verb, such as 'The track of
+#               the rule "syslog/sshd" has a entry with'... the message goes
+#               on with ' the unknown key "<key>"'
+#
+# returns nothing, dying on the first unknown key.
+#
+#   $self->_check_keys( $entry, [qw( name key fields ttl )], $where . ' has a entry with' );
+sub _check_keys {
+	my ( $self, $hash, $allowed, $prefix ) = @_;
+
+	my %allowed_keys = map { $_ => 1 } @{$allowed};
+	foreach my $key ( sort( keys( %{$hash} ) ) ) {
+		if ( !$allowed_keys{$key} ) {
+			die( $prefix . ' the unknown key "' . $key . '"' );
+		}
+	}
+
+	return;
+} ## end sub _check_keys
+
 # dies unless a def value is a non-empty array whose every entry is a
 # defined, plain, non-empty string... the shape of references, attack, a mark
 # or sequence entry's vars, and a tracked gate's into.
@@ -2053,11 +1548,7 @@ sub _check_marks {
 			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
-			foreach my $entry_key ( keys( %{$entry} ) ) {
-				if ( !defined( $shapes{$key}{$entry_key} ) ) {
-					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
-				}
-			}
+			$self->_check_keys( $entry, [ keys( %{ $shapes{$key} } ) ], $where . ' has a entry with' );
 			# a marked entry may carry names, a any-of list, in place of its
 			# one name... everything else requires the one
 			if ( defined( $shapes{$key}{names} ) && defined( $entry->{names} ) ) {
@@ -2068,13 +1559,13 @@ sub _check_marks {
 					die( $where . ' has a entry whose names is not a non-empty array' );
 				}
 				foreach my $mark_name ( @{ $entry->{names} } ) {
-					if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ /^[a-zA-Z0-9_\-]+$/ ) {
+					if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ $NAME_RE ) {
 						die( $where . ' has a entry with a names entry not matching /^[a-zA-Z0-9_\-]+$/' );
 					}
 				}
 			} elsif ( !defined( $entry->{name} )
 				|| ref( $entry->{name} ) ne ''
-				|| $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ )
+				|| $entry->{name} !~ $NAME_RE )
 			{
 				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
 			}
@@ -2131,16 +1622,12 @@ sub _check_marks {
 			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
-			foreach my $entry_key ( keys( %{$entry} ) ) {
-				if ( $entry_key !~ /^(?:marks|var|vars)$/ ) {
-					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
-				}
-			}
+			$self->_check_keys( $entry, [qw( marks var vars )], $where . ' has a entry with' );
 			if ( !is_plain_arrayref( $entry->{marks} ) || scalar( @{ $entry->{marks} } ) < 2 ) {
 				die( $where . ' entry lacks a marks array of at least two mark names' );
 			}
 			foreach my $mark_name ( @{ $entry->{marks} } ) {
-				if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ /^[a-zA-Z0-9_\-]+$/ ) {
+				if ( !defined($mark_name) || ref($mark_name) ne '' || $mark_name !~ $NAME_RE ) {
 					die( $where . ' entry has a mark name not matching /^[a-zA-Z0-9_\-]+$/' );
 				}
 			}
@@ -2198,12 +1685,8 @@ sub _compile_tracks {
 			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
-			foreach my $entry_key ( keys( %{$entry} ) ) {
-				if ( $entry_key !~ /^(?:name|key|fields|ttl)$/ ) {
-					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
-				}
-			}
-			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ ) {
+			$self->_check_keys( $entry, [qw( name key fields ttl )], $where . ' has a entry with' );
+			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ $NAME_RE ) {
 				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
 			}
 			if ( defined( $declared{ $entry->{name} } ) ) {
@@ -2280,13 +1763,12 @@ sub _compile_tracks {
 			if ( !is_plain_hashref($entry) ) {
 				die( $where . ' contains a entry that is not a hash' );
 			}
-			my $allowed = $key eq 'tracked' ? qr/^(?:name|where|into)$/ : qr/^(?:name)$/;
-			foreach my $entry_key ( keys( %{$entry} ) ) {
-				if ( $entry_key !~ $allowed ) {
-					die( $where . ' has a entry with the unknown key "' . $entry_key . '"' );
-				}
-			}
-			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ /^[a-zA-Z0-9_\-]+$/ ) {
+			$self->_check_keys(
+				$entry,
+				$key eq 'tracked' ? [qw( name where into )] : ['name'],
+				$where . ' has a entry with'
+			);
+			if ( !defined( $entry->{name} ) || ref( $entry->{name} ) ne '' || $entry->{name} !~ $NAME_RE ) {
 				die( $where . ' has a entry lacking a name matching /^[a-zA-Z0-9_\-]+$/' );
 			}
 			if ( !defined( $declared{ $entry->{name} } ) ) {
@@ -2353,11 +1835,7 @@ sub _check_is_isnot_gate {
 	if ( !is_plain_hashref($gate_def) ) {
 		die( $where . ' is not a hash' );
 	}
-	foreach my $key ( keys( %{$gate_def} ) ) {
-		if ( $key !~ /^(?:is|isnot|vars)$/ ) {
-			die( $where . ' has the unknown key "' . $key . '"' );
-		}
-	}
+	$self->_check_keys( $gate_def, [qw( is isnot vars )], $where . ' has' );
 	if ( defined( $gate_def->{is} ) && defined( $gate_def->{isnot} ) ) {
 		die( $where . ' carries both is and isnot' );
 	}
@@ -2418,11 +1896,11 @@ sub _compile_reverse_dns {
 		if ( !is_plain_hashref($entry) ) {
 			die( $entry_where . ' is not a hash' );
 		}
-		foreach my $key ( keys( %{$entry} ) ) {
-			if ( $key !~ /^(?:var|matches|matches_var|negate|forward_confirm|on_nxdomain|on_servfail)$/ ) {
-				die( $entry_where . ' has the unknown key "' . $key . '"' );
-			}
-		}
+		$self->_check_keys(
+			$entry,
+			[qw( var matches matches_var negate forward_confirm on_nxdomain on_servfail )],
+			$entry_where . ' has'
+		);
 		if ( defined( $entry->{matches} ) && defined( $entry->{matches_var} ) ) {
 			die( $entry_where . ' carries both matches and matches_var' );
 		}
@@ -2486,11 +1964,7 @@ sub _check_namtar {
 		if ( !is_plain_hashref($entry) ) {
 			die( $where . ' has a entry that is not a hash' );
 		}
-		foreach my $key ( keys( %{$entry} ) ) {
-			if ( $key !~ /^(?:list|lists|var)$/ ) {
-				die( $where . ' has a entry with the unknown key "' . $key . '"' );
-			}
-		}
+		$self->_check_keys( $entry, [qw( list lists var )], $where . ' has a entry with' );
 		if ( defined( $entry->{list} ) && defined( $entry->{lists} ) ) {
 			die( $where . ' has a entry carrying both list and lists' );
 		}
@@ -2503,7 +1977,7 @@ sub _check_namtar {
 			die( $where . ' has a entry with a empty lists' );
 		}
 		foreach my $list (@lists) {
-			if ( !defined($list) || ref($list) ne '' || $list !~ /^[a-zA-Z0-9_\-]+$/ ) {
+			if ( !defined($list) || ref($list) ne '' || $list !~ $NAME_RE ) {
 				die( $where . ' has a list name that is not a /^[a-zA-Z0-9_\-]+$/ string' );
 			}
 		}
@@ -2529,11 +2003,7 @@ sub _check_distinct {
 	if ( !is_plain_hashref($spec) ) {
 		die( 'The distinct of the rule "' . $name . '" is not a table' );
 	}
-	foreach my $key ( keys( %{$spec} ) ) {
-		if ( $key !~ /^(?:of|by)$/ ) {
-			die( 'The distinct of the rule "' . $name . '" has the unknown key "' . $key . '"' );
-		}
-	}
+	$self->_check_keys( $spec, [qw( of by )], 'The distinct of the rule "' . $name . '" has' );
 	if ( !defined( $spec->{of} ) || ref( $spec->{of} ) ne '' || $spec->{of} eq '' ) {
 		die(      'The distinct of the rule "'
 				. $name
@@ -2657,11 +2127,8 @@ sub _compile_message_regexps {
 			die( 'The message_regexp of the rule "' . $name . '" contains a entry that is not a string or a hash' );
 		}
 		if ( is_plain_hashref($item) ) {
-			foreach my $key ( keys( %{$item} ) ) {
-				if ( $key !~ /^(?:regexp|key|defer)$/ ) {
-					die( 'A message_regexp entry of the rule "' . $name . '" has the unknown key "' . $key . '"' );
-				}
-			}
+			$self->_check_keys( $item, [qw( regexp key defer )],
+				'A message_regexp entry of the rule "' . $name . '" has' );
 			if ( !defined( $item->{regexp} ) || ref( $item->{regexp} ) ne '' ) {
 				die( 'A message_regexp entry of the rule "' . $name . '" lacks a regexp string' );
 			}
@@ -2744,11 +2211,7 @@ sub _compile_stages {
 		if ( !is_plain_hashref($stage) ) {
 			die( $where . ' is not a hash' );
 		}
-		foreach my $key ( keys( %{$stage} ) ) {
-			if ( $key !~ /^(?:message_regexp|count|within|skip)$/ ) {
-				die( $where . ' has the unknown key "' . $key . '"' );
-			}
-		}
+		$self->_check_keys( $stage, [qw( message_regexp count within skip )], $where . ' has' );
 		if ( !is_plain_arrayref( $stage->{message_regexp} ) || !@{ $stage->{message_regexp} } ) {
 			die( $where . ' lacks a message_regexp array or it is empty' );
 		}
@@ -3011,11 +2474,7 @@ sub _compile_capture_regexps {
 		if ( !is_plain_hashref($item) || !defined( $item->{regexp} ) || !defined( $item->{key} ) ) {
 			die( $where . ' is not a hash with a regexp and a key' );
 		}
-		foreach my $key ( keys( %{$item} ) ) {
-			if ( $key !~ /^(?:regexp|key|ttl)$/ ) {
-				die( $where . ' has the unknown key "' . $key . '"' );
-			}
-		}
+		$self->_check_keys( $item, [qw( regexp key ttl )], $where . ' has' );
 		if ( defined( $item->{ttl} ) && ( $item->{ttl} !~ /^[0-9]+$/ || !$item->{ttl} ) ) {
 			die( $where . ' has a ttl that is not a positive int of seconds' );
 		}
@@ -3520,14 +2979,10 @@ sub _compile_match_ignore {
 			if ( !is_plain_hashref($entry) || !defined( $entry->{field} ) || !defined( $entry->{regexp} ) ) {
 				die( $where . ' is not a hash with a field and a regexp' );
 			}
-			foreach my $key ( keys( %{$entry} ) ) {
-				if ( $key !~ /^(?:field|regexp)$/ ) {
-					die( $where . ' has the unknown key "' . $key . '"' );
-				}
-			}
+			$self->_check_keys( $entry, [qw( field regexp )], $where . ' has' );
 
 			push( @{ $self->{ $sort eq 'match' ? 'matches' : 'ignores' } }, $compile_entry->( $entry, $where ) );
-		} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
+		}
 	} ## end foreach my $sort ( 'match', 'ignore' )
 
 	return;
@@ -3711,11 +3166,7 @@ sub _compile_keywords {
 		$in     = '%%%ANY%%%';
 		$values = $kw;
 	} elsif ( is_plain_hashref($kw) ) {
-		foreach my $key ( keys( %{$kw} ) ) {
-			if ( $key !~ /^(?:in|values)$/ ) {
-				die( $where . ' has the unknown key "' . $key . '"' );
-			}
-		}
+		$self->_check_keys( $kw, [qw( in values )], $where . ' has' );
 		$in = $kw->{in} // '%%%ANY%%%';
 		if ( ref($in) ne '' || $in eq '' ) {
 			die( $where . ' in is not a non-empty string naming a field, a %%%ANY:prefix%%%, or %%%ANY%%%' );
