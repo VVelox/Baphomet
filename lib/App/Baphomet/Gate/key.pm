@@ -5,8 +5,9 @@ use v5.40;
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
 use parent 'App::Baphomet::Gate';
-use List::Util                 qw( first );
+use Ref::Util                  qw( is_plain_hashref );
 use App::Baphomet::Gate        qw( stand );
+use App::Baphomet::Shape       qw( check_hash );
 use App::Baphomet::Correlation qw( correlation_key_components correlation_key context_get pending_park );
 
 =head1 NAME
@@ -28,8 +29,7 @@ our $VERSION = '0.0.1';
           - key: conn_id
             gate: [ { field: event, values: [ connect ] } ]
       - gate: [ { field: event, values: [ auth_fail ] } ]
-      - key: conn_id
-      - defer: 30
+      - key: { key: conn_id, defer: 30 }
 
 =head1 DESCRIPTION
 
@@ -37,21 +37,29 @@ Resolves the line's own offense through the context a C<capture> gate of the
 rule kept under the same key, the context going under the offense's own
 data. A offense with no value for the whole key has nothing to resolve by
 and stands as it is. One whose key has no context is not a offense on this
-line... it is dropped, or with a C<defer> gate in the rule left waiting that
-long for a capture line to bring the context.
+line... it is dropped, or with a C<defer> left waiting that long for a
+capture line to bring the context.
 
 Put it below the gates that make and judge the offense, as it reads the
 offense they leave standing.
 
 It is told the field the offense is keyed by, or a array of them to join
-into one key. Only a json rule can have one. The types that match on a
-message key each C<message_regexp> entry.
+into one key. Or, for a offense that is to wait, a hash of...
+
+    - key :: The field, or the array of them.
+
+    - defer :: Optional. How many seconds a offense whose key has no context
+          waits for a capture line to bring it.
+
+Only a json rule can have one. The types that match on a message key each
+C<message_regexp> entry.
 
 =head1 METHODS
 
 =head2 compile
 
-Vets the key and takes the rule's correlation store.
+Vets the key and how long a offense waits on it, and takes the rule's
+correlation store.
 
     $gate->compile( $args, $where, $rule );
 
@@ -61,29 +69,18 @@ sub compile {
 	my ( $self, $args, $where, $rule ) = @_;
 
 	$self->of_types( $rule, $where, 'json' );
-	( $self->{key} ) = correlation_key_components( $args, $where, $rule->envelope_fields );
+	# the key alone, or a hash of it and how long a offense waits on it
+	my $key = $args;
+	if ( is_plain_hashref($args) ) {
+		check_hash( $args, { 'required' => { 'key' => 'any' }, 'optional' => { 'defer' => 'seconds' } }, $where );
+		$key = $args->{key};
+		$self->{defer} = $args->{defer};
+	}
+	( $self->{key} ) = correlation_key_components( $key, $where, $rule->envelope_fields );
 	$self->{correlation} = $rule->correlation;
 
 	return;
-}
-
-=head2 settle
-
-Takes how long a unresolved offense waits from the rule's C<defer> gate,
-when it has one.
-
-=cut
-
-sub settle {
-	my ( $self, $gates ) = @_;
-
-	my $defer = first { $_->{type} eq 'defer' } @{$gates};
-	if ( defined($defer) ) {
-		$self->{defer} = $defer->{seconds};
-	}
-
-	return;
-} ## end sub settle
+} ## end sub compile
 
 =head2 phase
 

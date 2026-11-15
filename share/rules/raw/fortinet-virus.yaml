@@ -24,24 +24,25 @@ user_var: fg_user
 rule_gates:
   - mungers:
       - fortinet
-  - selections:
-      modern:
-        - field: fg_logid
-          op: eq
-          values: [ "0211008192", "0211008194", "0206008452" ]
-        - field: fg_type
-          op: eq
-          value: utm
-      # the legacy antivirus ids, which arrive under either spelling of the key
-      legacy_logid:
-        - field: fg_logid
-          op: re
-          value: '^\d*(?:60000|63000|63002)$'
-      legacy_log_id:
-        - field: fg_log_id
-          op: re
-          value: '^\d*(?:60000|63000|63002)$'
-  - condition: "modern or legacy_logid or legacy_log_id"
+  - condition:
+      condition: "modern or legacy_logid or legacy_log_id"
+      selections:
+        modern:
+          - field: fg_logid
+            op: eq
+            values: [ "0211008192", "0211008194", "0206008452" ]
+          - field: fg_type
+            op: eq
+            value: utm
+        # the legacy antivirus ids, which arrive under either spelling of the key
+        legacy_logid:
+          - field: fg_logid
+            op: re
+            value: '^\d*(?:60000|63000|63002)$'
+        legacy_log_id:
+          - field: fg_log_id
+            op: re
+            value: '^\d*(?:60000|63000|63002)$'
   - detection_var:
       - fg_offender_ip
 tests:

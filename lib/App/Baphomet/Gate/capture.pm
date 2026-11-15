@@ -30,8 +30,7 @@ our $VERSION = '0.0.1';
             gate: [ { field: event, values: [ connect ] } ]
             ttl: 120
       - gate: [ { field: event, values: [ auth_fail ] } ]
-      - key: conn_id
-      - defer: 30
+      - key: { key: conn_id, defer: 30 }
 
 =head1 DESCRIPTION
 

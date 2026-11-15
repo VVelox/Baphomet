@@ -133,10 +133,11 @@ rule_gates:
       - sshd
   - message_regexp:
       - 'user=(?<USER>\S+) from %%%%SRC%%%%'
-  - selections:
-      admin:  [ { field: USER, op: eq, values: [ root, admin ] } ]
-      office: [ { field: SRC,  op: cidr, value: 10.0.0.0/8 } ]
-  - condition: "admin and not office"
+  - condition:
+      condition: "admin and not office"
+      selections:
+        admin:  [ { field: USER, op: eq, values: [ root, admin ] } ]
+        office: [ { field: SRC,  op: cidr, value: 10.0.0.0/8 } ]
   - ban_var:
       - SRC
 EOR
@@ -155,9 +156,10 @@ write_rule( 'raw/sel', <<'EOR' );
 rule_gates:
   - message_regexp:
       - 'act=(?<ACT>\w+) ip=%%%%SRC%%%%'
-  - selections:
-      bad: [ { field: ACT, op: eq, values: [ drop, deny ] } ]
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        bad: [ { field: ACT, op: eq, values: [ drop, deny ] } ]
   - ban_var:
       - SRC
 EOR

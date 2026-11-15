@@ -23,26 +23,27 @@ user_var: fg_user
 rule_gates:
   - mungers:
       - fortinet
-  - selections:
-      ssl_vpn:
-        - field: fg_logid
-          op: re
-          value: '^\d*39426$'
-        - field: fg_type
-          op: eq
-          value: event
-      ppp_auth:
-        - field: fg_logid
-          op: re
-          value: '^\d*29003$'
-        - field: fg_type
-          op: eq
-          value: event
-        # quoted or bare in the ledger, the value is the same once decomposed
-        - field: fg_action
-          op: eq
-          value: auth_failed
-  - condition: "ssl_vpn or ppp_auth"
+  - condition:
+      condition: "ssl_vpn or ppp_auth"
+      selections:
+        ssl_vpn:
+          - field: fg_logid
+            op: re
+            value: '^\d*39426$'
+          - field: fg_type
+            op: eq
+            value: event
+        ppp_auth:
+          - field: fg_logid
+            op: re
+            value: '^\d*29003$'
+          - field: fg_type
+            op: eq
+            value: event
+          # quoted or bare in the ledger, the value is the same once decomposed
+          - field: fg_action
+            op: eq
+            value: auth_failed
   - ban_var:
       - fg_offender_ip
   - mark:

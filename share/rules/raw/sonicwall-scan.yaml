@@ -27,19 +27,20 @@ rule_gates:
   # The event is named by msg=. "Possible port scan" alone is too loose to act
   # on, so as before it also wants the scanned-port-list note beside it; the
   # other three speak for themselves.
-  - selections:
-      possible:
-        - field: sw_msg
-          op: eq
-          value: "Possible port scan detected"
-        - field: sw_note
-          op: re
-          value: '^(?:TCP|UDP) scanned port list'
-      probable:
-        - field: sw_msg
-          op: re
-          value: '^(?:Probable port scan detected|Probable TCP (?:FIN|NULL|XMAS) scan detected|TCP Xmas [tT]ree dropped)$'
-  - condition: "possible or probable"
+  - condition:
+      condition: "possible or probable"
+      selections:
+        possible:
+          - field: sw_msg
+            op: eq
+            value: "Possible port scan detected"
+          - field: sw_note
+            op: re
+            value: '^(?:TCP|UDP) scanned port list'
+        probable:
+          - field: sw_msg
+            op: re
+            value: '^(?:Probable port scan detected|Probable TCP (?:FIN|NULL|XMAS) scan detected|TCP Xmas [tT]ree dropped)$'
   - ban_var:
       - sw_offender_ip
   - mark:

@@ -28,36 +28,37 @@ rule_gates:
   # munger collapses the interface the same way it collapses the address... an
   # InterfaceName= pair where there is one, the one named in the sentence where
   # there is not.
-  - selections:
-      arp_dup:
-        - field: hw_module
-          op: eq
-          value: ARP
-        - field: hw_mnemonic
-          op: startswith
-          value: ARP_DUPLICATE_IPADDR
-      dhcp_nak:
-        - field: hw_module
-          op: eq
-          value: DHCPC
-        - field: hw_mnemonic
-          op: startswith
-          value: DHCPC_LOG_NAK
-      dhcp_acquired:
-        - field: hw_module
-          op: eq
-          value: DHCPC
-        - field: hw_mnemonic
-          op: startswith
-          value: DHCPC_LOG_REQIP_SUCCESS
-      vrrp_auth:
-        - field: hw_module
-          op: eq
-          value: VRRP
-        - field: hw_mnemonic
-          op: startswith
-          value: LogAuthFailed
-  - condition: "arp_dup or dhcp_nak or dhcp_acquired or vrrp_auth"
+  - condition:
+      condition: "arp_dup or dhcp_nak or dhcp_acquired or vrrp_auth"
+      selections:
+        arp_dup:
+          - field: hw_module
+            op: eq
+            value: ARP
+          - field: hw_mnemonic
+            op: startswith
+            value: ARP_DUPLICATE_IPADDR
+        dhcp_nak:
+          - field: hw_module
+            op: eq
+            value: DHCPC
+          - field: hw_mnemonic
+            op: startswith
+            value: DHCPC_LOG_NAK
+        dhcp_acquired:
+          - field: hw_module
+            op: eq
+            value: DHCPC
+          - field: hw_mnemonic
+            op: startswith
+            value: DHCPC_LOG_REQIP_SUCCESS
+        vrrp_auth:
+          - field: hw_module
+            op: eq
+            value: VRRP
+          - field: hw_mnemonic
+            op: startswith
+            value: LogAuthFailed
   - detection_var:
       - hw_offender_ip
       - hw_iface

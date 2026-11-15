@@ -34,33 +34,34 @@ max_score: 1
 rule_gates:
   - mungers:
       - fortinet
-  - selections:
-      admin_login:
-        - field: fg_logid
-          op: re
-          value: '^\d*32001$'
-        - field: fg_type
-          op: eq
-          value: event
-      vpn_login:
-        - field: fg_logid
-          op: re
-          value: '^\d*39424$'
-        - field: fg_type
-          op: eq
-          value: event
-      ppp_auth:
-        - field: fg_logid
-          op: re
-          value: '^\d*29002$'
-        - field: fg_type
-          op: eq
-          value: event
-        # quoted or bare in the ledger, the value is the same once decomposed
-        - field: fg_action
-          op: eq
-          value: auth_success
-  - condition: "admin_login or vpn_login or ppp_auth"
+  - condition:
+      condition: "admin_login or vpn_login or ppp_auth"
+      selections:
+        admin_login:
+          - field: fg_logid
+            op: re
+            value: '^\d*32001$'
+          - field: fg_type
+            op: eq
+            value: event
+        vpn_login:
+          - field: fg_logid
+            op: re
+            value: '^\d*39424$'
+          - field: fg_type
+            op: eq
+            value: event
+        ppp_auth:
+          - field: fg_logid
+            op: re
+            value: '^\d*29002$'
+          - field: fg_type
+            op: eq
+            value: event
+          # quoted or bare in the ledger, the value is the same once decomposed
+          - field: fg_action
+            op: eq
+            value: auth_success
   - marked:
       names: [ brute_force, recon, exploit_attempt, honeypot ]
       var: fg_offender_ip

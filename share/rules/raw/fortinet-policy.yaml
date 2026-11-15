@@ -32,16 +32,17 @@ rule_gates:
   # 99501)... are one union here, since all three asked the same thing of the
   # rest of the line. The id lives under logid= on modern FortiOS and log_id= on
   # legacy 4.0, so one arm reads each.
-  - selections:
-      modern:
-        - field: fg_logid
-          op: re
-          value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
-      legacy:
-        - field: fg_log_id
-          op: re
-          value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
-  - condition: "modern or legacy"
+  - condition:
+      condition: "modern or legacy"
+      selections:
+        modern:
+          - field: fg_logid
+            op: re
+            value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
+        legacy:
+          - field: fg_log_id
+            op: re
+            value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
   - detection_var:
       - fg_offender_ip
 tests:

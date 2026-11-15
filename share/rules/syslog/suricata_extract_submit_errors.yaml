@@ -48,20 +48,21 @@ rule_gates:
       - suricata_extract_submit
   - message_regexp:
       - '^(?<RUN>Run Stats): \{'
-  - selections:
-      submissions_failed:
-        - field: ses_sub_fail_delta
-          op: gt
-          value: 0
-      errors_recorded:
-        - field: ses_errors_delta
-          op: gt
-          value: 0
-      carved_truncated:
-        - field: ses_truncated_delta
-          op: gt
-          value: 0
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        submissions_failed:
+          - field: ses_sub_fail_delta
+            op: gt
+            value: 0
+        errors_recorded:
+          - field: ses_errors_delta
+            op: gt
+            value: 0
+        carved_truncated:
+          - field: ses_truncated_delta
+            op: gt
+            value: 0
   - detection_var:
       - RUN
 tests:

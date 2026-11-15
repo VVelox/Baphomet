@@ -255,7 +255,7 @@ gates in the order a rule usually writes them.
    │       where a later offense can claim them. An offense already
    │       deferred against that key completes here and now.
    │
-   ├─ 1.7  message_regexp / match, with key and defer
+   ├─ 1.7  message_regexp / match, with key
    │       The entries are tried in order and the first to hit makes the
    │       offense. A keyed one needs its context. If the context holds
    │       that key, the stored captures merge with this line's into one
@@ -264,7 +264,7 @@ gates in the order a rule usually writes them.
    │       its offense of the line's fields, once every gate has let
    │       them by.
    │
-   ├─ 1.8  tracked / not_tracked / keywords / gate / selections / condition
+   ├─ 1.8  tracked / not_tracked / keywords / gate / condition
    │       The gates that judge. Each reads what stands when it is
    │       asked... the offense, with its captures, munger fields, and
    │       JSON fields alike, or the line's fields while there is no
@@ -1160,7 +1160,7 @@ accepts a gate or key:
 | `daemons` | ✓ | — | — | — | — |
 | `message_regexp` | ✓ | ✓ | — | ✓ | — |
 | `ignore_regexp` | ✓ | ✓ | — | ✓ | — |
-| `capture_regexp` / `capture`+`key`+`defer` (correlation) | ✓ | ✓ | — | — | ✓ |
+| `capture_regexp` / `capture`+`key` (correlation) | ✓ | ✓ | — | — | ✓ |
 | `stages` (staged sequences) | ✓ | ✓ | — | — | — |
 | `message_json` | ✓ | — | — | — | — |
 | `status` / `method` | — | — | ✓ | — | — |
@@ -1169,7 +1169,7 @@ accepts a gate or key:
 | `ban_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ban_not_internal` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `detection_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `gate` / `selections` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `gate` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `mark_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `marked` / `not_marked` / `sequence` / `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -1298,31 +1298,33 @@ rule_gates:
       values: [ mimikatz ]
 ```
 
-Keywords are ANDed with any `gate` or `selections`, and may stand alone as
+Keywords are ANDed with any `gate` or `condition`, and may stand alone as
 the whole matcher.
 
 #### selections / condition
 
 Optional, the boolean form and an alternative to `gate`... a rule carries
-one or the other. `selections` is a table of named selections, each a list
-of gate entries, legacy or typed, ANDed together. `condition` is a string
-composing the selections with `and`, `or`, `not`, parens, and the
-quantifiers `all of them`, `1 of them`, and `N of <prefix>_*`. That gives
-the OR, the nesting, and the N-of-M a flat gate can not express, the Sigma
-detection model.
+one or the other. The `condition` gate is told a hash of the two.
+`selections` is a table of named selections, each a list of gate entries,
+legacy or typed, ANDed together. `condition` is a string composing the
+selections with `and`, `or`, `not`, parens, and the quantifiers
+`all of them`, `1 of them`, and `N of <prefix>_*`. That gives the OR, the
+nesting, and the N-of-M a flat gate can not express, the Sigma detection
+model.
 
 ```yaml
 rule_gates:
-  - selections:
-      auth:  [ { field: event, op: eq, value: authFailure } ]
-      admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
-      trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
-  - condition: "auth and admin and not trust"
+  - condition:
+      condition: "auth and admin and not trust"
+      selections:
+        auth:  [ { field: event, op: eq, value: authFailure } ]
+        admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
+        trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
 ```
 
 A selection referenced but not defined, an unbalanced paren, or a stray
-token is a load-time error, as is a `condition` without `selections` or
-`selections` beside a `gate`.
+token is a load-time error, as is a `condition` gate with out either of
+the two, or one beside a `gate`.
 
 ### rule_gates... what a match still has to clear
 
@@ -1941,7 +1943,7 @@ a rule may carry `mungers` and **no `message_regexp` at all**, letting the
 gate be the matcher and `ban_var` name a decoded field... the same concession
 [`message_json`](#message_json) has, and for the same reason. Such a rule must
 still gate on something, or it would call every line it decodes an offense;
-one with no gate, `selections`, or `keywords` is refused at load.
+one with no `gate`, `condition`, or `keywords` is refused at load.
 
 This is how the appliance families are written. A FortiGate or SonicWall line
 is a flat `key=value` ledger, and the offender is a *named field* in it, so
@@ -2011,8 +2013,8 @@ The axes underneath that table:
   the data).
 - **Correlation.** Offense-and-address-on-different-lines correlation is a
   syslog, raw, and json feature... `capture_regexp` and keyed
-  `message_regexp` on the text types, a `capture` gate and the `key`/`defer`
-  gates keyed on fields for json. The http and http_error types have no
+  `message_regexp` on the text types, a `capture` gate and a `key` gate
+  keyed on fields for json. The http and http_error types have no
   need of it, every line already carrying its offender.
 - **Staging.** In-rule ordered sequences... counted stages with time and
   line bounds (`stages`)... are a syslog and raw feature.
@@ -2426,9 +2428,9 @@ the same shape its old text logs had. The json type carries the same
 two-phase [correlation](#correlation-offense-and-address-on-different-lines)
 as syslog and raw, keyed on fields instead of an envelope: `capture`
 entries (their own `gate`/`match`, a `key`, a `ttl`) harvest context
-without being offenses, and a `key` gate, with an optional `defer` gate
-beside it, makes the rule's own match resolve through it, whichever order
-the events arrive in.
+without being offenses, and a `key` gate, with an optional `defer`, makes
+the rule's own match resolve through it, whichever order the events arrive
+in.
 
 ```yaml
 rule_gates:
@@ -2446,19 +2448,19 @@ rule_gates:
         values: [ ACCESS ]
       - field: msg
         values: [ "Authentication failed" ]
-  - key: [ ctx ]
-  - defer: 60
+  - key: { key: [ ctx ], defer: 60 }
   - ban_var:
       - SRC
 ```
 
 A `key` is a field path or capture name, or an array of them compounding
-into one key, every component required to resolve. An unresolved offense
-with `defer` waits that many seconds for its capture; with out `defer` it
-is not judged an offense at all. State is per watcher and in memory only,
-as on the other types, and the `messages:` test form proves it. The
-`syslog.*` namespace is reserved (it is the [message_json](#message_json)
-envelope), so keying on it here is a load error.
+into one key, every component required to resolve. The gate is told the key
+alone, or a hash of it and a `defer`. An unresolved offense with `defer`
+waits that many seconds for its capture; with out `defer` it is not judged
+an offense at all. State is per watcher and in memory only, as on the other
+types, and the `messages:` test form proves it. The `syslog.*` namespace is
+reserved (it is the [message_json](#message_json) envelope), so keying on it
+here is a load error.
 
 ## Writing one
 

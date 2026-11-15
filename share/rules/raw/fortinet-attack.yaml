@@ -34,19 +34,20 @@ rule_gates:
       - 'severity="(?:low|info)"'
       - 'SSL\.Anonymous\.Ciphers'
       - 'URL blocked '
-  - selections:
-      modern:
-        - field: fg_logid
-          op: eq
-          values: [ "0419016384", "0419016385", "0421016399", "0720018434" ]
-        - field: fg_type
-          op: eq
-          value: utm
-      legacy:
-        - field: fg_log_id
-          op: re
-          value: '^\d*(?:70000|73001)$'
-  - condition: "modern or legacy"
+  - condition:
+      condition: "modern or legacy"
+      selections:
+        modern:
+          - field: fg_logid
+            op: eq
+            values: [ "0419016384", "0419016385", "0421016399", "0720018434" ]
+          - field: fg_type
+            op: eq
+            value: utm
+        legacy:
+          - field: fg_log_id
+            op: re
+            value: '^\d*(?:70000|73001)$'
   - ban_var:
       - fg_offender_ip
   - ban_not_internal: true

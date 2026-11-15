@@ -48,16 +48,17 @@ rule_gates:
   - mungers:
       - named
   # no message_regexp... the munger's fields are the matcher
-  - selections:
-      trust_anchor:
-        - field: dns_managed_keys_message
-          op: re
-          value: '^(?:Unable to |unable to |Failed |failed |No valid |no valid )|(?:revoked|expired|: failure$)'
-      priming:
-        - field: dns_priming_result
-          op: re
-          value: '^(?!success)'
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        trust_anchor:
+          - field: dns_managed_keys_message
+            op: re
+            value: '^(?:Unable to |unable to |Failed |failed |No valid |no valid )|(?:revoked|expired|: failure$)'
+        priming:
+          - field: dns_priming_result
+            op: re
+            value: '^(?!success)'
   - detection_var:
       - dns_managed_keys_message
       - dns_priming_result

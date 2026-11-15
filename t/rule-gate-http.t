@@ -56,10 +56,11 @@ is( matches( 'http/gate', http_line( 'GET /public HTTP/1.1', 200, 'x' ) ),      
 write_rule( 'http/sel', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      post:     [ { field: method, op: eq, value: POST } ]
-      notfound: [ { field: status, op: eq, value: "404" } ]
-  - condition: "post or notfound"
+  - condition:
+      condition: "post or notfound"
+      selections:
+        post:     [ { field: method, op: eq, value: POST } ]
+        notfound: [ { field: status, op: eq, value: "404" } ]
   - ban_var: [ host ]
 EOR
 is( matches( 'http/sel', http_line( 'POST /x HTTP/1.1', 200, 'x' ) ), 1, 'http selections: POST matches the or' );

@@ -39,27 +39,28 @@ rule_gates:
   - mungers:
       - baphomet
   # no message_regexp... the munger's fields are the matcher
-  - selections:
-      died:
-        - field: bph_action
-          op: eq
-          value: died
-      exited_nonzero:
-        - field: bph_exit_status
-          op: exists
-        - field: bph_exit_status
-          op: gt
-          value: 0
-      wrote_stderr:
-        - field: bph_stderr
-          op: exists
-      had_to_be_signalled:
-        - field: bph_signal
-          op: exists
-      unreachable:
-        - field: bph_error
-          op: exists
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        died:
+          - field: bph_action
+            op: eq
+            value: died
+        exited_nonzero:
+          - field: bph_exit_status
+            op: exists
+          - field: bph_exit_status
+            op: gt
+            value: 0
+        wrote_stderr:
+          - field: bph_stderr
+            op: exists
+        had_to_be_signalled:
+          - field: bph_signal
+            op: exists
+        unreachable:
+          - field: bph_error
+            op: exists
   - detection_var:
       - bph_galla
 tests:

@@ -281,8 +281,9 @@ is( matches( 'json/exneg', '{"CommandLine":"whoami","src":"1.1.1.1"}' ),
 
 # --- exists composes in a selection alongside a value predicate ---
 write_rule( 'json/exsel',
-	"---\nrule_gates:\n  - selections:\n      s:\n        - field: EventID\n          op: eq\n          value: 1\n"
-		. "        - field: ParentImage\n          op: exists\n  - condition: s\n  - ban_var:\n      - src\n" );
+		  "---\nrule_gates:\n  - condition:\n      condition: s\n      selections:\n        s:\n"
+		. "          - field: EventID\n            op: eq\n            value: 1\n"
+		. "          - field: ParentImage\n            op: exists\n  - ban_var:\n      - src\n" );
 is( matches( 'json/exsel', '{"EventID":1,"ParentImage":"/x","src":"1.1.1.1"}' ), 1,
 	'exists in a selection, both hold' );
 is( matches( 'json/exsel', '{"EventID":1,"src":"1.1.1.1"}' ), 0, 'exists in a selection, field absent fails the AND' );

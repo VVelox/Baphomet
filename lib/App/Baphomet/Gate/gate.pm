@@ -41,7 +41,7 @@ fields, and on a syslog or raw rule, where it sits below the
 C<message_regexp>, it is a refinement over the captures.
 
 It is told a array of entries, each a hash with a C<field>. A rule may have
-this or C<selections>, the two being two forms of the same thing, never
+this or a C<condition>, the two being two forms of the same thing, never
 both.
 
 =head1 METHODS
@@ -71,15 +71,15 @@ sub compile {
 
 =head2 settle
 
-Dies when the rule also has a C<selections> gate.
+Dies when the rule also has a C<condition> gate.
 
 =cut
 
 sub settle {
 	my ( $self, $gates ) = @_;
 
-	if ( any { $_->{type} eq 'selections' } @{$gates} ) {
-		die( $self->{where} . ' is beside a selections gate, and the two are two forms of the same thing' );
+	if ( any { $_->{type} eq 'condition' } @{$gates} ) {
+		die( $self->{where} . ' is beside a condition gate, and the two are two forms of the same thing' );
 	}
 
 	return;

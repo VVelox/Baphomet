@@ -19,7 +19,7 @@ digraph from_a_line_to_a_ban {
 	ign [label = "ignore / ignore_regexp"];
 	capt [label = "capture entries store context,\nor complete a deferred offense"];
 	match [label = "the match... message_regexp or match\nentries in order, first hit wins;\na staged rule advances its sequence instead;\nwith no matcher the line's fields are the\noffense, once every gate has let them by"];
-	bool [label = "the gates that judge... gate, keywords,\nor selections, over captures, munger\nfields, and JSON fields alike"];
+	bool [label = "the gates that judge... gate, keywords,\nor condition, over captures, munger\nfields, and JSON fields alike"];
 	sweep [label = "track... each record the rule\ndeclares takes this line's\ncontribution, offense or not"];
 	fired [label = "an offense?", shape = diamond];
 	gates [label = "the gates naming a var, which read\na field of the offense...\nand every active_time"];

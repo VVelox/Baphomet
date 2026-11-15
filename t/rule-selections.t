@@ -35,10 +35,11 @@ sub matches {
 write_rule( 'json/or', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      a: [ { field: event, op: eq, value: x } ]
-      b: [ { field: event, op: eq, value: y } ]
-  - condition: "a or b"
+  - condition:
+      condition: "a or b"
+      selections:
+        a: [ { field: event, op: eq, value: x } ]
+        b: [ { field: event, op: eq, value: y } ]
   - ban_var:
       - src
 EOR
@@ -50,10 +51,11 @@ is( matches( 'json/or', '{"event":"z","src":"1.1.1.1"}' ), 0, 'or: neither match
 write_rule( 'json/andnot', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      a:      [ { field: event, op: eq, value: auth } ]
-      filter: [ { field: user,  op: eq, value: healthcheck } ]
-  - condition: "a and not filter"
+  - condition:
+      condition: "a and not filter"
+      selections:
+        a:      [ { field: event, op: eq, value: auth } ]
+        filter: [ { field: user,  op: eq, value: healthcheck } ]
   - ban_var:
       - src
 EOR
@@ -65,11 +67,12 @@ is( matches( 'json/andnot', '{"event":"other","user":"root","src":"1.1.1.1"}' ),
 write_rule( 'json/paren', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      a: [ { field: a, op: eq, value: "1" } ]
-      b: [ { field: b, op: eq, value: "1" } ]
-      c: [ { field: c, op: eq, value: "1" } ]
-  - condition: "(a or b) and not not c"
+  - condition:
+      condition: "(a or b) and not not c"
+      selections:
+        a: [ { field: a, op: eq, value: "1" } ]
+        b: [ { field: b, op: eq, value: "1" } ]
+        c: [ { field: c, op: eq, value: "1" } ]
   - ban_var:
       - src
 EOR
@@ -81,11 +84,12 @@ is( matches( 'json/paren', '{"c":"1","src":"1.1.1.1"}' ),         0, 'parens: ne
 write_rule( 'json/nom', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      sig_a: [ { field: a, op: eq, value: "1" } ]
-      sig_b: [ { field: b, op: eq, value: "1" } ]
-      sig_c: [ { field: c, op: eq, value: "1" } ]
-  - condition: "2 of sig_*"
+  - condition:
+      condition: "2 of sig_*"
+      selections:
+        sig_a: [ { field: a, op: eq, value: "1" } ]
+        sig_b: [ { field: b, op: eq, value: "1" } ]
+        sig_c: [ { field: c, op: eq, value: "1" } ]
   - ban_var:
       - src
 EOR
@@ -97,20 +101,22 @@ is( matches( 'json/nom', '{"a":"1","src":"1.1.1.1"}' ),                 0, '2 of
 write_rule( 'json/allof', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      a: [ { field: a, op: eq, value: "1" } ]
-      b: [ { field: b, op: eq, value: "1" } ]
-  - condition: "all of them"
+  - condition:
+      condition: "all of them"
+      selections:
+        a: [ { field: a, op: eq, value: "1" } ]
+        b: [ { field: b, op: eq, value: "1" } ]
   - ban_var:
       - src
 EOR
 write_rule( 'json/oneof', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      a: [ { field: a, op: eq, value: "1" } ]
-      b: [ { field: b, op: eq, value: "1" } ]
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        a: [ { field: a, op: eq, value: "1" } ]
+        b: [ { field: b, op: eq, value: "1" } ]
   - ban_var:
       - src
 EOR
@@ -123,11 +129,12 @@ is( matches( 'json/oneof', '{"src":"1.1.1.1"}' ),                 0, '1 of them:
 write_rule( 'json/multi', <<'EOR' );
 ---
 rule_gates:
-  - selections:
-      sel:
-        - { field: event, op: eq, value: auth }
-        - { field: user,  op: eq, values: [ root, admin ] }
-  - condition: "sel"
+  - condition:
+      condition: "sel"
+      selections:
+        sel:
+          - { field: event, op: eq, value: auth }
+          - { field: user,  op: eq, values: [ root, admin ] }
   - ban_var:
       - src
 EOR
@@ -135,26 +142,98 @@ is( matches( 'json/multi', '{"event":"auth","user":"root","src":"1.1.1.1"}' ),  
 is( matches( 'json/multi', '{"event":"auth","user":"guest","src":"1.1.1.1"}' ), 0, 'selection ANDs its predicates: one fails' );
 
 # --- errors ---
-write_rule( 'json/both',    "---\nban_var: [ src ]\ngate: [ { field: a, op: eq, value: 1 } ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: s\n" );
-write_rule( 'json/nocond',  "---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\n" );
-write_rule( 'json/nosel',   "---\nban_var: [ src ]\ncondition: s\n" );
-write_rule( 'json/unknown', "---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"s and nope\"\n" );
-write_rule( 'json/unbal',   "---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"( s\"\n" );
-ok( !eval { $rules->load('json/both');    1 }, 'gate and selections together is a load error' );
-ok( !eval { $rules->load('json/nocond');  1 }, 'selections without a condition is a load error' );
-ok( !eval { $rules->load('json/nosel');   1 }, 'a condition without selections is a load error' );
-ok( !eval { $rules->load('json/unknown'); 1 }, 'a condition referencing an unknown selection is a load error' );
-ok( !eval { $rules->load('json/unbal');   1 }, 'an unbalanced paren is a load error' );
+# writes the passed rule and returns what loading it dies with, or undef when
+# it loads
+sub load_error {
+	my ( $name, $yaml ) = @_;
+
+	write_rule( $name, "---\nrule_gates:\n" . $yaml );
+	if ( eval { $rules->load($name); 1 } ) {
+		return undef;
+	}
+	return $@;
+} ## end sub load_error
+
+# a condition of the one selection, s, told the passed expression
+sub condition_error {
+	my ( $name, $expression ) = @_;
+
+	return load_error( $name,
+			  "  - condition:\n      condition: \"" . $expression
+			. "\"\n      selections:\n        s: [ { field: b, op: eq, value: 1 } ]\n  - ban_var: [ src ]\n" );
+}
+
+like(
+	load_error( 'json/both', <<'EOR' ),
+  - gate: [ { field: a, op: eq, value: 1 } ]
+  - condition:
+      condition: s
+      selections:
+        s: [ { field: b, op: eq, value: 1 } ]
+  - ban_var: [ src ]
+EOR
+	qr/The gate gate of the rule "json\/both" \(rule_gates entry 0\) is beside a condition gate/,
+	'a gate and a condition together is a load error'
+);
+like(
+	load_error( 'json/nocond', <<'EOR' ),
+  - condition:
+      selections:
+        s: [ { field: b, op: eq, value: 1 } ]
+  - ban_var: [ src ]
+EOR
+	qr/\(rule_gates entry 0\) lacks a condition/,
+	'selections without a condition is a load error'
+);
+like(
+	load_error( 'json/nosel', "  - condition:\n      condition: s\n  - ban_var: [ src ]\n" ),
+	qr/\(rule_gates entry 0\) lacks a selections/,
+	'a condition without selections is a load error'
+);
+like(
+	load_error( 'json/plaincond', "  - condition: s\n  - ban_var: [ src ]\n" ),
+	qr/The condition gate of the rule "json\/plaincond" \(rule_gates entry 0\) is not a hash/,
+	'a condition told the bare expression is a load error'
+);
+like(
+	load_error( 'json/selgate', <<'EOR' ),
+  - selections:
+      s: [ { field: b, op: eq, value: 1 } ]
+  - condition:
+      condition: s
+      selections:
+        s: [ { field: b, op: eq, value: 1 } ]
+  - ban_var: [ src ]
+EOR
+	qr/entry 0 names the gate "selections", which is not a known gate type/,
+	'selections written as a gate of its own is a load error'
+);
+like(
+	condition_error( 'json/unknown', 's and nope' ),
+	qr/\(rule_gates entry 0\) references the unknown selection "nope"/,
+	'a condition referencing an unknown selection is a load error'
+);
+like(
+	condition_error( 'json/unbal', '( s' ),
+	qr/\(rule_gates entry 0\) has an unbalanced paren/,
+	'an unbalanced paren is a load error'
+);
 
 # quantifier edge cases... each would be vacuously true or never true
-write_rule( 'json/star0',
-	"---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"all of typo_*\"\n" );
-write_rule( 'json/toomany',
-	"---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"3 of them\"\n" );
-write_rule( 'json/zeroof',
-	"---\nban_var: [ src ]\nselections:\n  s: [ { field: b, op: eq, value: 1 } ]\ncondition: \"0 of them\"\n" );
-ok( !eval { $rules->load('json/star0');   1 }, 'a *-pattern covering no selections is a load error' );
-ok( !eval { $rules->load('json/toomany'); 1 }, 'asking for more than the selection count is a load error' );
-ok( !eval { $rules->load('json/zeroof');  1 }, '0 of is a load error' );
+like(
+	condition_error( 'json/star0', 'all of typo_*' ),
+	qr/has an "of" target "typo_\*" that covers no selections/,
+	'a *-pattern covering no selections is a load error'
+);
+like(
+	condition_error( 'json/toomany', '3 of them' ),
+	qr/asks for 3 of 1 selections, which can never be met/,
+	'asking for more than the selection count is a load error'
+);
+like(
+	condition_error( 'json/zeroof', '0 of them' ),
+	qr/asks for 0 of, which is vacuously true/,
+	'0 of is a load error'
+);
 
 done_testing;

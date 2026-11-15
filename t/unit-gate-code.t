@@ -91,15 +91,17 @@ ok(
 my $conditioned = json_rule(
 	'conditioned',
 	{
-		'selections' => {
-			'is_alert' => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
-			'is_flow'  => [ { 'field' => 'event_type', 'values' => ['flow'] } ],
+		'condition' => {
+			'condition'  => 'is_alert or is_flow',
+			'selections' => {
+				'is_alert' => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
+				'is_flow'  => [ { 'field' => 'event_type', 'values' => ['flow'] } ],
+			},
 		}
-	},
-	{ 'condition' => 'is_alert or is_flow' }
+	}
 );
-my ($selections_of_conditioned) = grep { $_->{type} eq 'selections' } @{ $conditioned->rule_gates };
-ok( defined( $selections_of_conditioned->{compiled}{is_alert}[0]{code} ), 'a selection arm compiles its entries too' );
+my ($condition_of_conditioned) = grep { $_->{type} eq 'condition' } @{ $conditioned->rule_gates };
+ok( defined( $condition_of_conditioned->{selections}{is_alert}[0]{code} ), 'a selection arm compiles its entries too' );
 ok(
 	!( grep { defined( $_->{code} ) } @{ $conditioned->rule_gates } ),
 	'but a condition decides the rule, so no gate of it has code refs to walk'

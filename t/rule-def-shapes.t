@@ -895,9 +895,10 @@ my @cases = (
 			. 'has a regexp that is not a string'
 	],
 	[
-		'json', 'a defer of 0',
-		{ 'rule_gates' => [ $event_gate, { 'key' => 'session' }, { 'defer' => 0 }, $ban_ip ] },
-		'The defer gate of the rule "json/x" (rule_gates entry 2) is not a positive int of seconds'
+		'json',
+		'a defer of 0',
+		{ 'rule_gates' => [ $event_gate, { 'key' => { 'key' => 'session', 'defer' => 0 } }, $ban_ip ] },
+		'The key gate of the rule "json/x" (rule_gates entry 1) has a defer that is not a positive int of seconds'
 	],
 	[
 		'json',

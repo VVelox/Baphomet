@@ -160,9 +160,32 @@ EOR
 is( matches( 'syslog/plain', "$stamp sshd[1]: bad from 1.2.3.4" ), 1, 'a normal syslog rule is untouched' );
 
 # --- load errors ---
-write_rule( 'syslog/jbad', "---\ndaemons: [ x ]\nmessage_json: true\nban_var: [ src ]\n" );
-write_rule( 'syslog/jbadtype', "---\ndaemons: [ x ]\nmessage_json: [ 1 ]\ngate: [ { field: a, op: eq, value: b } ]\nban_var: [ src ]\n" );
-ok( !eval { $rules->load('syslog/jbad');     1 }, 'message_json with no message_regexp and no gate is a load error' );
-ok( !eval { $rules->load('syslog/jbadtype'); 1 }, 'a non-boolean message_json is a load error' );
+# writes the passed rule and returns what loading it dies with, or undef when
+# it loads
+sub load_error {
+	my ( $name, $yaml ) = @_;
+
+	write_rule( $name, "---\nrule_gates:\n" . $yaml );
+	if ( eval { $rules->load($name); 1 } ) {
+		return undef;
+	}
+	return $@;
+} ## end sub load_error
+
+like(
+	load_error( 'syslog/jbad', "  - daemons: [ x ]\n  - message_json: true\n  - ban_var: [ src ]\n" ),
+	qr/The rule "syslog\/jbad" has no gate that makes a offense of a line or judges one/,
+	'message_json with no message_regexp and no gate is a load error'
+);
+like(
+	load_error( 'syslog/jbadtype', <<'EOR' ),
+  - daemons: [ x ]
+  - message_json: [ 1 ]
+  - gate: [ { field: a, op: eq, value: b } ]
+  - ban_var: [ src ]
+EOR
+	qr/The message_json gate of the rule "syslog\/jbadtype" \(rule_gates entry 1\) is not a boolean/,
+	'a non-boolean message_json is a load error'
+);
 
 done_testing;

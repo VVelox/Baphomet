@@ -278,7 +278,7 @@
 <title>bool</title>
 <path fill="none" stroke="black" d="M694.12,-1211.5C694.12,-1211.5 519.88,-1211.5 519.88,-1211.5 513.88,-1211.5 507.88,-1205.5 507.88,-1199.5 507.88,-1199.5 507.88,-1175 507.88,-1175 507.88,-1169 513.88,-1163 519.88,-1163 519.88,-1163 694.12,-1163 694.12,-1163 700.12,-1163 706.12,-1169 706.12,-1175 706.12,-1175 706.12,-1199.5 706.12,-1199.5 706.12,-1205.5 700.12,-1211.5 694.12,-1211.5"/>
 <text xml:space="preserve" text-anchor="middle" x="607" y="-1197.05" font-family="Helvetica,sans-Serif" font-size="11.00">the gates that judge... gate, keywords,</text>
-<text xml:space="preserve" text-anchor="middle" x="607" y="-1183.55" font-family="Helvetica,sans-Serif" font-size="11.00">or selections, over captures, munger</text>
+<text xml:space="preserve" text-anchor="middle" x="607" y="-1183.55" font-family="Helvetica,sans-Serif" font-size="11.00">or condition, over captures, munger</text>
 <text xml:space="preserve" text-anchor="middle" x="607" y="-1170.05" font-family="Helvetica,sans-Serif" font-size="11.00">fields, and JSON fields alike</text>
 </g>
 <!-- match&#45;&gt;bool -->

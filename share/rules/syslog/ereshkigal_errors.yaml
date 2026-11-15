@@ -38,21 +38,22 @@ rule_gates:
   - mungers:
       - ereshkigal
   # no message_regexp... the munger's fields are the matcher
-  - selections:
-      died:
-        - field: eresh_action
-          op: eq
-          value: died
-      exited_nonzero:
-        - field: eresh_exit_status
-          op: exists
-        - field: eresh_exit_status
-          op: gt
-          value: 0
-      stop_failed:
-        - field: eresh_error
-          op: exists
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        died:
+          - field: eresh_action
+            op: eq
+            value: died
+        exited_nonzero:
+          - field: eresh_exit_status
+            op: exists
+          - field: eresh_exit_status
+            op: gt
+            value: 0
+        stop_failed:
+          - field: eresh_error
+            op: exists
   - detection_var:
       - eresh_kur
 tests:

@@ -39,17 +39,18 @@ rule_gates:
   - mungers:
       - kur
   # no message_regexp... the munger's fields are the matcher
-  - selections:
-      ban_failed:
-        - field: kur_error
-          op: exists
-      cidr_dropped:
-        - field: kur_drop_reason
-          op: exists
-      loader_malformed:
-        - field: kur_line_number
-          op: exists
-  - condition: "1 of them"
+  - condition:
+      condition: "1 of them"
+      selections:
+        ban_failed:
+          - field: kur_error
+            op: exists
+        cidr_dropped:
+          - field: kur_drop_reason
+            op: exists
+        loader_malformed:
+          - field: kur_line_number
+            op: exists
   - detection_var:
       - kur_error
       - kur_drop_reason

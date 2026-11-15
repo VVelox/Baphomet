@@ -272,8 +272,7 @@ rule_gates:
         values: [ ACCESS ]
       - field: msg
         values: [ "Authentication failed" ]
-  - key: [ ctx ]
-  - defer: 60
+  - key: { key: [ ctx ], defer: 60 }
   - ban_var:
       - SRC
 tests:
@@ -376,31 +375,116 @@ ok( !defined( $found->{data}{SRC} ), 'and carries no correlated address' );
 # invalid defs
 #
 
-write_rule( 'raw/badcap', "---\ncapture_regexp:\n  - regexp: 'x'\nmessage_regexp:\n  - 'y'\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('raw/badcap'); 1 }, 'capture entry with out a key refuses to load' );
+# writes the passed rule and returns what loading it dies with, or undef when
+# it loads
+sub load_error {
+	my ( $name, $yaml ) = @_;
 
-write_rule( 'raw/badhash', "---\nmessage_regexp:\n  - regexp: 'x'\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('raw/badhash'); 1 }, 'hash message entry with out a key refuses to load' );
+	write_rule( $name, "---\nrule_gates:\n" . $yaml );
+	if ( eval { $rules->load($name); 1 } ) {
+		return undef;
+	}
+	return $@;
+} ## end sub load_error
 
-write_rule( 'raw/badenvelope', "---\nmessage_regexp:\n  - regexp: 'x'\n    key: [ syslog.pid ]\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('raw/badenvelope'); 1 }, 'a raw rule keying on the envelope refuses to load' );
-
-write_rule( 'raw/emptykey', "---\nmessage_regexp:\n  - regexp: 'x'\n    key: []\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('raw/emptykey'); 1 }, 'a empty key array refuses to load' );
-
-write_rule( 'syslog/badenvelope',
-	"---\ndaemons:\n  - x\nmessage_regexp:\n  - regexp: 'x'\n    key: [ syslog.severity ]\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('syslog/badenvelope'); 1 }, 'a unknown envelope field refuses to load' );
-
-write_rule( 'json/baddefer', "---\ngate:\n  - field: a\n    values: [ b ]\ndefer: 60\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('json/baddefer'); 1 }, 'a json defer with out a key refuses to load' );
-
-write_rule( 'json/badcapture',
-	"---\ngate:\n  - field: a\n    values: [ b ]\nkey: [ x ]\ncapture:\n  - key: [ x ]\n    ttl: 60\nban_var:\n  - SRC\n"
+like(
+	load_error( 'raw/badcap', <<'EOR' ),
+  - capture_regexp:
+      - regexp: 'x'
+  - message_regexp:
+      - 'y'
+  - ban_var: [ SRC ]
+EOR
+	qr/The capture_regexp gate of the rule "raw\/badcap" \(rule_gates entry 0\) entry 0 lacks a key/,
+	'capture entry with out a key refuses to load'
 );
-ok( !eval { $rules->load('json/badcapture'); 1 }, 'a json capture with neither gate nor match refuses to load' );
 
-write_rule( 'json/badkey', "---\ngate:\n  - field: a\n    values: [ b ]\nkey: [ syslog.pid ]\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('json/badkey'); 1 }, 'a json rule keying on the reserved syslog namespace refuses to load' );
+like(
+	load_error( 'raw/badhash', "  - message_regexp:\n      - regexp: 'x'\n  - ban_var: [ SRC ]\n" ),
+	qr/The message_regexp gate of the rule "raw\/badhash" \(rule_gates entry 0\) entry 0 lacks a key/,
+	'hash message entry with out a key refuses to load'
+);
+
+like(
+	load_error( 'raw/badenvelope', <<'EOR' ),
+  - message_regexp:
+      - regexp: 'x'
+        key: [ syslog.pid ]
+  - ban_var: [ SRC ]
+EOR
+	qr/entry 0 keys on "syslog\.pid", which is not a envelope field this rule type carries/,
+	'a raw rule keying on the envelope refuses to load'
+);
+
+like(
+	load_error( 'raw/emptykey', "  - message_regexp:\n      - regexp: 'x'\n        key: []\n  - ban_var: [ SRC ]\n" ),
+	qr/\(rule_gates entry 0\) entry 0 has a empty key array/,
+	'a empty key array refuses to load'
+);
+
+like(
+	load_error( 'syslog/badenvelope', <<'EOR' ),
+  - daemons:
+      - x
+  - message_regexp:
+      - regexp: 'x'
+        key: [ syslog.severity ]
+  - ban_var: [ SRC ]
+EOR
+	qr/entry 0 keys on "syslog\.severity", which is not a envelope field this rule type carries/,
+	'a unknown envelope field refuses to load'
+);
+
+like(
+	load_error( 'json/baddefer', <<'EOR' ),
+  - gate:
+      - field: a
+        values: [ b ]
+  - key: { defer: 60 }
+  - ban_var: [ SRC ]
+EOR
+	qr/The key gate of the rule "json\/baddefer" \(rule_gates entry 1\) lacks a key/,
+	'a json defer with out a key refuses to load'
+);
+
+like(
+	load_error( 'json/defergate', <<'EOR' ),
+  - gate:
+      - field: a
+        values: [ b ]
+  - key: [ x ]
+  - defer: 60
+  - ban_var: [ SRC ]
+EOR
+	qr/entry 2 names the gate "defer", which is not a known gate type/,
+	'a json defer written as a gate of its own refuses to load'
+);
+
+like(
+	load_error( 'json/badcapture', <<'EOR' ),
+  - capture:
+      - key: [ x ]
+        ttl: 60
+  - gate:
+      - field: a
+        values: [ b ]
+  - key: [ x ]
+  - ban_var: [ SRC ]
+EOR
+	qr/\(rule_gates entry 0\) entry 0 has neither gate nor match, so it would harvest every line/,
+	'a json capture with neither gate nor match refuses to load'
+);
+
+like(
+	load_error( 'json/badkey', <<'EOR' ),
+  - gate:
+      - field: a
+        values: [ b ]
+  - key: [ syslog.pid ]
+  - ban_var: [ SRC ]
+EOR
+	qr/The key gate of the rule "json\/badkey" \(rule_gates entry 1\) keys on "syslog\.pid"/,
+	'a json rule keying on the reserved syslog namespace refuses to load'
+);
 
 done_testing;

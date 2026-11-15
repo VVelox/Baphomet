@@ -167,13 +167,15 @@ my $selected = App::Baphomet::Rule->new(
 	'def'  => {
 		'rule_gates' => [
 			{
-				'selections' => {
-					'is_alert' => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
-					'is_flow'  => [ { 'field' => 'event_type', 'values' => ['flow'] } ],
+				'condition' => {
+					'condition'  => 'is_alert or is_flow',
+					'selections' => {
+						'is_alert' => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
+						'is_flow'  => [ { 'field' => 'event_type', 'values' => ['flow'] } ],
+					},
 				}
 			},
-			{ 'condition' => 'is_alert or is_flow' },
-			{ 'ban_var'   => ['src_ip'] },
+			{ 'ban_var' => ['src_ip'] },
 		],
 	}
 );
