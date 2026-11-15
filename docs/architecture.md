@@ -311,10 +311,12 @@ restart or a crash does not forget what it was in the middle of...
 
 Tablet by tablet, what the rows hold...
 
-- `counters.csv` :: `ip,hit,weight,rule`. One row per still-live hit...
-  `hit` is the epoch the hit landed, `weight` what it counts for toward
-  the trigger, and `rule` is empty for the shared kur bucket or names the
-  rule for a per-rule bucket.
+- `counters.csv` :: `ip,hit,weight,rule,by,account`. One row per
+  still-live hit... `hit` is the epoch the hit landed, `weight` what it
+  counts for toward the trigger, and `rule` is empty for the shared kur
+  bucket or names the rule for a per-rule bucket. `by` is the rule that
+  counted the hit and `account` the account it was about, either empty for
+  none, which is what a `forgive` gate takes hits back by.
 - `subnet.csv` :: `family,net,hit,weight,member`. One row per live deposit
   in a subnet bucket... `family` is `v4` or `v6`, the two kept apart,
   `net` the bucket's network, and `member` the address that fed the

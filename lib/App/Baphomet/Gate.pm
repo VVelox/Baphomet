@@ -149,6 +149,10 @@ fixtures of a rule's own tests.
           on, a hash of C<number>, the AS number, and C<org>, the name of who
           runs it or undef, or undef for one it can not place.
 
+    - city_locator :: A sub taking a address and returning where it is, a
+          hash of C<lat> and C<lon>, in degrees, and C<radius>, the
+          kilometres that is good to, or undef for one it can not place.
+
     - resolver :: A sub returning the resolver, or undef when there is none
           to ask. The resolver is a hash of C<reverse> and C<forward>, each a
           sub answering a array ref of names or addresses, a empty one for
@@ -159,8 +163,25 @@ fixtures of a rule's own tests.
           and answering a array ref of the addresses the zone lists it
           under, a empty one when it does not, or undef for a failure.
 
-    - accounts :: A sub taking a name and returning true when it is a
-          account of the host.
+    - accounts :: A sub taking a name and returning the account of the host
+          it is, a hash of C<uid>, C<gid>, and C<shell>, or undef when it is
+          none. Any of the three may be missing where it is not known.
+
+    - groups :: A sub taking a group name and returning the group, a hash of
+          C<gid> and C<members>, the last a hash keyed by the names the
+          group lists, or undef when there is none.
+
+    - pressure :: A sub taking a scope, C<watcher> or C<galla>, a number of
+          seconds, and a time, and returning how many lines some banning
+          rule named a offender on, over that scope, in the seconds up to
+          that time.
+
+    - forgive :: A sub taking a address, a hash ref keyed by rule name, and
+          a account or undef, which takes back the hits those rules counted
+          against the address, only the ones about the account when there
+          is one, and returns how many.
+
+    - notice :: A sub taking a line to log.
 
     - namtar_files :: The loaded lists, a hash of slot key to a hash holding
           that slot's compiled C<set>.

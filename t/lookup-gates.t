@@ -227,7 +227,7 @@ is_deeply( \@sent, ['198.51.100.5'], 'and banishes one whose name does' );
 my $real_account = getpwuid($<);
 SKIP: {
 	skip( 'no account name for the uid the tests run as', 2 ) unless defined($real_account);
-	is( $galla->_account_exists($real_account), 1, 'the account the tests run as exists' );
+	is( $galla->_account_of($real_account)->{uid}, $<, 'the account the tests run as exists' );
 	my $guess_galla = galla_over( '', 'guess' );
 	feed( $guess_galla, 'guess', event => 'fail', ip => '203.0.113.9', user => $real_account );
 	is_deeply( \@sent, [], 'exists false spares a failure for a real account' );
@@ -237,14 +237,27 @@ SKIP: {
 	feed( $guess_galla, 'guess', event => 'fail', ip => '203.0.113.10' );
 	is_deeply( \@sent, [], 'a failure with no name fails closed' );
 } ## end SKIP:
-is( $galla->_account_exists('no-such-account-of-this-host'), 0, 'a name that is nobody\'s is no account' );
-is( $galla->_account_exists(''),                             0, 'nor is a empty name' );
-is( $galla->_account_exists(undef),                          0, 'nor no name' );
+is( $galla->_account_of('no-such-account-of-this-host'), undef, 'a name that is nobody\'s is no account' );
+is( $galla->_account_of(''), undef, 'nor is a empty name' );
+is( $galla->_account_of(undef), undef, 'nor no name' );
 foreach my $never_asked ( "neti\x00", 'neti/..', 'neti:0', 'n' x 257 ) {
-	$galla->_account_exists($never_asked);
+	$galla->_account_of($never_asked);
 	ok( !exists( $galla->{account_cache}{$never_asked} ), 'a name no account could have is never asked about' );
 }
 ok( exists( $galla->{account_cache}{'no-such-account-of-this-host'} ), 'while one that was asked about is cached' );
+
+# what more the galla knows of a account, and of a group
+SKIP: {
+	my $own_group = getgrgid( ( getpwuid($<) )[3] );
+	skip( 'no account or group name for the ids the tests run as', 5 ) unless defined($real_account) && defined($own_group);
+	my $account = $galla->_account_of($real_account);
+	is_deeply( [ sort( keys( %{$account} ) ) ], [ 'gid', 'shell', 'uid' ], '_account_of answers the uid, gid, and shell' );
+	is( $account->{shell}, ( getpwuid($<) )[8] // '', 'the shell being the account\'s own' );
+	my $group = $galla->_group_of($own_group);
+	is( $group->{gid}, $account->{gid}, '_group_of answers the gid, which is the account\'s for its own group' );
+	is( ref( $group->{members} ), 'HASH', 'and the names it lists' );
+	is( $galla->_group_of('no-such-group-of-this-host'), undef, 'a group there is none of is undef' );
+} ## end SKIP:
 
 #
 # dnsbl... off unless consented to, and then judged over the lookups

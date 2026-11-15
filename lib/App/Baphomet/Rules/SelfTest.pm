@@ -104,7 +104,13 @@ fixture's C<asns> map, of a address to a AS number, a C<< {number, org} >>
 hash, or C<unknown>, and its C<asn_lists>, stand in for the ASN database
 and the lists a C<%%%asn_lists{name}%%%> token resolves against. And a
 C<accounts> list names the accounts a account gate finds, every other name
-being nobody's.
+being nobody's, or as a hash of name to C<< {uid, shell, groups} >> says
+what is known of each. The C<geo> fixture's C<locations> map, of a address to a
+C<[ latitude, longitude ]> pair, a C<< {lat, lon, radius} >> hash, or
+C<unknown>, stands in for the city database a travel gate places a address
+with. And a C<pressure> number is what a pressure gate reads however far
+back it asks. A forgive gate has no fixture, the counts it takes hits back
+out of being the galla's, and always goes unjudged.
 
 =cut
 
@@ -194,7 +200,7 @@ sub run_tests {
 			# a typo'd assertion key would otherwise be a assertion that
 			# never runs... the very silence this machinery exists to end
 			my @unknown_keys = grep {
-				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo|accounts)$/
+				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo|accounts|pressure)$/
 			} keys( %{$test} );
 			if (@unknown_keys) {
 				foreach my $test_key (@unknown_keys) {
@@ -264,21 +270,38 @@ sub run_tests {
 					$gate_context{asn_locator} = $geo->{asn_locator};
 					$gate_context{asn_lists}   = $geo->{asn_lists};
 				}
-				if ( !$has_asn || defined( $test->{geo}{countries} ) || defined( $test->{geo}{lists} ) ) {
+				my $has_locations = defined( $test->{geo}{locations} );
+				if ($has_locations) {
+					$gate_context{city_locator} = $geo->{city_locator};
+				}
+				if (   !( $has_asn || $has_locations )
+					|| defined( $test->{geo}{countries} )
+					|| defined( $test->{geo}{lists} ) )
+				{
 					$gate_context{locator}       = $geo->{locator};
 					$gate_context{country_codes} = $geo->{country_codes};
 				}
 			} ## end if ( defined( $test->{geo} ) )
 
-			# the accounts fixture... the names a account gate finds
-			if ( defined( $test->{accounts} ) ) {
-				my $accounts = $test->{accounts};
-				if ( !is_plain_arrayref($accounts) || any { !defined($_) || ref($_) ne '' } @{$accounts} ) {
-					push( @{ $results->{failures} }, $where . ' accounts is not a array of names' );
+			# the pressure fixture... what a pressure gate reads, the same
+			# however far back and over whatever scope it asks
+			if ( defined( $test->{pressure} ) ) {
+				my $matched = $test->{pressure};
+				if ( ref($matched) ne '' || $matched !~ /^[0-9]+$/ ) {
+					push( @{ $results->{failures} }, $where . ' pressure is not a count of matched lines' );
 					next TEST;
 				}
-				my %accounts = map { $_ => 1 } @{$accounts};
-				$gate_context{accounts} = sub { return $accounts{ $_[0] } ? 1 : 0; };
+				$gate_context{pressure} = sub { return $matched; };
+			}
+
+			# the accounts fixture... the names a account gate finds
+			if ( defined( $test->{accounts} ) ) {
+				my ( $accounts, $groups ) = _test_accounts( $test->{accounts}, $where, $results );
+				if ( !defined($accounts) ) {
+					next TEST;
+				}
+				$gate_context{accounts} = sub { return $accounts->{ $_[0] }; };
+				$gate_context{groups}   = sub { return $groups->{ $_[0] }; };
 			}
 
 			# the rule's gates, bound over that and sorted by phase, as the
@@ -581,8 +604,68 @@ sub _test_dns_resolver {
 	};
 } ## end sub _test_dns_resolver
 
+# builds the accounts and groups from a test entry's accounts fixture, what
+# a account gate is judged over. every name the fixture does not have is
+# nobody's.
+#
+# args:
+#   $fixture :: the accounts of the test entry... a array of the names that
+#               are accounts, of which nothing more is then known, or a hash
+#               of name to a hash of any of uid, shell, and groups, the last
+#               a array of the groups the account is in
+#   $where   :: the lead in for a failure message, naming the test entry
+#   $results :: the results hash of the run, whose failures a malformed
+#               fixture is pushed onto
+#
+# returns a hash ref of name to account, each a hash of the uid and shell
+# the fixture gave, and a hash ref of group name to group, each a hash of
+# members keyed by name. a lone undef on a malformed fixture.
+#
+#   my ( $accounts, $groups ) = _test_accounts( { 'neti' => { 'uid' => 1001, 'groups' => ['wheel'] } }, $where, $results );
+#   $accounts->{neti}{uid};              # 1001
+#   $groups->{wheel}{members}{neti};     # 1
+sub _test_accounts {
+	my ( $fixture, $where, $results ) = @_;
+
+	if ( is_plain_arrayref($fixture) ) {
+		if ( any { !defined($_) || ref($_) ne '' } @{$fixture} ) {
+			push( @{ $results->{failures} }, $where . ' accounts is not a array of names or a hash of them' );
+			return undef;
+		}
+		return ( { map { $_ => {} } @{$fixture} }, {} );
+	}
+	if ( !is_plain_hashref($fixture) ) {
+		push( @{ $results->{failures} }, $where . ' accounts is not a array of names or a hash of them' );
+		return undef;
+	}
+
+	my ( %accounts, %groups );
+	foreach my ( $name, $details ) ( %{$fixture} ) {
+		$details //= {};
+		my $malformed
+			= !is_plain_hashref($details)
+			|| ( grep { !/^(?:uid|shell|groups)$/ } keys( %{$details} ) )
+			|| ( defined( $details->{uid} )    && $details->{uid} !~ /^[0-9]+$/ )
+			|| ( defined( $details->{shell} )  && ref( $details->{shell} ) ne '' )
+			|| ( defined( $details->{groups} ) && !is_plain_arrayref( $details->{groups} ) );
+		if ($malformed) {
+			push(
+				@{ $results->{failures} },
+				$where . ' accounts "' . $name . '" is not a hash of uid, shell, and groups'
+			);
+			return undef;
+		}
+		$accounts{$name} = { map { $_ => $details->{$_} } grep { defined( $details->{$_} ) } ( 'uid', 'shell' ) };
+		foreach my $group_name ( @{ $details->{groups} // [] } ) {
+			$groups{$group_name}{members}{$name} = 1;
+		}
+	} ## end foreach my ( $name, $details ) ( %{$fixture} )
+
+	return ( \%accounts, \%groups );
+} ## end sub _test_accounts
+
 # builds the locators and lists from a test entry's geo fixture, what the
-# country and asn gates are judged over. anything unfixtured is unknown,
+# country, asn, and travel gates are judged over. anything unfixtured is unknown,
 # fail-closed as an unplaceable address is in the galla.
 #
 # args:
@@ -592,7 +675,9 @@ sub _test_dns_resolver {
 #               taking the string unknown for a address the database would
 #               not place. lists and asn_lists name the sets a
 #               %%%country_codes{name}%%% and a %%%asn_lists{name}%%% token
-#               resolve against
+#               resolve against. locations maps a address to where it is,
+#               a [ latitude, longitude ] pair or a hash of lat, lon, and
+#               radius, or to the string unknown
 #   $where   :: the lead in for a failure message, naming the test entry
 #   $results :: the results hash of the run, whose failures a malformed
 #               fixture is pushed onto
@@ -600,8 +685,9 @@ sub _test_dns_resolver {
 # returns a hash ref of locator, a sub taking a address and returning its
 # code upcased or undef, country_codes, the named code lists, asn_locator, a
 # sub taking a address and returning a hash ref of number and org or undef,
-# and asn_lists, the named number lists with any AS off. undef on a
-# malformed fixture.
+# asn_lists, the named number lists with any AS off, and city_locator, a sub
+# taking a address and returning a hash ref of lat, lon, and radius or
+# undef. undef on a malformed fixture.
 #
 #   my $geo = _test_geo_locator( { 'countries' => { '203.0.113.9' => 'nl' } }, $where, $results );
 #   my $code = $geo->{locator}->('203.0.113.9');    # 'NL'
@@ -613,7 +699,7 @@ sub _test_geo_locator {
 		return undef;
 	}
 	foreach my $fixture_key ( keys( %{$fixture} ) ) {
-		if ( $fixture_key !~ /^(?:countries|lists|asns|asn_lists)$/ ) {
+		if ( $fixture_key !~ /^(?:countries|lists|asns|asn_lists|locations)$/ ) {
 			push( @{ $results->{failures} }, $where . ' geo has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
@@ -667,10 +753,38 @@ sub _test_geo_locator {
 		$asn_lists{$list_name} = [ map { ( $_ =~ s/^[Aa][Ss]//r ) + 0 } @{$numbers} ];
 	}
 
+	# the places, each as the city locator answers one... a pair is a place
+	# good to the kilometre
+	my %places;
+	my $degrees = qr/^-?[0-9]+(?:\.[0-9]+)?$/;
+	foreach my ( $address, $location ) ( %{ $fixture->{locations} || {} } ) {
+		if ( !ref($location) && defined($location) && $location eq 'unknown' ) {
+			next;
+		}
+		my ( $lat, $lon, $radius );
+		if ( is_plain_arrayref($location) ) {
+			( $lat, $lon, $radius ) = ( @{$location}[ 0, 1 ], 0 );
+		} elsif ( is_plain_hashref($location) ) {
+			( $lat, $lon, $radius ) = ( @{$location}{ 'lat', 'lon' }, $location->{radius} // 0 );
+		}
+		if ( grep { !defined($_) || ref($_) ne '' || $_ !~ $degrees } ( $lat, $lon, $radius ) ) {
+			push(
+				@{ $results->{failures} },
+				$where
+					. ' geo locations "'
+					. $address
+					. '" is not a [ latitude, longitude ] pair, a hash of lat, lon, and radius, or unknown'
+			);
+			return undef;
+		} ## end if ( grep { !defined($_) || ref($_) ne '' ...})
+		$places{$address} = { 'lat' => $lat + 0, 'lon' => $lon + 0, 'radius' => $radius + 0 };
+	} ## end foreach my ( $address, $location ) ( %{ $fixture...})
+
 	my $countries = $fixture->{countries} || {};
 
 	return {
-		'locator' => sub {
+		'city_locator' => sub { return $places{ $_[0] }; },
+		'locator'      => sub {
 			my ($address) = @_;
 			my $code = $countries->{$address};
 			if ( !defined($code) || $code eq 'unknown' ) {

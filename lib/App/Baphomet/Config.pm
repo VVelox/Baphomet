@@ -341,6 +341,11 @@ Top level keys are as below.
           unloadable, and every asn gate fails closed.
         Default :: undef
 
+    - geoip_city_db :: Path to a MaxMind GeoLite2 City database, for rules
+          with a travel gate. Read via the same optional module. Unset or
+          unloadable, and no travel gate ever holds.
+        Default :: undef
+
     - enable_dns :: The consent for DNS resolution. With out it any
           usedns is treated as no, loudly. Resolution rides the optional
           Net::DNS and POE::Component::Client::DNS modules... set but
@@ -582,6 +587,7 @@ sub load_config {
 		'eve_enable'                => 0,
 		'geoip_db'                  => undef,
 		'geoip_asn_db'              => undef,
+		'geoip_city_db'             => undef,
 		'country_codes'             => {},
 		'asn_lists'                 => {},
 		'namtar_lists'              => {},
@@ -693,7 +699,7 @@ sub load_config {
 		die('eve_log is not a path');
 	}
 
-	foreach my $item ( 'geoip_db', 'geoip_asn_db' ) {
+	foreach my $item ( 'geoip_db', 'geoip_asn_db', 'geoip_city_db' ) {
 		if ( defined( $config->{$item} ) && ( ref( $config->{$item} ) ne '' || $config->{$item} eq '' ) ) {
 			die( $item . ' is not a path' );
 		}

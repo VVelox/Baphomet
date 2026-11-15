@@ -162,6 +162,9 @@ Each setting's default is given in parens after its name.
 - `geoip_asn_db` (unset) :: Path to a MaxMind GeoLite2 ASN database, for
   rules with an `asn` gate. Read via the same optional module. Unset, or
   unloadable, and every asn gate fails closed, with the same loud warning.
+- `geoip_city_db` (unset) :: Path to a MaxMind GeoLite2 City database, for
+  rules with a `travel` gate. Read via the same optional module. Unset, or
+  unloadable, and no travel gate ever holds, with the same loud warning.
 - `enable_dnsbl` (`false`) :: Whether the `dnsbl` rule gate may look
   things up. A consent of its own and off by default, as every lookup
   tells whoever runs the blocklist which address this host was talking to.

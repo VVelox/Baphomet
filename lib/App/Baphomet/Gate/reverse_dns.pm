@@ -5,7 +5,7 @@ use v5.40;
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
 use parent 'App::Baphomet::Gate';
-use List::Util            qw( any );
+use List::Util            qw( any first );
 use Socket                qw( AF_INET AF_INET6 inet_pton );
 use App::Baphomet::Config qw( ip_family );
 use App::Baphomet::Shape  qw( check_hash );
@@ -61,6 +61,14 @@ A entry is told...
           outright, and C<compare> carries on over whatever names there are.
           C<compare> and C<fail> by default.
 
+    - into :: Optional. The found var a PTR name of the address is lifted
+          into when the gate holds, for what is below the gate and the
+          counting to read... the name the comparison hit on, or with none
+          hit, as under C<negate>, the first that took part. It needs a
+          C<var>, a offense being able to have several offenders and the
+          var only one value. It is never lifted over a value the offense
+          already has, and a address with no name to give lifts nothing.
+
 It needs the C<resolver> of the L<context|App::Baphomet::Gate/THE CONTEXT>.
 
 =cut
@@ -75,6 +83,7 @@ my $SHAPE = {
 		'matches_var'     => 'string',
 		'negate'          => 'any',
 		'forward_confirm' => 'any',
+		'into'            => 'string',
 		'on_nxdomain'     => $FAILURE_ACTION,
 		'on_servfail'     => $FAILURE_ACTION,
 	},
@@ -97,7 +106,11 @@ sub compile {
 
 	check_hash( $args, $SHAPE, $where );
 
-	$self->{var}         = $args->{var};
+	$self->{var}  = $args->{var};
+	$self->{into} = $args->{into};
+	if ( defined( $self->{into} ) && !defined( $self->{var} ) ) {
+		die( $where . ' has a into, which needs a var to lift the name of' );
+	}
 	$self->{matches_var} = $args->{matches_var};
 	$self->{negate}      = $args->{negate} ? 1 : 0;
 	$self->{on_nxdomain} = $args->{on_nxdomain} // 'compare';
@@ -233,22 +246,29 @@ sub holds {
 
 	# the comparison, against the regexp or the named found value... a
 	# missing or empty value fails closed, before negate can flip it
-	my $hit;
+	my $hit_name;
 	if ( defined( $self->{regexp} ) ) {
-		$hit = any { $_ =~ $self->{regexp} } @confirmed;
+		$hit_name = first { $_ =~ $self->{regexp} } @confirmed;
 	} else {
 		my $expected = $data->{ $self->{matches_var} };
 		if ( !defined($expected) || $expected eq '' ) {
 			return 0;
 		}
 		$expected = _fold_name($expected);
-		$hit      = any { _fold_name($_) eq $expected } @confirmed;
+		$hit_name = first { _fold_name($_) eq $expected } @confirmed;
 	}
 
-	if ( $self->{negate} ) {
-		return $hit ? 0 : 1;
+	my $hit   = defined($hit_name)      ? 1 : 0;
+	my $holds = $hit != $self->{negate} ? 1 : 0;
+
+	# the name it hit on, or under negate, where it holds on hitting none,
+	# the first that took part
+	my $lifted = $hit_name // $confirmed[0];
+	if ( $holds && defined( $self->{into} ) && defined($lifted) && !exists( $data->{ $self->{into} } ) ) {
+		$data->{ $self->{into} } = $lifted;
 	}
-	return $hit ? 1 : 0;
+
+	return $holds;
 } ## end sub holds
 
 =head1 FUNCTIONS

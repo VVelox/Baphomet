@@ -169,4 +169,55 @@ ok( $var_gate->holds( { 'src' => '1.2.3.4' }, undef ),
 	'the address is the value of its var... no crawler PTR, negated, counts' );
 ok( !$var_gate->holds( {}, undef ), 'and a var the result lacks fails closed' );
 
+#
+# into... a PTR name lifted for what is below the gate to read
+#
+
+my $lift_resolver = resolver(
+	{
+		'192.0.2.10' => [ 'other.example.net', 'crawl.bot.example.org' ],
+		'192.0.2.11' => ['plain.example.net'],
+		'192.0.2.12' => [],
+	},
+	{
+		'other.example.net'     => ['192.0.2.10'],
+		'crawl.bot.example.org' => ['192.0.2.10'],
+		'plain.example.net'     => ['192.0.2.11'],
+	}
+);
+my $lifting = rdns_gate( { 'var' => 'src', 'matches' => '\.bot\.example\.org$', 'into' => 'PTR' }, $lift_resolver );
+my %lift_data = ( 'src' => '192.0.2.10' );
+ok( $lifting->holds( \%lift_data, undef ), 'a gate that lifts holds as it would with out' );
+is( $lift_data{PTR}, 'crawl.bot.example.org', 'and the name the comparison hit on is lifted, not merely the first' );
+
+%lift_data = ( 'src' => '192.0.2.11' );
+ok( !$lifting->holds( \%lift_data, undef ), 'a gate that does not hold' );
+ok( !exists( $lift_data{PTR} ), 'lifts nothing' );
+
+my $lifting_negated
+	= rdns_gate( { 'var' => 'src', 'matches' => '\.bot\.example\.org$', 'negate' => 1, 'into' => 'PTR' }, $lift_resolver );
+%lift_data = ( 'src' => '192.0.2.11' );
+ok( $lifting_negated->holds( \%lift_data, undef ), 'under negate it holds on hitting no name' );
+is( $lift_data{PTR}, 'plain.example.net', 'and lifts the first name that took part' );
+%lift_data = ( 'src' => '192.0.2.12' );
+ok( $lifting_negated->holds( \%lift_data, undef ), 'a address with no name holds under negate' );
+ok( !exists( $lift_data{PTR} ), 'and has none to lift' );
+
+%lift_data = ( 'src' => '192.0.2.10', 'PTR' => 'from the line' );
+$lifting->holds( \%lift_data, undef );
+is( $lift_data{PTR}, 'from the line', 'a value the offense already has is not lifted over' );
+
+ok(
+	!eval {
+		App::Baphomet::Gate::reverse_dns->new(
+			'type'  => 'reverse_dns',
+			'args'  => { 'matches' => 'x', 'into' => 'PTR' },
+			'where' => 'the gate'
+		);
+		1;
+	},
+	'a into with no var is refused'
+);
+like( $@, qr/^the gate has a into, which needs a var to lift the name of/, 'and says why' );
+
 done_testing;

@@ -69,6 +69,14 @@ A entry is told...
           lists the address, C<pass> or C<fail>.
         Default :: fail
 
+    - zone_into / code_into :: Optional. The found vars the zone that
+          listed the address, and the answer it listed it with, are lifted
+          into, for what is below the gate and the counting to read. Either
+          needs a C<var>, a offense being able to have several offenders
+          and the var only one value. Neither is lifted over a value the
+          offense already has, and a gate that holds on no listing, as
+          under C<negate>, lifts nothing.
+
 It needs the C<dnsbl> of the L<context|App::Baphomet::Gate/THE CONTEXT>, and
 uses its C<internal> when it is there.
 
@@ -98,6 +106,8 @@ my $SHAPE = {
 		'codes'       => $CODES,
 		'negate'      => 'any',
 		'on_servfail' => { 'in' => [qw( pass fail )], 'says' => 'one of pass or fail' },
+		'zone_into'   => 'string',
+		'code_into'   => 'string',
 	},
 };
 
@@ -121,6 +131,11 @@ sub compile {
 	$self->{var}         = $args->{var};
 	$self->{negate}      = $args->{negate} ? 1 : 0;
 	$self->{on_servfail} = $args->{on_servfail} // 'fail';
+	$self->{zone_into}   = $args->{zone_into};
+	$self->{code_into}   = $args->{code_into};
+	if ( ( defined( $self->{zone_into} ) || defined( $self->{code_into} ) ) && !defined( $self->{var} ) ) {
+		die( $where . ' has a zone_into or code_into, which needs a var to lift the listing of' );
+	}
 	if ( defined( $args->{codes} ) ) {
 		my @codes = is_plain_arrayref( $args->{codes} ) ? @{ $args->{codes} } : ( $args->{codes} );
 		$self->{codes} = { map { $_ => 1 } @codes };
@@ -186,6 +201,11 @@ sub holds {
 		my @counted = defined( $self->{codes} ) ? ( grep { $self->{codes}{$_} } @{$answers} ) : @{$answers};
 		if (@counted) {
 			$listed = 1;
+			foreach my ( $into, $lifted ) ( $self->{zone_into}, $zone, $self->{code_into}, $counted[0] ) {
+				if ( defined($into) && !$self->{negate} && !exists( $data->{$into} ) ) {
+					$data->{$into} = $lifted;
+				}
+			}
 			last;
 		}
 	} ## end foreach my $zone (@zones)

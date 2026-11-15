@@ -126,4 +126,56 @@ my $unbound = App::Baphomet::Gate::dnsbl->new( 'type' => 'dnsbl', 'args' => { 'z
 my $silent  = $unbound->bound( { 'dnsbl' => sub { return undef; } }, 'the rule "x"' );
 is( $silent->holds( {}, '198.51.100.5' ), 0, 'with nothing to ask with it fails closed, negate or not' );
 
+#
+# zone_into and code_into... the listing lifted for what is below the gate
+#
+
+my $lifting = dnsbl_gate(
+	{ 'zones' => [ 'bl2.example.org', 'bl.example.org' ], 'var' => 'PEER', 'zone_into' => 'ZONE', 'code_into' => 'CODE' } );
+my %data = ( 'PEER' => '203.0.113.10' );
+is( $lifting->holds( \%data ), 1, 'a gate that lifts holds as it would with out' );
+is_deeply(
+	\%data,
+	{ 'PEER' => '203.0.113.10', 'ZONE' => 'bl.example.org', 'CODE' => '127.0.0.4' },
+	'the zone that listed the address and the answer it gave are lifted'
+);
+
+%data = ( 'PEER' => '198.51.100.5' );
+is( $lifting->holds( \%data ), 0, 'a address on no list' );
+is_deeply( \%data, { 'PEER' => '198.51.100.5' }, 'lifts nothing' );
+
+my $coded_lift = dnsbl_gate(
+	{ 'zones' => 'bl2.example.org', 'var' => 'PEER', 'codes' => '127.0.0.3', 'code_into' => 'CODE' } );
+%zones = ( %zones, 'bl2.example.org' => { '203.0.113.11' => [ '127.0.0.9', '127.0.0.3' ] } );
+%data  = ( 'PEER' => '203.0.113.11' );
+$coded_lift->holds( \%data );
+is( $data{CODE}, '127.0.0.3', 'with codes the answer lifted is the one that counted' );
+
+%data = ( 'PEER' => '203.0.113.11', 'CODE' => 'from the line' );
+$coded_lift->holds( \%data );
+is( $data{CODE}, 'from the line', 'a value the offense already has is not lifted over' );
+
+my $clean_lift = dnsbl_gate( { 'zones' => 'bl.example.org', 'var' => 'PEER', 'negate' => 1, 'zone_into' => 'ZONE' } );
+%data = ( 'PEER' => '198.51.100.5' );
+is( $clean_lift->holds( \%data ), 1, 'under negate it holds on no listing' );
+ok( !exists( $data{ZONE} ), 'and there is no listing to lift' );
+%data = ( 'PEER' => '203.0.113.9' );
+is( $clean_lift->holds( \%data ), 0, 'and a listing it vetoes on' );
+ok( !exists( $data{ZONE} ), 'is not lifted either' );
+
+foreach my $lift ( 'zone_into', 'code_into' ) {
+	ok(
+		!eval {
+			App::Baphomet::Gate::dnsbl->new(
+				'type'  => 'dnsbl',
+				'args'  => { 'zones' => 'bl.example.org', $lift => 'X' },
+				'where' => 'the gate'
+			);
+			1;
+		},
+		'a ' . $lift . ' with no var is refused'
+	);
+	like( $@, qr/^the gate has a zone_into or code_into, which needs a var to lift the listing of/, 'and says why' );
+}
+
 done_testing();

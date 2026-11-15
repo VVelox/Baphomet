@@ -37,7 +37,8 @@ A few more are optional, wanted only if the pieces they serve are in use...
 | Redis::Fast                 | p5-Redis-Fast               | libredis-fast-perl               |
 
 `IP::Geolocation::MMDB` reads the `geoip_db` for rules with a `country`
-gate and the `geoip_asn_db` for ones with an `asn` gate (see
+gate, the `geoip_asn_db` for ones with an `asn` gate, and the
+`geoip_city_db` for ones with a `travel` gate (see
 [configuration.md](configuration.md)). `Net::DNS` and
 `POE::Component::Client::DNS` together back `usedns` and the `reverse_dns`
 and `dnsbl` gates (see [usedns.md](usedns.md)). `Redis::Fast` backs the

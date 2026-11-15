@@ -5,6 +5,7 @@ use v5.40;
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
 use parent 'App::Baphomet::Gate';
+use Ref::Util            qw( is_plain_arrayref is_plain_hashref );
 use App::Baphomet::Shape qw( check_hash );
 
 =head1 NAME
@@ -23,39 +24,72 @@ our $VERSION = '0.0.1';
 
     rule_gates:
       - account: { var: USER, exists: false }
+      - account: { var: USER, shell: nologin }
+      - account: { var: USER, group: [ wheel, operator ] }
       - ban_var: [ SRC ]
 
 =head1 DESCRIPTION
 
 Holds when the name checked is, or is not, a account of the host the galla
-runs on. A failed login for a name that is nobody's is a guess, and one for
-a real account may be its owner's typo, which most daemons log the same.
+runs on, and when told to ask more of it, when the account is of the kind
+asked for. A failed login for a name that is nobody's is a guess, and one
+for a real account may be its owner's typo, which most daemons log the same.
+One for a account that can not log in at all is a guess as sure as the
+first, and one for a administrator's is worth more than another's.
 
 The accounts are the galla's own host's, so the gate only means something
 over logs that host wrote. A name the offense lacks fails closed whichever
-way the gate asks.
+way the gate asks, and so does a account of which what is asked is not
+known.
 
 A entry is told...
 
     - var :: The found var holding the name to check.
 
-    - exists :: Optional. False to hold on a name that is no account. With
-          out it, or true, the gate holds on one that is.
+    - exists :: Optional. False to hold on a name that is no account, which
+          nothing more can then be asked of. With out it, or true, the gate
+          holds on one that is.
 
-It needs the C<accounts> of the L<context|App::Baphomet::Gate/THE CONTEXT>.
+    - shell :: Optional. C<nologin> to hold on a account that can not log
+          in, its shell being C<nologin> or C<false>, or C<login> to hold
+          on one that can.
+
+    - system :: Optional. True to hold on a account the system has for
+          itself, its uid being below C<system_below>, or false to hold on
+          one a person was given. The uid of root is below any, so it is
+          one of the system's.
+
+    - system_below :: Optional. The uid the accounts of people start at.
+        Default :: 1000
+
+    - group :: Optional. A group, or a array of them, the account has to be
+          in one of, as its own group or as one listing it.
+
+Everything asked has to be so for the gate to hold.
+
+It needs the C<accounts> of the L<context|App::Baphomet::Gate/THE CONTEXT>,
+and with a C<group> the C<groups> of it too.
 
 =cut
 
 my $SHAPE = {
-	'required' => { 'var'    => 'string' },
-	'optional' => { 'exists' => 'any' },
+	'required' => { 'var' => 'string' },
+	'optional' => {
+		'exists'       => 'any',
+		'shell'        => { 'in' => [qw( nologin login )], 'says' => 'one of nologin or login' },
+		'system'       => 'any',
+		'system_below' => 'positive_int',
+		'group'        => 'string_or_strings',
+	},
 };
 
 =head1 METHODS
 
 =head2 compile
 
-Vets what the gate was told and keeps the var and which answer it holds on.
+Vets what the gate was told and keeps it, the groups as a list however they
+were written. Dies on one told to hold on the lack of a account and to ask
+something of it as well.
 
     $gate->compile( $args, $where );
 
@@ -72,23 +106,43 @@ sub compile {
 	# one
 	$self->{exists} = ( defined( $args->{exists} ) && !$args->{exists} ) ? 0 : 1;
 
+	$self->{shell}        = $args->{shell};
+	$self->{system_below} = $args->{system_below} // 1000;
+	if ( defined( $args->{system} ) ) {
+		$self->{system} = $args->{system} ? 1 : 0;
+	}
+	if ( defined( $args->{group} ) ) {
+		$self->{groups} = is_plain_arrayref( $args->{group} ) ? [ @{ $args->{group} } ] : [ $args->{group} ];
+	}
+
+	my @asked = grep { defined( $args->{$_} ) } qw( shell system group );
+	if ( !$self->{exists} && @asked ) {
+		die(      $where
+				. ' has a exists of false and a '
+				. $asked[0]
+				. ', and nothing can be asked of a account that is none' );
+	}
+
 	return;
 } ## end sub compile
 
 =head2 needs
 
-Returns C<accounts>.
+Returns C<accounts>, and C<groups> as well for a gate told a group.
 
 =cut
 
 sub needs {
-	return ('accounts');
+	my ($self) = @_;
+
+	return defined( $self->{groups} ) ? ( 'accounts', 'groups' ) : ('accounts');
 }
 
 =head2 holds
 
 Returns 1 when the name in the gate's var is a account or not, as the gate
-asks, else 0. Returns 0 on a name the data lacks or holds empty.
+asks, and the account is all else it asks, else 0. Returns 0 on a name the
+data lacks or holds empty.
 
     if ( $gate->holds($data) ) { ... }
 
@@ -102,9 +156,56 @@ sub holds {
 		return 0;
 	}
 
-	my $is_account = $self->{context}{accounts}->($name) ? 1 : 0;
+	my $account = $self->{context}{accounts}->($name);
+	if ( !$self->{exists} ) {
+		return $account ? 0 : 1;
+	}
+	if ( !$account ) {
+		return 0;
+	}
 
-	return $is_account == $self->{exists} ? 1 : 0;
+	# a answer that only says there is one has nothing more to be asked of
+	my $known = is_plain_hashref($account) ? $account : {};
+
+	if ( defined( $self->{shell} ) ) {
+		if ( !defined( $known->{shell} ) ) {
+			return 0;
+		}
+
+		# no shell at all is the system's default one, which is a login
+		my $can_login = $known->{shell} =~ m{(?:^|/)(?:nologin|false)$} ? 0 : 1;
+		if ( $can_login != ( $self->{shell} eq 'login' ? 1 : 0 ) ) {
+			return 0;
+		}
+	} ## end if ( defined( $self->{shell} ) )
+
+	if ( defined( $self->{system} ) ) {
+		if ( !defined( $known->{uid} ) ) {
+			return 0;
+		}
+		my $is_system = $known->{uid} < $self->{system_below} ? 1 : 0;
+		if ( $is_system != $self->{system} ) {
+			return 0;
+		}
+	}
+
+	my $in_a_group = defined( $self->{groups} ) ? 0 : 1;
+	foreach my $group_name ( @{ $self->{groups} // [] } ) {
+		my $group = $self->{context}{groups}->($group_name);
+		if ( !defined($group) ) {
+			next;
+		}
+
+		# a account is in the group that is its own with out being listed
+		my $its_own = defined( $group->{gid} ) && defined( $known->{gid} ) && $group->{gid} == $known->{gid};
+		if ( $group->{members}{$name} || $its_own ) {
+			$in_a_group = 1;
+			last;
+		}
+	} ## end foreach my $group_name ( @{ $self->{groups} // ...})
+
+	return $in_a_group;
 } ## end sub holds
 
 1;
+

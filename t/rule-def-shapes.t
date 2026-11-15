@@ -757,6 +757,35 @@ my @cases = (
 	],
 	[
 		'syslog',
+		'a account told to hold on none and to ask its shell',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'exists' => 0, 'shell' => 'nologin' } }, $ban_src ] },
+		'The account gate of the rule "syslog/x" (rule_gates entry 2) has a exists of false and a shell, '
+			. 'and nothing can be asked of a account that is none'
+	],
+	[
+		'syslog',
+		'a account shell that is neither',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'shell' => '/bin/sh' } }, $ban_src ] },
+		'The account gate of the rule "syslog/x" (rule_gates entry 2) has a shell that is not one of nologin or login'
+	],
+	[
+		'syslog',
+		'a account asked everything',
+		{
+			'rule_gates' => [
+				@sshd,
+				{
+					'account' => {
+						'var' => 'USER', 'shell' => 'login', 'system' => 0, 'system_below' => 500, 'group' => [ 'wheel', 'sudo' ]
+					}
+				},
+				$ban_src
+			]
+		},
+		undef
+	],
+	[
+		'syslog',
 		'a account above the ban_var',
 		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'exists' => 0 } }, $ban_src ] }, undef
 	],
@@ -786,6 +815,150 @@ my @cases = (
 		'syslog',
 		'a limit above the ban_var',
 		{ 'rule_gates' => [ @sshd, { 'limit' => { 'by' => [ 'SRC', 'USER' ], 'seconds' => 60 } }, $ban_src ] }, undef
+	],
+
+	#
+	# after
+	#
+	[
+		'syslog',
+		'a after with no count',
+		{ 'rule_gates' => [ @sshd, { 'after' => { 'by' => 'USER', 'seconds' => 600 } }, $ban_src ] },
+		'The after gate of the rule "syslog/x" (rule_gates entry 2) lacks a count'
+	],
+	[
+		'syslog',
+		'a after count of one',
+		{ 'rule_gates' => [ @sshd, { 'after' => { 'by' => 'USER', 'count' => 1, 'seconds' => 600 } }, $ban_src ] },
+		'The after gate of the rule "syslog/x" (rule_gates entry 2) has a count that is not a int of two or more'
+	],
+	[
+		'syslog',
+		'a after above the ban_var',
+		{ 'rule_gates' => [ @sshd, { 'after' => { 'by' => 'USER', 'count' => 20, 'seconds' => 600 } }, $ban_src ] },
+		undef
+	],
+
+	#
+	# travel
+	#
+	[
+		'syslog',
+		'a travel with no speed',
+		{ 'rule_gates' => [ @sshd, { 'travel' => { 'name' => 'last-login', 'by' => 'USER', 'var' => 'SRC' } }, $ban_src ] },
+		'The travel gate of the rule "syslog/x" (rule_gates entry 2) lacks a faster_than_kmh'
+	],
+	[
+		'syslog',
+		'a travel speed of nothing',
+		{
+			'rule_gates' => [
+				@sshd,
+				{ 'travel' => { 'name' => 'last-login', 'by' => 'USER', 'var' => 'SRC', 'faster_than_kmh' => 0 } },
+				$ban_src
+			]
+		},
+		'The travel gate of the rule "syslog/x" (rule_gates entry 2) has a faster_than_kmh that is not a positive number'
+	],
+	[
+		'syslog',
+		'a travel name with a space',
+		{
+			'rule_gates' => [
+				@sshd,
+				{ 'travel' => { 'name' => 'last login', 'by' => 'USER', 'var' => 'SRC', 'faster_than_kmh' => 900 } },
+				$ban_src
+			]
+		},
+		'The travel gate of the rule "syslog/x" (rule_gates entry 2) has a name that is not ' . $name_says
+	],
+	[
+		'syslog',
+		'a travel on a detection rule',
+		{
+			'rule_gates' => [
+				@sshd,
+				{
+					'travel' => {
+						'name'            => 'last-login',
+						'by'              => [ 'USER', 'SRC' ],
+						'var'             => 'SRC',
+						'faster_than_kmh' => 900.5,
+						'min_km'          => 250,
+						'km_into'         => 'KM'
+					}
+				},
+				$detect_src
+			]
+		},
+		undef
+	],
+
+	#
+	# forgive
+	#
+	[
+		'syslog',
+		'a forgive with no rules',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'forgive' => { 'same' => 'USER' } } ] },
+		'The forgive gate of the rule "syslog/x" (rule_gates entry 3) lacks a rules'
+	],
+	[
+		'syslog',
+		'a forgive naming a group',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'forgive' => { 'rules' => ['%syslog/sshd%'] } } ] },
+		'The forgive gate of the rule "syslog/x" (rule_gates entry 3) has a rules that is not '
+			. 'a rule name or a non-empty array of them'
+	],
+	[
+		'syslog',
+		'a forgive of the offender with no ban_var above it',
+		{ 'rule_gates' => [ @sshd, { 'forgive' => { 'rules' => 'syslog/sshd' } }, $ban_src ] },
+		'The forgive gate of the rule "syslog/x" (rule_gates entry 2) keys on the offender, '
+			. 'and no ban_var above it names one'
+	],
+	[
+		'syslog',
+		'a forgive of the offender on a detection rule',
+		{ 'rule_gates' => [ @sshd, $detect_src, { 'forgive' => { 'rules' => 'syslog/sshd' } } ] },
+		'The forgive gate of the rule "syslog/x" (rule_gates entry 3) keys on the offender, '
+			. 'which a detection rule does not have... name a var for it to check'
+	],
+	[
+		'syslog',
+		'a forgive by a var on a detection rule',
+		{
+			'rule_gates' =>
+				[ @sshd, { 'forgive' => { 'rules' => 'syslog/sshd', 'var' => 'SRC', 'same' => 'USER' } }, $detect_src ]
+		},
+		undef
+	],
+
+	#
+	# pressure
+	#
+	[
+		'syslog',
+		'a pressure with no above',
+		{ 'rule_gates' => [ { 'pressure' => { 'seconds' => 60 } }, @sshd, $ban_src ] },
+		'The pressure gate of the rule "syslog/x" (rule_gates entry 0) lacks a above'
+	],
+	[
+		'syslog',
+		'a pressure scope that is no scope',
+		{ 'rule_gates' => [ { 'pressure' => { 'above' => 200, 'seconds' => 60, 'scope' => 'kur' } }, @sshd, $ban_src ] },
+		'The pressure gate of the rule "syslog/x" (rule_gates entry 0) has a scope that is not one of watcher or galla'
+	],
+	[
+		'syslog',
+		'a pressure leading the list',
+		{ 'rule_gates' => [ { 'pressure' => { 'above' => 200, 'seconds' => 60, 'hold' => 300 } }, @sshd, $ban_src ] },
+		undef
+	],
+	[
+		'json',
+		'a pressure on a json rule, below the gate',
+		{ 'rule_gates' => [ $event_gate, { 'pressure' => { 'above' => 200, 'seconds' => 60 } }, $ban_ip ] }, undef
 	],
 	[
 		'syslog',

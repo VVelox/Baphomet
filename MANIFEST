@@ -47,6 +47,7 @@ lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/Gate.pm
 lib/App/Baphomet/Gate/account.pm
 lib/App/Baphomet/Gate/active_time.pm
+lib/App/Baphomet/Gate/after.pm
 lib/App/Baphomet/Gate/asn.pm
 lib/App/Baphomet/Gate/ban_not_internal.pm
 lib/App/Baphomet/Gate/ban_var.pm
@@ -57,6 +58,7 @@ lib/App/Baphomet/Gate/country.pm
 lib/App/Baphomet/Gate/daemons.pm
 lib/App/Baphomet/Gate/detection_var.pm
 lib/App/Baphomet/Gate/dnsbl.pm
+lib/App/Baphomet/Gate/forgive.pm
 lib/App/Baphomet/Gate/gate.pm
 lib/App/Baphomet/Gate/ignore.pm
 lib/App/Baphomet/Gate/ignore_regexp.pm
@@ -75,12 +77,14 @@ lib/App/Baphomet/Gate/mungers.pm
 lib/App/Baphomet/Gate/namtar_list.pm
 lib/App/Baphomet/Gate/not_marked.pm
 lib/App/Baphomet/Gate/not_tracked.pm
+lib/App/Baphomet/Gate/pressure.pm
 lib/App/Baphomet/Gate/reverse_dns.pm
 lib/App/Baphomet/Gate/sequence.pm
 lib/App/Baphomet/Gate/stages.pm
 lib/App/Baphomet/Gate/status.pm
 lib/App/Baphomet/Gate/track.pm
 lib/App/Baphomet/Gate/tracked.pm
+lib/App/Baphomet/Gate/travel.pm
 lib/App/Baphomet/Gate/unmark.pm
 lib/App/Baphomet/LogDrek.pm
 lib/App/Baphomet/Marks.pm
@@ -431,6 +435,7 @@ t/cli.t
 t/commands.t
 t/country.t
 t/lookup-gates.t
+t/counting-gates.t
 t/detection.t
 t/eve-log.t
 t/eve-only.t
@@ -521,6 +526,10 @@ t/unit-asn.t
 t/unit-dnsbl.t
 t/unit-account.t
 t/unit-limit.t
+t/unit-after.t
+t/unit-travel.t
+t/unit-forgive.t
+t/unit-pressure.t
 t/unit-primitives.t
 t/unit-offense.t
 t/unit-rule-index.t

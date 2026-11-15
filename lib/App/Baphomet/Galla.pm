@@ -176,6 +176,7 @@ sub new {
 			dns_failures     => 0,
 			rdns_failures    => 0,
 			dnsbl_failures   => 0,
+			forgiven         => 0,
 			per_watcher      => {},
 			per_rule         => {},
 		},
@@ -206,8 +207,9 @@ sub new {
 	$self->{journalctl_bin}    = $config->{journalctl_bin};
 	$self->{eve_log}           = $config->{eve_log};
 	$self->{eve_enable}        = $config->{eve_enable};
-	$self->_open_geoip( 'geoip',     $config->{geoip_db} );
-	$self->_open_geoip( 'geoip_asn', $config->{geoip_asn_db} );
+	$self->_open_geoip( 'geoip',      $config->{geoip_db} );
+	$self->_open_geoip( 'geoip_asn',  $config->{geoip_asn_db} );
+	$self->_open_geoip( 'geoip_city', $config->{geoip_city_db} );
 	$self->{enable_dns}       = $config->{enable_dns};
 	$self->{usedns_timeout}   = $config->{usedns_timeout};
 	$self->{usedns_max_addrs} = $config->{usedns_max_addrs};
@@ -217,13 +219,21 @@ sub new {
 	if ( $self->{enable_dns} ) {
 		$self->_open_dns;
 	}
-	$self->{enable_rdns}        = $config->{enable_rdns};
-	$self->{rdns_timeout}       = $config->{rdns_timeout};
-	$self->{enable_dnsbl}       = $config->{enable_dnsbl};
-	$self->{rdns_cache}         = {};
-	$self->{country_cache}      = {};
-	$self->{asn_cache}          = {};
+	$self->{enable_rdns}    = $config->{enable_rdns};
+	$self->{rdns_timeout}   = $config->{rdns_timeout};
+	$self->{enable_dnsbl}   = $config->{enable_dnsbl};
+	$self->{rdns_cache}     = {};
+	$self->{country_cache}  = {};
+	$self->{asn_cache}      = {};
+	$self->{location_cache} = {};
+	# the lines some banning rule named a offender on, by watcher and then by
+	# the start of the ten seconds they landed in, and how far back the
+	# pressure gates bound below read it... zero, and nothing metered, with
+	# none of them
+	$self->{pressure_meter}     = {};
+	$self->{pressure_window}    = 0;
 	$self->{account_cache}      = {};
+	$self->{group_cache}        = {};
 	$self->{dns_reverse}        = undef;
 	$self->{dns_forward}        = undef;
 	$self->{dns_listed}         = undef;
@@ -359,9 +369,13 @@ sub new {
 		'marks'        => sub { return $self->{marks}; },
 		'locator'      => sub { return $self->_country_of( $_[0] ); },
 		'asn_locator'  => sub { return $self->_asn_of( $_[0] ); },
+		'city_locator' => sub { return $self->_location_of( $_[0] ); },
+		'forgive'      => sub { return $self->_forgive(@_); },
+		'notice'       => sub { log_drek( 'notice', $_[0], undef, 'galla-' . $self->{name} ); return; },
 		'resolver'     => sub { return $self->_rdns_resolver; },
 		'dnsbl'        => sub { return $self->_dnsbl_asker; },
-		'accounts'     => sub { return $self->_account_exists( $_[0] ); },
+		'accounts'     => sub { return $self->_account_of( $_[0] ); },
+		'groups'       => sub { return $self->_group_of( $_[0] ); },
 		'namtar_files' => $self->{namtar_files},
 		# ip_ignored is a plain set membership test... over the internal set it
 		# says a address is one of ours, and over ignore_ips that it is never
@@ -417,8 +431,11 @@ sub new {
 			%gate_services,
 			'country_codes' => resolve_country_codes( $config, $kur_settings, $watcher ),
 			'asn_lists'     => resolve_asn_lists( $config, $kur_settings, $watcher ),
-			'namtar_lists'  => resolve_namtar_lists( $config, $kur_settings, $watcher ),
-			'active_time'   => resolve_active_time( $config, $kur_settings, $watcher ),
+			# what a pressure gate reads, of this watcher or of the galla as
+			# the gate asks
+			'pressure'     => sub { return $self->_pressure_of( $watcher_name, @_ ); },
+			'namtar_lists' => resolve_namtar_lists( $config, $kur_settings, $watcher ),
+			'active_time'  => resolve_active_time( $config, $kur_settings, $watcher ),
 		);
 		my $rule_config
 			= resolve_rule_config( $kur_settings, $watcher, sub { return $self->{rules}->group_members( $_[0] ); } );
@@ -513,7 +530,12 @@ sub new {
 				foreach my $slot ( $gate->list_slots ) {
 					$namtar_slots{ $slot->{key} } = $slot;
 				}
-			}
+				# the meter is kept as far back as the pressure gate that
+				# reads furthest does
+				if ( $gate->{type} eq 'pressure' && $gate->{seconds} > $self->{pressure_window} ) {
+					$self->{pressure_window} = $gate->{seconds};
+				}
+			} ## end foreach my $gate ( @{ $gates->{line} }, @{ $gates...})
 
 			# the operator's per-rule config table for this rule, if any... it
 			# beats both the rule file's own numbers and, for the presentation
@@ -646,6 +668,8 @@ sub new {
 	my $has_detection = 0;
 	my @dns_wanting;
 	my %munge_reps;
+	my %bound_rules;
+	my %forgiven_rules;
 	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
 		my $built = $self->{watchers}{$watcher_name};
 
@@ -658,6 +682,10 @@ sub new {
 			# kept by the set, so warming it for one warms it for all
 			foreach my $gate ( grep { $_->{type} eq 'mungers' } @{ $rule_obj->rule_gates } ) {
 				$munge_reps{ join( ', ', @{ $gate->{set} } ) } = $gate;
+			}
+			$bound_rules{ $binding->{name} } = 1;
+			foreach my $gate ( grep { $_->{type} eq 'forgive' } @{ $rule_obj->rule_gates } ) {
+				%forgiven_rules = ( %forgiven_rules, %{ $gate->{rules} } );
 			}
 		} ## end foreach my $binding ( @{ $built->{bindings} } )
 
@@ -764,6 +792,36 @@ sub new {
 			'galla-' . $self->{name}
 		);
 	} ## end if ( $gate_needs{asn_locator} && !defined(...))
+
+	# and for a gate that asks the city locator
+	if ( $gate_needs{city_locator} && !defined( $self->{geoip_city} ) ) {
+		log_drek(
+			'err',
+			'travel-gated rules are configured but no city database is loaded'
+				. (
+					defined( $self->{geoip_city_error} )
+					? '... ' . $self->{geoip_city_error}
+					: '... geoip_city_db is unset'
+				)
+				. '... those gates never hold and their rules will sight nobody',
+			undef,
+			'galla-' . $self->{name}
+		);
+	} ## end if ( $gate_needs{city_locator} && !defined...)
+
+	# a forgive gate takes back the hits of the rules it names, and a rule no
+	# watcher of this galla lists counts none... a name spelled wrong forgives
+	# nothing and says nothing, so say it here
+	my @never_counted = grep { !$bound_rules{$_} } sort( keys(%forgiven_rules) );
+	if (@never_counted) {
+		log_drek(
+			'err',
+			'forgive gates name rules no watcher lists, so nothing is ever forgiven for them... '
+				. join( ', ', @never_counted ),
+			undef,
+			'galla-' . $self->{name}
+		);
+	}
 
 	# a rule naming mungers pulls Log-Munger in for enrichment. unlike the
 	# fail-closed gates above, a munger that will not load is fatal... the rule
@@ -877,18 +935,17 @@ sub checkpoint {
 	# counters... ip,hit_epoch,weight,rule one row per live hit, rule empty
 	# for the shared bucket and the rule name for a per-rule bucket. the
 	# shadow buckets of observe mode are ephemeral and never chiseled. old
-	# three-column rows without a weight restore fine, weighing 1
-	my @counter_lines = ('ip,hit,weight,rule');
-	foreach my $ip ( sort( keys( %{ $self->{counters} } ) ) ) {
-		foreach my $entry ( @{ $self->{counters}{$ip} } ) {
-			$csv->combine( $ip, $entry->[0], $entry->[1], '' );
-			push( @counter_lines, $csv->string );
-		}
-	}
-	foreach my $rule_name ( sort( keys( %{ $self->{rule_counters} } ) ) ) {
-		foreach my $ip ( sort( keys( %{ $self->{rule_counters}{$rule_name} } ) ) ) {
-			foreach my $entry ( @{ $self->{rule_counters}{$rule_name}{$ip} } ) {
-				$csv->combine( $ip, $entry->[0], $entry->[1], $rule_name );
+	# three-column rows without a weight restore fine, weighing 1. by and
+	# account are the rule that counted the hit and the account it was about,
+	# either empty when there is none, the account less any newline, a tablet
+	# being read a line at a time
+	my @counter_lines   = ('ip,hit,weight,rule,by,account');
+	my %counter_buckets = ( '' => $self->{counters}, %{ $self->{rule_counters} } );
+	foreach my $bucket_name ( sort( keys(%counter_buckets) ) ) {
+		foreach my $ip ( sort( keys( %{ $counter_buckets{$bucket_name} } ) ) ) {
+			foreach my $entry ( @{ $counter_buckets{$bucket_name}{$ip} } ) {
+				my $account = ( $entry->[3] // '' ) =~ tr/\r\n//dr;
+				$csv->combine( $ip, $entry->[0], $entry->[1], $bucket_name, $entry->[2] // '', $account );
 				push( @counter_lines, $csv->string );
 			}
 		}
@@ -1172,10 +1229,15 @@ sub _load_counters {
 		if ( !defined($weight) || $weight !~ /^[0-9]+(?:\.[0-9]+)?$/ || $weight + 0 <= 0 ) {
 			$weight = 1;
 		}
+		# the rule that counted the hit and the account it was about, of a
+		# six-field row... a empty one is none, and a row from before them
+		# has neither, so its hit is one no forgive gate takes back
+		my ( $counted_by, $account ) = map { ( defined($_) && $_ ne '' ) ? $_ : undef } @field[ 4, 5 ];
+		my $entry = [ $hit + 0, $weight + 0, $counted_by, $account ];
 		if ( defined($rule_name) && $rule_name ne '' ) {
-			push( @{ $self->{rule_counters}{$rule_name}{$ip} }, [ $hit + 0, $weight + 0 ] );
+			push( @{ $self->{rule_counters}{$rule_name}{$ip} }, $entry );
 		} else {
-			push( @{ $self->{counters}{$ip} }, [ $hit + 0, $weight + 0 ] );
+			push( @{ $self->{counters}{$ip} }, $entry );
 		}
 	} ## end foreach my $line ( $self->{tablet}->read('counters'...))
 
@@ -2506,6 +2568,7 @@ sub _process_record {
 	# _rule_candidates
 	my $overlap = $watcher->{settings}{overlap};
 	my $demoted = 0;
+	my $metered = 0;
 	foreach my $binding ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) {
 		my $rule_obj  = $binding->{rule};
 		my $rule_name = $binding->{name};
@@ -2548,7 +2611,16 @@ sub _process_record {
 			my $stands = App::Baphomet::Gate::walk_offense( $binding->{gates}, $one );
 			if ( $one->{named} ) {
 				$self->_tick( 'matched', $watcher_name, $rule_name );
-			}
+
+				# what the pressure gates read... a line a banning rule named a
+				# offender on, once however many rules did, and only metered
+				# when some gate reads it. a rule that only sights or only
+				# brands is no sign of a attack
+				if ( $self->{pressure_window} && !$metered && !$is_detection && !$mark_only ) {
+					$metered = 1;
+					$self->{pressure_meter}{$watcher_name}{ $now - ( $now % 10 ) }++;
+				}
+			} ## end if ( $one->{named} )
 			if ( !$stands ) {
 				next;
 			}
@@ -3179,6 +3251,136 @@ sub _open_geoip {
 	return;
 } ## end sub _open_geoip
 
+# where a IP is per the city database, cached 60 seconds as the country of
+# one is... a lookup dies on a bad address, so it is eval'd.
+#
+# args:
+#   $ip :: the address to place, a IPv4 or IPv6 string
+#
+# returns a hash ref of lat and lon, the latitude and longitude in degrees,
+# and radius, the kilometres the database says the place is good to, 0 when
+# it does not say. undef when there is no database, the value is not a
+# locatable address, or the database has no coordinates for it.
+#
+#   my $place = $self->_location_of('192.0.2.7');    # { 'lat' => 51.5072, 'lon' => -0.1276, 'radius' => 20 }
+sub _location_of {
+	my ( $self, $ip ) = @_;
+
+	if ( !defined( $self->{geoip_city} ) || !defined($ip) ) {
+		return undef;
+	}
+
+	my $now    = time;
+	my $cached = $self->{location_cache}{$ip};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{place};
+	}
+
+	my $record   = eval { $self->{geoip_city}->record_for_address($ip); };
+	my $location = is_plain_hashref($record) ? $record->{location} : undef;
+	my $place;
+	if ( is_plain_hashref($location) && defined( $location->{latitude} ) && defined( $location->{longitude} ) ) {
+		$place = {
+			'lat'    => $location->{latitude} + 0,
+			'lon'    => $location->{longitude} + 0,
+			'radius' => ( $location->{accuracy_radius} // 0 ) + 0,
+		};
+	}
+
+	App::Baphomet::Marks::bound_expiring_store( $self->{location_cache}, $ip, $now );
+	$self->{location_cache}{$ip} = { 'place' => $place, 'expires' => $now + 60 };
+
+	return $place;
+} ## end sub _location_of
+
+# how many lines some banning rule named a offender on of late, which is what
+# a pressure gate reads. the meter is kept in spans of ten seconds, and a
+# span counts whole while any of it is with in the time asked of, so the
+# answer may run up to ten seconds long and never short.
+#
+# args:
+#   $watcher_name :: the watcher the asking gate is bound on
+#   $scope        :: 'watcher' to count that watcher's lines alone, or
+#                    'galla' to count those of every watcher
+#   $seconds      :: how far back to count
+#   $now          :: the time to count back from, a epoch
+#
+# returns the count, 0 when nothing has been metered.
+#
+#   my $matched = $self->_pressure_of( 'auth', 'watcher', 60, time );    # 240
+sub _pressure_of {
+	my ( $self, $watcher_name, $scope, $seconds, $now ) = @_;
+
+	my @meters
+		= $scope eq 'galla' ? values( %{ $self->{pressure_meter} } ) : ( $self->{pressure_meter}{$watcher_name} );
+
+	my $count = 0;
+	foreach my $meter ( grep { defined($_) } @meters ) {
+		foreach my ( $span_start, $lines ) ( %{$meter} ) {
+			if ( $span_start > $now - $seconds - 10 && $span_start <= $now ) {
+				$count += $lines;
+			}
+		}
+	}
+
+	return $count;
+} ## end sub _pressure_of
+
+# takes back the hits rules have counted against a address, for the forgive
+# gate... out of the shared bucket and the rules' own, and out of the shadow
+# ones of observe mode the same, so what a rule would have done stays in step
+# with what it did. the subnet buckets and the distinct sets are left, a
+# deposit in them not being one address's or one account's to take back.
+#
+# args:
+#   $address :: the address whose hits are taken back
+#   $rules   :: hash ref whose keys are the names of the rules whose hits
+#               are taken back
+#   $account :: the account the hits have to have been about, or undef to
+#               take them back whoever they were about
+#
+# returns the number of hits taken back.
+#
+#   my $forgiven = $self->_forgive( '192.0.2.7', { 'syslog/sshd' => 1 }, 'neti' );    # 3
+sub _forgive {
+	my ( $self, $address, $rules, $account ) = @_;
+
+	my @buckets = ( $self->{counters}, $self->{shadow_counters} );
+	foreach my $rule_name ( keys( %{$rules} ) ) {
+		push( @buckets,
+			grep { defined($_) } $self->{rule_counters}{$rule_name},
+			$self->{shadow_rule_counters}{$rule_name} );
+	}
+
+	my $forgiven = 0;
+	foreach my $bucket (@buckets) {
+		my $hits = $bucket->{$address};
+		if ( !defined($hits) ) {
+			next;
+		}
+		my @kept;
+		foreach my $hit ( @{$hits} ) {
+			# a hit is [ time, weight, the rule that counted it, the account
+			# it was about ]
+			my $of_rule      = defined( $hit->[2] ) && $rules->{ $hit->[2] };
+			my $same_account = !defined($account) || ( defined( $hit->[3] ) && $hit->[3] eq $account );
+			if ( !( $of_rule && $same_account ) ) {
+				push( @kept, $hit );
+			}
+		}
+		$forgiven += scalar( @{$hits} ) - scalar(@kept);
+		if (@kept) {
+			$bucket->{$address} = \@kept;
+		} else {
+			delete( $bucket->{$address} );
+		}
+	} ## end foreach my $bucket (@buckets)
+
+	$self->{stats}{forgiven} += $forgiven;
+
+	return $forgiven;
+} ## end sub _forgive
+
 # the network a IP is on per the ASN database, cached 60 seconds as the
 # country of one is... a lookup dies on a bad address, so it is eval'd.
 #
@@ -3219,39 +3421,71 @@ sub _asn_of {
 	return $network;
 } ## end sub _asn_of
 
-# whether a name is a account of this host, asked of the system's own
-# account database and cached 60 seconds, as a name out of a log is the
-# attacker's to choose and one behind LDAP or the like is not free to ask
-# about. a name no account could have is never asked about.
+# the account of this host a name is, asked of the system's own account
+# database and cached 60 seconds, as a name out of a log is the attacker's
+# to choose and one behind LDAP or the like is not free to ask about. a name
+# no account could have is never asked about.
 #
 # args:
 #   $name :: the account name to look for
 #
-# returns 1 when there is such a account, else 0.
+# returns a hash ref of uid and gid, the account's numeric ids, and shell,
+# the path of its login shell, possibly empty. undef when there is no such
+# account.
 #
-#   if ( $self->_account_exists('neti') ) { ... }
-sub _account_exists {
+#   my $account = $self->_account_of('neti');    # { 'uid' => 1001, 'gid' => 1001, 'shell' => '/bin/sh' }
+sub _account_of {
 	my ( $self, $name ) = @_;
 
 	if ( !defined($name) || $name eq '' || length($name) > 256 || $name =~ /[\x00-\x1f\x7f:\/]/ ) {
-		return 0;
+		return undef;
 	}
 
 	my $now    = time;
 	my $cached = $self->{account_cache}{$name};
 	if ( defined($cached) && $cached->{expires} > $now ) {
-		return $cached->{exists};
+		return $cached->{account};
 	}
 
-	# list context, as a account with a uid of 0 is false in scalar context
-	my @account = getpwnam($name);
-	my $exists  = @account ? 1 : 0;
+	# name, passwd, uid, gid, quota, comment, gcos, dir, shell
+	my @entry   = getpwnam($name);
+	my $account = @entry ? { 'uid' => $entry[2], 'gid' => $entry[3], 'shell' => $entry[8] // '' } : undef;
 
 	App::Baphomet::Marks::bound_expiring_store( $self->{account_cache}, $name, $now );
-	$self->{account_cache}{$name} = { 'exists' => $exists, 'expires' => $now + 60 };
+	$self->{account_cache}{$name} = { 'account' => $account, 'expires' => $now + 60 };
 
-	return $exists;
-} ## end sub _account_exists
+	return $account;
+} ## end sub _account_of
+
+# who is in a group of this host, asked of the system's own group database
+# and cached 60 seconds as a account is. the group names are a rule's, not a
+# log's, so there are only ever as many as the rules name.
+#
+# args:
+#   $group :: the group name to look for
+#
+# returns a hash ref of gid, the group's numeric id, which a account whose
+# own gid it is belongs to with out being listed, and members, a hash ref
+# keyed by the names it lists. undef when there is no such group.
+#
+#   my $group = $self->_group_of('wheel');    # { 'gid' => 0, 'members' => { 'root' => 1, 'neti' => 1 } }
+sub _group_of {
+	my ( $self, $group_name ) = @_;
+
+	my $now    = time;
+	my $cached = $self->{group_cache}{$group_name};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{group};
+	}
+
+	# name, passwd, gid, members, the last a string of names space apart
+	my @entry = getgrnam($group_name);
+	my $group = @entry ? { 'gid' => $entry[2], 'members' => { map { $_ => 1 } split( ' ', $entry[3] // '' ) } } : undef;
+
+	$self->{group_cache}{$group_name} = { 'group' => $group, 'expires' => $now + 60 };
+
+	return $group;
+} ## end sub _group_of
 
 # what a gate that asks a DNS blocklist asks with... undef with dnsbl off or
 # no transport, on which such a gate fails closed. the lookups ride the
@@ -3762,8 +3996,14 @@ sub _register_hit {
 			$bucket = $rule_counters->{ $binding->{name} } //= {};
 		}
 
+		# beside the time and the weight, the rule that counted the hit and
+		# the account it was about, which is what a forgive gate takes hits
+		# back by
 		$bucket->{$ip} //= [];
-		push( @{ $bucket->{$ip} }, [ $now, $weight ] );
+		push(
+			@{ $bucket->{$ip} },
+			[ $now, $weight, $binding->{name}, $context->{found}{ $binding->{rule}->user_var } ]
+		);
 
 		# matches older than find_time no longer count... entries arrive in time
 		# order, so shifting the expired off the front beats rebuilding the array
@@ -5100,6 +5340,11 @@ sub _sweep {
 	# still-relevant entry gets re-pruned properly on its next hit. the
 	# shadow families of observe mode are swept the same way
 	my $now = time;
+
+	# the spans of the pressure meter no gate reads back as far as
+	foreach my $meter ( values( %{ $self->{pressure_meter} } ) ) {
+		delete( @{$meter}{ grep { $_ <= $now - $self->{pressure_window} - 10 } keys( %{$meter} ) } );
+	}
 	foreach my $bucket (
 		$self->{counters},        values( %{ $self->{rule_counters} } ),
 		$self->{shadow_counters}, values( %{ $self->{shadow_rule_counters} } )

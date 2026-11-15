@@ -207,6 +207,41 @@ proves(
 	'a account gate proves itself from the accounts fixture'
 );
 
+# what is known of each account, as a hash in place of the list
+my %host_accounts = (
+	neti => { uid => 1001, shell => '/bin/sh', groups => ['wheel'] },
+	www  => { uid => 80,   shell => '/usr/sbin/nologin' },
+	kur  => undef,
+);
+proves(
+	results_for(
+		rule_gates => [ { account => { var => 'user', shell => 'nologin' } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [ { message => line( event => 'fail', ip => '203.0.113.9', user => 'www' ), accounts => \%host_accounts } ],
+			negative => [
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),   accounts => \%host_accounts },
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'oracle' ), accounts => \%host_accounts },
+				# a account the fixture says nothing of fails closed, as does one out of a list
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'kur' ), accounts => \%host_accounts },
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'www' ), accounts => ['www'] },
+			],
+		},
+	),
+	5,
+	'a account gate asking the shell proves itself from a accounts fixture that is a hash'
+);
+proves(
+	results_for(
+		rule_gates => [ { account => { var => 'user', group => 'wheel', system => 0 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [ { message => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ), accounts => \%host_accounts } ],
+			negative => [ { message => line( event => 'fail', ip => '203.0.113.9', user => 'www' ), accounts => \%host_accounts } ],
+		},
+	),
+	2,
+	'and one asking the group and the uid'
+);
+
 #
 # limit, which needs no fixture, over the virtual clock
 #
@@ -232,9 +267,166 @@ proves(
 );
 
 #
+# after, which needs no fixture either
+#
+
+proves(
+	results_for(
+		rule_gates => [ { after => { by => 'user', count => 3, seconds => 60 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				# the third against one account holds, whoever it came from
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9',  user => 'neti' ),
+						line( event => 'fail', ip => '203.0.113.10', user => 'neti' ),
+						line( event => 'fail', ip => '203.0.113.11', user => 'neti' ),
+					],
+					found => 1,
+					data  => { ip => '203.0.113.11' },
+				},
+			],
+			negative => [
+				# two is not three, and what a entry before this one saw is gone
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9',  user => 'neti' ),
+						line( event => 'fail', ip => '203.0.113.10', user => 'neti' ),
+					],
+				},
+				# three, but not with in the sixty seconds
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),
+						line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),
+						{ message => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ), advance => 60 },
+					],
+				},
+				# three accounts once each are three keys
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),
+						line( event => 'fail', ip => '203.0.113.9', user => 'namtar' ),
+						line( event => 'fail', ip => '203.0.113.9', user => 'kur' ),
+					],
+				},
+			],
+		},
+	),
+	4,
+	'a after gate proves its count over the virtual clock, each entry starting clean'
+);
+
+#
+# travel, placed by the geo fixture and remembered in the entry's own marks
+#
+
+my %cities = (
+	'198.51.100.5' => [ 51.5072, -0.1276 ],                                  # London
+	'203.0.113.9'  => { lat => 40.7128, lon => -74.0060, radius => 20 },     # New York
+);
+my $london   = line( event => 'fail', ip => '198.51.100.5', user => 'neti' );
+my $new_york = line( event => 'fail', ip => '203.0.113.9',  user => 'neti' );
+proves(
+	results_for(
+		rule_gates => [
+			{
+				travel => {
+					name => 'last-seen', by => 'user', var => 'ip', faster_than_kmh => 900, km_into => 'KM',
+				}
+			},
+			{ detection_var => ['ip'] },
+		],
+		tests => {
+			positive => [
+				# New York a hour after London, both sightings the rule's own
+				{
+					messages       => [ $london, { message => $new_york, advance => 3600 } ],
+					geo            => { locations => \%cities },
+					found          => 1,
+					data           => { KM => 5550 },
+					marks_expected => [ { name => 'last-seen', key => 'neti', value => '40.7128 -74.0060 20 1000003600' } ],
+				},
+				# and against a sighting some line before the test left
+				{
+					message      => $new_york,
+					geo          => { locations => \%cities },
+					marks_before => [ { name => 'last-seen', key => 'neti', value => '51.5072 -0.1276 0 999999000' } ],
+					found        => 1,
+				},
+			],
+			negative => [
+				# a first sighting holds on nothing, and is kept
+				{
+					message        => $london,
+					geo            => { locations => \%cities },
+					marks_expected => [ { name => 'last-seen', key => 'neti', value => '51.5072 -0.1276 0 1000000000' } ],
+				},
+				# eight hours is a flight
+				{
+					messages => [ $london, { message => $new_york, advance => 8 * 3600 } ],
+					geo      => { locations => \%cities },
+				},
+				# a address the fixture does not place holds on nothing and is not kept
+				{
+					messages => [ $london, { message => line( event => 'fail', ip => '192.0.2.1', user => 'neti' ), advance => 60 } ],
+					geo            => { locations => { %cities, '192.0.2.1' => 'unknown' } },
+					marks_expected => [ { name => 'last-seen', key => 'neti', value => '51.5072 -0.1276 0 1000000000' } ],
+				},
+			],
+		},
+	),
+	5,
+	'a travel gate proves itself from the geo fixture and the entry\'s marks'
+);
+
+#
+# pressure
+#
+
+proves(
+	results_for(
+		rule_gates => [ { pressure => { above => 200, seconds => 60 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [ { message => $fail_line, pressure => 201 } ],
+			negative => [ { message => $fail_line, pressure => 200 }, { message => $fail_line, pressure => 0 } ],
+		},
+	),
+	3,
+	'a pressure gate proves its mark from the pressure fixture'
+);
+
+#
 # a gate with out its fixture is skipped, and a fixture for one lookup does
 # not stand in for another
 #
+
+proves(
+	results_for(
+		rule_gates => [
+			{ pressure => { above   => 200, seconds => 60 } },
+			{ travel   => { name    => 'last-seen', by => 'user', var => 'ip', faster_than_kmh => 900 } },
+			{ ban_var  => ['ip'] },
+			{ forgive  => { rules   => 'json/y' } },
+		],
+		tests => { positive => [ { message => $fail_line } ] },
+	),
+	1,
+	'pressure and travel with no fixture go unjudged, and forgive always does'
+);
+
+proves(
+	results_for(
+		rule_gates => [
+			{ travel  => { name => 'last-seen', by => 'user', var => 'ip', faster_than_kmh => 900 } },
+			{ ban_var => ['ip'] },
+			{ country => { is => 'US' } },
+		],
+		tests => { negative => [ { message => $london, geo => { locations => \%cities } } ] },
+	),
+	1,
+	'a geo fixture of locations alone leaves a country gate unjudged'
+);
 
 proves(
 	results_for(
@@ -291,7 +483,20 @@ my %malformed = (
 		[ { geo => { asns => { '203.0.113.9' => 'hosting' } } }, qr/geo asns "203\.0\.113\.9" is not a AS number/ ],
 	'a asn_lists entry that is no array' =>
 		[ { geo => { asn_lists => { hosting => 64496 } } }, qr/geo asn_lists "hosting" is not a array/ ],
-	'a accounts that is no array' => [ { accounts => 'neti' }, qr/accounts is not a array of names/ ],
+	'a accounts that is no array' => [ { accounts => 'neti' }, qr/accounts is not a array of names or a hash of them/ ],
+	'a account with a unknown detail' =>
+		[ { accounts => { neti => { home => '/home/neti' } } }, qr/accounts "neti" is not a hash of uid, shell, and groups/ ],
+	'a account whose groups is no array' =>
+		[ { accounts => { neti => { groups => 'wheel' } } }, qr/accounts "neti" is not a hash of uid, shell, and groups/ ],
+	'a location that is one number' => [
+		{ geo => { locations => { '203.0.113.9' => 51.5 } } },
+		qr/geo locations "203\.0\.113\.9" is not a \[ latitude, longitude \] pair/
+	],
+	'a location with no longitude' => [
+		{ geo => { locations => { '203.0.113.9' => { lat => 51.5 } } } },
+		qr/geo locations "203\.0\.113\.9" is not a \[ latitude, longitude \] pair/
+	],
+	'a pressure that is no count' => [ { pressure => 'high' }, qr/pressure is not a count of matched lines/ ],
 );
 foreach my $description ( sort( keys(%malformed) ) ) {
 	my ( $fixture, $message ) = @{ $malformed{$description} };

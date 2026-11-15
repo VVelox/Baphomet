@@ -136,15 +136,10 @@ lets by, else 1.
 sub ask {
 	my ( $self, $offense ) = @_;
 
-	my @parts;
-	foreach my $var ( @{ $self->{by} } ) {
-		my $value = $offense->{data}{$var};
-		if ( !defined($value) ) {
-			return 1;
-		}
-		push( @parts, $value );
+	my $key = $self->_key_of($offense);
+	if ( !defined($key) ) {
+		return 1;
 	}
-	my $key = join( "\x1f", @parts );
 	my $now = $offense->{now};
 
 	my $store  = $self->{windows}{ $offense->{scope} // '' } //= {};
@@ -163,5 +158,31 @@ sub ask {
 
 	return 0;
 } ## end sub ask
+
+# the key a offense is held to, the values of the gate's by vars joined on
+# the unit separator, as a mark's vars are. the after gate, which is kept by
+# the same key, asks it too.
+#
+# args:
+#   $offense :: the offense, of which the found data is read
+#
+# returns the key, or undef when the offense lacks one of the vars, a part
+# missing being no key at all and never a partial one.
+#
+#   my $key = $self->_key_of($offense);    # "203.0.113.9\x1fneti"
+sub _key_of {
+	my ( $self, $offense ) = @_;
+
+	my @parts;
+	foreach my $var ( @{ $self->{by} } ) {
+		my $value = $offense->{data}{$var};
+		if ( !defined($value) ) {
+			return undef;
+		}
+		push( @parts, $value );
+	}
+
+	return join( "\x1f", @parts );
+} ## end sub _key_of
 
 1;
