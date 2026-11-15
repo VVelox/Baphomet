@@ -146,12 +146,15 @@ sub ask {
 	} else {
 		my $parsed = $passage->{parsed};
 		foreach my ( $entry_int, $entry ) ( indexed @{ $self->{entries} } ) {
-			my $value = $parsed->{ $entry->{field} };
+			# a field the parsed line lacks may be one a gate above lifted into the
+			# fields, as normalize does
+			my $value = $parsed->{ $entry->{field} }
+				// ( defined( $passage->{fields} ) ? $passage->{fields}{ $entry->{field} } : undef );
 			if ( defined($value) && $value =~ $entry->{regexp} ) {
 				$own = { 'data' => own_fields($passage), 'regexp' => $entry_int };
 				last;
 			}
-		}
+		} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
 	} ## end else [ if ( $self->{tokened} ) ]
 
 	if ( defined($own) ) {

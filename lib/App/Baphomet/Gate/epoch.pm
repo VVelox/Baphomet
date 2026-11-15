@@ -30,6 +30,7 @@ our $VERSION = '0.0.1';
       - epoch: { into: WHEN }
       - epoch: { var: started, format: '%Y-%m-%d %H:%M:%S', zone: utc }
       - epoch: { var: time, format: '%d/%b/%Y:%H:%M:%S %z', into: WHEN }
+      - epoch: { into: WHEN, hour_into: HOUR, weekday_into: DAY, zone: '-05:00' }
 
 =head1 DESCRIPTION
 
@@ -59,8 +60,15 @@ A entry is told...
         Default :: auto
 
     - zone :: Optional. The zone of a timestamp that names none... C<local>
-          for the host's own, C<utc>, or a offset as C<+02:00>.
+          for the host's own, C<utc>, or a offset as C<+02:00>. It is also
+          the zone the hour and the day of the week are told in.
         Default :: local
+
+    - hour_into / weekday_into :: Optional. The fields the hour, 0 to 23,
+          and the day of the week, 0 for Sunday to 6 for Saturday as
+          C<active_time> counts them, are lifted into, both in the C<zone>.
+          Given either, a gate reading the line's own timestamp needs no
+          C<into>.
 
 The formats that are names...
 
@@ -81,10 +89,12 @@ that would put it more than a day ahead of the line.
 
 my $SHAPE = {
 	'optional' => {
-		'var'    => 'string',
-		'into'   => 'string',
-		'format' => 'string',
-		'zone'   =>
+		'var'          => 'string',
+		'into'         => 'string',
+		'format'       => 'string',
+		'hour_into'    => 'string',
+		'weekday_into' => 'string',
+		'zone'         =>
 			{ 'match' => qr/^(?:local|utc|[+-][0-9]{2}:?[0-9]{2})$/, 'says' => 'local, utc, or a offset as +02:00' },
 	},
 };
@@ -114,7 +124,11 @@ sub compile {
 	$self->{format} = $args->{format} // 'auto';
 	$self->{zone}   = $args->{zone}   // 'local';
 
-	if ( !defined( $self->{into} ) ) {
+	$self->{hour_into}    = $args->{hour_into};
+	$self->{weekday_into} = $args->{weekday_into};
+
+	my $lifts = defined( $self->{hour_into} ) || defined( $self->{weekday_into} );
+	if ( !defined( $self->{into} ) && !$lifts ) {
 		die( $where
 				. ' has neither a var nor a into, and the line\'s own timestamp is no field to convert where it is' );
 	}
@@ -135,8 +149,8 @@ sub phase {
 =head2 ask
 
 Writes the seconds the timestamp comes to into the gate's field of the
-line, making the line a field space of the rule's own when it has none.
-Always returns 1.
+line, and the hour and the day of the week into theirs, making the line a
+field space of the rule's own when it has none. Always returns 1.
 
     $gate->ask($passage);
 
@@ -160,7 +174,30 @@ sub ask {
 		$passage->{fields}       = $fields;
 		$passage->{fields_owned} = 1;
 	}
-	$fields->{ $self->{into} } = $epoch;
+	if ( defined( $self->{into} ) ) {
+		$fields->{ $self->{into} } = $epoch;
+	}
+
+	if ( defined( $self->{hour_into} ) || defined( $self->{weekday_into} ) ) {
+		# the parts of the time as the zone tells it... a offset is that many
+		# seconds ahead of utc
+		my @parts;
+		if ( $self->{zone} eq 'local' ) {
+			@parts = localtime($epoch);
+		} elsif ( $self->{zone} eq 'utc' ) {
+			@parts = gmtime($epoch);
+		} else {
+			my ( $sign, $hours, $minutes ) = $self->{zone} =~ /^([+-])([0-9]{2}):?([0-9]{2})$/;
+			my $offset = ( $hours * 3600 ) + ( $minutes * 60 );
+			@parts = gmtime( $sign eq '+' ? $epoch + $offset : $epoch - $offset );
+		}
+		if ( defined( $self->{hour_into} ) ) {
+			$fields->{ $self->{hour_into} } = $parts[2];
+		}
+		if ( defined( $self->{weekday_into} ) ) {
+			$fields->{ $self->{weekday_into} } = $parts[6];
+		}
+	} ## end if ( defined( $self->{hour_into} ) || defined...)
 
 	return 1;
 } ## end sub ask

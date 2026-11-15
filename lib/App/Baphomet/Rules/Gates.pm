@@ -225,7 +225,7 @@ $PREDICATE_TRANSFORMS{wide} = $PREDICATE_TRANSFORMS{utf16le};
 
 # the gate entry keys only the predicate form carries... a entry naming any of
 # them is a predicate, else it is the legacy field/values form
-my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref times decode );
+my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref times measure of decode );
 
 # compiles a predicate entry into a runnable form, dieing on anything
 # unusable. shape: { field, op (default eq), value | values, all, negate }.
@@ -235,7 +235,7 @@ sub _compile_predicate {
 	my ( $entry, $where ) = @_;
 
 	foreach my $key ( keys( %{$entry} ) ) {
-		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|fieldref|times|decode)$/ ) {
+		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|fieldref|times|measure|of|decode)$/ ) {
 			die( $where . ' has the unknown key "' . $key . '"' );
 		}
 	}
@@ -269,6 +269,30 @@ sub _compile_predicate {
 			die( $where . ' fieldref works only with the eq, contains, startswith, endswith, gt, lt, ge, and le ops' );
 		}
 	} ## end if ( defined($fieldref) )
+
+	# measure makes a number of the value before a numeric op compares it...
+	# how many bytes long it is, how many bits of entropy a byte of it has, or
+	# how many times the regexp in of matches in it
+	my $measure = $entry->{measure};
+	my $count_of;
+	if ( defined($measure) ) {
+		if ( ref($measure) ne '' || $measure !~ /^(?:length|entropy|count)$/ ) {
+			die( $where . ' measure is not one of length, entropy, or count' );
+		}
+		if ( $op !~ /^(?:gt|lt|ge|le)$/ ) {
+			die( $where . ' measure works only with the gt, lt, ge, and le ops' );
+		}
+	}
+	if ( defined( $entry->{of} ) || ( $measure // '' ) eq 'count' ) {
+		if ( ( $measure // '' ) ne 'count' ) {
+			die( $where . ' of works only with a measure of count' );
+		}
+		if ( !defined( $entry->{of} ) || ref( $entry->{of} ) ne '' || $entry->{of} eq '' ) {
+			die( $where . ' has a measure of count with no of, the regexp to count' );
+		}
+		my $pattern = $nocase ? '(?i)' . $entry->{of} : $entry->{of};
+		$count_of = compile_tokened_regexp( $pattern, $where . ' of' )->{regexp};
+	} ## end if ( defined( $entry->{of} ) || ( $measure...))
 
 	my $times = $entry->{times};
 	if ( defined($times) ) {
@@ -326,6 +350,8 @@ sub _compile_predicate {
 		'nocase'   => $nocase,
 		'fieldref' => $fieldref,
 		'times'    => ( $times // 1 ) + 0,
+		'measure'  => $measure,
+		'count_of' => $count_of,
 	};
 
 	if ( exists( $entry->{decode} ) ) {
@@ -512,6 +538,16 @@ sub _predicate_test_one {
 	} ## end if ( $kind eq 're' )
 
 	if ( $kind eq 'num' ) {
+		my $measure = $predicate->{measure};
+		if ( defined($measure) ) {
+			if ( $measure eq 'length' ) {
+				$value = length($value);
+			} elsif ( $measure eq 'entropy' ) {
+				$value = _entropy_of($value);
+			} else {
+				$value = () = $value =~ /$predicate->{count_of}/g;
+			}
+		}
 		if ( $value !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
 			return 0;
 		}
@@ -547,6 +583,39 @@ sub _predicate_test_one {
 	# cidr
 	return ip_ignored( $predicate->{cidr}, $value ) ? 1 : 0;
 } ## end sub _predicate_test_one
+
+# the entropy of a value, in bits a byte, as Shannon has it... 0 for a value
+# of one byte over and over, and up to 8 for one whose bytes are all as
+# likely as each other. no value can score more than the log2 of its
+# length, so twenty bytes of anything are 4.3 at the most... a english word
+# is near 3, and a random hex string of 32 near 3.4 to 4.
+#
+# args:
+#   $value :: the value, as bytes
+#
+# returns the bits a byte, 0 for a empty value.
+#
+#   my $bits = _entropy_of('aaaa');    # 0
+#   my $bits = _entropy_of('abcd');    # 2
+sub _entropy_of {
+	my ($value) = @_;
+
+	my $total = length($value);
+	if ( !$total ) {
+		return 0;
+	}
+
+	my %count;
+	$count{$_}++ foreach split( //, $value );
+
+	my $bits = 0;
+	foreach my $seen ( values(%count) ) {
+		my $share = $seen / $total;
+		$bits -= $share * log($share) / log(2);
+	}
+
+	return $bits;
+} ## end sub _entropy_of
 
 =head2 compile_gates
 

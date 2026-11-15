@@ -246,6 +246,15 @@ foreach my $never_asked ( "neti\x00", 'neti/..', 'neti:0', 'n' x 257 ) {
 }
 ok( exists( $galla->{account_cache}{'no-such-account-of-this-host'} ), 'while one that was asked about is cached' );
 
+# the names of the accounts of the host, read once and kept
+my $names = $galla->_account_names;
+ok( scalar( @{$names} ) > 0, '_account_names reads the names of the accounts of the host' );
+SKIP: {
+	skip( 'no account name for the uid the tests run as', 1 ) unless defined($real_account);
+	ok( ( grep { $_ eq $real_account } @{$names} ), 'the account the tests run as among them' );
+}
+is( $galla->_account_names, $names, 'and keeps them, the same list given the next time' );
+
 # what more the galla knows of a account, and of a group
 SKIP: {
 	my $own_group = getgrgid( ( getpwuid($<) )[3] );

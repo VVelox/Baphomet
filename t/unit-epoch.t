@@ -143,4 +143,29 @@ ok( !eval { fresh_gate( 'within' => 0 ); 1 }, 'a within of nothing is refused' )
 ok( !eval { fresh_gate( 'on_unparsed' => 'compare' ); 1 }, 'as is a on_unparsed that is neither' );
 like( $@, qr/^the gate has a on_unparsed that is not one of pass or fail/, 'which says so' );
 
+#
+# hour_into and weekday_into... the hour and the day, in the zone
+#
+
+# 2026-07-12T03:15:50Z is a Sunday, and a Saturday evening at -05:00
+my %lifting = ( 'parsed' => { 'time' => '2026-07-12T03:15:50Z' }, 'now' => $now, 'rule' => {} );
+epoch_gate( 'hour_into' => 'HOUR', 'weekday_into' => 'DAY', 'zone' => '-05:00' )->ask( \%lifting );
+is_deeply( $lifting{fields}, { 'HOUR' => 22, 'DAY' => 6 }, 'the hour and day are told in the zone, and with no into the seconds go nowhere' );
+
+%lifting = ( 'parsed' => { 'time' => '2026-07-12T03:15:50Z' }, 'now' => $now, 'rule' => {} );
+epoch_gate( 'into' => 'WHEN', 'hour_into' => 'HOUR', 'weekday_into' => 'DAY' )->ask( \%lifting );
+is_deeply( $lifting{fields}, { 'WHEN' => 1783826150, 'HOUR' => 3, 'DAY' => 0 }, 'in utc it is three on the Sunday' );
+
+%lifting = ( 'parsed' => { 'time' => '2026-07-12T03:15:50Z' }, 'now' => $now, 'rule' => {} );
+epoch_gate( 'hour_into' => 'HOUR', 'zone' => '+09:30' )->ask( \%lifting );
+is( $lifting{fields}{HOUR}, 12, 'and a zone ahead of utc is later in the day' );
+
+%lifting = ( 'parsed' => { 'time' => '2026-07-12 03:15:50' }, 'now' => $now, 'rule' => {} );
+epoch_gate( 'hour_into' => 'HOUR', 'zone' => 'local' )->ask( \%lifting );
+is( $lifting{fields}{HOUR}, 3, 'a timestamp with no zone read in local is the hour it was written as' );
+
+%lifting = ( 'parsed' => { 'time' => 'whenever' }, 'now' => $now, 'rule' => {} );
+epoch_gate( 'hour_into' => 'HOUR' )->ask( \%lifting );
+ok( !exists( $lifting{fields} ), 'a timestamp that can not be read lifts no hour' );
+
 done_testing();

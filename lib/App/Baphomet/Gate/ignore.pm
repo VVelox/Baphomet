@@ -131,7 +131,10 @@ sub ask {
 
 	my $parsed = $passage->{parsed};
 	foreach my $entry ( @{ $self->{entries} } ) {
-		my $value = $parsed->{ $entry->{field} };
+		# a field the parsed line lacks may be one a gate above lifted into the
+		# fields, as normalize does
+		my $value = $parsed->{ $entry->{field} }
+			// ( defined( $passage->{fields} ) ? $passage->{fields}{ $entry->{field} } : undef );
 		if ( defined($value) && $value =~ $entry->{regexp} ) {
 			return 0;
 		}

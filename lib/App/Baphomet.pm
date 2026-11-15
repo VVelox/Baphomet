@@ -13,9 +13,10 @@ use POE::Component::Server::JSONUnix::Client         ();
 use POE::Component::Server::JSONUnix::BlockingClient ();
 use Ereshkigal::Client                               ();
 use Path::Tiny                                       qw( path );
-use App::Baphomet::Config                            qw( load_config check_kur_def kur_split watcher_rules );
-use App::Baphomet::Rules                             ();
-use App::Baphomet::LogDrek                           qw( log_drek );
+use App::Baphomet::Config       qw( load_config check_kur_def kur_split read_digest_key watcher_rules );
+use App::Baphomet::Gate::digest qw( digest_of );
+use App::Baphomet::Rules        ();
+use App::Baphomet::LogDrek      qw( log_drek );
 
 =head1 NAME
 
@@ -143,7 +144,8 @@ sub new {
 	foreach my $item (
 		'run_base_dir',  'rules_dir',     'ereshkigal_socket', 'galla_bin',
 		'timeout',       'socket_group',  'enable_auth',       'authed_users',
-		'authed_groups', 'auth_temp_dir', 'command_perms',     'recidive'
+		'authed_groups', 'auth_temp_dir', 'command_perms',     'recidive',
+		'digest_key'
 		)
 	{
 		$self->{$item} = $config->{$item};
@@ -346,6 +348,11 @@ The JSON commands handled are as below.
           query rides the one manager socket rather than reaching around
           it to Ereshkigal.
 
+    - digest :: The hash args.value comes to under the config's
+          digest_key, as a digest gate makes it, so a operator can find a
+          name in what the gallas hold. Returns C<digest>, or a error with
+          no digest_key set.
+
     - stop :: Stop all the gallas and then the manager. Returns
           C<stopping> and the manager's C<pid>, so the caller can wait for
           the process to actually die before it returns... a restart's
@@ -387,6 +394,10 @@ sub start_server {
 		'banished' => sub {
 			my ( undef, $request, $ctx ) = @_;
 			return $self->_cmd_banished( $request, $ctx );
+		},
+		'digest' => sub {
+			my ( undef, $request ) = @_;
+			return $self->_cmd_digest($request);
 		},
 		'stop' => sub {
 			log_drek( 'info', 'stop requested' );
@@ -952,6 +963,31 @@ sub _cmd_status_all {
 		sub { return $status; }
 	);
 } ## end sub _cmd_status_all
+
+# the hash a value comes to under the config's digest_key, as a digest gate
+# makes it, so a operator can look a name up in what the gallas hold. the key
+# is read afresh each time, so one rotated on disk is the one asked of.
+#
+# args:
+#   $request :: the JSON request, whose args.value is the value to hash
+#
+# returns a hash ref of digest, the hash. dies with no args.value, and with
+# no digest_key set or one that can not be read.
+#
+#   my $answer = $self->_cmd_digest( { 'args' => { 'value' => 'neti' } } );    # { 'digest' => '6a1f0c2b9e4d7a35' }
+sub _cmd_digest {
+	my ( $self, $request ) = @_;
+
+	my $args = $request->{args};
+	if ( !is_plain_hashref($args) || !defined( $args->{value} ) || ref( $args->{value} ) ne '' ) {
+		die('args.value must be the value to hash');
+	}
+	if ( !defined( $self->{digest_key} ) ) {
+		die('no digest_key is set in the config');
+	}
+
+	return { 'digest' => digest_of( $args->{value}, read_digest_key( $self->{digest_key} ) ) };
+} ## end sub _cmd_digest
 
 sub _cmd_status_galla {
 	my ( $self, $request, $ctx ) = @_;

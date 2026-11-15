@@ -109,7 +109,11 @@ what is known of each. The C<geo> fixture's C<locations> map, of a address to a
 C<[ latitude, longitude ]> pair, a C<< {lat, lon, radius} >> hash, or
 C<unknown>, stands in for the city database a travel gate places a address
 with. And a C<pressure> number is what a pressure gate reads however far
-back it asks. A forgive gate has no fixture, the counts it takes hits back
+back it asks, a C<digest_key> is the key a digest gate hashes under, and
+a C<rules_hit> map, of a address to the rules that have hits against it,
+is what a breadth gate reads, a C<scores> map of a address to a number
+what a scored gate does, and a C<uptime> how long a startup gate finds the
+galla up. A forgive gate has no fixture, the counts it takes hits back
 out of being the galla's, and always goes unjudged.
 
 =cut
@@ -200,7 +204,7 @@ sub run_tests {
 			# a typo'd assertion key would otherwise be a assertion that
 			# never runs... the very silence this machinery exists to end
 			my @unknown_keys = grep {
-				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo|accounts|pressure)$/
+				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo|accounts|pressure|digest_key|rules_hit|scores|uptime)$/
 			} keys( %{$test} );
 			if (@unknown_keys) {
 				foreach my $test_key (@unknown_keys) {
@@ -294,15 +298,64 @@ sub run_tests {
 				$gate_context{pressure} = sub { return $matched; };
 			}
 
+			# the digest_key fixture... the key a digest gate hashes under, so a
+			# data block can say what a value comes to
+			if ( defined( $test->{digest_key} ) ) {
+				if ( ref( $test->{digest_key} ) ne '' || $test->{digest_key} eq '' ) {
+					push( @{ $results->{failures} }, $where . ' digest_key is not a key' );
+					next TEST;
+				}
+				$gate_context{digest_key} = $test->{digest_key};
+			}
+
+			# the rules_hit fixture... the rules a breadth gate finds have hits
+			# against each address, however far back it reads
+			if ( defined( $test->{rules_hit} ) ) {
+				my $rules_hit = $test->{rules_hit};
+				if ( !is_plain_hashref($rules_hit) || any { !is_plain_arrayref($_) } values( %{$rules_hit} ) ) {
+					push(
+						@{ $results->{failures} },
+						$where . ' rules_hit is not a hash of address to a array of rule names'
+					);
+					next TEST;
+				}
+				$gate_context{rules_hit} = sub { return $rules_hit->{ $_[0] } // []; };
+			} ## end if ( defined( $test->{rules_hit} ) )
+
+			# the scores fixture... what a scored gate finds the live hits
+			# against each address add up to, however far back it reads
+			if ( defined( $test->{scores} ) ) {
+				my $scores = $test->{scores};
+				if ( !is_plain_hashref($scores)
+					|| any { !defined($_) || ref($_) ne '' || !/^[0-9]+(?:\.[0-9]+)?$/ } values( %{$scores} ) )
+				{
+					push( @{ $results->{failures} }, $where . ' scores is not a hash of address to a number' );
+					next TEST;
+				}
+				$gate_context{score_of} = sub { return $scores->{ $_[0] } // 0; };
+			} ## end if ( defined( $test->{scores} ) )
+
+			# the uptime fixture... how long a startup gate finds the galla up
+			if ( defined( $test->{uptime} ) ) {
+				my $uptime = $test->{uptime};
+				if ( ref($uptime) ne '' || $uptime !~ /^[0-9]+$/ ) {
+					push( @{ $results->{failures} }, $where . ' uptime is not a count of seconds' );
+					next TEST;
+				}
+				$gate_context{uptime} = sub { return $uptime; };
+			}
+
 			# the accounts fixture... the names a account gate finds
 			if ( defined( $test->{accounts} ) ) {
 				my ( $accounts, $groups ) = _test_accounts( $test->{accounts}, $where, $results );
 				if ( !defined($accounts) ) {
 					next TEST;
 				}
-				$gate_context{accounts} = sub { return $accounts->{ $_[0] }; };
-				$gate_context{groups}   = sub { return $groups->{ $_[0] }; };
-			}
+				my @account_names = sort( keys( %{$accounts} ) );
+				$gate_context{accounts}      = sub { return $accounts->{ $_[0] }; };
+				$gate_context{groups}        = sub { return $groups->{ $_[0] }; };
+				$gate_context{account_names} = sub { return \@account_names; };
+			} ## end if ( defined( $test->{accounts} ) )
 
 			# the rule's gates, bound over that and sorted by phase, as the
 			# galla binds them... less any that can not judge

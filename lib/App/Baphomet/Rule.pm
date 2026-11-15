@@ -4,7 +4,7 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util                  qw( is_plain_hashref );
+use Ref::Util                  qw( is_plain_arrayref is_plain_hashref );
 use Digest::MD5                qw( md5 );
 use List::Util                 qw( any uniqstr );
 use App::Baphomet::Correlation qw( correlation_prune correlation_restore );
@@ -163,6 +163,7 @@ my %RULE_KEYS = (
 	'ban_time'   => 'seconds_or_zero',
 	'weight'     => 'positive_number',
 	'eve_only'   => 'boolean',
+	'eve_line'   => 'boolean',
 	'distinct'   => 'any',
 	'mark_only'  => 'any',
 	'track_only' => 'any',
@@ -341,7 +342,9 @@ sub type {
 
 Returns a hash ref of the fields a line of the rule's type can have, for a
 gate that names one to be checked against, or undef for a type whose lines
-have whatever fields they have.
+have whatever fields they have. The fields the rule's own gates lift are
+among them... what a gate is told to lift C<into>, under any key ending so,
+and the named captures of a C<extract> gate.
 
     my $known_fields = $rule->known_fields;
 
@@ -350,8 +353,43 @@ have whatever fields they have.
 sub known_fields {
 	my ($self) = @_;
 
-	return $TYPES{ $self->{type} }{known_fields};
-}
+	my $fixed = $TYPES{ $self->{type} }{known_fields};
+	if ( !defined($fixed) ) {
+		return undef;
+	}
+	if ( defined( $self->{known_fields} ) ) {
+		return $self->{known_fields};
+	}
+
+	# the def is all there is to read while the rule is still being built, so
+	# the lifts are read off it as the author wrote it
+	my %known   = %{$fixed};
+	my $entries = $self->{def}{rule_gates};
+	foreach my $entry ( is_plain_arrayref($entries) ? @{$entries} : () ) {
+		if ( !is_plain_hashref($entry) || keys( %{$entry} ) != 1 ) {
+			next;
+		}
+		my ( $type, $args ) = %{$entry};
+		if ( !is_plain_hashref($args) ) {
+			next;
+		}
+		foreach my ( $key, $value ) ( %{$args} ) {
+			if ( $key =~ /(?:^|_)into$/ && defined($value) && ref($value) eq '' ) {
+				$known{$value} = 1;
+			}
+		}
+		if ( $type eq 'extract' && defined( $args->{regexp} ) && ref( $args->{regexp} ) eq '' ) {
+			foreach my $name ( $args->{regexp} =~ /\(\?<([A-Za-z_][A-Za-z0-9_]*)>|%%%%([A-Za-z_][A-Za-z0-9_]*)%%%%/g ) {
+				if ( defined($name) ) {
+					$known{$name} = 1;
+				}
+			}
+		}
+	} ## end foreach my $entry ( is_plain_arrayref($entries)...)
+	$self->{known_fields} = \%known;
+
+	return \%known;
+} ## end sub known_fields
 
 =head2 envelope_fields
 
@@ -635,6 +673,21 @@ toward a real ban, and a would-be banish surfaces as an alert instead.
     my $eve_only = $rule->eve_only;   # undef, 0, or 1
 
 =cut
+
+=head2 eve_line
+
+Returns 0 when the rule's EVE events are to leave out the line they were
+found in, its C<raw>, its C<parsed>, and the line of each stage, else 1.
+
+    if ( !$rule->eve_line ) { ... }
+
+=cut
+
+sub eve_line {
+	my ($self) = @_;
+
+	return ( exists( $self->{def}{eve_line} ) && !$self->{def}{eve_line} ) ? 0 : 1;
+}
 
 sub eve_only {
 	my ($self) = @_;

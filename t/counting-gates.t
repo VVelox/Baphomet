@@ -401,6 +401,82 @@ $besieged->{pressure_meter} = { 'auth' => { ( map { $usual_span - 60 - ( $_ * 60
 is( $besieged->_pressure_of( 'auth', 'watcher', 3600, $usual_span - 60 ), 600, 'the meter reads a baseline up to where the seconds begin' );
 
 #
+# weigh and breadth, against the galla's own counts
+#
+
+@sent = ();
+write_rule( 'heavy', 'heavy', "user_var: user\n",
+	"  - weigh: { times: 3, when: [ { field: user, op: eq, values: [ root ] } ] }\n  - ban_var: [ ip ]\n" );
+write_rule( 'wide', 'wide', "max_score: 1\n", "  - ban_var: [ ip ]\n  - breadth: { rules: 3, seconds: 3600 }\n" );
+my $weighing = galla_over( 'weighing', '', 'auth' => [ 'heavy', 'probe', 'fail', 'wide' ] );
+
+feed( $weighing, 'auth', event => 'heavy', ip => '198.51.100.60', user => 'neti' );
+is( $weighing->{counters}{'198.51.100.60'}[0][1], 1, 'a hit the when does not hold for counts as ever' );
+feed( $weighing, 'auth', event => 'heavy', ip => '198.51.100.61', user => 'root' );
+is( $weighing->{counters}{'198.51.100.61'}[0][1], 3, 'one it holds for counts three times over' );
+feed( $weighing, 'auth', event => 'heavy', ip => '198.51.100.61', user => 'root' );
+is_deeply( \@sent, ['198.51.100.61'], 'so two of them reach the max_score of six' );
+
+my $unweighed = galla_over( 'unweighed', '', 'auth' => ['heavy'] );
+$unweighed->{watchers}{auth}{bindings}[0]{weighs} = 0;
+feed( $unweighed, 'auth', event => 'heavy', ip => '198.51.100.62', user => 'root' );
+is( $unweighed->{counters}{'198.51.100.62'}[0][1], 1, 'with out the consent to a rule\'s own weight, a weigh gate is inert' );
+ok( $weighing->{watchers}{auth}{bindings}[0]{weighs}, 'and allow_per_rule_thresholds is that consent' );
+
+@sent = ();
+my $scanner = '198.51.100.70';
+feed( $weighing, 'auth', event => 'wide', ip => $scanner );
+is_deeply( \@sent, [], 'a address no other rule has counted is narrow' );
+feed( $weighing, 'auth', event => 'probe', ip => $scanner );
+feed( $weighing, 'auth', event => 'wide',  ip => $scanner );
+is_deeply( \@sent, [], 'one other rule and this one are two' );
+feed( $weighing, 'auth', event => 'fail', ip => $scanner, user => 'neti' );
+feed( $weighing, 'auth', event => 'wide', ip => $scanner );
+is_deeply( \@sent, [$scanner], 'two others and this one are three, and it banishes' );
+is_deeply( [ sort( @{ $weighing->_rules_hit( $scanner, time - 3600 ) } ) ], [ 'json/fail', 'json/probe' ],
+	'_rules_hit names the rules with live hits, the banished one\'s cleared' );
+is_deeply( $weighing->_rules_hit( $scanner, time + 1 ), [], 'and none newer than now' );
+
+#
+# scored and startup, against the galla's own counts and clock
+#
+
+@sent = ();
+write_rule( 'tipping', 'tipping', "max_score: 1\n", "  - ban_var: [ ip ]\n  - scored: { above: 4 }\n" );
+{
+	# the startup gate leading the list, ahead of the gate on the event
+	open( my $fh, '>', $dir . '/rules/json/patient.yaml' ) || die($!);
+	print $fh "---\nmax_score: 1\nrule_gates:\n  - startup: { grace: 300 }\n"
+		. "  - gate:\n      - field: event\n        values: [ patient ]\n  - ban_var: [ ip ]\n";
+	close($fh);
+}
+my $scoring  = galla_over( 'scoring', '', 'auth' => [ 'heavy', 'probe', 'tipping', 'patient' ] );
+my $suspect  = '198.51.100.80';
+feed( $scoring, 'auth', event => 'probe', ip => $suspect ) foreach 1 .. 2;
+is( $scoring->_address_score( $suspect, 0 ), 2, '_address_score adds up the live hits' );
+is( $scoring->_address_score( $suspect, time + 1 ), 0, 'and none newer than now' );
+feed( $scoring, 'auth', event => 'tipping', ip => $suspect );
+is_deeply( \@sent, [], 'counted for two, under the mark of four, the scored rule lets it be' );
+feed( $scoring, 'auth', event => 'heavy', ip => $suspect, user => 'root' );
+is( $scoring->_address_score( $suspect, 0 ), 5, 'a weighed hit adds its weight, five being under the max_score of six' );
+is_deeply( \@sent, [], 'so nothing is banished by the count' );
+feed( $scoring, 'auth', event => 'tipping', ip => $suspect );
+is_deeply( \@sent, [$suspect], 'and above the mark, the scored rule banishes on its own one hit' );
+
+@sent = ();
+my ($patient_binding) = grep { $_->{name} eq 'json/patient' } @{ $scoring->{watchers}{auth}{bindings} };
+is( $patient_binding->{gates}{early}, 1, 'a startup gate leading the list is asked before anything is made of the line' );
+feed( $scoring, 'auth', event => 'patient', ip => '198.51.100.81' );
+is_deeply( \@sent, ['198.51.100.81'], 'a galla not started as a server waits nothing out' );
+@sent = ();
+$scoring->{started} = time - 10;
+feed( $scoring, 'auth', event => 'patient', ip => '198.51.100.82' );
+is_deeply( \@sent, [], 'one up ten seconds turns the line away' );
+$scoring->{started} = time - 300;
+feed( $scoring, 'auth', event => 'patient', ip => '198.51.100.82' );
+is_deeply( \@sent, ['198.51.100.82'], 'and one up the whole grace lets it by' );
+
+#
 # who set a brand... a galla hearing of one from the fleet, and remembering
 #
 

@@ -29,13 +29,13 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_asn_lists resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_asn_lists resolve_namtar_lists resolve_active_time resolve_rule_config read_digest_key watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
 
 # the manager commands a per-command authorization rule may name... the one
 # authority the config checks validate against, so the config and the
 # manager can not drift on what commands exist. App::Baphomet guards its own
 # handler table against this list at startup
-our @COMMANDS = qw( status status_all status_galla accused marked tracked watching banished stop );
+our @COMMANDS = qw( status status_all status_galla accused marked tracked watching banished digest stop );
 my %command_set = map { $_ => 1 } @COMMANDS;
 
 =head1 SYNOPSIS
@@ -346,6 +346,12 @@ Top level keys are as below.
           unloadable, and no travel gate ever holds.
         Default :: undef
 
+    - digest_key :: Path to a file holding the key a rule's digest gate
+          hashes values under, 16 bytes or more. Every galla of a fleet
+          needs the one key. Unset, and a rule with a digest gate does not
+          load.
+        Default :: undef
+
     - enable_dns :: The consent for DNS resolution. With out it any
           usedns is treated as no, loudly. Resolution rides the optional
           Net::DNS and POE::Component::Client::DNS modules... set but
@@ -588,6 +594,7 @@ sub load_config {
 		'geoip_db'                  => undef,
 		'geoip_asn_db'              => undef,
 		'geoip_city_db'             => undef,
+		'digest_key'                => undef,
 		'country_codes'             => {},
 		'asn_lists'                 => {},
 		'namtar_lists'              => {},
@@ -699,7 +706,7 @@ sub load_config {
 		die('eve_log is not a path');
 	}
 
-	foreach my $item ( 'geoip_db', 'geoip_asn_db', 'geoip_city_db' ) {
+	foreach my $item ( 'geoip_db', 'geoip_asn_db', 'geoip_city_db', 'digest_key' ) {
 		if ( defined( $config->{$item} ) && ( ref( $config->{$item} ) ne '' || $config->{$item} eq '' ) ) {
 			die( $item . ' is not a path' );
 		}
@@ -1698,6 +1705,31 @@ sub _country_codes_error {
 
 	return undef;
 } ## end sub _country_codes_error
+
+=head2 read_digest_key
+
+Reads the key a digest gate hashes under out of the file the config's
+C<digest_key> names, less a trailing newline. Dies on a file that can not be
+read, and on a key shorter than 16 bytes, which is too few to guess at.
+
+    my $key = read_digest_key('/usr/local/etc/baphomet/digest.key');
+
+=cut
+
+sub read_digest_key {
+	my ($key_path) = @_;
+
+	my $key = eval { path($key_path)->slurp_raw };
+	if ( !defined($key) ) {
+		die( 'the digest_key, "' . $key_path . '", could not be read... ' . $@ );
+	}
+	$key =~ s/\r?\n\z//;
+	if ( length($key) < 16 ) {
+		die( 'the digest_key, "' . $key_path . '", holds a key of under 16 bytes' );
+	}
+
+	return $key;
+} ## end sub read_digest_key
 
 =head2 resolve_asn_lists
 

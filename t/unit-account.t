@@ -139,4 +139,57 @@ ok(
 );
 like( $@, qr/^the gate has a shell that is not one of nologin or login/, 'and says so' );
 
+#
+# near... a name that is no account but nearly is one
+#
+
+my @names = ( 'neti', 'administrator', 'root' );
+
+sub near_gate {
+	my ($near) = @_;
+
+	my $gate = App::Baphomet::Gate::account->new(
+		'type'  => 'account',
+		'args'  => { 'var' => 'USER', 'exists' => 0, 'near' => $near },
+		'where' => 'the gate'
+	);
+	return $gate->bound(
+		{
+			'accounts'      => sub { return ( grep { $_ eq $_[0] } @names ) ? {} : undef; },
+			'account_names' => sub { return \@names; },
+		},
+		'the rule "x"'
+	);
+} ## end sub near_gate
+
+my $near = near_gate(1);
+is_deeply( [ $near->needs ], [ 'accounts', 'account_names' ], 'a gate told a near needs the account names' );
+my %typos = (
+	'netti'        => 1,
+	'nti'          => 1,
+	'nexi'         => 1,
+	'adminstrator' => 1,
+	'neit'         => 0,
+	'oracle'       => 0,
+	'neti'         => 0,
+	'r'            => 0,
+);
+foreach my $typed ( sort( keys(%typos) ) ) {
+	is( $near->holds( { 'USER' => $typed } ), $typos{$typed},
+		$typed . ( $typos{$typed} ? ' is one letter off a account' : ' is not one letter off any, or is one' ) );
+}
+is( near_gate(2)->holds( { 'USER' => 'neit' } ), 1, 'two letters swapped are two edits' );
+is( near_gate(1)->holds( {} ), 0, 'a name the offense lacks fails closed' );
+
+foreach my $bad ( [ { 'near' => 1 }, qr/^the gate has a near with out a exists of false/ ], [ { 'exists' => 0, 'near' => 0 }, qr/^the gate has a near that is not a positive int/ ] ) {
+	ok(
+		!eval {
+			App::Baphomet::Gate::account->new( 'type' => 'account', 'args' => { 'var' => 'USER', %{ $bad->[0] } }, 'where' => 'the gate' );
+			1;
+		},
+		'a near ' . ( $bad->[0]{exists} // 1 ? 'beside a exists of true' : 'of nothing' ) . ' is refused'
+	);
+	like( $@, $bad->[1], 'and says why' );
+}
+
 done_testing();

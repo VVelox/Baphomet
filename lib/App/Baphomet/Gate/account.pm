@@ -65,10 +65,17 @@ A entry is told...
     - group :: Optional. A group, or a array of them, the account has to be
           in one of, as its own group or as one listing it.
 
+    - near :: Optional, and only beside a C<exists> of false. How many
+          letters a name that is no account may be off from one that is,
+          a letter added, dropped, or changed each being one, for the gate
+          to hold on it... the owner of C<neti> typing C<netti>, where
+          C<oracle> is a guess.
+
 Everything asked has to be so for the gate to hold.
 
 It needs the C<accounts> of the L<context|App::Baphomet::Gate/THE CONTEXT>,
-and with a C<group> the C<groups> of it too.
+with a C<group> the C<groups> of it too, and with a C<near> its
+C<account_names>.
 
 =cut
 
@@ -80,6 +87,7 @@ my $SHAPE = {
 		'system'       => 'any',
 		'system_below' => 'positive_int',
 		'group'        => 'string_or_strings',
+		'near'         => 'positive_int',
 	},
 };
 
@@ -115,6 +123,11 @@ sub compile {
 		$self->{groups} = is_plain_arrayref( $args->{group} ) ? [ @{ $args->{group} } ] : [ $args->{group} ];
 	}
 
+	$self->{near} = $args->{near};
+	if ( defined( $self->{near} ) && $self->{exists} ) {
+		die( $where . ' has a near with out a exists of false, a name near a account being one that is none' );
+	}
+
 	my @asked = grep { defined( $args->{$_} ) } qw( shell system group );
 	if ( !$self->{exists} && @asked ) {
 		die(      $where
@@ -128,14 +141,19 @@ sub compile {
 
 =head2 needs
 
-Returns C<accounts>, and C<groups> as well for a gate told a group.
+Returns C<accounts>, and C<groups> as well for a gate told a group and
+C<account_names> for one told a near.
 
 =cut
 
 sub needs {
 	my ($self) = @_;
 
-	return defined( $self->{groups} ) ? ( 'accounts', 'groups' ) : ('accounts');
+	return (
+		'accounts',
+		defined( $self->{groups} ) ? ('groups')        : (),
+		defined( $self->{near} )   ? ('account_names') : (),
+	);
 }
 
 =head2 holds
@@ -158,8 +176,19 @@ sub holds {
 
 	my $account = $self->{context}{accounts}->($name);
 	if ( !$self->{exists} ) {
-		return $account ? 0 : 1;
-	}
+		if ($account) {
+			return 0;
+		}
+		if ( !defined( $self->{near} ) ) {
+			return 1;
+		}
+		foreach my $account_name ( @{ $self->{context}{account_names}->() } ) {
+			if ( _within_edits( $name, $account_name, $self->{near} ) ) {
+				return 1;
+			}
+		}
+		return 0;
+	} ## end if ( !$self->{exists} )
 	if ( !$account ) {
 		return 0;
 	}
@@ -206,6 +235,50 @@ sub holds {
 
 	return $in_a_group;
 } ## end sub holds
+
+# whether one name can be made of another by at most so many letters added,
+# dropped, or changed. a name that is the other exactly is not with in any,
+# as it is no typo of it.
+#
+# args:
+#   $typed :: the name that was typed
+#   $real  :: the account name it is measured against
+#   $edits :: the most letters it may be off by, one or more
+#
+# returns 1 when it is with in that many, else 0.
+#
+#   _within_edits( 'netti', 'neti', 1 );    # 1
+#   _within_edits( 'oracle', 'neti', 2 );   # 0
+sub _within_edits {
+	my ( $typed, $real, $edits ) = @_;
+
+	if ( $typed eq $real || abs( length($typed) - length($real) ) > $edits ) {
+		return 0;
+	}
+
+	# the edit distance, a row at a time, given up on once the least of a row
+	# is past what is allowed, as the rest can only be further
+	my @typed = split( //, $typed );
+	my @row   = ( 0 .. scalar(@typed) );
+	foreach my $real_int ( 1 .. length($real) ) {
+		my $real_letter = substr( $real, $real_int - 1, 1 );
+		my @next        = ($real_int);
+		foreach my $typed_int ( 1 .. scalar(@typed) ) {
+			my $changed = $row[ $typed_int - 1 ] + ( $typed[ $typed_int - 1 ] eq $real_letter ? 0 : 1 );
+			my $dropped = $row[$typed_int] + 1;
+			my $added   = $next[ $typed_int - 1 ] + 1;
+			my $least   = $changed < $dropped ? $changed : $dropped;
+			push( @next, $least < $added ? $least : $added );
+		}
+		@row = @next;
+		my $row_least = ( sort { $a <=> $b } @row )[0];
+		if ( $row_least > $edits ) {
+			return 0;
+		}
+	} ## end foreach my $real_int ( 1 .. length($real) )
+
+	return $row[-1] <= $edits ? 1 : 0;
+} ## end sub _within_edits
 
 1;
 

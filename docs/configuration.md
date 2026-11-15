@@ -165,6 +165,12 @@ Each setting's default is given in parens after its name.
 - `geoip_city_db` (unset) :: Path to a MaxMind GeoLite2 City database, for
   rules with a `travel` gate. Read via the same optional module. Unset, or
   unloadable, and no travel gate ever holds, with the same loud warning.
+- `digest_key` (unset) :: Path to a file holding the key a `digest` rule
+  gate hashes values under, 16 bytes or more, a trailing newline aside.
+  Every galla of a fleet needs the one key. Keep the file readable by the
+  gallas' user alone, as with it a hash can be checked against a guessed
+  name. Unset, and a rule with a `digest` gate does not load. See
+  [rules](rules.md#digest-a-hash-in-place-of-a-name).
 - `enable_dnsbl` (`false`) :: Whether the `dnsbl` rule gate may look
   things up. A consent of its own and off by default, as every lookup
   tells whoever runs the blocklist which address this host was talking to.

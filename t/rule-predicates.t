@@ -288,6 +288,44 @@ ok( !eval { $rules->load('json/frtimeseq'); 1 }, 'as is times under a string op'
 ok( !eval { $rules->load('json/frtimes0');  1 }, 'and a times of nothing' );
 like( $@, qr/times is not a positive number/, 'which says so' );
 
+# --- measure: length and entropy, read by the numeric ops ---
+write_rule( 'json/mlen', $head . "      - field: user\n        measure: length\n        op: gt\n        value: 16\n" . $tail );
+is( matches( 'json/mlen', '{"user":"' . ( 'a' x 17 ) . '","src":"1.1.1.1"}' ), 1, 'measure length gt holds on a value longer than the mark' );
+is( matches( 'json/mlen', '{"user":"' . ( 'a' x 16 ) . '","src":"1.1.1.1"}' ), 0, 'and not on one as long as it' );
+is( matches( 'json/mlen', '{"src":"1.1.1.1"}' ),                              0, 'nor on a field that is not there' );
+
+write_rule( 'json/ment', $head . "      - field: host\n        measure: entropy\n        op: ge\n        value: 3.5\n" . $tail );
+is( matches( 'json/ment', '{"host":"xk9qlm2vzpr7twyb4nhs","src":"1.1.1.1"}' ), 1, 'measure entropy holds on a random looking value' );
+is( matches( 'json/ment', '{"host":"mailserver","src":"1.1.1.1"}' ),           0, 'and not on a word' );
+is( matches( 'json/ment', '{"host":"aaaaaaaaaaaaaaaaaaaa","src":"1.1.1.1"}' ), 0, 'nor on one byte over and over' );
+
+write_rule( 'json/mdec',
+	$head . "      - field: arg\n        measure: length\n        op: gt\n        value: 5\n        decode: [ base64 ]\n" . $tail );
+is( matches( 'json/mdec', '{"arg":"aGVsbG8gd29ybGQ=","src":"1.1.1.1"}' ), 1, 'a decode chain runs ahead of the measure' );
+is( matches( 'json/mdec', '{"arg":"aGk=","src":"1.1.1.1"}' ),             0, 'which measures the decoded value' );
+
+write_rule( 'json/mbad', $head . "      - field: user\n        measure: size\n        op: gt\n        value: 16\n" . $tail );
+write_rule( 'json/meq',  $head . "      - field: user\n        measure: length\n        op: eq\n        value: 16\n" . $tail );
+ok( !eval { $rules->load('json/mbad'); 1 }, 'a measure that is none of them is a load error' );
+like( $@, qr/measure is not one of length, entropy, or count/, 'and says so' );
+
+write_rule( 'json/mcount',
+	$head . "      - field: query\n        measure: count\n        of: '(?i)\\b(?:union|select|sleep)\\b'\n        op: ge\n        value: 2\n" . $tail );
+is( matches( 'json/mcount', '{"query":"id=1 UNION SELECT pass","src":"1.1.1.1"}' ), 1, 'measure count holds on two matches of its of' );
+is( matches( 'json/mcount', '{"query":"id=1 union all","src":"1.1.1.1"}' ),        0, 'and not on one' );
+is( matches( 'json/mcount', '{"query":"selection=unions","src":"1.1.1.1"}' ),      0, 'nor on words its of does not match whole' );
+write_rule( 'json/mdots', $head . "      - field: path\n        measure: count\n        of: '\\.\\./'\n        op: gt\n        value: 2\n" . $tail );
+is( matches( 'json/mdots', '{"path":"/a/../../../etc/passwd","src":"1.1.1.1"}' ), 1, 'three ../ are more than two' );
+is( matches( 'json/mdots', '{"path":"/a/../../etc/passwd","src":"1.1.1.1"}' ),    0, 'two are not' );
+write_rule( 'json/mnoof', $head . "      - field: query\n        measure: count\n        op: ge\n        value: 2\n" . $tail );
+write_rule( 'json/mofonly', $head . "      - field: query\n        measure: length\n        of: x\n        op: ge\n        value: 2\n" . $tail );
+ok( !eval { $rules->load('json/mnoof'); 1 }, 'a measure of count with no of is a load error' );
+like( $@, qr/has a measure of count with no of, the regexp to count/, 'and says so' );
+ok( !eval { $rules->load('json/mofonly'); 1 }, 'as is a of beside another measure' );
+like( $@, qr/of works only with a measure of count/, 'which says so' );
+ok( !eval { $rules->load('json/meq'); 1 }, 'as is a measure under a string op' );
+like( $@, qr/measure works only with the gt, lt, ge, and le ops/, 'which says so' );
+
 # --- exists: field presence ---
 write_rule( 'json/ex', $head . "      - field: ParentImage\n        op: exists\n" . $tail );
 is( matches( 'json/ex', '{"ParentImage":"/usr/bin/x","src":"1.1.1.1"}' ),

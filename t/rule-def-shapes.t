@@ -1017,6 +1017,248 @@ my @cases = (
 	],
 
 	#
+	# address, beacon, sample, account near, and the epoch lifts
+	#
+	[
+		'syslog',
+		'a address of a kind there is none of',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'address' => { 'is' => 'reserved' } } ] },
+		'The address gate of the rule "syslog/x" (rule_gates entry 3) has a is that is not one of '
+			. 'bogon, cgnat, documentation, link_local, loopback, multicast, private, or a non-empty array of them'
+	],
+	[
+		'syslog',
+		'a address of the offender with no ban_var above it',
+		{ 'rule_gates' => [ @sshd, { 'address' => { 'isnot' => 'bogon' } }, $ban_src ] },
+		'The address gate of the rule "syslog/x" (rule_gates entry 2) keys on the offender, '
+			. 'and no ban_var above it names one'
+	],
+	[
+		'syslog',
+		'a address by a var above the ban_var',
+		{ 'rule_gates' => [ @sshd, { 'address' => { 'var' => 'SRC', 'is' => [ 'bogon', 'cgnat' ] } }, $ban_src ] }, undef
+	],
+	[
+		'syslog',
+		'a beacon count of one',
+		{ 'rule_gates' => [ @sshd, { 'beacon' => { 'by' => 'SRC', 'count' => 1 } }, $ban_src ] },
+		'The beacon gate of the rule "syslog/x" (rule_gates entry 2) has a count that is not a int of two or more'
+	],
+	[
+		'syslog',
+		'a beacon on a detection rule',
+		{
+			'rule_gates' => [
+				@sshd,
+				{ 'beacon' => { 'by' => [ 'SRC', 'USER' ], 'count' => 10, 'jitter' => 0.05, 'min_interval' => 60, 'max_interval' => 7200 } },
+				$detect_src
+			]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a sample with no every',
+		{ 'rule_gates' => [ @sshd, $detect_src, { 'sample' => {} } ] },
+		'The sample gate of the rule "syslog/x" (rule_gates entry 3) lacks a every'
+	],
+	[
+		'syslog',
+		'a sample on a detection rule',
+		{ 'rule_gates' => [ @sshd, $detect_src, { 'sample' => { 'every' => 100 } } ] }, undef
+	],
+	[
+		'syslog',
+		'a account near beside a exists of true',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'near' => 1 } }, $ban_src ] },
+		'The account gate of the rule "syslog/x" (rule_gates entry 2) has a near with out a exists of false, '
+			. 'a name near a account being one that is none'
+	],
+	[
+		'syslog',
+		'a account near beside a exists of false',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'exists' => 0, 'near' => 2 } }, $ban_src ] }, undef
+	],
+	[
+		'syslog',
+		'a epoch lifting only the hour and the day',
+		{ 'rule_gates' => [ @sshd, { 'epoch' => { 'hour_into' => 'HOUR', 'weekday_into' => 'DAY' } }, $ban_src ] }, undef
+	],
+
+	#
+	# extract, forwarded, concurrent, digest, and eve_line
+	#
+	[
+		'json',
+		'a extract with no named capture',
+		{ 'rule_gates' => [ $event_gate, { 'extract' => { 'var' => 'user', 'regexp' => '@.+$' } }, $ban_ip ] },
+		'The extract gate of the rule "json/x" (rule_gates entry 1) has a regexp with no named capture, which would lift nothing'
+	],
+	[
+		'json',
+		'a extract on_miss that is neither',
+		{ 'rule_gates' => [ $event_gate, { 'extract' => { 'var' => 'user', 'regexp' => '(?<D>.+)', 'on_miss' => 'drop' } }, $ban_ip ] },
+		'The extract gate of the rule "json/x" (rule_gates entry 1) has a on_miss that is not one of pass or fail'
+	],
+	[
+		'json',
+		'a extract above the gate',
+		{ 'rule_gates' => [ { 'extract' => { 'var' => 'user', 'regexp' => '@(?<D>.+)$', 'on_miss' => 'fail' } }, $event_gate, $ban_ip ] },
+		undef
+	],
+	[
+		'json',
+		'a forwarded with a trusted that is no CIDR',
+		{ 'rule_gates' => [ $event_gate, { 'forwarded' => { 'var' => 'xff', 'peer' => 'host', 'trusted' => 'the lb', 'into' => 'C' } }, $ban_ip ] },
+		'The forwarded gate of the rule "json/x" (rule_gates entry 1) trusted entry "the lb" is not a IPv4 or IPv6 address or CIDR'
+	],
+	[
+		'json',
+		'a forwarded above the ban_var it feeds',
+		{
+			'rule_gates' => [
+				$event_gate,
+				{ 'forwarded' => { 'var' => 'xff', 'peer' => 'host', 'trusted' => [ '10.0.0.0/8', 'fd00::/8' ], 'into' => 'CLIENT', 'max_hops' => 4 } },
+				{ 'ban_var'   => ['CLIENT'] }
+			]
+		},
+		undef
+	],
+	[
+		'json',
+		'a concurrent with no of',
+		{ 'rule_gates' => [ $event_gate, { 'concurrent' => { 'by' => 'user', 'more_than' => 2, 'seconds' => 600 } }, $ban_ip ] },
+		'The concurrent gate of the rule "json/x" (rule_gates entry 1) lacks a of'
+	],
+	[
+		'json',
+		'a digest of what a ban_var names',
+		{ 'rule_gates' => [ $event_gate, { 'digest' => { 'var' => 'ip' } }, $ban_ip ] },
+		'The digest gate of the rule "json/x" (rule_gates entry 1) hashes ip, which a ban_var names, and a ban has to be of the address itself'
+	],
+	[
+		'json',
+		'a digest in place of what a account reads',
+		{ 'rule_gates' => [ $event_gate, { 'digest' => { 'var' => 'user' } }, { 'account' => { 'var' => 'user', 'exists' => 0 } }, $ban_ip ] },
+		'The digest gate of the rule "json/x" (rule_gates entry 1) hashes user where it is, and the account gate that reads it '
+			. 'would only ever see the hash... give it a into'
+	],
+	[
+		'json',
+		'a digest into beside a account',
+		{
+			'eve_line'   => 0,
+			'rule_gates' => [
+				$event_gate,
+				{ 'digest'  => { 'var' => 'user', 'into' => 'USER_ID' } },
+				{ 'account' => { 'var' => 'user', 'exists' => 0 } },
+				{ 'concurrent' => { 'by' => 'USER_ID', 'of' => 'ip', 'more_than' => 2, 'seconds' => 600 } },
+				$ban_ip
+			]
+		},
+		undef
+	],
+	[
+		'json',
+		'a eve_line that is no boolean',
+		{ 'eve_line' => [], 'rule_gates' => [ $event_gate, $ban_ip ] },
+		'The rule "json/x" has a eve_line that is not a boolean'
+	],
+
+	#
+	# scored and startup
+	#
+	[
+		'syslog',
+		'a scored of the offender with no ban_var above it',
+		{ 'rule_gates' => [ @sshd, { 'scored' => { 'above' => 8 } }, $ban_src ] },
+		'The scored gate of the rule "syslog/x" (rule_gates entry 2) keys on the offender, and no ban_var above it names one'
+	],
+	[
+		'syslog',
+		'a scored by a var on a detection rule',
+		{ 'rule_gates' => [ @sshd, { 'scored' => { 'above' => 2.5, 'seconds' => 600, 'var' => 'SRC' } }, $detect_src ] }, undef
+	],
+	[
+		'syslog',
+		'a startup with no grace',
+		{ 'rule_gates' => [ { 'startup' => {} }, @sshd, $ban_src ] },
+		'The startup gate of the rule "syslog/x" (rule_gates entry 0) lacks a grace'
+	],
+	[
+		'syslog',
+		'a startup leading the list',
+		{ 'rule_gates' => [ { 'startup' => { 'grace' => 120 } }, @sshd, $ban_src ] }, undef
+	],
+
+	#
+	# normalize
+	#
+	[
+		'http',
+		'a normalize with no ops',
+		{ 'rule_gates' => [ $status, { 'normalize' => { 'var' => 'path', 'into' => 'PATH' } }, $ban_host ] },
+		'The normalize gate of the rule "http/x" (rule_gates entry 1) lacks a ops'
+	],
+	[
+		'http',
+		'a normalize with both kinds of dot_segment',
+		{ 'rule_gates' => [ $status, { 'normalize' => { 'var' => 'path', 'into' => 'PATH', 'ops' => [ 'dot_segment', 'dot_segment_below' ] } }, $ban_host ] },
+		'The normalize gate of the rule "http/x" (rule_gates entry 1) names both dot_segment and dot_segment_below, '
+			. 'which resolve a .. above / two ways'
+	],
+	[
+		'http',
+		'a normalize ahead of a match on what it lifts',
+		{
+			'rule_gates' => [
+				$status,
+				{ 'normalize' => { 'var' => 'path', 'into' => 'PATH', 'ops' => [ 'lower', 'url', 'dot_segment_below', 'params', 'nul' ] } },
+				{ 'match' => [ { 'field' => 'PATH', 'regexp' => '^/\.\./' } ] },
+				$ban_host
+			]
+		},
+		undef
+	],
+
+	#
+	# breadth and weigh
+	#
+	[
+		'syslog',
+		'a breadth of one rule',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'breadth' => { 'rules' => 1, 'seconds' => 3600 } } ] },
+		'The breadth gate of the rule "syslog/x" (rule_gates entry 3) has a rules that is not a int of two or more'
+	],
+	[
+		'syslog',
+		'a breadth of the offender with no ban_var above it',
+		{ 'rule_gates' => [ @sshd, { 'breadth' => { 'rules' => 3, 'seconds' => 3600 } }, $ban_src ] },
+		'The breadth gate of the rule "syslog/x" (rule_gates entry 2) keys on the offender, and no ban_var above it names one'
+	],
+	[
+		'syslog',
+		'a breadth of some rules by a var',
+		{
+			'rule_gates' =>
+				[ @sshd, { 'breadth' => { 'rules' => 2, 'seconds' => 3600, 'var' => 'SRC', 'of' => [ 'syslog/vsftpd', 'http/scan' ] } }, $detect_src ]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a weigh with both times and by',
+		{ 'rule_gates' => [ @sshd, { 'weigh' => { 'times' => 2, 'by' => 'score' } }, $ban_src ] },
+		'The weigh gate of the rule "syslog/x" (rule_gates entry 2) has both times and by'
+	],
+	[
+		'syslog',
+		'a weigh with a when',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'weigh' => { 'times' => 2.5, 'when' => [ { 'field' => 'USER', 'op' => 'eq', 'value' => 'root' } ] } } ] },
+		undef
+	],
+
+	#
 	# travel
 	#
 	[

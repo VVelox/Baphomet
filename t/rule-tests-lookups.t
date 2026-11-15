@@ -9,6 +9,7 @@ use warnings;
 use Test::More;
 
 use App::Baphomet::Rule ();
+use App::Baphomet::Gate::digest ();
 
 # every rule here leads with the one gate, and the rest of its list is the
 # passed rule_gates
@@ -663,6 +664,264 @@ proves(
 );
 
 #
+# address, beacon, and sample, which need no fixture
+#
+
+proves(
+	results_for(
+		rule_gates => [ { ban_var => ['ip'] }, { address => { isnot => [ 'private', 'cgnat' ] } } ],
+		tests      => {
+			positive => [ { message => $fail_line } ],
+			negative => [
+				{ message => line( event => 'fail', ip => '10.0.0.9' ) },
+				{ message => line( event => 'fail', ip => '100.64.3.3' ) },
+			],
+		},
+	),
+	3,
+	'a address gate proves itself with no fixture'
+);
+proves(
+	results_for(
+		rule_gates => [ { beacon => { by => 'ip', count => 3 } }, { detection_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{
+					messages => [ $fail_line, map { { message => $fail_line, advance => $_ } } ( 300, 302, 298, 300 ) ],
+					found    => 2,
+				},
+			],
+			negative => [ { messages => [ $fail_line, map { { message => $fail_line, advance => $_ } } ( 30, 500, 120 ) ] } ],
+		},
+	),
+	2,
+	'a beacon gate proves its rhythm over the virtual clock'
+);
+proves(
+	results_for(
+		rule_gates => [ { detection_var => ['ip'] }, { sample => { every => 3 } } ],
+		tests      => { positive => [ { messages => [ ($fail_line) x 7 ], found => 3 } ] },
+	),
+	1,
+	'a sample gate lets one in so many by'
+);
+
+#
+# account near, from the names of the accounts fixture
+#
+
+proves(
+	results_for(
+		rule_gates => [ { account => { var => 'user', exists => 0, near => 1 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [ { message => line( event => 'fail', ip => '203.0.113.9', user => 'netti' ), accounts => ['neti'] } ],
+			negative => [
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'oracle' ), accounts => ['neti'] },
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),   accounts => ['neti'] },
+			],
+		},
+	),
+	3,
+	'a account gate told a near proves itself from the accounts fixture'
+);
+
+#
+# the epoch lifts, read by novel
+#
+
+proves(
+	results_for(
+		rule_gates => [
+			{ epoch   => { var => 'when', hour_into => 'HOUR', weekday_into => 'DAY', zone => 'utc' } },
+			{ novel   => { name => 'login-hour', by => 'user', of => 'HOUR', after_seen => 2 } },
+			{ detection_var => ['ip'] },
+		],
+		tests => {
+			positive => [
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9', user => 'neti', when => '2026-07-13T09:05:00Z' ),
+						line( event => 'fail', ip => '203.0.113.9', user => 'neti', when => '2026-07-14T09:40:00Z' ),
+						line( event => 'fail', ip => '203.0.113.9', user => 'neti', when => '2026-07-15T03:10:00Z' ),
+					],
+					found => 1,
+					data  => { HOUR => 3, DAY => 3 },
+				},
+			],
+		},
+	),
+	1,
+	'a epoch gate lifting the hour, and a novel gate below it, prove a login at a hour the account never used'
+);
+
+#
+# extract, forwarded, concurrent, and digest
+#
+
+proves(
+	results_for(
+		rule_gates => [
+			{ extract => { var => 'user', regexp => '@(?<DOMAIN>[^@]+)$' } },
+			{ forwarded => { var => 'xff', peer => 'host', trusted => '10.0.0.0/8', into => 'CLIENT' } },
+			{ ban_var => ['CLIENT'] },
+		],
+		tests => {
+			positive => [
+				{
+					message => line( event => 'fail', host => '10.0.0.5', xff => '198.51.100.7, 10.0.0.9', user => 'neti@mail.example.org' ),
+					data    => { CLIENT => '198.51.100.7', DOMAIN => 'mail.example.org' },
+				},
+				{ message => line( event => 'fail', host => '203.0.113.9', xff => '198.51.100.7' ), data => { CLIENT => '203.0.113.9' } },
+			],
+			injection => [
+				# a client behind the proxy writing in a address of its choosing
+				{
+					message => line( event => 'fail', host => '10.0.0.5', xff => '192.0.2.66, 198.51.100.7' ),
+					data    => { CLIENT => '198.51.100.7' },
+				},
+			],
+		},
+	),
+	3,
+	'extract and forwarded prove themselves, a forged hop included'
+);
+proves(
+	results_for(
+		rule_gates => [ { concurrent => { by => 'user', of => 'ip', more_than => 1, seconds => 600 } }, { detection_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{
+					messages => [ line( event => 'fail', ip => '203.0.113.9', user => 'neti' ), line( event => 'fail', ip => '203.0.113.10', user => 'neti' ) ],
+					found    => 1,
+					data     => { ip => '203.0.113.10' },
+				},
+			],
+			negative => [ { messages => [ ( line( event => 'fail', ip => '203.0.113.9', user => 'neti' ) ) x 3 ] } ],
+		},
+	),
+	2,
+	'a concurrent gate proves itself over a messages test'
+);
+proves(
+	results_for(
+		rule_gates => [ { digest => { var => 'user', into => 'USER_ID' } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{
+					message    => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),
+					digest_key => 'a key of sixteen bytes or more',
+					data       => { user => 'neti', USER_ID => App::Baphomet::Gate::digest::digest_of( 'neti', 'a key of sixteen bytes or more' ) },
+				},
+			],
+		},
+	),
+	1,
+	'a digest gate proves its hash from a digest_key fixture'
+);
+proves(
+	results_for(
+		rule_gates => [ { digest => { var => 'user' } }, { ban_var => ['ip'] } ],
+		tests      => { positive => [ { message => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ), data => { user => 'neti' } } ] },
+	),
+	1,
+	'and with no fixture it goes unjudged, the value left as it was'
+);
+
+#
+# breadth, from the rules_hit fixture
+#
+
+proves(
+	results_for(
+		rule_gates => [ { ban_var => ['ip'] }, { breadth => { rules => 3, seconds => 3600 } } ],
+		tests      => {
+			positive => [ { message => $fail_line, rules_hit => { '203.0.113.9' => [ 'syslog/sshd', 'syslog/vsftpd' ] } } ],
+			negative => [
+				{ message => $fail_line, rules_hit => { '203.0.113.9' => ['syslog/sshd'] } },
+				# the rule's own hits do not count twice
+				{ message => $fail_line, rules_hit => { '203.0.113.9' => [ 'json/x', 'syslog/sshd' ] } },
+			],
+		},
+	),
+	3,
+	'a breadth gate proves itself from the rules_hit fixture, the rule it is of counted once'
+);
+
+#
+# normalize, on a http rule, ahead of the match it feeds
+#
+
+{
+	my $access = sub {
+		my ($path) = @_;
+		return '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET ' . $path . ' HTTP/1.1" 404 196 "-" "curl/8.0"';
+	};
+	my $rule = App::Baphomet::Rule->new(
+		name => 'http/x',
+		def  => {
+			rule_gates => [
+				{ normalize => { var => 'path', into => 'PATH', ops => [ 'url', 'slashes', 'dot_segment', 'lower', 'query' ] } },
+				{ match     => [ { field => 'PATH', regexp => '/wp-(?:login|signup|admin)\.php$' } ] },
+				{ ban_var   => ['host'] },
+			],
+			tests => {
+				positive => [
+					{ message => $access->('/wp-login.php'),                data => { PATH => '/wp-login.php' } },
+					{ message => $access->('/%77p-login.php'),              data => { PATH => '/wp-login.php', path => '/%77p-login.php' } },
+					{ message => $access->('//blog/../WP-LOGIN.PHP?redirect=1'), data => { PATH => '/wp-login.php' } },
+					{ message => $access->('/x/%2e%2e/wp-admin.php') },
+				],
+				negative => [ { message => $access->('/wp-login.php.bak') }, { message => $access->('/blog/wp-login.html') } ],
+			},
+		},
+	);
+	proves( $rule->run_tests, 6, 'a normalize gate ahead of a match proves the evasions the raw path would let by' );
+}
+
+my $traversal = App::Baphomet::Rule->new(
+	name => 'http/y',
+	def  => {
+		rule_gates => [
+			{ normalize => { var => 'path', into => 'PATH', ops => [ 'url', 'dot_segment_below' ] } },
+			{ match     => [ { field => 'PATH', regexp => '^/\.\./' } ] },
+			{ ban_var   => ['host'] },
+		],
+		tests => {
+			positive => [ { message => '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /img/%2e%2e/%2e%2e/etc/passwd HTTP/1.1" 400 0 "-" "-"', data => { PATH => '/../etc/passwd' } } ],
+			negative => [ { message => '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /img/../logo.png HTTP/1.1" 200 10 "-" "-"' } ],
+		},
+	},
+);
+proves( $traversal->run_tests, 2, 'and dot_segment_below keeps a climb above / for a rule to see' );
+
+#
+# scored and startup, from their fixtures
+#
+
+proves(
+	results_for(
+		rule_gates => [ { ban_var => ['ip'] }, { scored => { above => 8 } } ],
+		tests      => {
+			positive => [ { message => $fail_line, scores => { '203.0.113.9' => 8.5 } } ],
+			negative => [ { message => $fail_line, scores => { '203.0.113.9' => 8 } }, { message => $fail_line, scores => {} } ],
+		},
+	),
+	3,
+	'a scored gate proves itself from the scores fixture'
+);
+proves(
+	results_for(
+		rule_gates => [ { startup => { grace => 120 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [ { message => $fail_line, uptime => 120 }, { message => $fail_line } ],
+			negative => [ { message => $fail_line, uptime => 30 } ],
+		},
+	),
+	3,
+	'a startup gate proves itself from the uptime fixture, and with none is skipped'
+);
+
+#
 # pressure
 #
 
@@ -779,6 +1038,11 @@ my %malformed = (
 		qr/geo locations "203\.0\.113\.9" is not a \[ latitude, longitude \] pair/
 	],
 	'a pressure that is no count' => [ { pressure => 'high' }, qr/pressure is not a count of matched lines/ ],
+	'a digest_key that is no key' => [ { digest_key => [] }, qr/digest_key is not a key/ ],
+	'a scores that is no number'  => [ { scores => { '203.0.113.9' => 'high' } }, qr/scores is not a hash of address to a number/ ],
+	'a uptime that is no count'   => [ { uptime => 'long' }, qr/uptime is not a count of seconds/ ],
+	'a rules_hit that is no hash of lists' =>
+		[ { rules_hit => { '203.0.113.9' => 'syslog/sshd' } }, qr/rules_hit is not a hash of address to a array of rule names/ ],
 	'a seeded brand whose hosts is no count' => [
 		{ marks_before => [ { name => 'recon', key => '203.0.113.9', hosts => 'many' } ] },
 		qr/has a marks_before entry whose hosts is not a count/

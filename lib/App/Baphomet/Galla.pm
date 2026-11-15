@@ -22,7 +22,7 @@ use Socket                                   qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                            ();
 use Ereshkigal::Client                       ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_asn_lists resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_asn_lists resolve_namtar_lists resolve_active_time resolve_rule_config read_digest_key watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser      ();
 use App::Baphomet::Primitives  ();
 use App::Baphomet::Rules       ();
@@ -210,6 +210,21 @@ sub new {
 	$self->_open_geoip( 'geoip',      $config->{geoip_db} );
 	$self->_open_geoip( 'geoip_asn',  $config->{geoip_asn_db} );
 	$self->_open_geoip( 'geoip_city', $config->{geoip_city_db} );
+
+	# the key a digest gate hashes under... one that will not read leaves
+	# none, and a rule with a digest gate then will not bind, as hashing
+	# under no key would be no hashing at all
+	$self->{digest_key} = undef;
+	if ( defined( $config->{digest_key} ) ) {
+		try {
+			$self->{digest_key} = read_digest_key( $config->{digest_key} );
+		} catch ($caught) {
+			$self->{perror}      = 1;
+			$self->{error}       = 1;
+			$self->{errorString} = $caught;
+			$self->warn;
+		}
+	} ## end if ( defined( $config->{digest_key} ) )
 	$self->{enable_dns}       = $config->{enable_dns};
 	$self->{usedns_timeout}   = $config->{usedns_timeout};
 	$self->{usedns_max_addrs} = $config->{usedns_max_addrs};
@@ -366,16 +381,22 @@ sub new {
 	# place, and for any address with no database up, on which a country or
 	# asn gate fails closed
 	my %gate_services = (
-		'marks'        => sub { return $self->{marks}; },
-		'locator'      => sub { return $self->_country_of( $_[0] ); },
-		'asn_locator'  => sub { return $self->_asn_of( $_[0] ); },
-		'city_locator' => sub { return $self->_location_of( $_[0] ); },
-		'forgive'      => sub { return $self->_forgive(@_); },
-		'notice'       => sub { log_drek( 'notice', $_[0], undef, 'galla-' . $self->{name} ); return; },
-		'resolver'     => sub { return $self->_rdns_resolver; },
-		'dnsbl'        => sub { return $self->_dnsbl_asker; },
-		'accounts'     => sub { return $self->_account_of( $_[0] ); },
-		'groups'       => sub { return $self->_group_of( $_[0] ); },
+		'marks'         => sub { return $self->{marks}; },
+		'locator'       => sub { return $self->_country_of( $_[0] ); },
+		'asn_locator'   => sub { return $self->_asn_of( $_[0] ); },
+		'city_locator'  => sub { return $self->_location_of( $_[0] ); },
+		'forgive'       => sub { return $self->_forgive(@_); },
+		'notice'        => sub { log_drek( 'notice', $_[0], undef, 'galla-' . $self->{name} ); return; },
+		'resolver'      => sub { return $self->_rdns_resolver; },
+		'dnsbl'         => sub { return $self->_dnsbl_asker; },
+		'accounts'      => sub { return $self->_account_of( $_[0] ); },
+		'groups'        => sub { return $self->_group_of( $_[0] ); },
+		'account_names' => sub { return $self->_account_names; },
+		'digest_key'    => $self->{digest_key},
+		'rules_hit'     => sub { return $self->_rules_hit(@_); },
+		'score_of'      => sub { return $self->_address_score(@_); },
+		# undef for a galla not started as a server, as one a test drives
+		'uptime'       => sub { return defined( $self->{started} ) ? time - $self->{started} : undef; },
 		'namtar_files' => $self->{namtar_files},
 		# ip_ignored is a plain set membership test... over the internal set it
 		# says a address is one of ours, and over ignore_ips that it is never
@@ -572,6 +593,10 @@ sub new {
 				$weight = $rule->weight;
 			}
 
+			# a weigh gate is a weight the rule says for its self, so it speaks
+			# where the rule's own weight does
+			my $weighs = ( $allow || defined( $rule_cfg->{weight} ) ) ? 1 : 0;
+
 			# a rule overriding how counting works gets a bucket of its own, so
 			# its window does not cross-contaminate the shared one, while a
 			# ban_time-only override counts in the shared bucket and only bans
@@ -621,6 +646,7 @@ sub new {
 					'ban_time'   => $overrides{ban_time}  // $settings->{ban_time},
 					'weight'     => $weight,
 					'own_bucket' => $own_bucket,
+					'weighs'     => $weighs,
 					'eve'        => \%eve,
 				}
 			);
@@ -2645,14 +2671,16 @@ sub _process_record {
 			# the rule, and watcher and rule_name ride along for the stats and
 			# the ledger
 			my $context = {
-				'source'    => $source,
-				'raw'       => $line,
-				'parsed'    => $parsed,
-				'found'     => $one->{data},
-				'stages'    => $one->{stages},
-				'binding'   => $binding,
-				'rule_name' => $rule_name,
-				'watcher'   => $watcher_name,
+				'source' => $source,
+				'raw'    => $line,
+				'parsed' => $parsed,
+				'found'  => $one->{data},
+				'stages' => $one->{stages},
+				# what the rule's weigh gates multiplied the weight of its hits by
+				'weight_times' => $one->{weight_times},
+				'binding'      => $binding,
+				'rule_name'    => $rule_name,
+				'watcher'      => $watcher_name,
 			};
 
 			# who the offense is left counting against, once the walk is
@@ -2812,14 +2840,26 @@ sub _eve_fields {
 	my $rule    = $binding->{rule};
 	my $tracked = $self->_track_eve( $rule, $found, time );
 
+	# a rule that keeps what it found out of the tablets may keep the line it
+	# was found in out of the log as well, the stages' lines with it
+	my $with_line = $rule->eve_line;
+	my $stages    = $context->{stages};
+	if ( defined($stages) && !$with_line ) {
+		$stages = [ map { my %hit = %{$_}; delete( $hit{line} ); \%hit } @{$stages} ];
+	}
+
 	return {
 		defined( $context->{source} ) ? ( 'path' => $context->{source} ) : (),
-		'raw'    => $self->_eve_raw( $context->{raw} ),
-		'parsed' => $self->_eve_parsed( $context->{parsed} ),
-		'found'  => $context->{found},
+		$with_line
+		? (
+			'raw'    => $self->_eve_raw( $context->{raw} ),
+			'parsed' => $self->_eve_parsed( $context->{parsed} ),
+			)
+		: (),
+		'found' => $context->{found},
 		# a staged rule's whole story... each stage hit's index, epoch, and
 		# line, the raw above being only the final one
-		defined( $context->{stages} ) ? ( 'stages' => $context->{stages} ) : (),
+		defined($stages) ? ( 'stages' => $stages ) : (),
 		'src_ip'    => $found->{ $rule->src_ip_var },
 		'dest_ip'   => $found->{ $rule->dest_ip_var },
 		'src_port'  => _eve_port( $found->{ $rule->src_port_var } ),
@@ -3435,6 +3475,69 @@ sub _brand_banished {
 	return;
 } ## end sub _brand_banished
 
+# the rules that have hits against a address the galla is still counting,
+# for the breadth gate... out of the shared bucket and the rules' own, real
+# and of observe mode alike. a hit restored from a tablet that did not say
+# which rule made it is no rule's.
+#
+# args:
+#   $address :: the address whose hits are read
+#   $since   :: the epoch a hit has to be newer than to be read
+#
+# returns a array ref of the rule names, each once.
+#
+#   my $rules = $self->_rules_hit( '192.0.2.7', time - 3600 );    # [ 'syslog/sshd', 'syslog/vsftpd' ]
+sub _rules_hit {
+	my ( $self, $address, $since ) = @_;
+
+	my %rules;
+	foreach my $bucket (
+		$self->{counters},        values( %{ $self->{rule_counters} } ),
+		$self->{shadow_counters}, values( %{ $self->{shadow_rule_counters} } )
+		)
+	{
+		foreach my $hit ( @{ $bucket->{$address} // [] } ) {
+			# a hit is [ time, weight, the rule that counted it, the account ]
+			if ( $hit->[0] > $since && defined( $hit->[2] ) ) {
+				$rules{ $hit->[2] } = 1;
+			}
+		}
+	} ## end foreach my $bucket ( $self->{counters}, values(...))
+
+	return [ keys(%rules) ];
+} ## end sub _rules_hit
+
+# what the hits the galla is still counting against a address add up to,
+# for the scored gate... the weight of each, out of the shared bucket and
+# the rules' own, real and of observe mode alike.
+#
+# args:
+#   $address :: the address whose hits are added up
+#   $since   :: the epoch a hit has to be newer than to be added
+#
+# returns the sum, 0 for a address with no live hits.
+#
+#   my $score = $self->_address_score( '192.0.2.7', 0 );    # 7
+sub _address_score {
+	my ( $self, $address, $since ) = @_;
+
+	my $score = 0;
+	foreach my $bucket (
+		$self->{counters},        values( %{ $self->{rule_counters} } ),
+		$self->{shadow_counters}, values( %{ $self->{shadow_rule_counters} } )
+		)
+	{
+		foreach my $hit ( @{ $bucket->{$address} // [] } ) {
+			# a hit is [ time, weight, the rule that counted it, the account ]
+			if ( $hit->[0] > $since ) {
+				$score += $hit->[1];
+			}
+		}
+	} ## end foreach my $bucket ( $self->{counters}, values(...))
+
+	return $score;
+} ## end sub _address_score
+
 # the network a IP is on per the ASN database, cached 60 seconds as the
 # country of one is... a lookup dies on a bad address, so it is eval'd.
 #
@@ -3510,6 +3613,37 @@ sub _account_of {
 
 	return $account;
 } ## end sub _account_of
+
+# the names of the accounts of this host, read out of the system's account
+# database and kept five minutes, as one behind LDAP or the like is not free
+# to walk. no more than ten thousand are read, a account database larger
+# than that being no list of people a typo is made of.
+#
+# returns a array ref of the names.
+#
+#   my $names = $self->_account_names;    # [ 'root', 'daemon', 'neti', ... ]
+sub _account_names {
+	my ($self) = @_;
+
+	my $now = time;
+	if ( defined( $self->{account_names} ) && $self->{account_names}{expires} > $now ) {
+		return $self->{account_names}{names};
+	}
+
+	my @names;
+	setpwent();
+	while ( my $name = getpwent() ) {
+		push( @names, $name );
+		if ( @names >= 10000 ) {
+			last;
+		}
+	}
+	endpwent();
+
+	$self->{account_names} = { 'names' => \@names, 'expires' => $now + 300 };
+
+	return \@names;
+} ## end sub _account_names
 
 # who is in a group of this host, asked of the system's own group database
 # and cached 60 seconds as a account is. the group names are a rule's, not a
@@ -3981,6 +4115,9 @@ sub _register_hit {
 	my $find_time = $binding->{find_time};
 	my $ban_time  = $binding->{ban_time};
 	my $weight    = $binding->{weight};
+	if ( $binding->{weighs} && defined( $context->{weight_times} ) ) {
+		$weight *= $context->{weight_times};
+	}
 
 	# the threshold this hit is racing rides the context, so every event the
 	# match raises carries it beside the score... a score of 3 says nothing on

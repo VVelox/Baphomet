@@ -85,6 +85,10 @@ baphomet banished sshd
 # which kurs hold a IP
 baphomet banished --ip 1.2.3.4
 
+# the hash a rule's digest gate makes of a name, to find it in what
+# marked and tracked show
+baphomet digest neti
+
 # the banishment history... every banishment any galla made, when,
 # which kur, which IP, by which rule and watcher
 baphomet ledger

@@ -131,6 +131,9 @@ What a gate of the offense phase is handed. A hash of...
     - scope :: What the offense is of, the name of the watcher whose line
           made it. A gate that keeps state of its own keeps it by this.
 
+    - weight_times :: What the weigh gates have multiplied the weight of its
+          hit by, undef for nothing.
+
     - set / lifted :: Array refs of the brands set on and lifted from it,
           each a hash of C<name> and C<key>.
 
@@ -166,6 +169,20 @@ fixtures of a rule's own tests.
     - accounts :: A sub taking a name and returning the account of the host
           it is, a hash of C<uid>, C<gid>, and C<shell>, or undef when it is
           none. Any of the three may be missing where it is not known.
+
+    - score_of :: A sub taking a address and a epoch and returning what the
+          weights of the live hits against the address newer than the epoch
+          add up to.
+
+    - uptime :: A sub returning how many seconds the galla has been up, or
+          undef for one not started as a server.
+
+    - rules_hit :: A sub taking a address and a epoch and returning a array
+          ref of the names of the rules with hits against the address newer
+          than the epoch.
+
+    - account_names :: A sub returning a array ref of the names of the
+          accounts of the host.
 
     - groups :: A sub taking a group name and returning the group, a hash of
           C<gid> and C<members>, the last a hash keyed by the names the

@@ -191,6 +191,7 @@ The manager socket answers...
 - `tracked` :: the live tracked records
 - `watching` :: what each watcher follows right now
 - `banished` :: who Kur holds for the fed kurs, pending included
+- `digest` :: the hash a value comes to under the `digest_key`
 - `stop` :: stop the gallas, then the manager
 
 ### status
@@ -280,6 +281,17 @@ holdings for it... `banned` and `expires`... or, for a gate holding no
 list of its own, its `fan_out` member list and `members`, each member's
 own `banned` and `expires`... or `error`. The galla's still-pending
 bans ride in beside them as `pending`.
+
+### digest
+
+Args...
+
+- `value` :: the value to hash, required
+
+The result is `digest`, the hash a `digest` rule gate makes of the value
+under the config's `digest_key`, read afresh on each call. It errors with no
+`digest_key` set. It is how a name is found in what `marked` and `tracked`
+answer when a rule hashed it.
 
 ### stop
 
