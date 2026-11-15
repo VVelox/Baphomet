@@ -35,8 +35,8 @@ becomes the message and nothing else is claimed...
     - format :: raw.
 
 Lines from this parser are for C<raw> type rules, which are syslog rules
-with out the daemon gate... see L<App::Baphomet::Rules::Raw>, including
-its notes on what the missing gate costs.
+with out the C<daemons> gate... see L<App::Baphomet::Rule>, and
+F<docs/rules.md> on what the missing gate costs.
 
 This parser never fails on defined input, so the unparsed stat of a raw
 watcher stays zero by construction... do not read it as a sign of health.

@@ -16,11 +16,12 @@ classtype: malware
 references:
   - https://docs.fortinet.com/document/fortigate/7.4.0/new-features/226732/real-time-file-system-integrity-checking
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-message_regexp:
-  - 'devname="?(?<DEV>[^" ]+)"?.*?logid="\d*2023[0124]" type="event" subtype="system"'
-detection_var:
-  - DEV
 max_score: 1
+rule_gates:
+  - message_regexp:
+      - 'devname="?(?<DEV>[^" ]+)"?.*?logid="\d*2023[0124]" type="event" subtype="system"'
+  - detection_var:
+      - DEV
 tests:
   positive:
     - message: 'Jul 12 15:37:00 fw01 date=2026-07-12 time=15:37:00 devname="FGT200F" devid="FG200FT000000001" logid="0100020230" type="event" subtype="system" level="alert" vd="root" eventtime=1752352620000000000 tz="-0500" logdesc="System file integrity monitor" action="write-violation" filename="/bin/init" msg="File system integrity check detected a write violation on /bin/init"'

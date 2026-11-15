@@ -8,14 +8,15 @@ rev: 3
 msg: "[CENTREON] web authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^%%%%TIMESTAMP_ISO8601%%%%(?:\|-?\d+){3}\|\[[^\]]*\] \[%%%%SRC%%%%\] Authentication failed for ''[^'']+'''
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^%%%%TIMESTAMP_ISO8601%%%%(?:\|-?\d+){3}\|\[[^\]]*\] \[%%%%SRC%%%%\] Authentication failed for ''[^'']+'''
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "2019-10-21 18:55:15|-1|0|0|[WEB] [50.97.225.132] Authentication failed for 'admin' : password mismatch"

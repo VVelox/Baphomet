@@ -11,15 +11,16 @@ rev: 1
 msg: "[SURICATA] Denial of Service"
 severity: medium
 classtype: successful-dos
-gate:
-  - field: event_type
-    values: [ alert ]
-  - field: alert.category
-    values: [ "Denial of Service" ]
-ban_var:
-  - src_ip
-  - dest_ip
-ban_not_internal: true
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+      - field: alert.category
+        values: [ "Denial of Service" ]
+  - ban_var:
+      - src_ip
+      - dest_ip
+  - ban_not_internal: true
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST successful-dos","category":"Denial of Service","severity":2}}'

@@ -15,18 +15,19 @@ rev: 4
 msg: "[PAM] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - //.//
-mungers:
-  - pam
-message_regexp:
-  - '^\(?pam_[a-z0-9_]+(?:\(\S+\))?\)?:? authentication failure;(?:\s*(?:logname|e?uid|tty)=\S*){0,4}\s+ruser=(?:\S*|.*?) rhost=%%%%HOST%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
 user_var: pam_user
-ban_var:
-  - HOST
+rule_gates:
+  - daemons:
+      - //.//
+  - mungers:
+      - pam
+  - message_regexp:
+      - '^\(?pam_[a-z0-9_]+(?:\(\S+\))?\)?:? authentication failure;(?:\s*(?:logname|e?uid|tty)=\S*){0,4}\s+ruser=(?:\S*|.*?) rhost=%%%%HOST%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
+  - ban_var:
+      - HOST
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Feb  7 15:10:42 example pure-ftpd: (pam_unix) authentication failure; logname= uid=0 euid=0 tty=pure-ftpd ruser=sample-user rhost=192.168.1.1 "

@@ -17,15 +17,16 @@ rev: 1
 msg: "[VAULTWARDEN] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{4})?\])?\[vaultwarden::api::(?:identity|admin|core::two_factor::authenticator)\]\[ERROR\] (?<REASON>Invalid admin token|Invalid TOTP code|Username or password is incorrect)[.!](?:\s+(?!IP:)\S+)* IP: %%%%SRC%%%%(?:\. Username: (?<USER>.*?)\.?)?\s*$'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{4})?\])?\[vaultwarden::api::(?:identity|admin|core::two_factor::authenticator)\]\[ERROR\] (?<REASON>Invalid admin token|Invalid TOTP code|Username or password is incorrect)[.!](?:\s+(?!IP:)\S+)* IP: %%%%SRC%%%%(?:\. Username: (?<USER>.*?)\.?)?\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: '[2024-08-31 02:11:22.129][vaultwarden::api::identity][ERROR] Username or password is incorrect. Try again. IP: 2001:db8::b6d3:95d7:1425:766d. Username: test@example.com.'

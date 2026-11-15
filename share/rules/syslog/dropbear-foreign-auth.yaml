@@ -19,29 +19,29 @@ rev: 3
 msg: "[DROPBEAR] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - dropbear
-mungers:
-  - dropbear
-message_regexp:
-  # the success... password and pubkey alike
-  - '^(?:Password|Pubkey) auth succeeded for ''(?<USER>[^'']*)''(?: with \S+ key \S+)? from (?:::ffff:)?%%%%SRC%%%%:\d+'
-  # and everything syslog/dropbear counts, verbatim
-  - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
-  - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
-  - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
+src_ip_var: SRC
+src_port_var: dropbear_src_port
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - dropbear
+  - mungers:
+      - dropbear
+  - message_regexp:
+      # the success... password and pubkey alike
+      - '^(?:Password|Pubkey) auth succeeded for ''(?<USER>[^'']*)''(?: with \S+ key \S+)? from (?:::ffff:)?%%%%SRC%%%%:\d+'
+      # and everything syslog/dropbear counts, verbatim
+      - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
+      - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
+      - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-src_port_var: dropbear_src_port
-user_var: USER
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

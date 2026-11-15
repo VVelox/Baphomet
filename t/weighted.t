@@ -14,7 +14,7 @@ BEGIN {
 }
 
 use App::Baphomet::Galla ();
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule  ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -23,23 +23,20 @@ make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
 # the weight accessor and its validation
 #
 
-my $base_def = {
-	gate    => [ { field => 'which', values => ['x'] } ],
-	ban_var => ['src_ip'],
-};
+my $base_def = { rule_gates => [ { gate => [ { field => 'which', values => ['x'] } ] }, { ban_var => ['src_ip'] } ] };
 
-my $rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def} } );
+my $rule = App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def} } );
 is( $rule->weight, 1, 'weight defaults to 1' );
 
-$rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, weight => 10 } );
+$rule = App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def}, weight => 10 } );
 is( $rule->weight, 10, 'an integer weight is carried' );
 
-$rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, weight => '2.5' } );
+$rule = App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def}, weight => '2.5' } );
 is( $rule->weight, 2.5, 'a fractional weight is carried' );
 
 foreach my $bad ( 0, -1, 'heavy' ) {
 	my $err;
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, weight => $bad } ); };
+	eval { App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def}, weight => $bad } ); };
 	$err = $@;
 	like( $err, qr/positive number/, 'a weight of "' . $bad . '" refuses to load' );
 }
@@ -56,7 +53,10 @@ my %rules = (
 );
 foreach my $name ( keys(%rules) ) {
 	open( my $fh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
-	print $fh "---\ngate:\n  - field: which\n    values: [ " . $name . " ]\nban_var:\n  - src_ip\n" . $rules{$name};
+	print $fh "---\nrule_gates:\n  - gate:\n      - field: which\n        values: [ "
+		. $name
+		. " ]\n  - ban_var:\n      - src_ip\n"
+		. $rules{$name};
 	close($fh);
 }
 

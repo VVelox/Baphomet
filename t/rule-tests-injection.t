@@ -6,18 +6,19 @@ use warnings;
 use Test::More;
 
 use lib './lib';
-use App::Baphomet::Rules::Syslog ();
+use App::Baphomet::Rule ();
 
-# a rule def with the pieces every case here shares
+# a rule def with the pieces every case here shares... a message_regexp handed
+# in is what the message_regexp gate is told, and the rest are keys of the rule
 sub rule {
 	my (%over) = @_;
-	my %def = (
-		'daemons'        => ['newd'],
-		'message_regexp' => ['^auth failed for user .*? from %%%%SRC%%%%'],
-		'ban_var'        => ['SRC'],
+	my $message_regexp = delete( $over{message_regexp} ) // ['^auth failed for user .*? from %%%%SRC%%%%'];
+	my %def            = (
+		'rule_gates' =>
+			[ { 'daemons' => ['newd'] }, { 'message_regexp' => $message_regexp }, { 'ban_var' => ['SRC'] } ],
 		%over,
 	);
-	return App::Baphomet::Rules::Syslog->new( 'name' => 'syslog/t', 'def' => \%def );
+	return App::Baphomet::Rule->new( 'name' => 'syslog/t', 'def' => \%def );
 }
 
 my $good = 'Jul 12 08:15:50 host01 newd[1]: auth failed for user bob from 192.0.2.7';
@@ -31,8 +32,9 @@ my $forged
 #
 my $bare = rule(
 	'tests' => { 'positive' => [ { 'message' => $good, 'data' => { 'SRC' => '192.0.2.7' } } ] } );
-ok( $bare->{needs_injection_test}, 'a lazy unanchored offender is spotted at compile' );
-like( $bare->{needs_injection_test}, qr/\Qauth failed for user\E/, 'and named by its pattern' );
+my ($bare_matcher) = grep { $_->{type} eq 'message_regexp' } @{ $bare->rule_gates };
+ok( $bare_matcher->{open_to_injection}, 'a lazy unanchored offender is spotted at compile' );
+like( $bare_matcher->{open_to_injection}, qr/\Qauth failed for user\E/, 'and named by its pattern' );
 my $r = $bare->run_tests;
 is( $r->{fail}, 0, 'a rule of that shape with no injection tests still loads' );
 is( scalar( @{ $r->{warnings} } ), 1, 'and is warned about instead' );
@@ -46,7 +48,8 @@ my $anchored = rule(
 	'message_regexp' => ['^auth failed for user .*? from %%%%SRC%%%%\s*$'],
 	'tests'          => { 'positive' => [ { 'message' => $good, 'data' => { 'SRC' => '192.0.2.7' } } ] },
 );
-ok( !$anchored->{needs_injection_test}, 'an anchored offender is not asked about' );
+my ($anchored_matcher) = grep { $_->{type} eq 'message_regexp' } @{ $anchored->rule_gates };
+ok( defined($anchored_matcher) && !$anchored_matcher->{open_to_injection}, 'an anchored offender is not asked about' );
 my $ar = $anchored->run_tests;
 is( $ar->{fail}, 0, 'and the rule loads clean' );
 is( scalar( @{ $ar->{warnings} } ), 0, 'with nothing warned' );
@@ -59,7 +62,8 @@ my $greedy = rule(
 	'message_regexp' => ['^auth failed for user .* from %%%%SRC%%%%'],
 	'tests'          => { 'positive' => [ { 'message' => $good, 'data' => { 'SRC' => '192.0.2.7' } } ] },
 );
-ok( !$greedy->{needs_injection_test}, 'a greedy run is not the shape at issue' );
+my ($greedy_matcher) = grep { $_->{type} eq 'message_regexp' } @{ $greedy->rule_gates };
+ok( defined($greedy_matcher) && !$greedy_matcher->{open_to_injection}, 'a greedy run is not the shape at issue' );
 my $gr = $greedy->run_tests;
 is( $gr->{fail}, 0, 'and needs no injection test' );
 is( scalar( @{ $gr->{warnings} } ), 0, 'so is not warned about either' );

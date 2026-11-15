@@ -11,34 +11,35 @@ rev: 4
 msg: "[SSHD] algorithm negotiation probe"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-capture_regexp:
-  - regexp: '^Connection from %%%%SRC%%%% port \d+'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    ttl: 120
-message_regexp:
-  - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
-  - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
-  - '^Disconnected(?: from)? (?:invalid|authenticating) user .*? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]\s*$'
-  # the older log shapes name no address... the session's is used
-  - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 120
-  - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 120
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: ssh_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  - capture_regexp:
+      - regexp: '^Connection from %%%%SRC%%%% port \d+'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        ttl: 120
+  - message_regexp:
+      - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
+      - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
+      - '^Disconnected(?: from)? (?:invalid|authenticating) user .*? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]\s*$'
+      # the older log shapes name no address... the session's is used
+      - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 120
+      - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 120
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Nov 25 01:34:12 srv sshd[123]: Received disconnect from 127.0.0.1: 14: No supported authentication methods available [preauth]"

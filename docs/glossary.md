@@ -41,11 +41,14 @@ go. The rest follows from those.
   kur, or whole deployment that matches and writes to EVE but banishes
   nobody, a would-be ban surfacing as an `alert`. Stand a new rule up,
   watch what it would have done, then let it act. See [rules](rules.md).
-- **gate** :: an optional test layered over a matched line that can still
-  drop it before it counts, each an entry of the rule's `rule_gates`:
-  `country`, `namtar_list`, `active_time`, `reverse_dns`, and the mark
-  gates. A match that clears the pattern but fails a gate is not an
-  offense. See [rules](rules.md).
+- **gate** :: one step of a rule, an entry of its `rule_gates`, which a
+  line goes down in the order written. Everything a rule matches with is
+  one... the `daemons` and `message_regexp` that make an offense of a
+  line, the `ban_var` that names the offender, and the `country`,
+  `namtar_list`, `active_time`, `reverse_dns`, and mark-reading gates
+  that can still drop a match before it counts. A match that clears the
+  pattern but fails a gate below it is not an offense. See
+  [rules](rules.md).
 - **mark** :: a named, expiring brand a rule leaves on a key (an IP, a
   username) that a later rule can gate on... Baphomet's take on Sagan's
   xbits and flexbits. See [rules](rules.md).

@@ -17,16 +17,17 @@ rev: 1
 msg: "[MYSQLD] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - mysqld
-  - mariadbd
-message_regexp:
-  - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})? )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%''(?:\s+(?:to database ''[^'']*''|\(using password: (?:YES|NO)\))){0,2}\s*$'
-ban_var:
-  - HOST
+rule_gates:
+  - daemons:
+      - mysqld
+      - mariadbd
+  - message_regexp:
+      - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})? )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%''(?:\s+(?:to database ''[^'']*''|\(using password: (?:YES|NO)\))){0,2}\s*$'
+  - ban_var:
+      - HOST
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Sep 16 21:30:26 dbhost mysqld: 130916 21:30:26 [Warning] Access denied for user 'hacker'@'192.0.2.159' (using password: YES)"

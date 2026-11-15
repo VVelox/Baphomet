@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::Sequence;
+package App::Baphomet::Gate::sequence;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -10,7 +10,7 @@ use App::Baphomet::Marks qw( mark_key live_mark );
 
 =head1 NAME
 
-App::Baphomet::Gate::Sequence - The sequence gate, counting only what was branded in a order.
+App::Baphomet::Gate::sequence - The sequence gate, counting only what was branded in a order.
 
 =head1 VERSION
 

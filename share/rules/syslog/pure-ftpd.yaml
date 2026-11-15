@@ -7,16 +7,17 @@ rev: 2
 msg: "[PURE-FTPD] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - pure-ftpd
-message_regexp:
-  - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - pure-ftpd
+  - message_regexp:
+      - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jan 31 16:54:07 desktop pure-ftpd: (?@24.79.92.194) [WARNING] Authentication failed for user [Administrator]"

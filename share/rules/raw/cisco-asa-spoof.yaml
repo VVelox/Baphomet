@@ -17,17 +17,18 @@ severity: high
 classtype: suspicious-traffic
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-106016: Deny IP spoof from \(%%%%SRC%%%%\) to \S+'
-  - '%(?:ASA|PIX|FWSM)-\d-106020: Deny IP teardrop fragment \([^)]*\) from %%%%SRC%%%% to \S+'
-  - '%(?:ASA|PIX|FWSM)-\d-106022: Deny \S+ connection spoof from %%%%SRC%%%% to \S+'
-  - '%(?:ASA|PIX|FWSM)-\d-410002: Dropped \d+ DNS responses with mis-matched id in the past \d+ second\(s\): from [^:]+:%%%%SRC%%%%/\d+'
-  - '%(?:ASA|PIX|FWSM)-\d-201006: RCMD backconnection failed for %%%%SRC%%%%/\d+'
-  - '%(?:ASA|PIX|FWSM)-\d-107001: RIP auth failed from %%%%SRC%%%%:'
-  - '%(?:ASA|PIX|FWSM)-\d-312001: RIP hdr failed from %%%%SRC%%%%:'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-106016: Deny IP spoof from \(%%%%SRC%%%%\) to \S+'
+      - '%(?:ASA|PIX|FWSM)-\d-106020: Deny IP teardrop fragment \([^)]*\) from %%%%SRC%%%% to \S+'
+      - '%(?:ASA|PIX|FWSM)-\d-106022: Deny \S+ connection spoof from %%%%SRC%%%% to \S+'
+      - '%(?:ASA|PIX|FWSM)-\d-410002: Dropped \d+ DNS responses with mis-matched id in the past \d+ second\(s\): from [^:]+:%%%%SRC%%%%/\d+'
+      - '%(?:ASA|PIX|FWSM)-\d-201006: RCMD backconnection failed for %%%%SRC%%%%/\d+'
+      - '%(?:ASA|PIX|FWSM)-\d-107001: RIP auth failed from %%%%SRC%%%%:'
+      - '%(?:ASA|PIX|FWSM)-\d-312001: RIP hdr failed from %%%%SRC%%%%:'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %ASA-2-106016: Deny IP spoof from (192.0.2.5) to 10.1.1.20 on interface outside'

@@ -19,26 +19,26 @@ rev: 2
 msg: "[UWIMAP] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - ipop3d
-  - imapd
-message_regexp:
-  # the success... "Login user=x host=y [ip]", and not one of the failure verbs
-  - '^Login (?!failed|excessive|disabled|SYSTEM BREAK-IN)user=(?<USER>\S*) .*host=.*\[%%%%SRC%%%%\]'
-  # and everything syslog/uwimap-auth counts, verbatim
-  - '^Login (?:failed|excessive login failures|disabled|SYSTEM BREAK-IN ATTEMPT) user=\S* auth=\S* host=.*\[%%%%SRC%%%%\]\s*$'
-  - '^Failed .* override of user=.* host=.*\[%%%%SRC%%%%\]\s*$'
+src_ip_var: SRC
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - ipop3d
+      - imapd
+  - message_regexp:
+      # the success... "Login user=x host=y [ip]", and not one of the failure verbs
+      - '^Login (?!failed|excessive|disabled|SYSTEM BREAK-IN)user=(?<USER>\S*) .*host=.*\[%%%%SRC%%%%\]'
+      # and everything syslog/uwimap-auth counts, verbatim
+      - '^Login (?:failed|excessive login failures|disabled|SYSTEM BREAK-IN ATTEMPT) user=\S* auth=\S* host=.*\[%%%%SRC%%%%\]\s*$'
+      - '^Failed .* override of user=.* host=.*\[%%%%SRC%%%%\]\s*$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: USER
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

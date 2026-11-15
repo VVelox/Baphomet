@@ -20,25 +20,26 @@ severity: high
 classtype: exploit-attempt
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-mungers:
-  - sonicwall
-# The event is named by msg=, so the gate reads the decomposed value rather
-# than scanning the line. Each arm below was its own regexp before, and the
-# trailing [^"]* each carried is simply "the text may run on", so these anchor
-# at the head and say nothing about the tail.
-gate:
-  - field: sw_msg
-    op: re
-    value: '^(?:(?:Back Orifice|NetBus|Net Spy|Senna Spy|Sub Seven|Striker|RIPper|Priority|Land) attack dropped|Ping of [dD]eath dropped|PASV response (?:bounce|spoof) attack dropped|Possible DNS rebind attack detected|IP [sS]poof (?:[dD]etected|[dD]ropped)|IPS Prevention Alert|Smurf (?:Amplification )?[aA]ttack|Spank attack multicast packet dropped|Source routed IP packet dropped)'
 src_ip_var: sw_offender_ip
 dest_ip_var: sw_dst_ip
 src_port_var: sw_src_port
 dest_port_var: sw_dst_port
-ban_var:
-  - sw_offender_ip
+rule_gates:
+  - mungers:
+      - sonicwall
+  # The event is named by msg=, so the gate reads the decomposed value rather
+  # than scanning the line. Each arm below was its own regexp before, and the
+  # trailing [^"]* each carried is simply "the text may run on", so these anchor
+  # at the head and say nothing about the tail.
+  - gate:
+      - field: sw_msg
+        op: re
+        value: '^(?:(?:Back Orifice|NetBus|Net Spy|Senna Spy|Sub Seven|Striker|RIPper|Priority|Land) attack dropped|Ping of [dD]eath dropped|PASV response (?:bounce|spoof) attack dropped|Possible DNS rebind attack detected|IP [sS]poof (?:[dD]etected|[dD]ropped)|IPS Prevention Alert|Smurf (?:Amplification )?[aA]ttack|Spank attack multicast packet dropped|Source routed IP packet dropped)'
+  - ban_var:
+      - sw_offender_ip
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: 'Jul 12 04:02:11 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 04:02:11 UTC" fw=203.0.113.1 pri=1 c=32 m=606 msg="Back Orifice attack dropped" n=2 src=203.0.113.66:31337:X1 dst=192.0.2.10:31337:X0'

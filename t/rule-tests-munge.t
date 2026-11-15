@@ -12,8 +12,8 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Rules::Syslog ();
-use App::Baphomet::Rules::Raw    ();
+use App::Baphomet::Parser ();
+use App::Baphomet::Rule   ();
 
 # the enrichment needs Log-Munger and its shipped munger files... skip the
 # whole file cleanly where the optional dep is absent, the same as a
@@ -31,14 +31,16 @@ if ( !$have_munger ) {
 # syslog, PROGRAM-gated... the sshd munger decodes ssh_* fields the rule
 # never captured, and the rule's own SRC rides beside them
 #
-my $sshd = App::Baphomet::Rules::Syslog->new(
+my $sshd = App::Baphomet::Rule->new(
 	name => 'syslog/sshd-munge',
 	def  => {
-		daemons        => ['sshd'],
-		mungers        => ['sshd'],
-		message_regexp => ['Failed password for (?:invalid user )?\S+ from (?<SRC>\S+) port'],
-		ban_var        => ['SRC'],
-		tests          => {
+		rule_gates => [
+			{ daemons        => ['sshd'] },
+			{ mungers        => ['sshd'] },
+			{ message_regexp => ['Failed password for (?:invalid user )?\S+ from (?<SRC>\S+) port'] },
+			{ ban_var        => ['SRC'] },
+		],
+		tests => {
 			positive => [
 				{
 					message =>
@@ -65,14 +67,16 @@ is_deeply( [ $sshd->mungers ], ['sshd'], 'mungers() reports the declared set' );
 # collision... the rule binds ssh_user to the port, a value the munger sets to
 # the username. the rule's own capture must overwrite the munger field
 #
-my $collide = App::Baphomet::Rules::Syslog->new(
+my $collide = App::Baphomet::Rule->new(
 	name => 'syslog/munge-collide',
 	def  => {
-		daemons        => ['sshd'],
-		mungers        => ['sshd'],
-		message_regexp => ['Failed password for invalid user \S+ from \S+ port (?<ssh_user>\d+)'],
-		ban_var        => ['ssh_src_ip'],
-		tests          => {
+		rule_gates => [
+			{ daemons        => ['sshd'] },
+			{ mungers        => ['sshd'] },
+			{ message_regexp => ['Failed password for invalid user \S+ from \S+ port (?<ssh_user>\d+)'] },
+			{ ban_var        => ['ssh_src_ip'] },
+		],
+		tests => {
 			positive => [
 				{
 					message =>
@@ -99,13 +103,15 @@ SKIP: {
 	my $have_http = eval { Log::Munger::LogProcessor->new( 'rules' => ['http_access_logs'] ); 1 };
 	skip 'the http_access_logs munger is not available', 1 if !$have_http;
 
-	my $raw = App::Baphomet::Rules::Raw->new(
+	my $raw = App::Baphomet::Rule->new(
 		name => 'raw/access-munge',
 		def  => {
-			mungers        => ['http_access_logs'],
-			message_regexp => ['^(?<SRC>\S+) \S+ \S+ \[[^\]]+\] "\S+ \S+ [^"]+" 401 '],
-			ban_var        => ['SRC'],
-			tests          => {
+			rule_gates => [
+				{ mungers        => ['http_access_logs'] },
+				{ message_regexp => ['^(?<SRC>\S+) \S+ \S+ \[[^\]]+\] "\S+ \S+ [^"]+" 401 '] },
+				{ ban_var        => ['SRC'] },
+			],
+			tests => {
 				positive => [
 					{
 						message => '192.0.2.9 - - [10/Oct/2000:13:55:36 -0700] "GET /admin.php HTTP/1.0" 401 2326',
@@ -127,22 +133,40 @@ SKIP: {
 } ## end SKIP:
 
 #
-# the contract... a malformed key, an unresolvable munger, and mungers beside
+# the contract... a malformed gate, an unresolvable munger, and mungers beside
 # stages are all fatal
 #
 ok(
 	!eval {
-		App::Baphomet::Rules::Syslog->new( name => 'syslog/m',
-			def => { daemons => ['sshd'], mungers => 'sshd', message_regexp => ['x (?<SRC>\S+)'], ban_var => ['SRC'] } );
+		App::Baphomet::Rule->new(
+			name => 'syslog/m',
+			def  => {
+				rule_gates => [
+					{ daemons        => ['sshd'] },
+					{ mungers        => 'sshd' },
+					{ message_regexp => ['x (?<SRC>\S+)'] },
+					{ ban_var        => ['SRC'] },
+				],
+			},
+		);
 		1;
 	},
-	'a scalar mungers key is fatal'
+	'a scalar mungers gate is fatal'
 );
 
 ok(
 	!eval {
-		App::Baphomet::Rules::Syslog->new( name => 'syslog/e',
-			def => { daemons => ['sshd'], mungers => [''], message_regexp => ['x (?<SRC>\S+)'], ban_var => ['SRC'] } );
+		App::Baphomet::Rule->new(
+			name => 'syslog/e',
+			def  => {
+				rule_gates => [
+					{ daemons        => ['sshd'] },
+					{ mungers        => [''] },
+					{ message_regexp => ['x (?<SRC>\S+)'] },
+					{ ban_var        => ['SRC'] },
+				],
+			},
+		);
 		1;
 	},
 	'an empty munger name is fatal'
@@ -152,19 +176,27 @@ ok(
 # staged... mungers are wired through the staged matcher too, enriching the
 # completed sequence from its final (completing) line
 #
-my $staged = App::Baphomet::Rules::Syslog->new(
+my $staged = App::Baphomet::Rule->new(
 	name => 'syslog/staged-munge',
 	def  => {
-		daemons => ['sshd'],
-		mungers => ['sshd'],
-		stages  => [
-			{ message_regexp => ['^Failed password for \S+ from (?<SRC>\S+) port'], count => 2, within => 300 },
-			{ message_regexp => ['^Accepted \w+ for (?<USER>\S+) from (?<SRC>\S+) port'], within => 600 },
+		rule_gates => [
+			{ daemons => ['sshd'] },
+			{ mungers => ['sshd'] },
+			{
+				stages => [
+					{
+						message_regexp => ['^Failed password for \S+ from (?<SRC>\S+) port'],
+						count          => 2,
+						within         => 300,
+					},
+					{ message_regexp => ['^Accepted \w+ for (?<USER>\S+) from (?<SRC>\S+) port'], within => 600 },
+				],
+			},
+			{ per           => ['SRC'] },
+			{ detection_var => ['SRC'] },
 		],
-		per           => ['SRC'],
-		detection_var => ['SRC'],
-		max_score     => 1,
-		tests         => {
+		max_score => 1,
+		tests     => {
 			positive => [
 				{
 					messages => [
@@ -191,26 +223,31 @@ is( $staged_r->{fail}, 0, 'a staged rule enriches the completed sequence from it
 
 # an unresolvable munger is fatal at processor build... the galla prewarms
 # this at load, turning the die into a log_drek error and refusing to run
-my $bad = App::Baphomet::Rules::Syslog->new(
+my $bad = App::Baphomet::Rule->new(
 	name => 'syslog/bad',
 	def  => {
-		daemons        => ['sshd'],
-		mungers        => ['no-such-munger-xyzzy'],
-		message_regexp => ['x (?<SRC>\S+)'],
-		ban_var        => ['SRC'],
+		rule_gates => [
+			{ daemons        => ['sshd'] },
+			{ mungers        => ['no-such-munger-xyzzy'] },
+			{ message_regexp => ['x (?<SRC>\S+)'] },
+			{ ban_var        => ['SRC'] },
+		],
 	}
 );
-ok( !eval { $bad->_munge_processor; 1 }, 'a munger that will not resolve is fatal at build' );
+my ($bad_decoder) = grep { $_->{type} eq 'mungers' } @{ $bad->rule_gates };
+ok( !eval { $bad_decoder->processor; 1 }, 'a munger that will not resolve is fatal at build' );
 like( $@, qr/could not be loaded/, 'the unresolvable-munger error names the failure' );
 
 # a set shares one processor whatever the order or repetition named
-my $multi = App::Baphomet::Rules::Syslog->new(
+my $multi = App::Baphomet::Rule->new(
 	name => 'syslog/multi',
 	def  => {
-		daemons        => ['sshd'],
-		mungers        => [ 'sshd', 'sshd' ],
-		message_regexp => ['x (?<SRC>\S+)'],
-		ban_var        => ['SRC'],
+		rule_gates => [
+			{ daemons        => ['sshd'] },
+			{ mungers        => [ 'sshd', 'sshd' ] },
+			{ message_regexp => ['x (?<SRC>\S+)'] },
+			{ ban_var        => ['SRC'] },
+		],
 	}
 );
 is_deeply( [ $multi->mungers ], ['sshd'], 'mungers() dedups a set' );
@@ -220,14 +257,23 @@ is_deeply( [ $multi->mungers ], ['sshd'], 'mungers() dedups a set' );
 # watcher listing a whole appliance family runs one rule per event class over
 # every line, so without this each would re-decode the same line
 #
-my %shared_def = (
-	daemons        => ['sshd'],
-	message_regexp => ['[iI]nvalid user \S+ from (?<SRC>\S+)'],
-	ban_var        => ['SRC'],
+
+# the gates the three rules share, the mungers gate of each going between them
+my $shared_daemons  = { daemons => ['sshd'] };
+my @shared_matching = ( { message_regexp => ['[iI]nvalid user \S+ from (?<SRC>\S+)'] }, { ban_var => ['SRC'] } );
+
+my $one = App::Baphomet::Rule->new(
+	name => 'syslog/one',
+	def  => { rule_gates => [ $shared_daemons, { mungers => ['sshd'] }, @shared_matching ] },
 );
-my $one = App::Baphomet::Rules::Syslog->new( name => 'syslog/one', def => { %shared_def, mungers => ['sshd'] } );
-my $two = App::Baphomet::Rules::Syslog->new( name => 'syslog/two', def => { %shared_def, mungers => ['sshd'] } );
-my $oth = App::Baphomet::Rules::Syslog->new( name => 'syslog/oth', def => { %shared_def, mungers => ['postfix'] } );
+my $two = App::Baphomet::Rule->new(
+	name => 'syslog/two',
+	def  => { rule_gates => [ $shared_daemons, { mungers => ['sshd'] }, @shared_matching ] },
+);
+my $oth = App::Baphomet::Rule->new(
+	name => 'syslog/oth',
+	def  => { rule_gates => [ $shared_daemons, { mungers => ['postfix'] }, @shared_matching ] },
+);
 
 my $line = App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 host01 sshd[1]: Invalid user bob from 192.0.2.7' );
 $one->check($line);

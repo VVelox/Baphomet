@@ -29,24 +29,25 @@ severity: low
 classtype: attempted-recon
 attack:
   - T1590.002
-mark:
-  - name: recon
-    ttl: 86400
 references:
   - https://unbound.docs.nlnetlabs.nl/en/latest/manpages/unbound.conf.html
-daemons:
-  - //^unbound$//
-mungers:
-  - unbound
-# no message_regexp... the munger's fields are the matcher
-gate:
-  - field: unbound_rcode
-    op: eq
-    nocase: true
-    value: refused
 src_ip_var: unbound_client_ip
-ban_var:
-  - unbound_client_ip
+rule_gates:
+  - daemons:
+      - //^unbound$//
+  - mungers:
+      - unbound
+  # no message_regexp... the munger's fields are the matcher
+  - gate:
+      - field: unbound_rcode
+        op: eq
+        nocase: true
+        value: refused
+  - ban_var:
+      - unbound_client_ip
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 unbound[1234:0]: info: 203.0.113.7 refused example.com. A IN"

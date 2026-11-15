@@ -39,15 +39,16 @@ my $stamp = 'Jul 16 08:15:50 mail01';
 # --- gate over json fields, no message_regexp ---
 write_rule( 'syslog/jgate', <<'EOR' );
 ---
-daemons:
-  - myapp
-message_json: true
-gate:
-  - field: event
-    op: eq
-    value: auth_fail
-ban_var:
-  - src
+rule_gates:
+  - daemons:
+      - myapp
+  - message_json: true
+  - gate:
+      - field: event
+        op: eq
+        value: auth_fail
+  - ban_var:
+      - src
 EOR
 is( matches( 'syslog/jgate', "$stamp myapp[1]: {\"event\":\"auth_fail\",\"src\":\"1.2.3.4\"}" ),
 	1, 'a json message field passes the gate' );
@@ -63,18 +64,19 @@ is( $f->{data}{src}, '9.9.9.9', 'ban_var resolves against a json field' );
 # --- the envelope under reserved syslog.* keys ---
 write_rule( 'syslog/jenv', <<'EOR' );
 ---
-daemons:
-  - myapp
-message_json: true
-gate:
-  - field: syslog.daemon
-    op: eq
-    value: myapp
-  - field: event
-    op: eq
-    value: hit
-ban_var:
-  - src
+rule_gates:
+  - daemons:
+      - myapp
+  - message_json: true
+  - gate:
+      - field: syslog.daemon
+        op: eq
+        value: myapp
+      - field: event
+        op: eq
+        value: hit
+  - ban_var:
+      - src
 EOR
 is( matches( 'syslog/jenv', "$stamp myapp[1]: {\"event\":\"hit\",\"src\":\"1.1.1.1\"}" ),
 	1, 'a gate can test the envelope daemon and a json field together' );
@@ -82,16 +84,17 @@ is( matches( 'syslog/jenv', "$stamp myapp[1]: {\"event\":\"hit\",\"src\":\"1.1.1
 # --- decode over a json field ---
 write_rule( 'syslog/jdecode', <<'EOR' );
 ---
-daemons:
-  - myapp
-message_json: true
-gate:
-  - field: cmd
-    op: contains
-    value: mimikatz
-    decode: [ base64 ]
-ban_var:
-  - src
+rule_gates:
+  - daemons:
+      - myapp
+  - message_json: true
+  - gate:
+      - field: cmd
+        op: contains
+        value: mimikatz
+        decode: [ base64 ]
+  - ban_var:
+      - src
 EOR
 my $b64 = encode_base64( 'go run mimikatz', '' );
 is( matches( 'syslog/jdecode', "$stamp myapp[1]: {\"cmd\":\"$b64\",\"src\":\"2.2.2.2\"}" ),
@@ -100,17 +103,18 @@ is( matches( 'syslog/jdecode', "$stamp myapp[1]: {\"cmd\":\"$b64\",\"src\":\"2.2
 # --- message_json plus message_regexp: the regexp is the matcher ---
 write_rule( 'syslog/jboth', <<'EOR' );
 ---
-daemons:
-  - combined
-message_json: true
-message_regexp:
-  - 'authentication'
-gate:
-  - field: user
-    op: eq
-    value: admin
-ban_var:
-  - src
+rule_gates:
+  - daemons:
+      - combined
+  - message_json: true
+  - message_regexp:
+      - 'authentication'
+  - gate:
+      - field: user
+        op: eq
+        value: admin
+  - ban_var:
+      - src
 EOR
 is( matches( 'syslog/jboth', "$stamp combined[1]: {\"msg\":\"authentication failed\",\"user\":\"admin\",\"src\":\"5.5.5.5\"}" ),
 	1, 'message_regexp matches the raw line and the gate refines on a json field' );
@@ -124,17 +128,18 @@ is( matches( 'syslog/jboth', "$stamp combined[1]: {\"msg\":\"login ok\",\"user\"
 # that would hit it (the regexp on the raw text, the gate on the envelope)
 write_rule( 'syslog/jstrict', <<'EOR' );
 ---
-daemons:
-  - combined
-message_json: true
-message_regexp:
-  - 'authentication'
-gate:
-  - field: syslog.daemon
-    op: eq
-    value: combined
-ban_var:
-  - src
+rule_gates:
+  - daemons:
+      - combined
+  - message_json: true
+  - message_regexp:
+      - 'authentication'
+  - gate:
+      - field: syslog.daemon
+        op: eq
+        value: combined
+  - ban_var:
+      - src
 EOR
 is( matches( 'syslog/jstrict', "$stamp combined[1]: {\"msg\":\"authentication failed\",\"src\":\"6.6.6.6\"}" ),
 	1, 'a json line runs the regexp and envelope gate normally' );
@@ -144,12 +149,13 @@ is( matches( 'syslog/jstrict', "$stamp combined[1]: authentication failed for ad
 # --- a gateless syslog rule is unchanged (message_json off) ---
 write_rule( 'syslog/plain', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 EOR
 is( matches( 'syslog/plain', "$stamp sshd[1]: bad from 1.2.3.4" ), 1, 'a normal syslog rule is untouched' );
 

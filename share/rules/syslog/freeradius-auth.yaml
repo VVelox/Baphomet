@@ -26,21 +26,22 @@ attack:
   - T1110.001
 references:
   - https://www.freeradius.org/documentation/
-daemons:
-  - //^(?:radiusd|freeradius)$//
-mungers:
-  - freeradius
-# no message_regexp... the munger's fields are the matcher. a reason is present
-# on the failures and absent from "Login OK", and an account weeds out the
-# daemon's lifecycle chatter
-gate:
-  - field: radius_reason
-    op: exists
-  - field: radius_user
-    op: exists
 user_var: radius_user
-detection_var:
-  - radius_user
+rule_gates:
+  - daemons:
+      - //^(?:radiusd|freeradius)$//
+  - mungers:
+      - freeradius
+  # no message_regexp... the munger's fields are the matcher. a reason is present
+  # on the failures and absent from "Login OK", and an account weeds out the
+  # daemon's lifecycle chatter
+  - gate:
+      - field: radius_reason
+        op: exists
+      - field: radius_user
+        op: exists
+  - detection_var:
+      - radius_user
 tests:
   positive:
     - message: "Jul 12 08:15:50 radius01 radiusd[1234]: Login incorrect (mschap: MS-CHAP2-Response is incorrect): [admin/password] (from client wifi port 0 cli aa-bb-cc-dd-ee-ff)"

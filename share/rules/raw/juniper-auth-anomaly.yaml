@@ -16,12 +16,13 @@ msg: "[JUNIPER] authentication anomaly - no source address"
 severity: medium
 classtype: brute-force
 user_var: USER
-detection_var:
-  - USER
-message_regexp:
-  - 'LOGIN_PAM_AUTHENTICATION_ERROR: PAM authentication error for user ''?(?<USER>[^'' ]+)''?'
-  - 'LOGIN_INVALID_LOCAL_USER: No entry in local password file for user ''?(?<USER>[^'' ]+)''?'
-  - 'SSHD_LOGIN_ATTEMPTS_THRESHOLD: Threshold for unsuccessful authentication attempts \(\d+\) reached by user ''?(?<USER>[^'' ]+)''?'
+rule_gates:
+  - message_regexp:
+      - 'LOGIN_PAM_AUTHENTICATION_ERROR: PAM authentication error for user ''?(?<USER>[^'' ]+)''?'
+      - 'LOGIN_INVALID_LOCAL_USER: No entry in local password file for user ''?(?<USER>[^'' ]+)''?'
+      - 'SSHD_LOGIN_ATTEMPTS_THRESHOLD: Threshold for unsuccessful authentication attempts \(\d+\) reached by user ''?(?<USER>[^'' ]+)''?'
+  - detection_var:
+      - USER
 tests:
   positive:
     - message: "Jul 12 08:15:50 edge-r1 login[2411]: LOGIN_PAM_AUTHENTICATION_ERROR: PAM authentication error for user 'root'"

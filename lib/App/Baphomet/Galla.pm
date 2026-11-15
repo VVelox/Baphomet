@@ -11,7 +11,7 @@ use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
 use File::Spec                               ();
-use List::Util                               qw( all max min sum0 uniqstr );
+use List::Util                               qw( max min sum0 uniqstr );
 use Path::Tiny                               qw( path );
 use Text::CSV_XS                             ();
 use JSON::MaybeXS                            qw( encode_json decode_json );
@@ -24,12 +24,12 @@ use Ereshkigal::Client                       ();
 use App::Baphomet::Config
 	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
 use App::Baphomet::Parser     ();
+use App::Baphomet::Primitives ();
 use App::Baphomet::Rules      ();
 use App::Baphomet::Marks      ();
 use App::Baphomet::Tracks     ();
 use App::Baphomet::Gate       ();
 use App::Baphomet::Namtar     ();
-use App::Baphomet::Offense    ();
 use App::Baphomet::ClayTablet ();
 use App::Baphomet::LogDrek    qw( log_drek );
 
@@ -352,6 +352,26 @@ sub new {
 		'locator'      => sub { return $self->_country_of( $_[0] ); },
 		'resolver'     => sub { return $self->_rdns_resolver; },
 		'namtar_files' => $self->{namtar_files},
+		# ip_ignored is a plain set membership test... over the internal set it
+		# says a address is one of ours, and over ignore_ips that it is never
+		# to be branded
+		'internal'  => sub { return ip_ignored( $self->{internal},    $_[0] ); },
+		'brandable' => sub { return !ip_ignored( $self->{ignore_ips}, $_[0] ); },
+		# each brand set or lifted is gossiped to the fleet when there is a bus
+		'on_set' => sub {
+			my ( $name, $key, $value, $expires, $set ) = @_;
+			if ( $self->{mark_sync} ) {
+				$self->{tablet}->mark_publish( 'set', $name, $key, $value, $expires, $set );
+			}
+			return;
+		},
+		'on_unset' => sub {
+			my ( $name, $key ) = @_;
+			if ( $self->{mark_sync} ) {
+				$self->{tablet}->mark_publish( 'unset', $name, $key, undef, undef );
+			}
+			return;
+		},
 	);
 
 	# what the gates bound below need of the galla, for the startup checks, and
@@ -453,15 +473,14 @@ sub new {
 				$self->warn;
 			} ## end if ( !App::Baphomet::Rules::type_accepts_parser...)
 
-			# the gates a found result of the rule has to clear on this watcher,
-			# bound over the context and sorted by the pass each is asked in, the
-			# order the rule wrote them in kept with in each... once for the
-			# result, with no offender, for a gate keyed by a var, and once per
-			# candidate offender for one keyed by the offender. the first veto of
-			# a pass ends it, sparing the GeoIP and DNS lookups of the gates after
-			# it. a rule has a gate only where it names one, so most rules, naming
-			# none, are judged by two empty lists. a list or window the watcher
-			# does not define is fatal, like a bad rule
+			# the rule's gates, bound over this watcher's context and sorted by
+			# phase, the order the rule wrote them in kept with in each... the
+			# ones of the line phase, which a line goes down to be a offense,
+			# and the ones of the offense phase, which each offense it made
+			# then goes down. the first to turn a line away or veto a offense
+			# ends the walk, sparing the GeoIP and DNS lookups of the gates
+			# after it. a list or window the watcher does not define is fatal,
+			# like a bad rule
 			my $gates;
 			try {
 				$gates = App::Baphomet::Gate::bind_rule_gates( $rule->rule_gates, \%gate_context,
@@ -475,7 +494,7 @@ sub new {
 
 			# what the gates need of the galla for the startup checks to act on,
 			# and the list files they read for loading
-			foreach my $gate ( @{ $gates->{result} }, @{ $gates->{offender} } ) {
+			foreach my $gate ( @{ $gates->{line} }, @{ $gates->{offense} } ) {
 				foreach my $need ( $gate->needs ) {
 					$gate_needs{$need} = 1;
 				}
@@ -591,9 +610,17 @@ sub new {
 			# the prefilter... which field of a record picks the rules worth
 			# offering it to, and the lazily filled index of that field's
 			# values to the bindings. see _index_field and _rule_candidates
-			'index_field'     => _index_field( \@bindings ),
-			'rule_index'      => {},
-			'settings'        => $settings,
+			'index_field' => _index_field( \@bindings ),
+			'rule_index'  => {},
+			'settings'    => $settings,
+			# usedns, what settles a offense's hostnames the way this watcher
+			# has it... a ban_var value that is not a IP is a hostname the
+			# daemon logged, hostile input. under no it is dropped, under
+			# resolve_seen it becomes one subject per address it resolves to,
+			# each still naming the var and the name it came from, and under
+			# resolve_ban it counts by name, resolving at the threshold over
+			# in _ban_ip
+			'usedns_subjects' => sub { return $self->_usedns_subjects( $watcher_name, $_[0] ); },
 			'wheels'          => {},
 			'journal_wheel'   => undef,
 			'journal_delay'   => 1,
@@ -615,13 +642,10 @@ sub new {
 			if ( $rule_obj->is_detection ) {
 				$has_detection = 1;
 			}
-			# one rep per distinct munger set is enough... the processor is
-			# memoized on the set, so warming it warms it for all
-			if ( $rule_obj->can('mungers') ) {
-				my @mungers = $rule_obj->mungers;
-				if (@mungers) {
-					$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
-				}
+			# one gate per distinct munger set is enough... the processor is
+			# kept by the set, so warming it for one warms it for all
+			foreach my $gate ( grep { $_->{type} eq 'mungers' } @{ $rule_obj->rule_gates } ) {
+				$munge_reps{ join( ', ', @{ $gate->{set} } ) } = $gate;
 			}
 		} ## end foreach my $binding ( @{ $built->{bindings} } )
 
@@ -711,7 +735,7 @@ sub new {
 	# refuses the galla rather than dying mid-line later
 	foreach my $set ( sort keys(%munge_reps) ) {
 		try {
-			$munge_reps{$set}->_munge_processor;
+			$munge_reps{$set}->processor;
 		} catch ($caught) {
 			$self->{perror}      = 1;
 			$self->{error}       = 6;
@@ -2315,12 +2339,13 @@ sub _index_field {
 #
 # Both halves rest on the same contract: a rule the index leaves out would
 # have refused the line before doing or remembering anything, so skipping the
-# call and making it are the same judgment. A syslog rule opens check with its
-# daemon gate and returns before touching any correlation state. A json rule
-# only offers a discriminator when it carries no capture, ignore, or key,
-# since each of those is a way for it to return a result on a line its own
-# gate refused... a capture entry judges on its own gates and can complete a
-# deferred offense. Nothing is indexed on a gate it can fire around.
+# walk and making it are the same judgment. A syslog rule is indexed by the
+# daemons gates that lead its list, where nothing has been asked ahead of
+# them. A json rule only offers a discriminator when it has no capture,
+# ignore, key, or track gate, since each of those does or keeps something for
+# a record its gate gate refuses... a capture judges on its own tests and can
+# complete a deferred offense. Nothing is indexed on a gate it can fire
+# around.
 #
 # Args...
 #
@@ -2419,8 +2444,8 @@ sub _process_record {
 		'source' => $seq_source,
 		# carried so the rules do not each call time per line
 		'now' => $now,
-		# the live tracked-record store, read by a rule's tracked clause and
-		# written by its track sweep, both of which run inside the rule
+		# the live tracked-record store, read by a rule's tracked and
+		# not_tracked gates and written by its track gates
 		'tracked' => $self->{tracked},
 	};
 
@@ -2446,8 +2471,13 @@ sub _process_record {
 	foreach my $binding ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) {
 		my $rule_obj  = $binding->{rule};
 		my $rule_name = $binding->{name};
-		my $found     = $rule_obj->check( $parsed, $watcher_name, $line_ctx );
-		if ( !defined($found) ) {
+
+		# the line goes down the rule's gates of the line phase, in the order
+		# the rule wrote them, which leaves standing the offense it made and
+		# any a earlier line left waiting on this one... a capture line may
+		# complete several at once
+		my $offenses = $rule_obj->walk_line( $binding->{gates}, $parsed, $watcher_name, $line_ctx );
+		if ( !@{$offenses} ) {
 			next;
 		}
 
@@ -2462,33 +2492,27 @@ sub _process_record {
 		my $eve_only       = $binding->{eve_only};
 		my $track_only_eve = $watcher->{settings}{track_only_eve_store};
 
-		# a capture line may have completed several deferred offenses
-		my @all_found = ( $found, is_plain_arrayref( $found->{more} ) ? @{ $found->{more} } : () );
-
-		# the found vars swept again for the tracked fields on the way into
-		# the gates. a rule's tracked clause lifts into each offense it judges,
-		# but a offense that reached here without being judged... a json
-		# completion, which is filtered on the capture's own gates and never
-		# the rule's... would carry none of them, and the gates below and the
-		# ban_var read after them address a lifted field by name like any
-		# other. lifts only, never vetoes; the veto was the boolean's to cast
-		if ( @{ $rule_obj->track_gates->{tracked} } ) {
-			foreach my $one (@all_found) {
-				$self->_track_lift( $rule_obj, $one->{data}, $now );
-			}
-		}
-
 		my $consumed = 0;
-		foreach my $one (@all_found) {
-			# the gates of the result pass vet the whole result once, with no
-			# offender... those keyed by a var, and active_time. a veto means the
-			# rule did not really fire, so it neither counts nor consumes the
-			# line
-			if ( !all { $_->holds( $one->{data}, undef, $now ) } @{ $binding->{gates}{result} } ) {
+		foreach my $one ( @{$offenses} ) {
+			# the offense goes down the gates of the offense phase, in the order
+			# the rule wrote them... the ones that read it, the naming of who it
+			# counts against, the ones keyed by the offender, and the brands. a
+			# veto means the rule did not really fire, so it brands nobody,
+			# emits nothing, and does not consume the line, which falls through
+			# to the later rules... the legit crawler the reverse_dns gate
+			# cleared, say. one that got as far as its naming matched, whatever
+			# became of its offenders after
+			$one->{now}    = $now;
+			$one->{set}    = [];
+			$one->{lifted} = [];
+			$one->{usedns} = $watcher->{usedns_subjects};
+			my $stands = App::Baphomet::Gate::walk_offense( $binding->{gates}, $one );
+			if ( $one->{named} ) {
+				$self->_tick( 'matched', $watcher_name, $rule_name );
+			}
+			if ( !$stands ) {
 				next;
 			}
-
-			$self->_tick( 'matched', $watcher_name, $rule_name );
 
 			# the EVE context for this match, shared by the found event and
 			# any banish it triggers... the binding is what the event says of
@@ -2505,102 +2529,44 @@ sub _process_record {
 				'watcher'   => $watcher_name,
 			};
 
-			# a ban_not_internal rule banishes the end of the flow that is
-			# not one of ours... the offender may be the src or the dest
-			# depending on where the alert fired. a detection rule banishes
-			# nobody, so it has no offenders, only detection_var subjects
-			my $not_internal = $is_detection ? 0 : $rule_obj->ban_not_internal;
-
-			# the subjects this result names, one record per var that captured
-			# something... a ban rule's ban_vars, less any end of the flow that
-			# is one of our own, or a detection rule's detection_vars. the var
-			# that held the value travels beside it, so every event this result
-			# raises can say which var named what and what each one is worth
-			# instead of promoting a single scalar that has to misdescribe the
-			# rest. the values are also who the var-less marks brand and the
-			# var-less gates key by
-			my @subjects;
-			foreach my $subject_var ( $is_detection ? $rule_obj->detection_var : $rule_obj->ban_var ) {
-				my $value = $one->{data}{$subject_var};
-				if ( !defined($value) || ( $is_detection && $value eq '' ) ) {
-					next;
-				}
-				if ( $not_internal && ip_ignored( $self->{internal}, $value ) ) {
-					# ip_ignored is a plain set membership test... here it is
-					# the internal set, so this IP is ours, not the offender
-					next;
-				}
-				push( @subjects, { 'var' => $subject_var, 'value' => $value } );
-			} ## end foreach my $subject_var ( $is_detection ? $rule_obj...)
-
-			# usedns... a ban_var value that is not a IP is a hostname the
-			# daemon logged, hostile input. under no it is dropped, under
-			# resolve_seen it becomes one record per address it resolves to,
-			# each still naming the var and the name it came from, and under
-			# resolve_ban it counts by name, resolving at the threshold over
-			# in _ban_ip
-			if ( !$is_detection && @subjects ) {
-				@subjects = $self->_usedns_subjects( $watcher_name, \@subjects );
-			}
-
-			# the values to count, deduped in first-named order... one line is
-			# one piece of evidence about a address, so two vars naming it, or
-			# two names resolving to it, walk it one step toward the threshold
-			# and not two. both vars then read the one bucket and report the
-			# one score
-			my @offenders = uniqstr( map { $_->{value} } @subjects );
+			# who the offense is left counting against, once the walk is
+			# done... the offenders are settled here when no gate had cause to,
+			# any hostname among them handled as the watcher's usedns has it,
+			# and each value kept once however many vars named it, as one line
+			# is one piece of evidence about a address. a detection rule
+			# banishes nobody, so it has subjects and no offenders
+			my @survivors = @{ App::Baphomet::Gate::settle_offenders($one) };
 
 			# what each var named, and what each is worth once counted... read
-			# by _eve_fields into subject_vars and subject_vars_scores. the
-			# score map is filled as the offenders are registered below, and
-			# the context holds it by reference, so a event built from a copy
-			# of this context still sees the whole of it
-			$context->{subjects}        = \@subjects;
+			# by _eve_fields into subject_vars and subject_vars_scores. the var
+			# that held a value travels beside it, so every event this result
+			# raises can say which var named what and what each one is worth
+			# instead of promoting a single scalar that has to misdescribe the
+			# rest. the score map is filled as the offenders are registered
+			# below, and the context holds it by reference, so a event built
+			# from a copy of this context still sees the whole of it
+			$context->{subjects}        = $one->{subjects} // [];
 			$context->{subject_scores}  = {};
 			$context->{subject_crossed} = {};
 
-			# resolve the result and brand, in the shared order, then settle who
-			# is counted, how, and whether the line is consumed
-			my $outcome;
+			# settle who is counted, how, and whether the line is consumed
 			my @to_count;
 			my $count_eve_only = $eve_only;
 			if ($is_detection) {
-				# detection-only... the data-keyed marks apply (there are no
-				# offenders to brand), each subject counts into the shadow
-				# buckets and never banishes. a subject crossing threshold
-				# raises a sighted, a match itself is a sighting. it consumes
-				# the line the same as any firing non-mark_only rule
-				$outcome  = $self->_resolve_offense( $rule_obj, $one->{data}, [], $now, undef );
-				@to_count = @offenders;
+				# detection-only... each subject counts into the shadow buckets
+				# and never banishes. a subject crossing threshold raises a
+				# sighted, a match itself is a sighting. it consumes the line
+				# the same as any firing non-mark_only rule
+				@to_count = uniqstr( map { $_->{value} } @{ $context->{subjects} } );
 				$consumed = 1;
 			} else {
-				# the gates of the offender pass vet each candidate... those keyed
-				# by the offender. a offender any gate vetoes is neither branded
-				# nor counted, and a result whose every offender is gated out did
-				# not fire: it brands nobody, emits nothing, and does not consume,
-				# falling through to the later rules... the legit crawler the
-				# reverse_dns gate cleared, say. a rule with no gate of the pass
-				# has nothing to ask, so every candidate survives
-				my $offender_gates = $binding->{gates}{offender};
-				my $offender_gate;
-				if ( @{$offender_gates} ) {
-					$offender_gate = sub {
-						my ($ip) = @_;
-						return all { $_->holds( $one->{data}, $ip, $now ) } @{$offender_gates};
-					};
-				}
-				$outcome = $self->_resolve_offense( $rule_obj, $one->{data}, \@offenders, $now, $offender_gate );
-				if ( !$outcome->{fired} ) {
-					next;
-				}
-
 				# only a survivor is counted, so only a survivor earns a score
 				# entry... a subject a gate vetoed keeps its place in
 				# subject_vars with nothing beside it in subject_vars_scores,
 				# which is that veto on the record. a mark_only rule only
 				# brands, counting nobody and not consuming
 				if ( !$mark_only ) {
-					@to_count = @{ $outcome->{survivors} };
+					@to_count = @survivors;
 					if ($demoted) {
 						# a later firing rule under overlap shadow... the line
 						# already counted for real through the winner, so this
@@ -2618,7 +2584,7 @@ sub _process_record {
 				} ## end if ( !$mark_only )
 			} ## end else [ if ($is_detection) ]
 
-			my ( $set, $lifted ) = ( $outcome->{set}, $outcome->{lifted} );
+			my ( $set, $lifted ) = ( $one->{set}, $one->{lifted} );
 			$context->{marks_set} = $set;
 			$context->{unmarked}  = $lifted;
 
@@ -2662,7 +2628,7 @@ sub _process_record {
 				}
 				$self->_eve_emit( $event, $self->_eve_fields( $context, $score, $set, $lifted ) );
 			} ## end if ( !$terminal && !( $track_only && !$track_only_eve...))
-		} ## end foreach my $one (@all_found)
+		} ## end foreach my $one ( @{$offenses} )
 
 		if ($consumed) {
 			if ( !defined($overlap) || $overlap eq 'first' ) {
@@ -3369,93 +3335,6 @@ sub _load_namtar_file {
 	return;
 } ## end sub _load_namtar_file
 
-# the mark machinery's pure core lives in App::Baphomet::Marks, over an
-# explicit store, so run_tests can drive it against a throwaway store and
-# a virtual clock... the galla passes its live store and layers on what is
-# not the store: the fleet gossip, the tablet, and the ignore pre-filter
-
-# the on_set callback the core calls per landed brand... undef with no bus
-sub _mark_publish_set {
-	my ($self) = @_;
-
-	if ( !$self->{mark_sync} ) {
-		return undef;
-	}
-	return sub {
-		my ( $name, $key, $value, $expires, $set ) = @_;
-		$self->{tablet}->mark_publish( 'set', $name, $key, $value, $expires, $set );
-		return;
-	};
-} ## end sub _mark_publish_set
-
-# resolves one found result to its surviving offenders and brands them,
-# through the shared App::Baphomet::Offense core so the galla and the rule
-# self-tester share the one gate-and-brand order. the per-offender gates
-# are the galla's live ones, injected as the predicate; the ignored are
-# never branded, and each set or lift is gossiped to the fleet
-sub _resolve_offense {
-	my ( $self, $rule_obj, $data, $offenders, $now, $gate ) = @_;
-
-	my $on_unset;
-	if ( $self->{mark_sync} ) {
-		$on_unset = sub {
-			my ( $name, $key ) = @_;
-			$self->{tablet}->mark_publish( 'unset', $name, $key, undef, undef );
-			return;
-		};
-	}
-
-	return App::Baphomet::Offense::resolve_offense(
-		'store'     => $self->{marks},
-		'marks'     => $rule_obj->marks,
-		'unmarks'   => $rule_obj->unmarks,
-		'data'      => $data,
-		'offenders' => $offenders,
-		'now'       => $now,
-		'gate'      => $gate,
-		'brandable' => sub { return !ip_ignored( $self->{ignore_ips}, $_[0] ); },
-		'on_set'    => $self->_mark_publish_set,
-		'on_unset'  => $on_unset,
-	);
-} ## end sub _resolve_offense
-
-# lifts a rule's tracked into fields onto one found result, the second of the
-# two track sweeps and the one that runs galla side. the rule's own tracked
-# clause already lifted into every offense it judged, so for the ordinary path
-# this finds nothing left to do; it exists for the offense that reached the
-# gates without being judged, a json completion being filtered on its
-# capture's gates rather than the rule's.
-#
-# takes the rule object, the found data hash ref (mutated in place), and the
-# current time. lifts only, never vetoes... the veto was the boolean's to
-# cast, and a record can not un-fire a rule that already fired. a lift never
-# overwrites a field the line itself carried, the same precedence the rule
-# side gives. returns nothing.
-sub _track_lift {
-	my ( $self, $rule_obj, $data, $now ) = @_;
-
-	foreach my $gate ( @{ $rule_obj->track_gates->{tracked} } ) {
-		if ( !defined( $gate->{into} ) ) {
-			next;
-		}
-		my $key = App::Baphomet::Tracks::track_key( $gate, $data );
-		if ( !defined($key) ) {
-			next;
-		}
-		my $record = App::Baphomet::Tracks::track_get( $self->{tracked}, $gate->{name}, $key, $now );
-		if ( !defined($record) ) {
-			next;
-		}
-		foreach my $field ( @{ $gate->{into} } ) {
-			if ( defined( $record->{$field} ) && !exists( $data->{$field} ) ) {
-				$data->{$field} = $record->{$field};
-			}
-		}
-	} ## end foreach my $gate ( @{ $rule_obj->track_gates->{...}})
-
-	return;
-} ## end sub _track_lift
-
 # the tracked records this found result rides, for the EVE event... per track
 # name the live record's fields and the key that found it. read live at emit
 # time rather than snapshotted, every emit happening inside the line's own
@@ -3463,9 +3342,9 @@ sub _track_lift {
 # sweeper's batched retry writes neither (see _ban_delivered), so the store can
 # not move between the match and the event.
 #
-# the sweep at the end of the rule precedes this, so vars shows the record
+# the rule's track gates harvested ahead of this, so vars shows the record
 # including this line's contribution... the reading a operator wants, at the
-# price of the boolean's tracked clause having decided on a state one line
+# price of a tracked gate above them having decided on a state one line
 # older than the event displays.
 #
 # takes the rule object, the found data hash ref, and the current time.

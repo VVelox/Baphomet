@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::ReverseDns;
+package App::Baphomet::Gate::reverse_dns;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -14,7 +14,7 @@ our @EXPORT_OK = qw( rdns_addr_eq );
 
 =head1 NAME
 
-App::Baphomet::Gate::ReverseDns - The reverse_dns gate, holding a client to what its address says it is.
+App::Baphomet::Gate::reverse_dns - The reverse_dns gate, holding a client to what its address says it is.
 
 =head1 VERSION
 
@@ -27,8 +27,9 @@ our $VERSION = '0.0.1';
 =head1 SYNOPSIS
 
     rule_gates:
-      - reverse_dns: { matches: '\.googlebot\.com$', negate: true }
       - reverse_dns: { var: PEER, matches_var: HELO }
+      - ban_var: [ SRC ]
+      - reverse_dns: { matches: '\.googlebot\.com$', negate: true }
 
 =head1 DESCRIPTION
 

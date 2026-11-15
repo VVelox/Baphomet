@@ -8,11 +8,13 @@ rev: 1
 msg: "[OPENHAB] web UI / REST API auth failure"
 severity: high
 classtype: unsuccessful-user
-status:
-  - 401
-match:
-  - field: request
-    regexp: '^[A-Z]+ '
+rule_gates:
+  - status:
+      - 401
+  - match:
+      - field: request
+        regexp: '^[A-Z]+ '
+  - ban_var: [ host ]
 tests:
   positive:
     - message: '175.18.15.10 -  -  [02/sept./2015:00:11:31 +0200] "GET /openhab.app HTTP/1.1" 401 1382'

@@ -26,21 +26,22 @@ rev: 1
 msg: "[SYSLOGD] log messages discarded by the rate limiter"
 severity: medium
 classtype: program-error
-daemons:
-  - //^(?:syslogd|rsyslogd|syslog-ng)$//
-mungers:
-  - syslog_daemon
-# no message_regexp... the munger's fields are the matcher
-gate:
-  - field: syslogd_lost
-    op: exists
-  - field: syslogd_lost
-    op: gt
-    value: 0
-detection_var:
-  - syslogd_module
 max_score: 1
 find_time: 3600
+rule_gates:
+  - daemons:
+      - //^(?:syslogd|rsyslogd|syslog-ng)$//
+  - mungers:
+      - syslog_daemon
+  # no message_regexp... the munger's fields are the matcher
+  - gate:
+      - field: syslogd_lost
+        op: exists
+      - field: syslogd_lost
+        op: gt
+        value: 0
+  - detection_var:
+      - syslogd_module
 tests:
   positive:
     - message: "Aug 13 04:51:00 fw01 rsyslogd[610]: imuxsock: 1234 messages lost due to rate-limiting"

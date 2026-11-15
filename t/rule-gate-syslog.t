@@ -41,17 +41,18 @@ my $b64_ok   = encode_base64( 'nothing to see',      '' );
 #
 write_rule( 'syslog/cmd', <<'EOR' );
 ---
-daemons:
-  - myapp
-message_regexp:
-  - 'ran command (?<CMD>\S+) as %%%%SRC%%%%'
-gate:
-  - field: CMD
-    op: contains
-    value: mimikatz
-    decode: [ base64 ]
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - myapp
+  - message_regexp:
+      - 'ran command (?<CMD>\S+) as %%%%SRC%%%%'
+  - gate:
+      - field: CMD
+        op: contains
+        value: mimikatz
+        decode: [ base64 ]
+  - ban_var:
+      - SRC
 EOR
 
 is( matches( 'syslog/cmd', 'bsd_syslog', "Jul 16 08:15:50 mail01 myapp[1]: ran command $b64_evil as 1.2.3.4" ),
@@ -66,19 +67,20 @@ is( matches( 'syslog/cmd', 'bsd_syslog', 'Jul 16 08:15:50 mail01 myapp[1]: some 
 #
 write_rule( 'syslog/msg', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'login from %%%%SRC%%%%'
-gate:
-  - field: MESSAGE
-    op: contains
-    value: "login from"
-  - field: SRC
-    op: cidr
-    value: 10.0.0.0/8
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'login from %%%%SRC%%%%'
+  - gate:
+      - field: MESSAGE
+        op: contains
+        value: "login from"
+      - field: SRC
+        op: cidr
+        value: 10.0.0.0/8
+  - ban_var:
+      - SRC
 EOR
 
 is( matches( 'syslog/msg', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: login from 10.1.2.3' ),
@@ -91,12 +93,13 @@ is( matches( 'syslog/msg', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: login 
 #
 write_rule( 'syslog/plain', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 EOR
 is( matches( 'syslog/plain', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: bad from 1.2.3.4' ),
 	1, 'a gateless syslog rule matches as before' );
@@ -106,15 +109,16 @@ is( matches( 'syslog/plain', 'bsd_syslog', 'Jul 16 08:15:50 mail01 sshd[1]: bad 
 #
 write_rule( 'raw/blob', <<'EOR' );
 ---
-message_regexp:
-  - 'blob=(?<BLOB>\S+) ip=%%%%SRC%%%%'
-gate:
-  - field: BLOB
-    op: contains
-    value: mimikatz
-    decode: [ base64 ]
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - 'blob=(?<BLOB>\S+) ip=%%%%SRC%%%%'
+  - gate:
+      - field: BLOB
+        op: contains
+        value: mimikatz
+        decode: [ base64 ]
+  - ban_var:
+      - SRC
 EOR
 is( matches( 'raw/blob', 'raw', "blob=$b64_evil ip=9.9.9.9" ), 1, 'raw gate: a base64 capture decodes and matches' );
 is( matches( 'raw/blob', 'raw', "blob=$b64_ok ip=9.9.9.9" ),   0, 'raw gate: a decoded capture that misses drops the offense' );
@@ -124,16 +128,17 @@ is( matches( 'raw/blob', 'raw', "blob=$b64_ok ip=9.9.9.9" ),   0, 'raw gate: a d
 #
 write_rule( 'syslog/sel', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'user=(?<USER>\S+) from %%%%SRC%%%%'
-selections:
-  admin:  [ { field: USER, op: eq, values: [ root, admin ] } ]
-  office: [ { field: SRC,  op: cidr, value: 10.0.0.0/8 } ]
-condition: "admin and not office"
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'user=(?<USER>\S+) from %%%%SRC%%%%'
+  - selections:
+      admin:  [ { field: USER, op: eq, values: [ root, admin ] } ]
+      office: [ { field: SRC,  op: cidr, value: 10.0.0.0/8 } ]
+  - condition: "admin and not office"
+  - ban_var:
+      - SRC
 EOR
 is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 mail01 sshd[1]: user=root from 8.8.8.8" ),
 	1, 'syslog selections: admin and not office holds' );
@@ -147,13 +152,14 @@ is( matches( 'syslog/sel', 'bsd_syslog', "Jul 16 08:15:50 mail01 sshd[1]: user=g
 #
 write_rule( 'raw/sel', <<'EOR' );
 ---
-message_regexp:
-  - 'act=(?<ACT>\w+) ip=%%%%SRC%%%%'
-selections:
-  bad: [ { field: ACT, op: eq, values: [ drop, deny ] } ]
-condition: "1 of them"
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - 'act=(?<ACT>\w+) ip=%%%%SRC%%%%'
+  - selections:
+      bad: [ { field: ACT, op: eq, values: [ drop, deny ] } ]
+  - condition: "1 of them"
+  - ban_var:
+      - SRC
 EOR
 is( matches( 'raw/sel', 'raw', 'act=drop ip=1.1.1.1' ),   1, 'raw selections: 1 of them matches' );
 is( matches( 'raw/sel', 'raw', 'act=accept ip=1.1.1.1' ), 0, 'raw selections: no selection true, no match' );

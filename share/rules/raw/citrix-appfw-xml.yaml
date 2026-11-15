@@ -19,16 +19,17 @@ rev: 1
 msg: "[CITRIX] AppFw XML attack violation"
 severity: high
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' APPFW APPFW_XML_(?:ATTACHMENT_\S+|ERR_(?!D?DOS)\S+|PACKET_PROCESSING_\S+|SQL|VALIDATION_\S+|VALIDATOR_LOAD_\S+|WSI_ERR_\S+|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - ' APPFW APPFW_XML_(?:ATTACHMENT_\S+|ERR_(?!D?DOS)\S+|PACKET_PROCESSING_\S+|SQL|VALIDATION_\S+|VALIDATOR_LOAD_\S+|WSI_ERR_\S+|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_SQL 95 0 :  192.0.2.18 1049-PPE0 - xmlfw_prof http://api.example.com/soap SQL Keyword check failed in XML payload <blocked>"

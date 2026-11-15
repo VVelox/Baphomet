@@ -19,19 +19,19 @@ rev: 2
 msg: "[SURICATA] escalation... scanned then exploited, per the standard brands"
 severity: critical
 classtype: misc-attack
-gate:
-  - field: event_type
-    values: [ alert ]
+weight: 10
+max_score: 10
 rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
   - sequence:
       marks: [ recon, exploit_attempt ]
       var: src_ip
-ban_var:
-  - src_ip
-  - dest_ip
-ban_not_internal: true
-weight: 10
-max_score: 10
+  - ban_var:
+      - src_ip
+      - dest_ip
+  - ban_not_internal: true
 tests:
   positive:
     # recon first, exploit_attempt after... the ordered pair the gate wants

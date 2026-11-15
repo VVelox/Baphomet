@@ -14,15 +14,16 @@ rev: 1
 msg: "[AUTHELIA] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^\s*(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*msg="Unsuccessful (?<METHOD>\S+) authentication attempt by user ''(?<USER>(?:[^\\'']|\\.)*)''[^"]*"\s+(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*remote_ip=%%%%SRC%%%%(?:\s|$)'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\s*(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*msg="Unsuccessful (?<METHOD>\S+) authentication attempt by user ''(?<USER>(?:[^\\'']|\\.)*)''[^"]*"\s+(?:(?!msg=|remote_ip=)\w+=(?:"(?:[^\\"]|\\.)*"|\S+)\s+)*remote_ip=%%%%SRC%%%%(?:\s|$)'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'time="2025-06-24T15:47:29+02:00" level=error msg="Unsuccessful 1FA authentication attempt by user ''example''" error="authentication failed. Cause: error occurred performing bind: LDAP Result Code 49 \"Invalid Credentials\": " method=POST path=/api/firstfactor remote_ip=192.0.2.4'

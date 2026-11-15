@@ -11,10 +11,11 @@ rev: 1
 msg: "[JUNIPER] IDP policy/system event"
 severity: info
 classtype: system-event
-detection_var:
-  - EVENT
-message_regexp:
-  - '(?<EVENT>IDP_(?:COMMIT_COMPLETED|POLICY_LOAD_SUCCEEDED|POLICY_UNLOAD_SUCCEEDED|SCHEDULED_UPDATE_STARTED|SECURITY_INSTALL_RESULT|IGNORED_IPV6_ADDRESSES)):'
+rule_gates:
+  - message_regexp:
+      - '(?<EVENT>IDP_(?:COMMIT_COMPLETED|POLICY_LOAD_SUCCEEDED|POLICY_UNLOAD_SUCCEEDED|SCHEDULED_UPDATE_STARTED|SECURITY_INSTALL_RESULT|IGNORED_IPV6_ADDRESSES)):'
+  - detection_var:
+      - EVENT
 tests:
   positive:
     - message: "Jul 12 05:00:00 srx01 idpd[1421]: IDP_COMMIT_COMPLETED: IDP policy commit is complete"

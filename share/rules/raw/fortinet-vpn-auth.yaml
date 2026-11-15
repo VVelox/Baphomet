@@ -18,35 +18,36 @@ severity: high
 classtype: brute-force
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-mark:
-  - name: brute_force
-    ttl: 21600
-mungers:
-  - fortinet
-selections:
-  ssl_vpn:
-    - field: fg_logid
-      op: re
-      value: '^\d*39426$'
-    - field: fg_type
-      op: eq
-      value: event
-  ppp_auth:
-    - field: fg_logid
-      op: re
-      value: '^\d*29003$'
-    - field: fg_type
-      op: eq
-      value: event
-    # quoted or bare in the ledger, the value is the same once decomposed
-    - field: fg_action
-      op: eq
-      value: auth_failed
-condition: "ssl_vpn or ppp_auth"
 src_ip_var: fg_offender_ip
 user_var: fg_user
-ban_var:
-  - fg_offender_ip
+rule_gates:
+  - mungers:
+      - fortinet
+  - selections:
+      ssl_vpn:
+        - field: fg_logid
+          op: re
+          value: '^\d*39426$'
+        - field: fg_type
+          op: eq
+          value: event
+      ppp_auth:
+        - field: fg_logid
+          op: re
+          value: '^\d*29003$'
+        - field: fg_type
+          op: eq
+          value: event
+        # quoted or bare in the ledger, the value is the same once decomposed
+        - field: fg_action
+          op: eq
+          value: auth_failed
+  - condition: "ssl_vpn or ppp_auth"
+  - ban_var:
+      - fg_offender_ip
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 12 03:12:44 fw01 date=2026-07-12 time=03:12:44 devname="FGT100F" devid="FG100FTK20012345" logid="0101039426" type="event" subtype="vpn" level="alert" vd="root" eventtime=1752307964000000000 tz="-0500" logdesc="SSL VPN login fail" action="ssl-login-fail" tunneltype="ssl-web" tunnelid=0 remip=198.51.100.23 user="jsmith" group="N/A" dst_host="N/A" reason="sslvpn_login_unknown_user" msg="SSL user failed to logged in"'

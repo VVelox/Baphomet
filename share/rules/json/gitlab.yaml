@@ -13,18 +13,19 @@ rev: 1
 msg: "[GITLAB] web portal login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-gate:
-  - field: message
-    values: [ "//^Failed Login: //" ]
-match:
-  - field: meta.remote_ip
-    regexp: '^%%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - gate:
+      - field: message
+        values: [ "//^Failed Login: //" ]
+  - match:
+      - field: meta.remote_ip
+        regexp: '^%%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: '{"severity":"INFO","time":"2023-08-25T11:25:19.979Z","correlation_id":"01H8P721YTW1YH5Q7YCSJPVJ5T","meta.caller_id":"SessionsController#new","meta.remote_ip":"192.0.2.11","meta.feature_category":"system_access","meta.client_id":"ip/192.0.2.11","message":"Failed Login: username=admin ip=192.0.2.11"}'

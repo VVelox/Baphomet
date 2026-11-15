@@ -6,17 +6,18 @@ rev: 2
 msg: "[SUHOSIN] script attack alert"
 severity: critical
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-daemons:
-  - lighttpd
-  - suhosin
-message_regexp:
-  - '^(?:\(mod_fastcgi\.c\.\d+\) FastCGI-stderr:\s)?ALERT - .*? \(attacker ''%%%%SRC%%%%'', file ''[^'']*''(?:, line \d+)?\)$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - lighttpd
+      - suhosin
+  - message_regexp:
+      - '^(?:\(mod_fastcgi\.c\.\d+\) FastCGI-stderr:\s)?ALERT - .*? \(attacker ''%%%%SRC%%%%'', file ''[^'']*''(?:, line \d+)?\)$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: "Mar 11 22:52:12   lighttpd[53690]: (mod_fastcgi.c.2676) FastCGI-stderr: ALERT - configured request variable name length limit exceeded - dropped variable 'upqchi07vFfAFuBjnIKGIwiLrHo3Vt68T3yqvhQu2TqetQ78roy7Q6bpTfDUtYFR593/MA' (attacker '198.51.100.167', file '/usr/local/captiveportal/index.php')"

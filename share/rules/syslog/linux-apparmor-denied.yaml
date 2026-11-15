@@ -36,14 +36,15 @@ rev: 1
 msg: "[APPARMOR] denial (kernel ring buffer)"
 severity: medium
 classtype: policy-violation
-daemons:
-  - kernel
-mungers:
-  - kernel
-message_regexp:
-  - '^(?:\[\s*\d+\.\d+\] +)?audit: type=\d+ audit\([\d.]+:\d+\): apparmor="DENIED" .*?\bprofile="(?<PROFILE>[^"]+)"'
-detection_var:
-  - PROFILE
+rule_gates:
+  - daemons:
+      - kernel
+  - mungers:
+      - kernel
+  - message_regexp:
+      - '^(?:\[\s*\d+\.\d+\] +)?audit: type=\d+ audit\([\d.]+:\d+\): apparmor="DENIED" .*?\bprofile="(?<PROFILE>[^"]+)"'
+  - detection_var:
+      - PROFILE
 tests:
   positive:
     # no printk prefix... the kernel munger matches and the enrichment rides along

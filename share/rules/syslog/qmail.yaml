@@ -8,16 +8,17 @@ rev: 1
 msg: "[QMAIL] rblsmtpd reject"
 severity: low
 classtype: misc-activity
-daemons:
-  - qmail
-  - rblsmtpd
-message_regexp:
-  - '^\d+\.\d+ rblsmtpd: %%%%SRC%%%% pid \d+ \S+ 4\d\d \S+\s*$'
-  - '^\d+\.\d+ qmail-smtpd: 4\d\d badiprbl: ip %%%%SRC%%%% rbl: \S+\s*$'
-  - '^\S+ blocked %%%%SRC%%%% \S+ -\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - qmail
+      - rblsmtpd
+  - message_regexp:
+      - '^\d+\.\d+ rblsmtpd: %%%%SRC%%%% pid \d+ \S+ 4\d\d \S+\s*$'
+      - '^\d+\.\d+ qmail-smtpd: 4\d\d badiprbl: ip %%%%SRC%%%% rbl: \S+\s*$'
+      - '^\S+ blocked %%%%SRC%%%% \S+ -\s*$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Sep  6 07:33:33 sd6 qmail: 1157520813.485077 rblsmtpd: 198.51.100.77 pid 19597 sbl-xbl.spamhaus.org: 451 http://www.spamhaus.org/query/bl?ip=198.51.100.77"

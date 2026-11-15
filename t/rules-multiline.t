@@ -31,16 +31,17 @@ sub raw_line {
 
 write_rule( 'raw/defer', <<'EOR' );
 ---
-capture_regexp:
-  - regexp: '^\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
-    key: KEY
-    ttl: 60
-message_regexp:
-  - regexp: '^\[conn(?<KEY>\d+)\] auth failed'
-    key: KEY
-    defer: 60
-ban_var:
-  - SRC
+rule_gates:
+  - capture_regexp:
+      - regexp: '^\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+        key: KEY
+        ttl: 60
+  - message_regexp:
+      - regexp: '^\[conn(?<KEY>\d+)\] auth failed'
+        key: KEY
+        defer: 60
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -98,15 +99,16 @@ ok( !defined($found), 'a swept pending does not complete' );
 
 write_rule( 'raw/lookup', <<'EOR' );
 ---
-capture_regexp:
-  - regexp: '^(?<QID>\w+): from someone relay \[%%%%SRC%%%%\]'
-    key: QID
-    ttl: 60
-message_regexp:
-  - regexp: '^(?<QID>\w+): user unknown'
-    key: QID
-ban_var:
-  - SRC
+rule_gates:
+  - capture_regexp:
+      - regexp: '^(?<QID>\w+): from someone relay \[%%%%SRC%%%%\]'
+        key: QID
+        ttl: 60
+  - message_regexp:
+      - regexp: '^(?<QID>\w+): user unknown'
+        key: QID
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -163,12 +165,13 @@ ok( !defined($found), 'context that expired while down is not restored' );
 # plain string entries still work alongside keyed ones
 write_rule( 'raw/mixed', <<'EOR' );
 ---
-message_regexp:
-  - 'plain bad thing from %%%%SRC%%%%'
-  - regexp: '^(?<QID>\w+): keyed bad thing'
-    key: QID
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - 'plain bad thing from %%%%SRC%%%%'
+      - regexp: '^(?<QID>\w+): keyed bad thing'
+        key: QID
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "plain bad thing from 192.0.2.60"
@@ -190,18 +193,19 @@ sub syslog_line {
 
 write_rule( 'syslog/session', <<'EOR' );
 ---
-daemons:
-  - sshd
-capture_regexp:
-  - regexp: '^Connection from %%%%SRC%%%% port \d+'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    ttl: 120
-message_regexp:
-  - regexp: '^Too many authentication failures'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 60
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - capture_regexp:
+      - regexp: '^Connection from %%%%SRC%%%% port \d+'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        ttl: 120
+  - message_regexp:
+      - regexp: '^Too many authentication failures'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 60
+  - ban_var:
+      - SRC
 tests:
   positive:
     # address first, the sshd shape
@@ -253,24 +257,25 @@ sub json_line {
 
 write_rule( 'json/conn', <<'EOR' );
 ---
-gate:
-  - field: c
-    values: [ ACCESS ]
-  - field: msg
-    values: [ "Authentication failed" ]
-key: [ ctx ]
-defer: 60
-capture:
+rule_gates:
+  - capture:
+      - gate:
+          - field: msg
+            values: [ "Connection ended" ]
+        match:
+          - field: attr.remote
+            regexp: '^%%%%SRC%%%%:\d+$'
+        key: [ ctx ]
+        ttl: 60
   - gate:
+      - field: c
+        values: [ ACCESS ]
       - field: msg
-        values: [ "Connection ended" ]
-    match:
-      - field: attr.remote
-        regexp: '^%%%%SRC%%%%:\d+$'
-    key: [ ctx ]
-    ttl: 60
-ban_var:
-  - SRC
+        values: [ "Authentication failed" ]
+  - key: [ ctx ]
+  - defer: 60
+  - ban_var:
+      - SRC
 tests:
   positive:
     # offense first, the mongod shape, resolved by the later capture
@@ -331,21 +336,22 @@ ok( !defined($found), 'a swept pending does not complete' );
 # a keyed rule with out defer... unresolved is not judged an offense
 write_rule( 'json/nodefer', <<'EOR' );
 ---
-gate:
-  - field: msg
-    values: [ "Authentication failed" ]
-key: [ ctx ]
-capture:
+rule_gates:
+  - capture:
+      - gate:
+          - field: msg
+            values: [ "Connection ended" ]
+        match:
+          - field: attr.remote
+            regexp: '^%%%%SRC%%%%:\d+$'
+        key: [ ctx ]
+        ttl: 60
   - gate:
       - field: msg
-        values: [ "Connection ended" ]
-    match:
-      - field: attr.remote
-        regexp: '^%%%%SRC%%%%:\d+$'
-    key: [ ctx ]
-    ttl: 60
-ban_var:
-  - SRC
+        values: [ "Authentication failed" ]
+  - key: [ ctx ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:

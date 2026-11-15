@@ -24,12 +24,13 @@ make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache', $dir . '/eve' )
 open( my $fh, '>', $dir . '/rules/json/suri.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-gate:
-  - field: event_type
-    values: [ alert ]
-ban_var:
-  - src_ip
 msg: "[SURICATA] test"
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+  - ban_var:
+      - src_ip
 EOR
 close($fh);
 

@@ -8,20 +8,21 @@ rev: 2
 msg: "[MONGODB] auth failure (legacy log)"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-capture_regexp:
-  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
-    key: KEY
-    ttl: 600
-message_regexp:
-  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
-    key: KEY
-    defer: 600
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - capture_regexp:
+      - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+        key: KEY
+        ttl: 600
+  - message_regexp:
+      - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
+        key: KEY
+        defer: 600
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - messages:

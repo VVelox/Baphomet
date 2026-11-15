@@ -14,14 +14,15 @@ rev: 2
 msg: "[NGINX] malformed bad request (400)"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-message_regexp:
-  - '^%%%%SRC%%%% - \S+ \[[^\]]*\] "[^"]*" 400\b'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^%%%%SRC%%%% - \S+ \[[^\]]*\] "[^"]*" 400\b'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     # empty request, dashed user

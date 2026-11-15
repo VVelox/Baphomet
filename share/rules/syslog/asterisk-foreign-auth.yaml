@@ -38,27 +38,27 @@ attack:
   - T1078
 references:
   - https://docs.asterisk.org/Configuration/Core-Configuration/Asterisk-Security-Events/
-daemons:
-  - asterisk
-message_regexp:
-  # the success... the same security-event format, one more name in the set
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="SuccessfulAuth"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
-  # and everything syslog/asterisk counts, verbatim
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
+src_ip_var: SRC
+max_score: 1
 rule_gates:
+  - daemons:
+      - asterisk
+  - message_regexp:
+      # the success... the same security-event format, one more name in the set
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="SuccessfulAuth"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
+      # and everything syslog/asterisk counts, verbatim
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # the SUCCESS from abroad, the reason this rule exists... toll fraud, and the

@@ -18,15 +18,16 @@ rev: 1
 msg: "[ROUTEROS] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \S+ )?system,error,critical login failure for user (?<USER>.*) from %%%%SRC%%%% via (?<SERVICE>\S+)$'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^(?:[A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \S+ )?system,error,critical login failure for user (?<USER>.*) from %%%%SRC%%%% via (?<SERVICE>\S+)$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Feb 15 11:25:46 gw.local system,error,critical login failure for user admin from 192.0.2.6 via web'

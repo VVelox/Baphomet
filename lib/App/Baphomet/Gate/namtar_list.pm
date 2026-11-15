@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::NamtarList;
+package App::Baphomet::Gate::namtar_list;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -11,7 +11,7 @@ use App::Baphomet::Namtar qw( namtar_slots namtar_listed );
 
 =head1 NAME
 
-App::Baphomet::Gate::NamtarList - The namtar_list gate, counting only what is already on a list.
+App::Baphomet::Gate::namtar_list - The namtar_list gate, counting only what is already on a list.
 
 =head1 VERSION
 
@@ -24,8 +24,9 @@ our $VERSION = '0.0.1';
 =head1 SYNOPSIS
 
     rule_gates:
-      - namtar_list: { list: threatfeed }
       - namtar_list: { lists: [ service_accounts, bait_accounts ], var: USER }
+      - ban_var: [ SRC ]
+      - namtar_list: { list: threatfeed }
 
 =head1 DESCRIPTION
 

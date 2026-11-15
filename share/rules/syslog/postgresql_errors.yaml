@@ -26,25 +26,26 @@ rev: 1
 msg: "[POSTGRESQL] database error"
 severity: low
 classtype: program-error
-daemons:
-  - //^postgres(?:ql)?(?:[-_]\w+)?$//
-mungers:
-  - postgresql
-# no message_regexp... the munger's fields are the matcher
-gate:
-  - field: pgsql_level
-    op: re
-    value: '^(?:ERROR|FATAL|PANIC)$'
-  # the brute force belongs to syslog/postgresql. The munger reads an auth
-  # failure into its own field rather than into pgsql_message, so requiring
-  # that field to be absent is the whole exclusion
-  - field: pgsql_auth_error
-    op: exists
-    negate: true
-detection_var:
-  - pgsql_message
 max_score: 10
 find_time: 600
+rule_gates:
+  - daemons:
+      - //^postgres(?:ql)?(?:[-_]\w+)?$//
+  - mungers:
+      - postgresql
+  # no message_regexp... the munger's fields are the matcher
+  - gate:
+      - field: pgsql_level
+        op: re
+        value: '^(?:ERROR|FATAL|PANIC)$'
+      # the brute force belongs to syslog/postgresql. The munger reads an auth
+      # failure into its own field rather than into pgsql_message, so requiring
+      # that field to be absent is the whole exclusion
+      - field: pgsql_auth_error
+        op: exists
+        negate: true
+  - detection_var:
+      - pgsql_message
 tests:
   positive:
     - message: "Aug 13 09:17:35 db01 postgres[96509]: [6-1] 2026-08-13 09:17:35.222 CDT [96509] ERROR:  relation \"deployment_versions\" does not exist at character 24"

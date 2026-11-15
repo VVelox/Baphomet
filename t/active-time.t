@@ -20,7 +20,7 @@ BEGIN {
 }
 
 use App::Baphomet::Galla ();
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule ();
 use App::Baphomet::Config qw( kur_split resolve_active_time );
 use App::Baphomet::Gate qw( bind_rule_gates );
 
@@ -58,10 +58,10 @@ ok( !defined( $watchers->{active_time} ), '...and not a watcher' );
 # rule def validation of the active_time gate
 #
 
-my $base = {
-	gate    => [ { field => 'event', values => ['fail'] } ],
-	ban_var => ['ip'],
-};
+# what every rule here has around its active_time gate... the gate that judges
+# the record ahead of it, and the ban_var naming the offender behind it
+my $match_gate = { gate    => [ { field => 'event', values => ['fail'] } ] };
+my $ban_gate   = { ban_var => ['ip'] };
 my %bad = (
 	'both is and isnot'    => { is => ['business'], isnot => ['off'] },
 	'neither is nor isnot' => { vars => ['ts'] },
@@ -71,19 +71,19 @@ my %bad = (
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
 	eval {
-		App::Baphomet::Rules::JSON->new(
+		App::Baphomet::Rule->new(
 			name => 'json/x',
-			def  => { %{$base}, rule_gates => [ { active_time => $bad{$desc} } ] }
+			def  => { rule_gates => [ $match_gate, { active_time => $bad{$desc} }, $ban_gate ] }
 		);
 	};
 	like( $@, qr/^The active_time gate of the rule "json\/x"/, 'a active_time gate with ' . $desc . ' refuses to load' );
 }
 
-my $rule = App::Baphomet::Rules::JSON->new(
+my $rule = App::Baphomet::Rule->new(
 	name => 'json/x',
-	def  => { %{$base}, rule_gates => [ { active_time => { is => 'business', vars => 'ts' } } ] }
+	def  => { rule_gates => [ $match_gate, { active_time => { is => 'business', vars => 'ts' } }, $ban_gate ] }
 );
-my ($compiled) = @{ $rule->rule_gates };
+my ($compiled) = grep { $_->{type} eq 'active_time' } @{ $rule->rule_gates };
 is( $compiled->{mode}, 'is', 'the compiled gate has the mode' );
 is_deeply( $compiled->{windows}, ['business'], 'a scalar is normalizes to a list' );
 is_deeply( $compiled->{vars},    ['ts'],       'a scalar vars normalizes to a list' );
@@ -101,11 +101,13 @@ my %WIN = (
 # the active_time gate of a rule told the passed, bound over the windows above
 sub bound_gate {
 	my ($active) = @_;
-	my $gated = App::Baphomet::Rules::JSON->new(
+	my $gated = App::Baphomet::Rule->new(
 		name => 'json/a',
-		def  => { %{$base}, rule_gates => [ { active_time => $active } ] }
+		def  => { rule_gates => [ $match_gate, { active_time => $active }, $ban_gate ] }
 	);
-	return bind_rule_gates( $gated->rule_gates, { active_time => \%WIN }, 'w' )->{result}[0];
+	my $bound = bind_rule_gates( $gated->rule_gates, { active_time => \%WIN }, 'w' );
+	my ($gate) = grep { $_->{type} eq 'active_time' } @{ $bound->{offense} };
+	return $gate;
 }
 
 my $is_biz = bound_gate( { is => ['business'] } );
@@ -155,14 +157,14 @@ like( $@, qr/nope.*not a defined window/, 'referencing a undefined window dies' 
 open( my $rf, '>', $dir . '/rules/json/timed.yaml' ) || die($!);
 print $rf <<'EOR';
 ---
-gate:
-  - field: event
-    values: [ fail ]
-ban_var:
-  - ip
-rule_gates:
-  - active_time: { is: [ business ], vars: [ ts ] }
 max_score: 1
+rule_gates:
+  - gate:
+      - field: event
+        values: [ fail ]
+  - active_time: { is: [ business ], vars: [ ts ] }
+  - ban_var:
+      - ip
 EOR
 close($rf);
 

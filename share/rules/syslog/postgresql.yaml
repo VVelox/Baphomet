@@ -16,39 +16,40 @@ rev: 5
 msg: "[POSTGRESQL] password authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  # syslog_ident is a postgresql.conf setting, defaulting to `postgres` but
-  # routinely set per cluster... so a regexp rather than the bare default, which
-  # would have missed `postgresql` and `postgres-16` in silence
-  - //^postgres(?:ql)?(?:[-_]\w+)?$//
-mungers:
-  - postgresql
-message_regexp:
-  # The account name is whatever the client sent, spaces and all, and it is
-  # on the line up to twice... in the prefix when log_line_prefix holds %u,
-  # and always in the quoted tail. A name such as `x host=203.0.113.222 y`
-  # therefore plants a second host=, and one holding the failure text itself
-  # plants a second copy of that. Nothing in the line says which copy
-  # PostgreSQL wrote, so the two leading lookaheads refuse to guess: a line
-  # with two host= is not taken by the host= pattern, and a line holding the
-  # failure text twice is taken by neither. A doubled host= still falls to the
-  # second pattern, which lands on the address sitting directly ahead of the
-  # one real FATAL. A doubled failure text matches nothing at all, which is
-  # the safe way to fail... no account has such a name, so nothing guessable
-  # is being let through.
-  #
-  # What this can not cover is a log_line_prefix ending in %u or %d, such as
-  # `%h %u `, as a account NAMED for a address then sits directly ahead of
-  # FATAL where the client address is expected. Keep %h the last field.
-  - '^(?!.*\bhost=.*\bhost=)(?!.*password authentication failed for user.*password authentication failed for user).*?\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
-  - '^(?!.*password authentication failed for user.*password authentication failed for user).*?\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
 src_ip_var: SRC
 user_var: pgsql_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      # syslog_ident is a postgresql.conf setting, defaulting to `postgres` but
+      # routinely set per cluster... so a regexp rather than the bare default, which
+      # would have missed `postgresql` and `postgres-16` in silence
+      - //^postgres(?:ql)?(?:[-_]\w+)?$//
+  - mungers:
+      - postgresql
+  - message_regexp:
+      # The account name is whatever the client sent, spaces and all, and it is
+      # on the line up to twice... in the prefix when log_line_prefix holds %u,
+      # and always in the quoted tail. A name such as `x host=203.0.113.222 y`
+      # therefore plants a second host=, and one holding the failure text itself
+      # plants a second copy of that. Nothing in the line says which copy
+      # PostgreSQL wrote, so the two leading lookaheads refuse to guess: a line
+      # with two host= is not taken by the host= pattern, and a line holding the
+      # failure text twice is taken by neither. A doubled host= still falls to the
+      # second pattern, which lands on the address sitting directly ahead of the
+      # one real FATAL. A doubled failure text matches nothing at all, which is
+      # the safe way to fail... no account has such a name, so nothing guessable
+      # is being let through.
+      #
+      # What this can not cover is a log_line_prefix ending in %u or %d, such as
+      # `%h %u `, as a account NAMED for a address then sits directly ahead of
+      # FATAL where the client address is expected. Keep %h the last field.
+      - '^(?!.*\bhost=.*\bhost=)(?!.*password authentication failed for user.*password authentication failed for user).*?\bhost=%%%%SRC%%%%\b.*\bpassword authentication failed for user'
+      - '^(?!.*password authentication failed for user.*password authentication failed for user).*?\b%%%%SRC%%%% (?:FATAL|LOG):\s+password authentication failed for user'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 14 08:15:50 dbhost postgres[12345]: 2026-07-14 08:15:50.123 UTC [12345] bob@maindb 203.0.113.10 FATAL:  password authentication failed for user "bob"'

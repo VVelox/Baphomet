@@ -1,6 +1,6 @@
 #!perl
 # direct unit tests for App::Baphomet::Namtar and
-# App::Baphomet::Gate::NamtarList, the namtar lists' core and the gate that
+# App::Baphomet::Gate::namtar_list, the namtar lists' core and the gate that
 # judges by them... sets compiled from lines here stand in for the files the
 # galla reads, so the fail-closed rules are pinned with no file and no galla
 use 5.006;
@@ -9,7 +9,7 @@ use warnings;
 use Test::More;
 
 use App::Baphomet::Namtar           qw( namtar_slots namtar_set namtar_listed );
-use App::Baphomet::Gate::NamtarList ();
+use App::Baphomet::Gate::namtar_list ();
 
 my %lists = (
 	'bad'       => { 'type' => 'cidr',   'nocase' => 0, 'paths' => [ '/feeds/bad-a', '/feeds/bad-b' ] },
@@ -90,11 +90,11 @@ ok( !namtar_listed( \%files, [$bad_a_slot], 'not-a-address' ), 'a value that is 
 sub namtar_gate {
 	my ($args) = @_;
 
-	my $gate = App::Baphomet::Gate::NamtarList->new( 'type' => 'namtar_list', 'args' => $args, 'where' => 'the gate' );
+	my $gate = App::Baphomet::Gate::namtar_list->new( 'type' => 'namtar_list', 'args' => $args, 'where' => 'the gate' );
 	return $gate->bound( { 'namtar_lists' => \%lists, 'namtar_files' => \%files }, 'the rule "x"' );
 }
 
-my $compiled = App::Baphomet::Gate::NamtarList->new(
+my $compiled = App::Baphomet::Gate::namtar_list->new(
 	'type'  => 'namtar_list',
 	'args'  => { 'list' => 'users', 'var' => 'user' },
 	'where' => 'the gate'
@@ -105,7 +105,7 @@ is_deeply( [ $compiled->needs ], [ 'namtar_lists', 'namtar_files' ], 'it needs t
 
 ok(
 	!eval {
-		App::Baphomet::Gate::NamtarList->new(
+		App::Baphomet::Gate::namtar_list->new(
 			'type'  => 'namtar_list',
 			'args'  => { 'list' => 'bad', 'lists' => ['tor'] },
 			'where' => 'the gate'

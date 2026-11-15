@@ -31,22 +31,23 @@ rev: 1
 msg: "[AUDITD] AppArmor denial"
 severity: medium
 classtype: policy-violation
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  # the ordinary form... apparmor= is the first key of the tail, so everything
-  # else, profile= included, follows it
-  - '^type=(?:AVC|APPARMOR_\w+) msg=audit\([\d.]+:\d+\): apparmor="DENIED" .*?\bprofile="(?<PROFILE>[^"]+)"'
-  # the dbus form... nested blob, keyed by the caller's label. \b before label
-  # cannot match inside peer_label= (the underscore is a word character), so a
-  # peer never stands in for the confined side.
-  - '^type=USER_AVC msg=audit\([\d.]+:\d+\): .*\bmsg=''apparmor="DENIED" .*?\blabel="(?<PROFILE>[^"]+)"'
 src_ip_var: audit_msg_addr
-detection_var:
-  - PROFILE
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      # the ordinary form... apparmor= is the first key of the tail, so everything
+      # else, profile= included, follows it
+      - '^type=(?:AVC|APPARMOR_\w+) msg=audit\([\d.]+:\d+\): apparmor="DENIED" .*?\bprofile="(?<PROFILE>[^"]+)"'
+      # the dbus form... nested blob, keyed by the caller's label. \b before label
+      # cannot match inside peer_label= (the underscore is a word character), so a
+      # peer never stands in for the confined side.
+      - '^type=USER_AVC msg=audit\([\d.]+:\d+\): .*\bmsg=''apparmor="DENIED" .*?\blabel="(?<PROFILE>[^"]+)"'
+  - detection_var:
+      - PROFILE
 tests:
   positive:
     # a file denial under the old type=AVC filing

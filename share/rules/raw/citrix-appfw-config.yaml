@@ -18,10 +18,11 @@ severity: medium
 classtype: configuration-change
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' GMT (?<HOST>\S+) \d+-PPE-\d+ : default APPFW AF_(?:ADD_(?:CFFIELD|FIELDTYPE|PROFILE)|BIND_(?:XML_)?TO_PROFILE|RM_(?:CFFIELD|FIELDTYPE|PROFILE)) \d+ \d+ :'
-detection_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - ' GMT (?<HOST>\S+) \d+-PPE-\d+ : default APPFW AF_(?:ADD_(?:CFFIELD|FIELDTYPE|PROFILE)|BIND_(?:XML_)?TO_PROFILE|RM_(?:CFFIELD|FIELDTYPE|PROFILE)) \d+ \d+ :'
+  - detection_var:
+      - HOST
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW AF_ADD_PROFILE 1638 0 :  Profile: webfw_prof added"

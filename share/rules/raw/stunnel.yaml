@@ -9,14 +9,15 @@ rev: 2
 msg: "[STUNNEL] SSL handshake failure"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-message_regexp:
-  - '^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} LOG\d\[\d+:\d+\]: SSL_accept from %%%%SRC%%%%:\d+ : [\dA-F]+: error:[\dA-F]+:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} LOG\d\[\d+:\d+\]: SSL_accept from %%%%SRC%%%%:\d+ : [\dA-F]+: error:[\dA-F]+:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "2011.11.21 14:29:16 LOG3[28228:140093368055552]: SSL_accept from 10.7.41.61:33454 : 140890C7: error:140890C7:SSL routines:SSL3_GET_CLIENT_CERTIFICATE:peer did not return a certificate"

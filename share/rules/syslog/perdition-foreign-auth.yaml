@@ -16,25 +16,25 @@ rev: 1
 msg: "[PERDITION] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - '//^perdition\.//'
-message_regexp:
-  # the success... the same Auth: line, status="ok"
-  - '^Auth: %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+ .*authentication_id="(?<USER>[^"]*)".* status="ok"$'
-  # and everything syslog/perdition counts, verbatim
-  - '^Auth: %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+ client-secure=\S+ authorisation_id=NONE authentication_id=".+" server="\S+" protocol=\S+ server-secure=\S+ status="failed: (?:local authentication failure|Re-Authentication Failure)"$'
-  - '^Fatal Error reading authentication information from client %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+: Exiting child$'
+src_ip_var: SRC
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - '//^perdition\.//'
+  - message_regexp:
+      # the success... the same Auth: line, status="ok"
+      - '^Auth: %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+ .*authentication_id="(?<USER>[^"]*)".* status="ok"$'
+      # and everything syslog/perdition counts, verbatim
+      - '^Auth: %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+ client-secure=\S+ authorisation_id=NONE authentication_id=".+" server="\S+" protocol=\S+ server-secure=\S+ status="failed: (?:local authentication failure|Re-Authentication Failure)"$'
+      - '^Fatal Error reading authentication information from client %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+: Exiting child$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: USER
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

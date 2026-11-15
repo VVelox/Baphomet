@@ -6,47 +6,48 @@ rev: 6
 msg: "[DOVECOT] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - dovecot
-  - dovecot-auth
-  - //^dovecot//
-  - //^auth(?:-worker)?\b//
-mungers:
-  - dovecot
-message_regexp:
-  # The account name reaches the address. user=<...> is bounded by ">", so an
-  # account holding one closes the field early and whatever follows in the
-  # name is read as further fields... an account of
-  # "a>, rip=8.8.8.8, lip=9.9.9.9" plants a whole rip/lip pair ahead of the
-  # real one, so neither lazy matching nor a lip= anchor can tell them apart.
-  # Nothing dovecot writes after the real pair comes from the client, so the
-  # wildcard is greedy and the last rip= is the one taken.
-  #
-  # The field run after "):" is a wildcard rather than a spelled-out
-  # user=/method= sequence so that a corrupted name costs the match nothing:
-  # spelled out, a planted field broke the sequence and the line stopped
-  # matching at all, which let the attacker go uncounted instead of merely
-  # misaimed. Greedy steps over the forgery and still finds the real pair.
-  #
-  # pam(), sql() and the other passdb drivers name the account and then the
-  # address, comma separated, and an account may hold a comma... "x,8.8.8.8"
-  # plants an address ahead of the real one. Greedy takes the last there too.
-  - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?:.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
-  - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
-  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
-  - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
-  # auth-worker naming the account and address in its own prefix, with the
-  # driver after... "auth-worker(user,ip)<pid><session>: request [N]: pam:" and
-  # the Dovecot 2.4 "auth(user,ip,mech)<session>: Info: sql:"
-  - '^(?:dovecot: )?auth(?:-worker)?\(\S*,%%%%SRC%%%%(?:,\S*)?\)(?:<[^>]+>){0,2}: (?:request \[\d+\]: )?(?:Info: )?(?:[a-z\-]+: )?(?:\w+_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)|[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
 src_ip_var: SRC
 dest_ip_var: dovecot_lip
 user_var: dovecot_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - dovecot
+      - dovecot-auth
+      - //^dovecot//
+      - //^auth(?:-worker)?\b//
+  - mungers:
+      - dovecot
+  - message_regexp:
+      # The account name reaches the address. user=<...> is bounded by ">", so an
+      # account holding one closes the field early and whatever follows in the
+      # name is read as further fields... an account of
+      # "a>, rip=8.8.8.8, lip=9.9.9.9" plants a whole rip/lip pair ahead of the
+      # real one, so neither lazy matching nor a lip= anchor can tell them apart.
+      # Nothing dovecot writes after the real pair comes from the client, so the
+      # wildcard is greedy and the last rip= is the one taken.
+      #
+      # The field run after "):" is a wildcard rather than a spelled-out
+      # user=/method= sequence so that a corrupted name costs the match nothing:
+      # spelled out, a planted field broke the sequence and the line stopped
+      # matching at all, which let the attacker go uncounted instead of merely
+      # misaimed. Greedy steps over the forgery and still finds the real pair.
+      #
+      # pam(), sql() and the other passdb drivers name the account and then the
+      # address, comma separated, and an account may hold a comma... "x,8.8.8.8"
+      # plants an address ahead of the real one. Greedy takes the last there too.
+      - '^(?:pop3|imap|managesieve|submission)-login: (?:Info: )?(?:Login aborted|Aborted login|Disconnected|Remote closed connection|Client has quit the connection).*?\((?:auth failed, \d+ attempts(?: in \d+ secs)?|tried to use dis(?:abled|allowed) \S+ auth|proxy dest auth failed)\)(?: \([a-z_]+\))?:.* rip=%%%%SRC%%%%(?:, lip=|\s*$)'
+      - '^(?:pam_[a-z0-9_]+(?:\(dovecot:auth\))?: )?authentication failure; logname=\S* uid=\S* euid=\S* tty=dovecot ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
+      - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?pam\(\S*,%%%%SRC%%%%(?:,\S*)?\): pam_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)'
+      - '^(?:dovecot: )?(?:auth(?:-worker)?(?:\([^\)]*\))?: )?(?:Info: )?(?:conn \S+:auth(?:-worker)? \([^\)]+\): auth(?:-worker)?<\d+>: )?[a-z\-]{3,15}\(\S*,%%%%SRC%%%%(?:,\S*)?\): (?:[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+      # auth-worker naming the account and address in its own prefix, with the
+      # driver after... "auth-worker(user,ip)<pid><session>: request [N]: pam:" and
+      # the Dovecot 2.4 "auth(user,ip,mech)<session>: Info: sql:"
+      - '^(?:dovecot: )?auth(?:-worker)?\(\S*,%%%%SRC%%%%(?:,\S*)?\)(?:<[^>]+>){0,2}: (?:request \[\d+\]: )?(?:Info: )?(?:[a-z\-]+: )?(?:\w+_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)|[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Dec 12 11:19:11 dunnart dovecot: pop3-login: Aborted login (tried to use disabled plaintext auth): rip=190.210.136.21, lip=113.212.99.193"

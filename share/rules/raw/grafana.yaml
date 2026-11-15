@@ -7,14 +7,15 @@ rev: 3
 msg: "[GRAFANA] invalid login attempt"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^t=%%%%TIMESTAMP_ISO8601%%%%(?: lvl=err?or)? msg="Invalid username or password"(?: \S+=(?:\S*|"[^"]*"))* remote_addr=%%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^t=%%%%TIMESTAMP_ISO8601%%%%(?: lvl=err?or)? msg="Invalid username or password"(?: \S+=(?:\S*|"[^"]*"))* remote_addr=%%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 't=2020-10-19T17:44:33+0200 lvl=eror msg="Invalid username or password" logger=context userId=0 orgId=0 uname= error="Invalid Username or Password" remote_addr=182.56.23.12'

@@ -18,48 +18,49 @@ severity: low
 classtype: suspicious-traffic
 references:
   - http://www.huaweisymantec.com/en/download.do?id=658891
-mungers:
-  - huawei
-# Four events, two subjects. The ARP duplicate and the VRRP authentication
-# failure are about an address, the DHCP client notices about an interface, so
-# both are named below and each event counts by whichever it carries. The
-# munger collapses the interface the same way it collapses the address... an
-# InterfaceName= pair where there is one, the one named in the sentence where
-# there is not.
-selections:
-  arp_dup:
-    - field: hw_module
-      op: eq
-      value: ARP
-    - field: hw_mnemonic
-      op: startswith
-      value: ARP_DUPLICATE_IPADDR
-  dhcp_nak:
-    - field: hw_module
-      op: eq
-      value: DHCPC
-    - field: hw_mnemonic
-      op: startswith
-      value: DHCPC_LOG_NAK
-  dhcp_acquired:
-    - field: hw_module
-      op: eq
-      value: DHCPC
-    - field: hw_mnemonic
-      op: startswith
-      value: DHCPC_LOG_REQIP_SUCCESS
-  vrrp_auth:
-    - field: hw_module
-      op: eq
-      value: VRRP
-    - field: hw_mnemonic
-      op: startswith
-      value: LogAuthFailed
-condition: "arp_dup or dhcp_nak or dhcp_acquired or vrrp_auth"
 src_ip_var: hw_offender_ip
-detection_var:
-  - hw_offender_ip
-  - hw_iface
+rule_gates:
+  - mungers:
+      - huawei
+  # Four events, two subjects. The ARP duplicate and the VRRP authentication
+  # failure are about an address, the DHCP client notices about an interface, so
+  # both are named below and each event counts by whichever it carries. The
+  # munger collapses the interface the same way it collapses the address... an
+  # InterfaceName= pair where there is one, the one named in the sentence where
+  # there is not.
+  - selections:
+      arp_dup:
+        - field: hw_module
+          op: eq
+          value: ARP
+        - field: hw_mnemonic
+          op: startswith
+          value: ARP_DUPLICATE_IPADDR
+      dhcp_nak:
+        - field: hw_module
+          op: eq
+          value: DHCPC
+        - field: hw_mnemonic
+          op: startswith
+          value: DHCPC_LOG_NAK
+      dhcp_acquired:
+        - field: hw_module
+          op: eq
+          value: DHCPC
+        - field: hw_mnemonic
+          op: startswith
+          value: DHCPC_LOG_REQIP_SUCCESS
+      vrrp_auth:
+        - field: hw_module
+          op: eq
+          value: VRRP
+        - field: hw_mnemonic
+          op: startswith
+          value: LogAuthFailed
+  - condition: "arp_dup or dhcp_nak or dhcp_acquired or vrrp_auth"
+  - detection_var:
+      - hw_offender_ip
+      - hw_iface
 tests:
   positive:
     - message: 'Jul 12 08:15:50 sw01 %%01ARP/4/ARP_DUPLICATE_IPADDR(l): Received an ARP packet with a duplicate IP address. (IpAddress=192.168.1.10, InterfaceName=GigabitEthernet0/0/1, MacAddress=00e0-fc12-3456)'

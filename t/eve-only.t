@@ -23,12 +23,13 @@ make_path( $dir . '/rules/syslog', $dir . '/run', $dir . '/cache' );
 open( my $fh, '>', $dir . '/rules/syslog/hit.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -41,13 +42,14 @@ close($fh);
 open( $fh, '>', $dir . '/rules/syslog/hit-real.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
 eve_only: false
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"

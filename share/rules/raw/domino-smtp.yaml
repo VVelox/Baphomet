@@ -10,15 +10,16 @@ rev: 2
 msg: "[DOMINO] SMTP auth failure / policy reject"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(?:\[[^\]]+\]\s*)?SMTP Server(?::|\s+\[[^\]]+\]) Authentication failed for user .*? ; connecting host \[?%%%%HOST%%%%\]?$'
-  - '^(?:\[[^\]]+\]\s*)?(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+smtp: (?:[^\[]+ )*\[?%%%%HOST%%%%\]? authentication failure using internet password\s*$'
-  - '^(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(?:\[[^\]]+\]\s*)?SMTP Server(?::|\s+\[[^\]]+\]) Connection from \[?%%%%HOST%%%%\]? rejected for policy reasons\.'
-ban_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - '^(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(?:\[[^\]]+\]\s*)?SMTP Server(?::|\s+\[[^\]]+\]) Authentication failed for user .*? ; connecting host \[?%%%%HOST%%%%\]?$'
+      - '^(?:\[[^\]]+\]\s*)?(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+smtp: (?:[^\[]+ )*\[?%%%%HOST%%%%\]? authentication failure using internet password\s*$'
+      - '^(?:\d{2}-\d{2}-\d{4}|\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(?:\[[^\]]+\]\s*)?SMTP Server(?::|\s+\[[^\]]+\]) Connection from \[?%%%%HOST%%%%\]? rejected for policy reasons\.'
+  - ban_var:
+      - HOST
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "03-07-2005 23:07:20   SMTP Server: Authentication failed for user postmaster ; connecting host 1.2.3.4"

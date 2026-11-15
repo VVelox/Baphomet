@@ -18,19 +18,20 @@ severity: medium
 classtype: suspicious-traffic
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-mungers:
-  - sonicwall
-# The event is named by msg=, read here off the decomposed value.
-gate:
-  - field: sw_msg
-    op: re
-    value: '^(?:Anti-Spyware (?:Detection|Prevention) Alert|Application Filters? (?:Detection|Block) Alert)'
 src_ip_var: sw_offender_ip
 dest_ip_var: sw_dst_ip
 src_port_var: sw_src_port
 dest_port_var: sw_dst_port
-detection_var:
-  - sw_offender_ip
+rule_gates:
+  - mungers:
+      - sonicwall
+  # The event is named by msg=, read here off the decomposed value.
+  - gate:
+      - field: sw_msg
+        op: re
+        value: '^(?:Anti-Spyware (?:Detection|Prevention) Alert|Application Filters? (?:Detection|Block) Alert)'
+  - detection_var:
+      - sw_offender_ip
 tests:
   positive:
     - message: 'Jul 12 09:12:04 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 09:12:04 UTC" fw=203.0.113.1 pri=1 c=32 m=794 msg="Anti-Spyware Prevention Alert: ADWARE Gator (Threat Level - High)" sid=280 n=12 src=192.0.2.55:49233:X0 dst=203.0.113.80:80:X1'

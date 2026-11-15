@@ -11,15 +11,16 @@ rev: 1
 msg: "[AUDITD] SELinux AVC denial"
 severity: medium
 classtype: policy-violation
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=(?:AVC|USER_AVC) msg=audit\([\d.]+:\d+\): avc: +denied +\{[^}]*\} +for +.*\bcomm="(?<COMM>[^"]+)"'
-detection_var:
-  - COMM
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=(?:AVC|USER_AVC) msg=audit\([\d.]+:\d+\): avc: +denied +\{[^}]*\} +for +.*\bcomm="(?<COMM>[^"]+)"'
+  - detection_var:
+      - COMM
 tests:
   positive:
     - message: "Nov 14 12:00:00 mail01 audisp-syslog[3000]: type=AVC msg=audit(1700000300.1:700): avc:  denied  { read write } for  pid=3000 comm=\"nginx\" name=\"shadow\" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file"

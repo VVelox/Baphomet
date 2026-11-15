@@ -15,16 +15,17 @@ severity: medium
 classtype: network-scan
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-mark:
-  - name: recon
-    ttl: 86400
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-419001: Dropping TCP packet from [^:]+:%%%%SRC%%%%/\d+ to [^,]+, reason:'
-  - '%(?:ASA|PIX|FWSM)-\d-500003: Bad TCP hdr length \([^)]*\) from %%%%SRC%%%%/\d+'
-  - '%(?:ASA|PIX|FWSM)-\d-418001: Through-the-device packet to/from management-only network is denied: \S+ src [^:]+:%%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-419001: Dropping TCP packet from [^:]+:%%%%SRC%%%%/\d+ to [^,]+, reason:'
+      - '%(?:ASA|PIX|FWSM)-\d-500003: Bad TCP hdr length \([^)]*\) from %%%%SRC%%%%/\d+'
+      - '%(?:ASA|PIX|FWSM)-\d-418001: Through-the-device packet to/from management-only network is denied: \S+ src [^:]+:%%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %ASA-4-419001: Dropping TCP packet from outside:192.0.2.5/51294 to inside:10.1.1.20/80, reason: MSS exceeded, MSS 536, data 1460'

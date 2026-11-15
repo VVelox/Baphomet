@@ -7,18 +7,19 @@ rev: 2
 msg: "[MURMUR] rejected connection"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - murmurd
-  - mumble-server
-message_regexp:
-  - '^(?:<W>[\d\-]+ [\d:]+\.\d+ )?\d+ => <\d+:[^>]+\(-1\)> Rejected connection from %%%%SRC%%%%:\d+: Invalid server password$'
-  - '^(?:<W>[\d\-]+ [\d:]+\.\d+ )?\d+ => <\d+:[^>]+\(-1\)> Rejected connection from %%%%SRC%%%%:\d+: Wrong certificate or password for existing user$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - murmurd
+      - mumble-server
+  - message_regexp:
+      - '^(?:<W>[\d\-]+ [\d:]+\.\d+ )?\d+ => <\d+:[^>]+\(-1\)> Rejected connection from %%%%SRC%%%%:\d+: Invalid server password$'
+      - '^(?:<W>[\d\-]+ [\d:]+\.\d+ )?\d+ => <\d+:[^>]+\(-1\)> Rejected connection from %%%%SRC%%%%:\d+: Wrong certificate or password for existing user$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 murmurd[2064]: <W>2015-11-29 16:38:01.818 1 => <4:testUsernameOne(-1)> Rejected connection from 192.168.0.1:29530: Invalid server password"

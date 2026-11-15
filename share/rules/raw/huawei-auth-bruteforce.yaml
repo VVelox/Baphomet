@@ -20,58 +20,59 @@ severity: high
 classtype: brute-force
 references:
   - http://www.huaweisymantec.com/en/download.do?id=658891
-mark:
-  - name: brute_force
-    ttl: 21600
-mungers:
-  - huawei
-# The event is named by the info-center tag, decomposed rather than scanned
-# for. This matters more here than on the other VRP rules: the login failures
-# log the attempted account in UserName=, VRP quotes nothing, and the pair
-# separator is ", "... so an account of "admin, IPAddress=8.8.8.8" plants a
-# second IPAddress= pair ahead of the real one, and the rule this replaced took
-# the first it reached. The munger reads the auth lists with an anchored
-# pattern for exactly that reason, so the last, real address is the one that
-# lands. See the injection test below, and HUAWEI_AUTH in the munger.
-selections:
-  ssh:
-    - field: hw_module
-      op: eq
-      value: SSH
-    - field: hw_mnemonic
-      op: re
-      value: '^(?:LOGIN_FAIL\w*|SSH_FAIL)'
-  shell:
-    - field: hw_module
-      op: eq
-      value: SHELL
-    - field: hw_mnemonic
-      op: re
-      value: '^LOGIN_?FAIL'
-  # FTPS reports success and failure under the one mnemonic, so the sentence
-  # is what tells them apart
-  ftp:
-    - field: hw_module
-      op: eq
-      value: FTPS
-    - field: hw_mnemonic
-      op: startswith
-      value: USERIN
-    - field: hw_text
-      op: contains
-      value: 'login failed'
-  web:
-    - field: hw_module
-      op: eq
-      value: HTTPD
-    - field: hw_mnemonic
-      op: startswith
-      value: FAIL
-condition: "ssh or shell or ftp or web"
 src_ip_var: hw_offender_ip
 user_var: hw_UserName
-ban_var:
-  - hw_offender_ip
+rule_gates:
+  - mungers:
+      - huawei
+  # The event is named by the info-center tag, decomposed rather than scanned
+  # for. This matters more here than on the other VRP rules: the login failures
+  # log the attempted account in UserName=, VRP quotes nothing, and the pair
+  # separator is ", "... so an account of "admin, IPAddress=8.8.8.8" plants a
+  # second IPAddress= pair ahead of the real one, and the rule this replaced took
+  # the first it reached. The munger reads the auth lists with an anchored
+  # pattern for exactly that reason, so the last, real address is the one that
+  # lands. See the injection test below, and HUAWEI_AUTH in the munger.
+  - selections:
+      ssh:
+        - field: hw_module
+          op: eq
+          value: SSH
+        - field: hw_mnemonic
+          op: re
+          value: '^(?:LOGIN_FAIL\w*|SSH_FAIL)'
+      shell:
+        - field: hw_module
+          op: eq
+          value: SHELL
+        - field: hw_mnemonic
+          op: re
+          value: '^LOGIN_?FAIL'
+      # FTPS reports success and failure under the one mnemonic, so the sentence
+      # is what tells them apart
+      ftp:
+        - field: hw_module
+          op: eq
+          value: FTPS
+        - field: hw_mnemonic
+          op: startswith
+          value: USERIN
+        - field: hw_text
+          op: contains
+          value: 'login failed'
+      web:
+        - field: hw_module
+          op: eq
+          value: HTTPD
+        - field: hw_mnemonic
+          op: startswith
+          value: FAIL
+  - condition: "ssh or shell or ftp or web"
+  - ban_var:
+      - hw_offender_ip
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 12 08:15:50 sw01 %%01SSH/4/LOGIN_FAIL_PWD_ERR(l): The user failed to log in because of a wrong password. (UserName=admin, IPAddress=203.0.113.7, Times=3)'

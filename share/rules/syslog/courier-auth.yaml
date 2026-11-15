@@ -5,16 +5,17 @@ rev: 2
 msg: "[COURIER] IMAP/POP3 login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
-message_regexp:
-  - '^LOGIN FAILED, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
+  - message_regexp:
+      - '^LOGIN FAILED, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Apr 23 21:59:01 dns2 imapd: LOGIN FAILED, user=sales@example.com, ip=[::ffff:1.2.3.4]"

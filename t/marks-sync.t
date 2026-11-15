@@ -65,15 +65,16 @@ make_path( $dir . '/rules/json', $dir . '/run', $dir . '/localA', $dir . '/local
 open( my $r, '>', $dir . '/rules/json/brand.yaml' ) || die($!);
 print $r <<'EOR';
 ---
-gate:
-  - field: event
-    values: [ brand ]
-ban_var:
-  - ip
-mark:
-  - name: seen
-    ttl: 600
 mark_only: true
+rule_gates:
+  - gate:
+      - field: event
+        values: [ brand ]
+  - ban_var:
+      - ip
+  - mark:
+      name: seen
+      ttl: 600
 EOR
 close($r);
 

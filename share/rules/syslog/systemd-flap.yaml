@@ -15,18 +15,19 @@ rev: 2
 msg: "[SYSTEMD] service crash loop / flapping"
 severity: high
 classtype: program-error
-daemons:
-  - systemd
-mungers:
-  - systemd
-stages:
-  - message_regexp:
-      - '^(?<UNIT>\S+\.service): Scheduled restart job, restart counter is at \d+'
-    count: 3
-    within: 120
-per: [ syslog.host, UNIT ]
-detection_var: [ UNIT ]
 max_score: 1
+rule_gates:
+  - daemons:
+      - systemd
+  - mungers:
+      - systemd
+  - stages:
+      - message_regexp:
+          - '^(?<UNIT>\S+\.service): Scheduled restart job, restart counter is at \d+'
+        count: 3
+        within: 120
+  - per: [ syslog.host, UNIT ]
+  - detection_var: [ UNIT ]
 tests:
   positive:
     - messages:

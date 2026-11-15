@@ -10,7 +10,7 @@ which does the actual firewalling.
 It is also a LAE, log analysis engine, in the family of Sagan, Wazuh, and the
 Sigma detection model... the same galla that bans can instead detect,
 counting any subject and raising a triageable alert to the EVE stream with
-out banishing anyone. Ban or detect is one key's difference. See
+out banishing anyone. Ban or detect is one gate's difference. See
 [log-analysis](log-analysis.md) for that half.
 
 A kur is a named group of watchers that share thresholds and one ban
@@ -54,5 +54,6 @@ The reference docs live in the modules themselves...
 - [`App::Baphomet::Galla`](https://metacpan.org/pod/App::Baphomet::Galla) ... the worker.
 - [`App::Baphomet::Config`](https://metacpan.org/pod/App::Baphomet::Config) ... every config setting.
 - [`App::Baphomet::Rules`](https://metacpan.org/pod/App::Baphomet::Rules) ... rule loading.
-- [`App::Baphomet::Rules::Syslog`](https://metacpan.org/pod/App::Baphomet::Rules::Syslog) ... the syslog rule format.
+- [`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) ... the rule format.
+- [`App::Baphomet::Gate`](https://metacpan.org/pod/App::Baphomet::Gate) ... the gates, each type a class of its own under it.
 - [`App::Baphomet::Parser`](https://metacpan.org/pod/App::Baphomet::Parser) ... the parsers and what they extract.

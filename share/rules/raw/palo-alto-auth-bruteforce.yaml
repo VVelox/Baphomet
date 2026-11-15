@@ -17,35 +17,36 @@ severity: high
 classtype: brute-force
 references:
   - https://live.paloaltonetworks.com/twzvq79624/attachments/twzvq79624/learning_tkb/428/1/System_log_PANOS4.1rev3.xlsx
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  # The address is the LAST thing PAN-OS writes in the description field, so
-  # each of these is anchored on the field's closing quote (or the line's end,
-  # for a forwarding that does not quote). The wildcards stay LAZY on purpose.
-  #
-  # These events name the attempted account BEFORE the address... "for user
-  # ''admin''.  Reason: ...  From: 203.0.113.45." ... and the account is
-  # whatever the client typed, so lazy alone took a "From:" planted in it. What
-  # the anchor adds is that a forged address has to be followed by the end of
-  # the description, and a planted one never is: the rest of the account name
-  # and PAN-OS's own Reason text still follow it.
-  #
-  # Greedy would also have fixed these, and is deliberately NOT used, because
-  # the sibling raw/palo-alto-vpn-bruteforce is the mirror image... its
-  # GlobalProtect and SSL-VPN events write the account AFTER the address
-  # ("Login from: 198.51.100.44, ... User name: alice"), where lazy is the
-  # defence and greedy would be the bug. Same vendor, opposite treatment, which
-  # is why neither is applied family-wide.
-  - 'failed authentication for user .*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
-  - '[Uu]ser \S+ failed authentication\b.*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
-  - 'Authorization failed for user \S+.*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
-  - 'NTLM authentication failed for user .*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
-  - 'Failed keyboard-interactive/pam for (?:invalid user )?\S+ from %%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      # The address is the LAST thing PAN-OS writes in the description field, so
+      # each of these is anchored on the field's closing quote (or the line's end,
+      # for a forwarding that does not quote). The wildcards stay LAZY on purpose.
+      #
+      # These events name the attempted account BEFORE the address... "for user
+      # ''admin''.  Reason: ...  From: 203.0.113.45." ... and the account is
+      # whatever the client typed, so lazy alone took a "From:" planted in it. What
+      # the anchor adds is that a forged address has to be followed by the end of
+      # the description, and a planted one never is: the rest of the account name
+      # and PAN-OS's own Reason text still follow it.
+      #
+      # Greedy would also have fixed these, and is deliberately NOT used, because
+      # the sibling raw/palo-alto-vpn-bruteforce is the mirror image... its
+      # GlobalProtect and SSL-VPN events write the account AFTER the address
+      # ("Login from: 198.51.100.44, ... User name: alice"), where lazy is the
+      # defence and greedy would be the bug. Same vendor, opposite treatment, which
+      # is why neither is applied family-wide.
+      - 'failed authentication for user .*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
+      - '[Uu]ser \S+ failed authentication\b.*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
+      - 'Authorization failed for user \S+.*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
+      - 'NTLM authentication failed for user .*?[Ff]rom:?\s*%%%%SRC%%%%\.?(?:"|\s*$)'
+      - 'Failed keyboard-interactive/pam for (?:invalid user )?\S+ from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,SYSTEM,auth,0,2026/07/12 08:15:50,vsys1,auth-fail,,0,0,general,medium,"failed authentication for user ''admin''.  Reason: Invalid username/password.  From: 203.0.113.45.",7061,0x8000000000000000,0,0,0,0,,PA-3220'

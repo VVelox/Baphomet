@@ -11,25 +11,26 @@ rev: 4
 msg: "[VSFTPD] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - vsftpd
-mungers:
-  - vsftpd
-  - pam
-message_regexp:
-  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
-  # The bracketed account is whatever the client typed, so it may carry a whole
-  # forged "] FAIL LOGIN: Client "<addr>"" of its own. Greedy takes the last
-  # one, and only vsftpd's own refusal reason may follow it, so nothing the
-  # client wrote can come after the real address.
-  - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
 src_ip_var: SRC
 user_var: vsftpd_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - vsftpd
+  - mungers:
+      - vsftpd
+      - pam
+  - message_regexp:
+      - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
+      # The bracketed account is whatever the client typed, so it may carry a whole
+      # forged "] FAIL LOGIN: Client "<addr>"" of its own. Greedy takes the last
+      # one, and only vsftpd's own refusal reason may follow it, so nothing the
+      # client wrote can come after the real address.
+      - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Oct 11 01:06:47 ServerJV vsftpd: (pam_unix) authentication failure; logname= uid=0 euid=0 tty= ruser= rhost=209.67.1.67"

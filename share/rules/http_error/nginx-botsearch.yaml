@@ -12,14 +12,16 @@ rev: 2
 msg: "[NGINX] bot probe for missing admin panel"
 severity: medium
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
 test_parser: nginx_error
-level:
-  - error
-message_regexp:
-  - '^(?:\S+ )?"[^"]*/(?:roundcube|(?:ext)?mail|horde|(?:v-?)?webmail|(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?[Mm]y[Aa]dmin)|wp-(?:login|signup|admin)\.php|cgi-bin|mysqladmin)[^",]*" (?:failed|is not found) \(2: No such file or directory\)'
+rule_gates:
+  - level:
+      - error
+  - message_regexp:
+      - '^(?:\S+ )?"[^"]*/(?:roundcube|(?:ext)?mail|horde|(?:v-?)?webmail|(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?[Mm]y[Aa]dmin)|wp-(?:login|signup|admin)\.php|cgi-bin|mysqladmin)[^",]*" (?:failed|is not found) \(2: No such file or directory\)'
+  - ban_var: [ client ]
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '2015/01/21 10:56:10 [error] 2833#0: *16336 open() "/var/www/site/cgi-bin/php4" failed (2: No such file or directory), client: 5.7.9.2, server: localhost, request: "GET /cgi-bin/php4 HTTP/1.1", host: "1.2.3.4"'

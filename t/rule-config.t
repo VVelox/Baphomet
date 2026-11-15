@@ -148,7 +148,10 @@ my %rules = (
 );
 foreach my $name ( keys(%rules) ) {
 	open( my $rfh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
-	print $rfh "---\ngate:\n  - field: which\n    values: [ " . $name . " ]\nban_var:\n  - src_ip\n" . $rules{$name};
+	print $rfh "---\nrule_gates:\n  - gate:\n      - field: which\n        values: [ "
+		. $name
+		. " ]\n  - ban_var:\n      - src_ip\n"
+		. $rules{$name};
 	close($rfh);
 }
 

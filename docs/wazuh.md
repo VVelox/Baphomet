@@ -19,7 +19,7 @@ alert. The rest of the platform has no counterpart.
 | a rule's numeric `id`                                   | `sid`, derived from the rule name; `gid` marks shipped vs override         |
 | `<if_sid>` / `<if_group>`, composite rules              | marks... one rule gates on another having fired (`mark`/`marked`)          |
 | `<if_matched_sid>` + `<frequency>` + `<timeframe>`      | per-rule `max_score` / `find_time`, under `allow_per_rule_thresholds`      |
-| `<same_source_ip>`, `<different_url>`, ...              | a staged rule's `per` key, or a mark's `var` / `value_var`                 |
+| `<same_source_ip>`, `<different_url>`, ...              | a staged rule's `per` gate, or a mark's `var` / `value_var`                |
 | a CDB `<list>` lookup                                   | the `namtar_list` gate (boolean membership)                                |
 | `alerts.json`                                           | the EVE stream ([eve](eve.md))                                             |
 | active response (`firewall-drop`)                       | Ereshkigal's kur backends... the ban itself                                |
@@ -75,9 +75,10 @@ Two things the table does not settle, the same two every port asks.
 
 **Ban or detect.** Wazuh alerts, and separately its active response acts. To
 keep just the alert... surface the signature, banish nobody... port it as a
-detection rule with `detection_var: [ SRC ]`, writing `sighting`/`sighted` to
-EVE. To fold Wazuh's active response in as well, name `ban_var: [ SRC ]` and
-let the kur's thresholds decide, and Ereshkigal does the firewall-drop.
+detection rule with a `detection_var: [ SRC ]` gate, writing
+`sighting`/`sighted` to EVE. To fold Wazuh's active response in as well, make
+that gate `ban_var: [ SRC ]` and let the kur's thresholds decide, and
+Ereshkigal does the firewall-drop.
 
 **Tests.** Lift sample lines from the rule's comments or your own logs into a
 `tests:` block, then `baphomet test_line` pokes single lines at a draft and

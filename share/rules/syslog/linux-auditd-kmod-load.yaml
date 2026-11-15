@@ -12,16 +12,17 @@ rev: 1
 msg: "[AUDITD] kernel module load/unload... possible rootkit"
 severity: critical
 classtype: trojan-activity
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\barch=c000003e\b.*\bsyscall=(?:175|176|313)\b.*\bcomm="(?<COMM>[^"]+)"'
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bcomm="(?<COMM>[^"]+)".*\bkey="(?:modules|module_load|module-load|kmod|kernel_modules)"'
-detection_var:
-  - COMM
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\barch=c000003e\b.*\bsyscall=(?:175|176|313)\b.*\bcomm="(?<COMM>[^"]+)"'
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bcomm="(?<COMM>[^"]+)".*\bkey="(?:modules|module_load|module-load|kmod|kernel_modules)"'
+  - detection_var:
+      - COMM
 tests:
   positive:
     # init_module by the standard loader

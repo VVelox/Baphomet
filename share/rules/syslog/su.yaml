@@ -15,23 +15,24 @@ rev: 3
 msg: "[SU] authentication failure"
 severity: medium
 classtype: attempted-admin
-daemons:
-  - su
-mungers:
-  - su
-  - pam
-message_regexp:
-  # util-linux, verbose... "FAILED SU (to root) neti on pts/0"
-  - '^FAILED SU \(to \S+\) (?<USER>\S+) on \S+'
-  # util-linux, terse... a "-" prefix is the failure, "+" the success
-  - '^- \S+ (?<USER>[^:\s]+):\S+\s*$'
-  # PAM stack under su / su -l
-  - '^pam_unix\(su(?:-l)?:auth\): authentication failure;.*\bruser=(?<USER>\S+)'
-  # the shadow-suite phrasing seen on some distros
-  - '^FAILED su for \S+ by (?<USER>\S+)'
 user_var: USER
-detection_var:
-  - USER
+rule_gates:
+  - daemons:
+      - su
+  - mungers:
+      - su
+      - pam
+  - message_regexp:
+      # util-linux, verbose... "FAILED SU (to root) neti on pts/0"
+      - '^FAILED SU \(to \S+\) (?<USER>\S+) on \S+'
+      # util-linux, terse... a "-" prefix is the failure, "+" the success
+      - '^- \S+ (?<USER>[^:\s]+):\S+\s*$'
+      # PAM stack under su / su -l
+      - '^pam_unix\(su(?:-l)?:auth\): authentication failure;.*\bruser=(?<USER>\S+)'
+      # the shadow-suite phrasing seen on some distros
+      - '^FAILED su for \S+ by (?<USER>\S+)'
+  - detection_var:
+      - USER
 tests:
   positive:
     # the verbose failure, enriched by the su munger from the same line

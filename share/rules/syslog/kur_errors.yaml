@@ -31,28 +31,29 @@ severity: critical
 classtype: program-error
 references:
   - https://github.com/LilithSec/Ereshkigal
-daemons:
-  - //^kur(?:-\S+)?$//
-mungers:
-  - kur
-# no message_regexp... the munger's fields are the matcher
-selections:
-  ban_failed:
-    - field: kur_error
-      op: exists
-  cidr_dropped:
-    - field: kur_drop_reason
-      op: exists
-  loader_malformed:
-    - field: kur_line_number
-      op: exists
-condition: "1 of them"
-detection_var:
-  - kur_error
-  - kur_drop_reason
-  - kur_file
 max_score: 1
 find_time: 3600
+rule_gates:
+  - daemons:
+      - //^kur(?:-\S+)?$//
+  - mungers:
+      - kur
+  # no message_regexp... the munger's fields are the matcher
+  - selections:
+      ban_failed:
+        - field: kur_error
+          op: exists
+      cidr_dropped:
+        - field: kur_drop_reason
+          op: exists
+      loader_malformed:
+        - field: kur_line_number
+          op: exists
+  - condition: "1 of them"
+  - detection_var:
+      - kur_error
+      - kur_drop_reason
+      - kur_file
 tests:
   positive:
     - message: 'Aug 13 04:19:02 fw01 kur-sshd[4321]: ban of "not-an-ip" failed... does not appear to be a IPv4 or IPv6 IP'

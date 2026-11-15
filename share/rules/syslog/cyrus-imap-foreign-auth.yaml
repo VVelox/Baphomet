@@ -17,26 +17,26 @@ rev: 2
 msg: "[CYRUS] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
-mungers:
-  - cyrus
-message_regexp:
-  # the success... "login: host [ip] user mech User logged in"
-  - '^login: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] (?<USER>\S+) \S+ User logged in'
-  # and the failure syslog/cyrus-imap counts, verbatim
-  - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
+src_ip_var: SRC
+user_var: cyrus_user
+max_score: 1
 rule_gates:
+  - daemons:
+      - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
+  - mungers:
+      - cyrus
+  - message_regexp:
+      # the success... "login: host [ip] user mech User logged in"
+      - '^login: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] (?<USER>\S+) \S+ User logged in'
+      # and the failure syslog/cyrus-imap counts, verbatim
+      - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: cyrus_user
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

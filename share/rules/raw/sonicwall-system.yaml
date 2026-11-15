@@ -26,22 +26,23 @@ severity: low
 classtype: system-event
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-message_regexp:
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Registration Update Needed[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*SonicWALL[^"]* expired[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Restarting SonicWALL[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*removed from (?:FIN|RST|SYN) flood blacklist[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="SYN flood ceased or flooding machines blacklisted[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Maximum (?:events|syslog data) per second threshold exceeded[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Multiple DHCP [sS]ervers (?:are )?detected on network[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*[nN]o firewall rule associated with VPN policy[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="SonicWALL SSO [aA]gent returned (?:domain|user) name too long[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Probing (?:failure|succ?eeded) on[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Backup (?:active|firewall has transitioned to (?:Active|Idle)|firewall rebooting itself|WAN link down)[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="(?:CLI administrator|Administrator) login allowed[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Maximum sequential failed dial attempts[^"]*"'
-detection_var:
-  - ADDR
+rule_gates:
+  - message_regexp:
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Registration Update Needed[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*SonicWALL[^"]* expired[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Restarting SonicWALL[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*removed from (?:FIN|RST|SYN) flood blacklist[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="SYN flood ceased or flooding machines blacklisted[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Maximum (?:events|syslog data) per second threshold exceeded[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Multiple DHCP [sS]ervers (?:are )?detected on network[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="[^"]*[nN]o firewall rule associated with VPN policy[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="SonicWALL SSO [aA]gent returned (?:domain|user) name too long[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Probing (?:failure|succ?eeded) on[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Backup (?:active|firewall has transitioned to (?:Active|Idle)|firewall rebooting itself|WAN link down)[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="(?:CLI administrator|Administrator) login allowed[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Maximum sequential failed dial attempts[^"]*"'
+  - detection_var:
+      - ADDR
 tests:
   positive:
     - message: 'Jul 12 14:01:10 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 14:01:10 UTC" fw=203.0.113.1 pri=4 c=16 m=517 msg="Registration Update Needed.  Restore your existing security service subscriptions by clicking here" n=1'

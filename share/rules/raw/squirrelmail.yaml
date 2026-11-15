@@ -6,14 +6,15 @@ rev: 3
 msg: "[SQUIRRELMAIL] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^%%%%DATESTAMP%%%% \[LOGIN_ERROR\].*from %%%%SRC%%%%: Unknown user or password incorrect\.$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^%%%%DATESTAMP%%%% \[LOGIN_ERROR\].*from %%%%SRC%%%%: Unknown user or password incorrect\.$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "10/06/2013 15:50:41 [LOGIN_ERROR] dadas (mydomain.org) from 151.64.44.11: Unknown user or password incorrect."

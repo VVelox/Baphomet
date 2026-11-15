@@ -14,12 +14,13 @@ severity: medium
 classtype: configuration-change
 references:
   - http://www.huaweisymantec.com/en/download.do?id=658891
-message_regexp:
-  - 'SEC/\d/BLACKLIST\S*:\s*%%%%ADDR%%%% is (?:added to|removed from) blacklist'
-  - 'SEC/\d/BLACKLIST\S*:.*?(?<EVENT>Clear All blacklist)'
-detection_var:
-  - ADDR
-  - EVENT
+rule_gates:
+  - message_regexp:
+      - 'SEC/\d/BLACKLIST\S*:\s*%%%%ADDR%%%% is (?:added to|removed from) blacklist'
+      - 'SEC/\d/BLACKLIST\S*:.*?(?<EVENT>Clear All blacklist)'
+  - detection_var:
+      - ADDR
+      - EVENT
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %%01SEC/4/BLACKLIST(l): 203.0.113.31 is added to blacklist, reason: manual configuration, age: 30 minutes.'

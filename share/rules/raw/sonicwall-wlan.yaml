@@ -16,12 +16,13 @@ severity: medium
 classtype: exploit-attempt
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-message_regexp:
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Association Flood from WLAN station[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Found Rogue Access Point[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="WLAN radio frequency threat detected[^"]*"'
-detection_var:
-  - ADDR
+rule_gates:
+  - message_regexp:
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Association Flood from WLAN station[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Found Rogue Access Point[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="WLAN radio frequency threat detected[^"]*"'
+  - detection_var:
+      - ADDR
 tests:
   positive:
     - message: 'Jul 12 12:01:44 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 12:01:44 UTC" fw=203.0.113.1 pri=1 c=32 m=1096 msg="Association Flood from WLAN station" n=3 note="Station MAC: 00:1a:2b:3c:4d:5e"'

@@ -39,39 +39,40 @@ severity: high
 classtype: program-error
 references:
   - https://bind9.readthedocs.io/en/latest/chapter6.html
-daemons:
-  - //^named(?:-\w+)?$//
-mungers:
-  - named
-# no message_regexp... the munger's fields are the matcher
-selections:
-  # the subject has to be on the line. bind also logs the parse error itself
-  # ("/etc/namedb/master/db.example:11: unknown RR type 'MS'"), which names the
-  # file and the line but not the zone... it always arrives beside the
-  # zone-level line below, so requiring a zone name here loses nothing and
-  # keeps every match countable
-  has_zone:
-    - field: dns_zone_name
-      op: exists
-  # "loading from master file X failed: <reason>"
-  fail_file:
-    - field: dns_zone_error
-      op: exists
-  # the zone-status catch-all, narrowed to the wordings that mean trouble
-  fail_status:
-    - field: dns_zone_status
-      op: re
-      value: '^(?:not loaded|expired|refresh: (?:failure|retry limit|unexpected rcode|non-authoritative)|transfer: (?:failed|could not)|journal rollforward failed|has no NS records|has \d+ SOA records|out of memory|unable to fetch DNSKEY)'
-  # a secondary not getting its copy
-  fail_xfr:
-    - field: dns_xfr_result
-      op: re
-      value: '^(?:failed|connection|timed out|giving up|could not|refused|Transfer status: (?!success))'
-condition: "has_zone and 1 of fail_*"
-detection_var:
-  - dns_zone_name
 max_score: 1
 find_time: 3600
+rule_gates:
+  - daemons:
+      - //^named(?:-\w+)?$//
+  - mungers:
+      - named
+  # no message_regexp... the munger's fields are the matcher
+  - selections:
+      # the subject has to be on the line. bind also logs the parse error itself
+      # ("/etc/namedb/master/db.example:11: unknown RR type 'MS'"), which names the
+      # file and the line but not the zone... it always arrives beside the
+      # zone-level line below, so requiring a zone name here loses nothing and
+      # keeps every match countable
+      has_zone:
+        - field: dns_zone_name
+          op: exists
+      # "loading from master file X failed: <reason>"
+      fail_file:
+        - field: dns_zone_error
+          op: exists
+      # the zone-status catch-all, narrowed to the wordings that mean trouble
+      fail_status:
+        - field: dns_zone_status
+          op: re
+          value: '^(?:not loaded|expired|refresh: (?:failure|retry limit|unexpected rcode|non-authoritative)|transfer: (?:failed|could not)|journal rollforward failed|has no NS records|has \d+ SOA records|out of memory|unable to fetch DNSKEY)'
+      # a secondary not getting its copy
+      fail_xfr:
+        - field: dns_xfr_result
+          op: re
+          value: '^(?:failed|connection|timed out|giving up|could not|refused|Transfer status: (?!success))'
+  - condition: "has_zone and 1 of fail_*"
+  - detection_var:
+      - dns_zone_name
 tests:
   positive:
     - message: "Aug 13 11:27:02 ns01 named[55104]: zone localhost/IN/internal-view: loading from master file /usr/local/etc/namedb/master/localhost-forward.db failed: file not found"

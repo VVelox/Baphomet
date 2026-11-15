@@ -11,17 +11,18 @@ rev: 1
 msg: "[AUDITD] account or group management"
 severity: medium
 classtype: policy-violation
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=(?:ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT|ROLE_ASSIGN|ROLE_REMOVE) msg=audit\([\d.]+:\d+\): .*\bauid=(?<AUID>\d+)'
 src_ip_var: audit_msg_addr
 user_var: audit_msg_acct
-detection_var:
-  - AUID
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=(?:ADD_USER|DEL_USER|ADD_GROUP|DEL_GROUP|USER_MGMT|GRP_MGMT|ROLE_ASSIGN|ROLE_REMOVE) msg=audit\([\d.]+:\d+\): .*\bauid=(?<AUID>\d+)'
+  - detection_var:
+      - AUID
 tests:
   positive:
     - message: "Nov 14 11:00:00 mail01 audisp-syslog[2000]: type=ADD_USER msg=audit(1700000200.1:600): pid=2000 uid=0 auid=1000 ses=2 msg='op=adding-user id=1001 exe=\"/usr/sbin/useradd\" hostname=box addr=? terminal=pts/0 res=success'"

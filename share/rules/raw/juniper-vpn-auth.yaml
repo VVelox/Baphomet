@@ -17,16 +17,17 @@ rev: 1
 msg: "[JUNIPER] VPN login failed"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '- ive - \[%%%%SRC%%%%\].*?(?i:Login failed|authentication failed)'
-  - '- ive - \[%%%%SRC%%%%\].*?not authenticated yet'
-  - '- ive - \[%%%%SRC%%%%\].*?Host Checker policy .*?failed'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '- ive - \[%%%%SRC%%%%\].*?(?i:Login failed|authentication failed)'
+      - '- ive - \[%%%%SRC%%%%\].*?not authenticated yet'
+      - '- ive - \[%%%%SRC%%%%\].*?Host Checker policy .*?failed'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 12 03:14:11 vpn01 Juniper: 2026-07-12 03:14:11 - ive - [203.0.113.9] user(Users)[] - Login failed using auth server Local Authentication (Local Authentication).  Reason: Failed"

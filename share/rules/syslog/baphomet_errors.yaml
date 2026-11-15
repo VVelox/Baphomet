@@ -31,36 +31,37 @@ severity: high
 classtype: program-error
 references:
   - https://github.com/VVelox/Baphomet
-daemons:
-  - baphomet
-mungers:
-  - baphomet
-# no message_regexp... the munger's fields are the matcher
-selections:
-  died:
-    - field: bph_action
-      op: eq
-      value: died
-  exited_nonzero:
-    - field: bph_exit_status
-      op: exists
-    - field: bph_exit_status
-      op: gt
-      value: 0
-  wrote_stderr:
-    - field: bph_stderr
-      op: exists
-  had_to_be_signalled:
-    - field: bph_signal
-      op: exists
-  unreachable:
-    - field: bph_error
-      op: exists
-condition: "1 of them"
-detection_var:
-  - bph_galla
 max_score: 3
 find_time: 600
+rule_gates:
+  - daemons:
+      - baphomet
+  - mungers:
+      - baphomet
+  # no message_regexp... the munger's fields are the matcher
+  - selections:
+      died:
+        - field: bph_action
+          op: eq
+          value: died
+      exited_nonzero:
+        - field: bph_exit_status
+          op: exists
+        - field: bph_exit_status
+          op: gt
+          value: 0
+      wrote_stderr:
+        - field: bph_stderr
+          op: exists
+      had_to_be_signalled:
+        - field: bph_signal
+          op: exists
+      unreachable:
+        - field: bph_error
+          op: exists
+  - condition: "1 of them"
+  - detection_var:
+      - bph_galla
 tests:
   positive:
     - message: 'Aug 13 04:31:00 fw01 baphomet[9001]: galla "sshd" died, restarting in 1 seconds'

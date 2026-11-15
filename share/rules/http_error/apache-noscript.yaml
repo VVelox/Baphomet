@@ -11,16 +11,18 @@ rev: 3
 msg: "[APACHE] request for missing script"
 severity: medium
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-level:
-  - error
-message_regexp:
-  - '^(?:[Ff]ile does not exist|[Ss]cript not found or unable to stat): /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b'
-  - '^script ''/\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b\S*'' (?:script )?(?:does not exist|not found or unable to stat)'
-  - '^stderr from /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b\S* (?:script )?(?:does not exist|not found or unable to stat)'
-  - '^[Gg]ot error ''[Pp]rimary script unknown(?:\\n)?'''
+rule_gates:
+  - level:
+      - error
+  - message_regexp:
+      - '^(?:[Ff]ile does not exist|[Ss]cript not found or unable to stat): /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b'
+      - '^script ''/\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b\S*'' (?:script )?(?:does not exist|not found or unable to stat)'
+      - '^stderr from /\S*(?:php(?:[45]|[.-]cgi)?|\.asp|\.exe|\.pl|\bcgi-bin)\b\S* (?:script )?(?:does not exist|not found or unable to stat)'
+      - '^[Gg]ot error ''[Pp]rimary script unknown(?:\\n)?'''
+  - ban_var: [ client ]
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '[Tue Jul 22 06:48:30 2008] [error] [client 198.51.100.86] File does not exist: /home/southern/public_html/azenv.php'

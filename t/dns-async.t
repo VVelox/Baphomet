@@ -14,7 +14,7 @@ BEGIN {
 }
 
 use App::Baphomet::Galla ();
-use App::Baphomet::Gate::ReverseDns ();
+use App::Baphomet::Gate::reverse_dns ();
 
 # the async DNS behavior, driven wholly through the dns_bg seam... the
 # engine is stood in for by a recorder whose completions fire by hand, so
@@ -29,10 +29,11 @@ make_path( $dir . '/run' );
 open( my $fh, '>', $dir . '/rules/raw/hostile.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - '^bad thing from %%%%HOST%%%%$'
-ban_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - '^bad thing from %%%%HOST%%%%$'
+  - ban_var:
+      - HOST
 EOR
 close($fh);
 
@@ -181,7 +182,7 @@ $galla->{rdns_resolver} = undef;    # the seam carries the engine
 sub crawler_gate {
 	my (%args) = @_;
 
-	my $gate = App::Baphomet::Gate::ReverseDns->new(
+	my $gate = App::Baphomet::Gate::reverse_dns->new(
 		'type'  => 'reverse_dns',
 		'args'  => { 'matches' => '\.crawler\.example\.com$', %args },
 		'where' => 'the gate'

@@ -14,17 +14,18 @@ rev: 1
 msg: "[CITRIX] AppFw web attack violation"
 severity: high
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' APPFW APPFW_(?:BUFFEROVERFLOW_(?:COOKIE|HDR|URL)|COOKIE|CSRF_TAG|DENYURL|FIELDCONSISTENCY|FIELDFORMAT|REFERER_HEADER|SAFECOMMERCE(?:_XFORM)?|SAFEOBJECT|SQL|STARTURL|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
-  - ' APPFW AF_400_RESP \d+ \d+ :\s+%%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - ' APPFW APPFW_(?:BUFFEROVERFLOW_(?:COOKIE|HDR|URL)|COOKIE|CSRF_TAG|DENYURL|FIELDCONSISTENCY|FIELDFORMAT|REFERER_HEADER|SAFECOMMERCE(?:_XFORM)?|SAFEOBJECT|SQL|STARTURL|XSS) \d+ \d+ :\s+%%%%SRC%%%%'
+      - ' APPFW AF_400_RESP \d+ \d+ :\s+%%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-1 : default APPFW APPFW_STARTURL 60 0 :  203.0.113.62 616-PPE1 - webfw_prof http://www.example.com/FFC/login.php Disallow Illegal URL. <blocked>"

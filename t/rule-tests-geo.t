@@ -8,19 +8,19 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule ();
 
+# what a banning rule here names its offender with... where in the list it
+# sits is the caller's to say, a gate on a var going ahead of it and one on
+# the offender behind it
+my $ban_gate = { ban_var => ['ip'] };
+
+# every rule here leads with the one gate, and the rest of its list is the
+# passed rule_gates
 sub results_for {
 	my (%def) = @_;
-	my %merged = (
-		gate    => [ { field => 'event', values => ['fail'] } ],
-		ban_var => ['ip'],
-		%def,
-	);
-	foreach my $key ( keys(%merged) ) {
-		delete( $merged{$key} ) if !defined( $merged{$key} );
-	}
-	my $rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => \%merged );
+	$def{rule_gates} = [ { gate => [ { field => 'event', values => ['fail'] } ] }, @{ $def{rule_gates} } ];
+	my $rule = App::Baphomet::Rule->new( name => 'json/x', def => \%def );
 	return $rule->run_tests;
 }
 
@@ -36,10 +36,11 @@ sub line {
 #
 
 my $foreign = results_for(
-	rule_gates    => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } } ],
-	ban_var       => undef,
-	detection_var => ['ip'],
-	tests         => {
+	rule_gates => [
+		{ country       => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } },
+		{ detection_var => ['ip'] },
+	],
+	tests => {
 		positive => [
 			# abroad... the gate lets it count
 			{
@@ -85,7 +86,7 @@ is( $foreign->{pass}, 4, 'all four counted' );
 #
 
 my $is_form = results_for(
-	rule_gates => [ { country => { is => [ 'US', 'CA' ] } } ],
+	rule_gates => [ $ban_gate, { country => { is => [ 'US', 'CA' ] } } ],
 	tests      => {
 		positive => [
 			{
@@ -112,16 +113,14 @@ is( $is_form->{fail}, 0, 'a var-less is gate proves both ways in the offender pa
 ok(
 	!eval {
 		results_for(
-			rule_gates    => [ { country => { isnot => ['US'] } } ],
-			ban_var       => undef,
-			detection_var => ['ip'],
-			tests         => { positive => [ { message => line( event => 'fail', ip => '198.51.100.5' ) } ] },
+			rule_gates => [ { detection_var => ['ip'] }, { country => { isnot => ['US'] } } ],
+			tests      => { positive => [ { message => line( event => 'fail', ip => '198.51.100.5' ) } ] },
 		);
 		1;
 	},
 	'a gate keyed by the offender on a detection rule refuses to load'
 );
-like( $@, qr/^The country gate of the rule "json\/x" \(rule_gates entry 0\) keys on the offender/,
+like( $@, qr/^The country gate of the rule "json\/x" \(rule_gates entry 2\) keys on the offender/,
 	'and the die names the gate and why' );
 
 #
@@ -130,7 +129,7 @@ like( $@, qr/^The country gate of the rule "json\/x" \(rule_gates entry 0\) keys
 #
 
 my $unfixtured = results_for(
-	rule_gates => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } } ],
+	rule_gates => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } }, $ban_gate ],
 	tests      => { positive => [ { message => line( event => 'fail', ip => '203.0.113.9' ) } ] },
 );
 is( $unfixtured->{fail}, 0, 'a gated rule with no geo fixture skips the gate as before' )
@@ -151,7 +150,7 @@ foreach my $broken (
 	)
 {
 	my $broken_results = results_for(
-		rule_gates => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } } ],
+		rule_gates => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } }, $ban_gate ],
 		tests      => {
 			positive => [ { message => line( event => 'fail', ip => '203.0.113.9' ), geo => $broken->{geo} } ]
 		},

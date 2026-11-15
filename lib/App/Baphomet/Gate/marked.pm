@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::Marked;
+package App::Baphomet::Gate::marked;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -11,7 +11,7 @@ use App::Baphomet::Marks qw( mark_key live_mark value_verdict );
 
 =head1 NAME
 
-App::Baphomet::Gate::Marked - The marked gate, counting only what already has a brand.
+App::Baphomet::Gate::marked - The marked gate, counting only what already has a brand.
 
 =head1 VERSION
 
@@ -25,6 +25,7 @@ our $VERSION = '0.0.1';
 
     rule_gates:
       - marked: { name: failed_login, var: USER }
+      - ban_var: [ SRC ]
       - marked: { names: [ brute_force, scanner ] }
 
 =head1 DESCRIPTION

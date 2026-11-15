@@ -206,12 +206,13 @@ the shipped rules... so `/usr/local/etc/baphomet/rules/syslog/toaster.yaml`...
 
 ```yaml
 ---
-daemons:
-  - toasterd
-message_regexp:
-  - '^bad bread inserted by %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - toasterd
+  - message_regexp:
+      - '^bad bread inserted by %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 09:00:00 kitchen toasterd[9]: bad bread inserted by 192.0.2.1"

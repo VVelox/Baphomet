@@ -8,19 +8,20 @@ rev: 2
 msg: "[SOLID-POP3D] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - solid-pop3d
-message_regexp:
-  - '^authentication failed: (?:no such user|can''t map user name): .*? - %%%%SRC%%%%$'
-  - '^(?:APOP )?authentication failed for (?:mapped )?user .*? - %%%%SRC%%%%$'
-  - '^root login not allowed - %%%%SRC%%%%$'
-  - '^can''t find APOP secret for user .*? - %%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - solid-pop3d
+  - message_regexp:
+      - '^authentication failed: (?:no such user|can''t map user name): .*? - %%%%SRC%%%%$'
+      - '^(?:APOP )?authentication failed for (?:mapped )?user .*? - %%%%SRC%%%%$'
+      - '^root login not allowed - %%%%SRC%%%%$'
+      - '^can''t find APOP secret for user .*? - %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Nov 15 00:34:53 rmc1pt2-2-35-70 solid-pop3d[3822]: authentication failed: no such user: adrian - 123.33.44.45"

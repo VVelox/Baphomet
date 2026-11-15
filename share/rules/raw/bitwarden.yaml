@@ -8,14 +8,15 @@ rev: 2
 msg: "[BITWARDEN] identity login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{2}:\d{2})?(?: \S+ Bitwarden-Identity\[\d+\]:)?\s*\[(?:W(?:RN|arning)|Bit\.Core\.[^\]]+)\]\s+Failed login attempt(?:, 2FA invalid)?\. %%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{2}:\d{2})?(?: \S+ Bitwarden-Identity\[\d+\]:)?\s*\[(?:W(?:RN|arning)|Bit\.Core\.[^\]]+)\]\s+Failed login attempt(?:, 2FA invalid)?\. %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "2019-11-26 01:04:49.008 +08:00 [WRN] Failed login attempt. 192.168.0.16"

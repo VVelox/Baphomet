@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::Country;
+package App::Baphomet::Gate::country;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -10,7 +10,7 @@ use App::Baphomet::Shape qw( check_hash );
 
 =head1 NAME
 
-App::Baphomet::Gate::Country - The country gate, narrowing a offense by geography.
+App::Baphomet::Gate::country - The country gate, narrowing a offense by geography.
 
 =head1 VERSION
 
@@ -23,8 +23,9 @@ our $VERSION = '0.0.1';
 =head1 SYNOPSIS
 
     rule_gates:
-      - country: { isnot: [ US, '%%%country_codes{allies}%%%' ] }
       - country: { is: GB, vars: [ dest ] }
+      - ban_var: [ SRC ]
+      - country: { isnot: [ US, '%%%country_codes{allies}%%%' ] }
 
 =head1 DESCRIPTION
 

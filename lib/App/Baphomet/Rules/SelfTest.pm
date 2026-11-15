@@ -4,13 +4,12 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Exporter               qw( import );
-use Ref::Util              qw( is_plain_arrayref is_plain_hashref );
-use List::Util             qw( all );
-use App::Baphomet::Parser  ();
-use App::Baphomet::Tracks  qw( track_get );
-use App::Baphomet::Gate    qw( bind_rule_gates );
-use App::Baphomet::Offense ();
+use Exporter              qw( import );
+use Ref::Util             qw( is_plain_arrayref is_plain_hashref );
+use List::Util            qw( all );
+use App::Baphomet::Parser ();
+use App::Baphomet::Tracks qw( track_get );
+use App::Baphomet::Gate   qw( bind_rule_gates walk_offense );
 
 our @EXPORT_OK = qw( run_tests );
 
@@ -46,10 +45,10 @@ the tests section of F<docs/rules.md>,
 L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#tests>.
 
 L</run_tests> takes the rule as its first argument and
-L<App::Baphomet::Rules::Base> imports it, which makes it a method of every
-rule. It drives the rule through C<check> and the rule's own getters, the
-same way the galla does, and shares L<App::Baphomet::Offense> with it so the
-self-test can not drift from the engine.
+L<App::Baphomet::Rule> imports it, which makes it a method of every rule.
+It takes each line down the rule's gates the same way the galla does, with
+L<App::Baphomet::Rule/walk_line> and L<App::Baphomet::Gate/walk_offense>,
+so the self-test can not drift from the engine.
 
 =head1 FUNCTIONS
 
@@ -66,9 +65,9 @@ on test failures... that is the caller's call to make.
 
     my $results = $rule->run_tests;
 
-Each test entry runs the galla's own order per message... parse, match,
-the rule's gates, the mark ones against a throwaway store, then the rule's
-brands applied, so C<found> counts what would really have fired. The
+Each test entry runs the galla's own order per message... parse, then the
+rule's gates in the order it wrote them, the mark ones against a throwaway
+store, so C<found> counts what would really have fired. The
 store starts empty per entry, seedable via C<marks_before> (each
 C<< {name, key, value?, set?, ttl?} >>, C<key> a string or a list joined
 as a C<vars> compound is), and assertable after the run via
@@ -79,10 +78,9 @@ found_after?, marks_after?, tracked_after?} >> to steer it and assert
 mid-run.
 
 The gates are bound and asked as the galla binds and asks them, through
-L<App::Baphomet::Gate>, once for the result and once for each offender. One
-that can not judge with out something no fixture stands in for goes
-unjudged, which namtar_list and active_time always do, their lists and
-windows being config a rule file has none of.
+L<App::Baphomet::Gate>. One that can not judge with out something no
+fixture stands in for goes unjudged, which namtar_list and active_time
+always do, their lists and windows being config a rule file has none of.
 
 The tracked-record store gets the same treatment, a throwaway per entry
 seedable via C<tracked_before> (each C<< {name, key, fields, ttl?} >>) and
@@ -115,9 +113,9 @@ sub run_tests {
 	# correlation scope, but the per-object stores outlive a single run... so a
 	# repeat call (load validates once, a harness may run again) could inherit a
 	# half-built staged sequence or correlation window under a reused scope and
-	# complete it spuriously. reset them so run_tests is idempotent
-	$self->{stage_state} = {};
-	$self->{correlation} = { 'context' => {}, 'pending' => {} };
+	# complete it spuriously. swept as of the end of time, which everything
+	# held has expired by, so run_tests is idempotent
+	$self->sweep_state( 9**9**9 );
 
 	my $tests = $self->{def}{tests};
 	if ( !is_plain_hashref($tests) ) {
@@ -138,10 +136,11 @@ sub run_tests {
 	# the log and not on the pattern, which no reading of the rule can settle...
 	# so this is a warning and not a failure, and the rule loads either way. A
 	# tests.injection entry answers it, whichever way the answer goes.
-	if ( $self->{needs_injection_test} && !is_plain_arrayref( $tests->{injection} ) ) {
+	my ($open_to_injection) = grep { defined($_) } map { $_->{open_to_injection} } @{ $self->rule_gates };
+	if ( defined($open_to_injection) && !is_plain_arrayref( $tests->{injection} ) ) {
 		push(
 			@{ $results->{warnings} },
-			$self->{needs_injection_test}
+			$open_to_injection
 				. ' is reached over a lazy wildcard with nothing anchoring it, so the first candidate on the'
 				. ' line wins. If a client can write ahead of the real field they choose who is banned.'
 				. ' A tests.injection entry settles whether that is reachable here'
@@ -243,8 +242,8 @@ sub run_tests {
 				}
 			}
 
-			# the rule's gates, bound over that and sorted by the pass each is
-			# asked in, as the galla binds them... less any that can not judge
+			# the rule's gates, bound over that and sorted by phase, as the
+			# galla binds them... less any that can not judge
 			# with out something no fixture stands in for, which go unjudged
 			# here. namtar_list and active_time are always among those, as they
 			# resolve against a watcher's lists and windows and a rule file has
@@ -260,10 +259,6 @@ sub run_tests {
 				push( @{ $results->{failures} }, $where . ' has a gate that did not bind... ' . $caught );
 				next TEST;
 			}
-
-			my $marks        = $self->marks;
-			my $unmarks      = $self->unmarks;
-			my $is_detection = $self->is_detection;
 
 			my @found_all;
 			my $message_index = -1;
@@ -317,63 +312,34 @@ sub run_tests {
 				# the line context a staged rule's skip bound reads... the
 				# message index is the sequence with in the test entry, and
 				# now the virtual clock, so windows prove deterministically
-				my $found = $self->check(
-					$parsed,
+				my $offenses = $self->walk_line(
+					$gates, $parsed,
 					$test_scope,
 					{
 						'seq'    => $message_index,
 						'source' => '',
 						'now'    => $clock,
-						# the throwaway record store, the seam the tracked
-						# clause and the track sweep both read... a rule that
-						# tracks proves it cold, the same way branding does
+						# the throwaway record store, what the tracked and
+						# track gates both read... a rule that tracks proves
+						# it cold, the same way branding does
 						'tracked' => \%tracked_store,
 					}
 				);
 
 				# a capture line may have completed several deferred offenses
-				my @results_of_line;
-				if ( defined($found) ) {
-					@results_of_line = ( $found, is_plain_arrayref( $found->{more} ) ? @{ $found->{more} } : () );
-				}
-				foreach my $one (@results_of_line) {
-					my $data = $one->{data};
-
-					# the gates of the result pass vet the result once, over the
-					# virtual clock as it stands... a vetoed result did not fire, so
-					# it is neither branded nor counted as found
-					if ( !all { $_->holds( $data, undef, $clock ) } @{ $gates->{result} } ) {
-						next;
-					}
-
-					# offenders as the galla resolves them, sans the
-					# usedns/internal filtering no test needs... a detection
-					# rule has none
-					my @offenders;
-					if ( !$is_detection ) {
-						@offenders = grep { defined($_) } map { $data->{$_} } $self->ban_var;
-					}
-
-					# the survivor filter and the branding of survivors run
-					# through the shared App::Baphomet::Offense core, the same
-					# the galla uses, so the self-test can not drift from the
-					# engine... the gates of the offender pass vet each offender
-					my $offense = App::Baphomet::Offense::resolve_offense(
-						'store'     => \%marks_store,
-						'marks'     => $marks,
-						'unmarks'   => $unmarks,
-						'data'      => $data,
-						'offenders' => \@offenders,
-						'now'       => $clock,
-						'gate'      => sub {
-							my ($ip) = @_;
-							return all { $_->holds( $data, $ip, $clock ) } @{ $gates->{offender} };
-						},
-					);
-					if ( $offense->{fired} ) {
+				foreach my $one ( @{$offenses} ) {
+					# the offense goes down the gates of the offense phase as it
+					# does in the galla, over the virtual clock as it stands... the
+					# ones that read it, the naming of who it counts against, the
+					# ones keyed by the offender, and the brands. a vetoed offense
+					# did not fire, so it is neither branded nor counted as found
+					$one->{now}    = $clock;
+					$one->{set}    = [];
+					$one->{lifted} = [];
+					if ( walk_offense( $gates, $one ) ) {
 						push( @found_all, $one );
 					}
-				} ## end foreach my $one (@results_of_line)
+				} ## end foreach my $one ( @{$offenses} )
 
 				# the mid-run assertions a hash entry carries
 				my $after_where = $where . ' after message ' . $message_index;

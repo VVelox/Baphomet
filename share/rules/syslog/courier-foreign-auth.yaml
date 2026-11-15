@@ -16,21 +16,21 @@ rev: 1
 msg: "[COURIER] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
-message_regexp:
-  # success and failure in one shape... the FAILED is the only difference
-  - '^LOGIN(?: FAILED)?, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+src_ip_var: SRC
+max_score: 1
 rule_gates:
+  - daemons:
+      - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
+  - message_regexp:
+      # success and failure in one shape... the FAILED is the only difference
+      - '^LOGIN(?: FAILED)?, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

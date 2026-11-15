@@ -15,12 +15,13 @@ severity: info
 classtype: system-event
 references:
   - http://www.huaweisymantec.com/en/download.do?id=658891
-message_regexp:
-  - 'SHELL/\d/CMD\S*:.*?\buser:(?<USER>\S+)\s+command:'
-  - 'SSH/\d/add_success\S*:.*?\buser (?<USER>\S+)'
 user_var: USER
-detection_var:
-  - USER
+rule_gates:
+  - message_regexp:
+      - 'SHELL/\d/CMD\S*:.*?\buser:(?<USER>\S+)\s+command:'
+      - 'SSH/\d/add_success\S*:.*?\buser (?<USER>\S+)'
+  - detection_var:
+      - USER
 tests:
   positive:
     - message: 'Jul 12 08:15:50 sw01 %%01SHELL/4/CMD(l): task:vt0 ip:192.168.1.10 user:admin command:system-view'

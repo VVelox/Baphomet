@@ -5,16 +5,17 @@ rev: 2
 msg: "[GSSFTPD] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - ftpd
-message_regexp:
-  - '^repeated login failures from %%%%SRC%%%% \(\S+\)$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - ftpd
+  - message_regexp:
+      - '^repeated login failures from %%%%SRC%%%% \(\S+\)$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jan 22 18:09:46 host ftpd[132]: repeated login failures from 198.51.100.23 (example.com)"

@@ -19,16 +19,17 @@ severity: high
 classtype: brute-force
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-113005: AAA user authentication Rejected\s*:.* user IP = %%%%SRC%%%%'
-  - '%(?:ASA|PIX|FWSM)-\d-605004: Login denied from %%%%SRC%%%%/\d+'
-  - '%(?:ASA|PIX|FWSM)-\d-710003: (?:TCP|UDP) access denied by ACL from %%%%SRC%%%%/\d+'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-113005: AAA user authentication Rejected\s*:.* user IP = %%%%SRC%%%%'
+      - '%(?:ASA|PIX|FWSM)-\d-605004: Login denied from %%%%SRC%%%%/\d+'
+      - '%(?:ASA|PIX|FWSM)-\d-710003: (?:TCP|UDP) access denied by ACL from %%%%SRC%%%%/\d+'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %ASA-6-113005: AAA user authentication Rejected : reason = AAA failure : server = 10.1.1.10 : user = admin : user IP = 192.0.2.5'

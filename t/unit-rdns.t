@@ -1,5 +1,5 @@
 #!perl
-# direct unit tests for App::Baphomet::Gate::ReverseDns, the reverse_dns
+# direct unit tests for App::Baphomet::Gate::reverse_dns, the reverse_dns
 # gate... a mock resolver pair stands in for the cached lookups, so the whole
 # (outcome x knob x negate) decision tree is walked with out a galla or a
 # live nameserver
@@ -8,7 +8,7 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Gate::ReverseDns qw( rdns_addr_eq );
+use App::Baphomet::Gate::reverse_dns qw( rdns_addr_eq );
 
 # a resolver over fixture maps... a arrayref of names/addresses, the empty
 # arrayref for authoritative absence (nxdomain), or undef for a failure
@@ -26,7 +26,7 @@ sub resolver {
 sub rdns_gate {
 	my ( $args, $resolver ) = @_;
 
-	my $gate = App::Baphomet::Gate::ReverseDns->new( 'type' => 'reverse_dns', 'args' => $args, 'where' => 'the gate' );
+	my $gate = App::Baphomet::Gate::reverse_dns->new( 'type' => 'reverse_dns', 'args' => $args, 'where' => 'the gate' );
 	return $gate->bound( { 'resolver' => sub { return $resolver; } }, 'the rule "x"' );
 }
 
@@ -44,7 +44,7 @@ ok( !rdns_addr_eq( '1.2.3.4',    '::1' ),             'no common family is not e
 # compile... the defaults, the pass, and a matches that does not compile
 #
 
-my $compiled = App::Baphomet::Gate::ReverseDns->new(
+my $compiled = App::Baphomet::Gate::reverse_dns->new(
 	'type'  => 'reverse_dns',
 	'args'  => { 'matches' => '\.crawler\.example$' },
 	'where' => 'the gate'
@@ -58,7 +58,7 @@ is_deeply( [ $compiled->needs ], ['resolver'], 'it needs the resolver' );
 
 ok(
 	!eval {
-		App::Baphomet::Gate::ReverseDns->new(
+		App::Baphomet::Gate::reverse_dns->new(
 			'type'  => 'reverse_dns',
 			'args'  => { 'matches' => '(' },
 			'where' => 'the gate'

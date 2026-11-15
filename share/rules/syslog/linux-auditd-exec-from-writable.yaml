@@ -11,16 +11,17 @@ rev: 1
 msg: "[AUDITD] execution from a writable directory... possible payload"
 severity: high
 classtype: trojan-activity
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>/(?:tmp|var/tmp|dev/shm)/[^"]+)"'
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)".*\bkey="susp_exec"'
-detection_var:
-  - EXE
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>/(?:tmp|var/tmp|dev/shm)/[^"]+)"'
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)".*\bkey="susp_exec"'
+  - detection_var:
+      - EXE
 tests:
   positive:
     # a binary run straight out of /tmp

@@ -27,12 +27,13 @@ make_path( $dir . '/rules/syslog', $dir . '/rules/json', $dir . '/run', $dir . '
 open( my $fh, '>', $dir . '/rules/syslog/sshd.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -53,14 +54,15 @@ references:
   - "https://example.com/app-auth"
 attack:
   - T1110
-gate:
-  - field: event
-    values: [ authfail ]
-match:
-  - field: src
-    regexp: '^%%%%SRC%%%%$'
-ban_var:
-  - SRC
+rule_gates:
+  - gate:
+      - field: event
+        values: [ authfail ]
+  - match:
+      - field: src
+        regexp: '^%%%%SRC%%%%$'
+  - ban_var:
+      - SRC
 EOR
 close($fh);
 
@@ -178,8 +180,8 @@ is( $f->{rev}, 0, 'rev defaults to 0 when the rule sets none' );
 
 # rule info present but without the tests
 is( $f->{rule}{name}, 'syslog/sshd', 'rule name' );
-ok( defined( $f->{rule}{def}{message_regexp} ), 'rule def present' );
-ok( !exists( $f->{rule}{def}{tests} ),          'rule tests stripped for space' );
+ok( defined( $f->{rule}{def}{rule_gates} ), 'rule def present' );
+ok( !exists( $f->{rule}{def}{tests} ),      'rule tests stripped for space' );
 
 # the banish event... it stands for the crossing line whole, carrying the
 # same raw/parsed/found the suppressed found would have

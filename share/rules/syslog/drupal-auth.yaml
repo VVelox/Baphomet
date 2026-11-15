@@ -14,16 +14,17 @@ rev: 2
 msg: "[DRUPAL] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - //.//
-message_regexp:
-  - '^https?://[^|]+\|[^|]+\|[^|]+\|%%%%SRC%%%%\|(?:[^|]*\|)*Login attempt failed (?:for|from) [^|]+\.$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - //.//
+  - message_regexp:
+      - '^https?://[^|]+\|[^|]+\|[^|]+\|%%%%SRC%%%%\|(?:[^|]*\|)*Login attempt failed (?:for|from) [^|]+\.$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Apr 26 13:15:25 webserver example.com: https://example.com|1430068525|user|1.2.3.4|https://example.com/?q=user|https://example.com/?q=user|0||Login attempt failed for drupaladmin."

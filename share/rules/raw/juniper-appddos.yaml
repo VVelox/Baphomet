@@ -12,10 +12,11 @@ rev: 1
 msg: "[JUNIPER] AppDDoS application attack/state transition"
 severity: high
 classtype: suspicious-traffic
-detection_var:
-  - APP
-message_regexp:
-  - 'IDP_APPDDOS_APP_(?:ATTACK|STATE)_EVENT(?:_LS)?:.*?application (?<APP>\S+)'
+rule_gates:
+  - message_regexp:
+      - 'IDP_APPDDOS_APP_(?:ATTACK|STATE)_EVENT(?:_LS)?:.*?application (?<APP>\S+)'
+  - detection_var:
+      - APP
 tests:
   positive:
     - message: "Jul 12 04:10:00 srx01 RT_IDP: IDP_APPDDOS_APP_STATE_EVENT: AppDDoS: at 1752307800, application http-srv context http-get-url of protocol HTTP moved from normal to attack state, connection rate 1200 conn/sec"

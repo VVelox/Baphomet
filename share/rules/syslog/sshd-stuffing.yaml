@@ -37,21 +37,6 @@ severity: high
 classtype: brute-force
 attack:
   - T1110.004
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-# the same failures syslog/sshd reads, with the account captured rather than
-# stepped over... the shapes syslog/sshd-mark-users and -spray already use
-message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
 # the score is the number of distinct accounts, keyed by the offending source
 distinct:
   of: USER
@@ -60,8 +45,24 @@ find_time: 3600
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  # the same failures syslog/sshd reads, with the account captured rather than
+  # stepped over... the shapes syslog/sshd-mark-users and -spray already use
+  - message_regexp:
+      - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+      - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
+      - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
+      - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     # one per pattern, each proving the account and the source come out right...

@@ -75,7 +75,7 @@ supported log source the translation is mechanical.
 4. **Carry the metadata.** `title`/`description` to `msg`, `level` to
    `severity`, `tags` to `attack`, `references` to `references`.
 5. **Choose ban or detect.** A Sigma rule alerts, it does not firewall, so it
-   is naturally a detection rule... `detection_var: [ SRC ]`, writing
+   is naturally a detection rule... a `detection_var: [ SRC ]` gate, writing
    `sighting`/`sighted` to EVE and banishing nobody. Name a `ban_var` instead
    to turn the signature into a ban. This is the one real choice the port asks,
    the same as coming from [sagan](sagan.md).

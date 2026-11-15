@@ -18,20 +18,20 @@ rev: 3
 msg: "[VSFTPD] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: successful-user
-daemons:
-  - vsftpd
-mungers:
-  - vsftpd
-message_regexp:
-  - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+src_ip_var: SRC
+user_var: vsftpd_user
+max_score: 1
 rule_gates:
+  - daemons:
+      - vsftpd
+  - mungers:
+      - vsftpd
+  - message_regexp:
+      - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
   - marked:
       names: [ brute_force, recon, exploit_attempt, honeypot ]
       var: SRC
-src_ip_var: SRC
-user_var: vsftpd_user
-detection_var: [ SRC ]
-max_score: 1
+  - detection_var: [ SRC ]
 tests:
   positive:
     # any one of the standard brands satisfies the any-of gate

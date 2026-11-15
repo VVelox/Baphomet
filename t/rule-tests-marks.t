@@ -8,18 +8,19 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule ();
 
+# what a rule here names its offender with... where in the list it sits is
+# the caller's to say, a gate on a var going ahead of it, and one on the
+# offender, a mark, and a unmark behind it
+my $ban_gate = { ban_var => ['ip'] };
+
+# every rule here leads with the one gate, and the rest of its list is the
+# passed rule_gates
 sub results_for {
 	my (%def) = @_;
-	my $rule = App::Baphomet::Rules::JSON->new(
-		name => 'json/x',
-		def  => {
-			gate    => [ { field => 'event', values => ['fail'] } ],
-			ban_var => ['ip'],
-			%def,
-		}
-	);
+	$def{rule_gates} = [ { gate => [ { field => 'event', values => ['fail'] } ] }, @{ $def{rule_gates} } ];
+	my $rule = App::Baphomet::Rule->new( name => 'json/x', def => \%def );
 	return $rule->run_tests;
 }
 
@@ -35,7 +36,7 @@ sub line {
 #
 
 my $gated = results_for(
-	rule_gates => [ { marked => { name => 'known', var => 'ip' } } ],
+	rule_gates => [ { marked => { name => 'known', var => 'ip' } }, $ban_gate ],
 	tests  => {
 		positive => [
 			{
@@ -62,7 +63,7 @@ is( $gated->{pass}, 3, 'all three gate tests counted' );
 #
 
 my $valued = results_for(
-	rule_gates => [ { marked => { name => 'acct', var => 'user', value_not => 'ip' } } ],
+	rule_gates => [ { marked => { name => 'acct', var => 'user', value_not => 'ip' } }, $ban_gate ],
 	tests  => {
 		positive => [
 			{
@@ -86,8 +87,8 @@ is( $valued->{fail}, 0, 'value_not proves both ways from the seed' ) || diag( jo
 #
 
 my $branded = results_for(
-	mark  => [ { name => 'pair', ttl => 60, vars => [ 'ip', 'user' ], value_var => 'ip' } ],
-	tests => {
+	rule_gates => [ $ban_gate, { mark => { name => 'pair', ttl => 60, vars => [ 'ip', 'user' ], value_var => 'ip' } } ],
+	tests      => {
 		positive => [
 			{
 				message        => line( event => 'fail', ip => '3.3.3.3', user => 'bob' ),
@@ -109,7 +110,7 @@ is( $branded->{fail}, 0, 'marks_expected proves the vars brand, its value, and t
 #
 
 my $expired = results_for(
-	rule_gates => [ { marked => { name => 'known', var => 'ip' } } ],
+	rule_gates => [ { marked => { name => 'known', var => 'ip' } }, $ban_gate ],
 	tests  => {
 		negative => [
 			{
@@ -129,7 +130,7 @@ is( $expired->{fail}, 0, 'the clock expires a seeded brand past its ttl' )
 	|| diag( join( "\n", @{ $expired->{failures} } ) );
 
 my $sequenced = results_for(
-	rule_gates => [ { sequence => { marks => [ 'stage1', 'stage2' ], var => 'ip' } } ],
+	rule_gates => [ { sequence => { marks => [ 'stage1', 'stage2' ], var => 'ip' } }, $ban_gate ],
 	tests    => {
 		positive => [
 			{
@@ -162,7 +163,7 @@ is( $sequenced->{fail}, 0, 'the sequence gate proves ordering from seeded set ti
 #
 
 my $by_offender = results_for(
-	rule_gates => [ { marked => { name => 'known' } } ],
+	rule_gates => [ $ban_gate, { marked => { name => 'known' } } ],
 	tests      => {
 		positive => [
 			{
@@ -187,13 +188,13 @@ is( $by_offender->{pass}, 3, 'all three offender tests counted' );
 
 # what the galla would not count, a rule's own tests may not claim
 my $claimed = results_for(
-	rule_gates => [ { marked => { name => 'known' } } ],
+	rule_gates => [ $ban_gate, { marked => { name => 'known' } } ],
 	tests      => { positive => [ { message => line( event => 'fail', ip => '1.2.3.4' ) } ] },
 );
 is( $claimed->{fail}, 1, 'a test expecting a unbranded offender to count fails' );
 
 my $spared = results_for(
-	rule_gates => [ { not_marked => { name => 'known' } } ],
+	rule_gates => [ $ban_gate, { not_marked => { name => 'known' } } ],
 	tests      => {
 		positive => [ { message => line( event => 'fail', ip => '1.2.3.4' ) } ],
 		negative => [
@@ -210,8 +211,8 @@ is( $spared->{fail}, 0, 'a not_marked gate keyed by the offender counts a unbran
 # a rule gated on the brand it sets... the first line counts and brands the
 # offender, and the second is vetoed for it
 my $once = results_for(
-	mark       => [ { name => 'counted', ttl => 3600 } ],
-	rule_gates => [ { not_marked => { name => 'counted' } } ],
+	rule_gates =>
+		[ $ban_gate, { not_marked => { name => 'counted' } }, { mark => { name => 'counted', ttl => 3600 } } ],
 	tests      => {
 		positive => [
 			{
@@ -233,9 +234,9 @@ is( $once->{fail}, 0, 'a brand one line sets on the offender vetoes the next' )
 #
 
 my $staged = results_for(
-	mark_only => 1,
-	mark      => [ { name => 'seen', ttl => 3600, var => 'ip' } ],
-	tests     => {
+	mark_only  => 1,
+	rule_gates => [ $ban_gate, { mark => { name => 'seen', ttl => 3600, var => 'ip' } } ],
+	tests      => {
 		positive => [
 			{
 				found    => 2,
@@ -291,7 +292,7 @@ foreach my $broken (
 	},
 	)
 {
-	my $broken_results = results_for( tests => $broken->{tests} );
+	my $broken_results = results_for( rule_gates => [$ban_gate], tests => $broken->{tests} );
 	cmp_ok( $broken_results->{fail}, '>', 0, 'a typo in ' . $broken->{desc} . ' fails the tests' );
 }
 

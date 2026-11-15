@@ -7,17 +7,18 @@ rev: 2
 msg: "[PERDITION] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - '//^perdition\.//'
-message_regexp:
-  - '^Auth: %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+ client-secure=\S+ authorisation_id=NONE authentication_id=".+" server="\S+" protocol=\S+ server-secure=\S+ status="failed: (?:local authentication failure|Re-Authentication Failure)"$'
-  - '^Fatal Error reading authentication information from client %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+: Exiting child$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - '//^perdition\.//'
+  - message_regexp:
+      - '^Auth: %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+ client-secure=\S+ authorisation_id=NONE authentication_id=".+" server="\S+" protocol=\S+ server-secure=\S+ status="failed: (?:local authentication failure|Re-Authentication Failure)"$'
+      - '^Fatal Error reading authentication information from client %%%%SRC%%%%:\d+->(?:\d{1,3}\.){3}\d{1,3}:\d+: Exiting child$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 18 16:07:18 ares perdition.imaps[3194]: Auth: 192.168.8.100:2274->193.48.191.9:993 client-secure=ssl authorisation_id=NONE authentication_id=\"carles\" server=\"imap.biotoul.fr:993\" protocol=IMAP4S server-secure=ssl status=\"failed: Re-Authentication Failure\""

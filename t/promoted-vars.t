@@ -25,15 +25,16 @@ make_path( $dir . '/rules/raw', $dir . '/rules/json', $dir . '/run' );
 open( my $fh, '>', $dir . '/rules/raw/flow.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - '^conn %%%%SRC%%%%:(?<SPORT>\d+) -> %%%%DEST%%%%:(?<DPORT>\d+) user (?<USER>\S+)$'
-ban_var:
-  - SRC
 src_ip_var: SRC
 dest_ip_var: DEST
 src_port_var: SPORT
 dest_port_var: DPORT
 user_var: USER
+rule_gates:
+  - message_regexp:
+      - '^conn %%%%SRC%%%%:(?<SPORT>\d+) -> %%%%DEST%%%%:(?<DPORT>\d+) user (?<USER>\S+)$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "conn 192.0.2.5:4444 -> 198.51.100.9:22 user alice"
@@ -52,10 +53,11 @@ close($fh);
 open( $fh, '>', $dir . '/rules/raw/bare.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - '^bare thing from %%%%SRC%%%%$'
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^bare thing from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "bare thing from 192.0.2.6"
@@ -70,11 +72,12 @@ close($fh);
 open( $fh, '>', $dir . '/rules/json/flow.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-gate:
-  - field: event_type
-    values: [ alert ]
-ban_var:
-  - src_ip
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+  - ban_var:
+      - src_ip
 tests:
   positive:
     - message: '{"event_type":"alert","src_ip":"203.0.113.8","src_port":51000,"dest_ip":"198.51.100.9","dest_port":443,"user":"bob"}'
@@ -202,7 +205,8 @@ my $vrules = App::Baphomet::Rules->new( rules_dir => $vdir, shipped => 0 );
 
 foreach my $key ( 'src_ip_var', 'dest_ip_var', 'src_port_var', 'dest_port_var', 'user_var' ) {
 	open( my $vfh, '>', $vdir . '/raw/bad.yaml' ) || die($!);
-	print $vfh "---\nmessage_regexp:\n  - 'from %%%%SRC%%%%'\nban_var:\n  - SRC\n" . $key . ": ''\n";
+	print $vfh "---\nrule_gates:\n  - message_regexp:\n      - 'from %%%%SRC%%%%'\n  - ban_var:\n      - SRC\n";
+	print $vfh $key . ": ''\n";
 	close($vfh);
 	ok( !eval { $vrules->load('raw/bad'); 1 }, 'an empty ' . $key . ' refuses to load' );
 	like( $@, qr/\Q$key\E/, 'and the error names it' );

@@ -9,46 +9,47 @@ rev: 5
 msg: "[SSHD] pre-auth abuse / negotiation probe (aggressive)"
 severity: medium
 classtype: network-scan
-mark:
-  - name: recon
-    ttl: 86400
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-capture_regexp:
-  - regexp: '^Connection from %%%%SRC%%%% port \d+'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    ttl: 120
-  - regexp: '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*$'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    ttl: 120
-message_regexp:
-  - '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]\s*$'
-  # session-ending protocol faults and the login grace timeout, which carry
-  # their own address (fail2ban ddos mode)
-  - '^(?:(?:error|fatal): )?ssh_dispatch_run_fatal: Connection from %%%%SRC%%%%(?: port \d+)?: (?:message authentication code incorrect|[cC]onnection corrupted) \[preauth\]\s*$'
-  - '^(?:(?:error|fatal): )?Timeout before authentication for(?: connection from)? %%%%SRC%%%%(?: port \d+\s*$| to )'
-  - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
-  - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
-  - regexp: '^(?:(?:error|fatal): )?kex_exchange_identification: (?:read: )?(?:[cC]lient sent invalid protocol identifier|[cC]onnection (?:closed by remote host|reset by peer))'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 120
-  - regexp: '^(?:(?:error|fatal): )?Read from socket failed: Connection reset by peer'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 120
-  - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 120
-  - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 120
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: ssh_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  - capture_regexp:
+      - regexp: '^Connection from %%%%SRC%%%% port \d+'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        ttl: 120
+      - regexp: '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*$'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        ttl: 120
+  - message_regexp:
+      - '^(?:Connection (?:closed|reset)|Disconnected) (?:by|from)(?: (?:invalid|authenticating) user .*?)? %%%%SRC%%%%(?: port \d+)?\s*\[preauth\]\s*$'
+      # session-ending protocol faults and the login grace timeout, which carry
+      # their own address (fail2ban ddos mode)
+      - '^(?:(?:error|fatal): )?ssh_dispatch_run_fatal: Connection from %%%%SRC%%%%(?: port \d+)?: (?:message authentication code incorrect|[cC]onnection corrupted) \[preauth\]\s*$'
+      - '^(?:(?:error|fatal): )?Timeout before authentication for(?: connection from)? %%%%SRC%%%%(?: port \d+\s*$| to )'
+      - '^(?:(?:error|fatal): )?Received disconnect from %%%%SRC%%%%(?: port \d+)?:\s*14: No(?: supported)? authentication methods available'
+      - '^(?:(?:error|fatal): )?Unable to negotiate with %%%%SRC%%%%(?: port \d+)?: no matching .+ found'
+      - regexp: '^(?:(?:error|fatal): )?kex_exchange_identification: (?:read: )?(?:[cC]lient sent invalid protocol identifier|[cC]onnection (?:closed by remote host|reset by peer))'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 120
+      - regexp: '^(?:(?:error|fatal): )?Read from socket failed: Connection reset by peer'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 120
+      - regexp: '^(?:(?:error|fatal): )?Unable to negotiate a .+'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 120
+      - regexp: '^(?:(?:error|fatal): )?no matching .+? found: client'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 120
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     # one from each half... the annotated coverage lives in the two rules

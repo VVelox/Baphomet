@@ -13,16 +13,17 @@ rev: 1
 msg: "[AUDITD] dynamic-linker preload config touched... possible rootkit"
 severity: critical
 classtype: trojan-activity
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<TARGET>/etc/ld\.so\.(?:preload|conf)[^"]*)"'
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<TARGET>[^"]+)".*\bkey="ldpreload"'
-detection_var:
-  - TARGET
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<TARGET>/etc/ld\.so\.(?:preload|conf)[^"]*)"'
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<TARGET>[^"]+)".*\bkey="ldpreload"'
+  - detection_var:
+      - TARGET
 tests:
   positive:
     # the file itself being written, seen as a PATH record

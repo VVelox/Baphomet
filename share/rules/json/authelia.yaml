@@ -10,18 +10,19 @@ rev: 1
 msg: "[AUTHELIA] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-gate:
-  - field: msg
-    values: [ "//^Unsuccessful \\S+ authentication attempt by user //" ]
-match:
-  - field: remote_ip
-    regexp: '^%%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - gate:
+      - field: msg
+        values: [ "//^Unsuccessful \\S+ authentication attempt by user //" ]
+  - match:
+      - field: remote_ip
+        regexp: '^%%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: '{"error":"authentication failed. Cause: error occurred performing bind: LDAP Result Code 49 \"Invalid Credentials\": ","level":"error","method":"POST","msg":"Unsuccessful 1FA authentication attempt by user ''example''","path":"/api/firstfactor","remote_ip":"192.0.2.4","time":"2025-06-24T15:49:10+02:00"}'

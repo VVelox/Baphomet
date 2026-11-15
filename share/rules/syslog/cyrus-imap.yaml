@@ -8,19 +8,20 @@ rev: 3
 msg: "[CYRUS] IMAP/POP3 login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
-mungers:
-  - cyrus
-message_regexp:
-  - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
 src_ip_var: SRC
 user_var: cyrus_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - '//^(?:cyrus/)?(?:imap(?:d|s)?|pop3(?:d|s)?)$//'
+  - mungers:
+      - cyrus
+  - message_regexp:
+      - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jan 4 21:51:05 hostname cyrus/imap[5355]: badlogin: localhost.localdomain [127.0.0.1] plaintext cyrus@localdomain SASL(-13): authentication failure: checkpass failed"

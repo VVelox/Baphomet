@@ -10,22 +10,23 @@ rev: 3
 msg: "[XINETD] connection failure"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-daemons:
-  - xinetd
-mungers:
-  - xinetd
-message_regexp:
-  - '^FAIL: \S+ address from=%%%%SRC%%%%$'
-  - '^FAIL: \S+ libwrap from=%%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
 max_score: 2
+rule_gates:
+  - daemons:
+      - xinetd
+  - mungers:
+      - xinetd
+  - message_regexp:
+      - '^FAIL: \S+ address from=%%%%SRC%%%%$'
+      - '^FAIL: \S+ libwrap from=%%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "May 15 17:38:49 boo xinetd[16256]: FAIL: telnet address from=198.51.100.169"

@@ -11,20 +11,21 @@ rev: 1
 msg: "[AUDITD] login-failure anomaly... account threshold crossed"
 severity: critical
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=ANOM_LOGIN_FAILURES msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b'
 src_ip_var: SRC
 user_var: audit_msg_acct
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=ANOM_LOGIN_FAILURES msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Nov 14 10:05:00 mail01 audisp-syslog[1300]: type=ANOM_LOGIN_FAILURES msg=audit(1700000100.1:500): pid=1 uid=0 auid=1000 ses=3 msg='op=pam_faillock acct=\"oracle\" exe=\"/usr/sbin/sshd\" hostname=? addr=198.51.100.7 terminal=ssh res=failed'"

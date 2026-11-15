@@ -8,14 +8,15 @@ rev: 3
 msg: "[ORACLEIMS] bad password auth failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^<co ts="%%%%TIMESTAMP_ISO8601%%%%".*? tr="[A-Z]+\|[0-9.]+\|\d+\|%%%%SRC%%%%\|\d+" ap="[^"]*" mi="Bad password" us="[^"]*" di="535 5\.7\.8 Bad username or password(?: \(Authentication failed\))?\."/>$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^<co ts="%%%%TIMESTAMP_ISO8601%%%%".*? tr="[A-Z]+\|[0-9.]+\|\d+\|%%%%SRC%%%%\|\d+" ap="[^"]*" mi="Bad password" us="[^"]*" di="535 5\.7\.8 Bad username or password(?: \(Authentication failed\))?\."/>$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: '<co ts="2014-06-02T16:06:33.99" pi="72aa.17f0.25622" sc="tcp_local" dr="+" ac="U" tr="TCP|192.245.12.223|25|89.96.245.78|4299" ap="SMTP" mi="Bad password" us="nic@transcend.com" di="535 5.7.8 Bad username or password (Authentication failed)."/>'

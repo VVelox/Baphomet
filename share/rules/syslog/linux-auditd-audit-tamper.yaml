@@ -12,17 +12,18 @@ rev: 1
 msg: "[AUDITD] audit subsystem tampered with"
 severity: high
 classtype: policy-violation
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=CONFIG_CHANGE msg=audit\([\d.]+:\d+\):(?=.*\bop=remove_rule\b).*\bauid=(?<SUBJECT>\d+)'
-  - '^type=CONFIG_CHANGE msg=audit\([\d.]+:\d+\):(?=.*\baudit_enabled=0\b).*\bauid=(?<SUBJECT>\d+)'
-  - '^type=DAEMON_ABORT msg=audit\([\d.]+:\d+\): .*\bop=(?<SUBJECT>\S+)'
-detection_var:
-  - SUBJECT
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=CONFIG_CHANGE msg=audit\([\d.]+:\d+\):(?=.*\bop=remove_rule\b).*\bauid=(?<SUBJECT>\d+)'
+      - '^type=CONFIG_CHANGE msg=audit\([\d.]+:\d+\):(?=.*\baudit_enabled=0\b).*\bauid=(?<SUBJECT>\d+)'
+      - '^type=DAEMON_ABORT msg=audit\([\d.]+:\d+\): .*\bop=(?<SUBJECT>\S+)'
+  - detection_var:
+      - SUBJECT
 tests:
   positive:
     - message: "Nov 14 10:20:00 mail01 audisp-syslog[1600]: type=CONFIG_CHANGE msg=audit(1700000004.1:904): auid=1000 ses=3 op=remove_rule key=\"identity\" list=4 res=1"

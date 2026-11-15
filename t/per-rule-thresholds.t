@@ -13,10 +13,10 @@ BEGIN {
 	}
 }
 
-use App::Baphomet::Galla       ();
-use App::Baphomet::Config      qw( load_config resolve_settings );
-use App::Baphomet::Rules::JSON ();
-use JSON::PP                   ();
+use App::Baphomet::Galla  ();
+use App::Baphomet::Config qw( load_config resolve_settings );
+use App::Baphomet::Rule   ();
+use JSON::PP              ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -53,15 +53,12 @@ is( $resolved->{default_severity}, 'high', 'watcher default_severity wins over k
 # rule def validation and the thresholds accessor
 #
 
-my $base_def = {
-	gate    => [ { field => 'which', values => ['x'] } ],
-	ban_var => ['src_ip'],
-};
+my $base_def = { rule_gates => [ { gate => [ { field => 'which', values => ['x'] } ] }, { ban_var => ['src_ip'] } ] };
 
-my $rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def} } );
+my $rule = App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def} } );
 is_deeply( $rule->thresholds, {}, 'a rule without overrides has empty thresholds' );
 
-$rule = App::Baphomet::Rules::JSON->new(
+$rule = App::Baphomet::Rule->new(
 	name => 'json/x',
 	def  => { %{$base_def}, max_score => 1, ban_time => 0 }
 );
@@ -69,7 +66,7 @@ is_deeply( $rule->thresholds, { max_score => 1, ban_time => 0 }, 'thresholds hol
 
 foreach my $bad ( { max_score => 0 }, { find_time => 'soon' }, { ban_time => -1 } ) {
 	my $err;
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, %{$bad} } ); };
+	eval { App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def}, %{$bad} } ); };
 	$err = $@;
 	like(
 		$err,
@@ -79,7 +76,7 @@ foreach my $bad ( { max_score => 0 }, { find_time => 'soon' }, { ban_time => -1 
 } ## end foreach my $bad ( { max_score => 0 }, { find_time...})
 
 # the metadata keys... accessors and validation
-$rule = App::Baphomet::Rules::JSON->new(
+$rule = App::Baphomet::Rule->new(
 	name => 'json/x',
 	def  => {
 		%{$base_def},
@@ -98,7 +95,7 @@ is_deeply( $rule->attack,     ['T1110'],    'attack accessor' );
 # the slug, the event gets the description
 is( $rule->category, 'Brute Force Attack', 'category accessor puts the classtype into words' );
 
-$rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def} } );
+$rule = App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def} } );
 is( $rule->severity,  undef, 'severity is undef when the rule sets none' );
 is( $rule->classtype, undef, 'classtype is undef when the rule sets none' );
 is( $rule->category,  undef, 'and category with it, there being no class to describe' );
@@ -117,7 +114,7 @@ foreach my $case (
 	)
 {
 	my ( $classtype, $expected ) = @{$case};
-	my $one = App::Baphomet::Rules::JSON->new(
+	my $one = App::Baphomet::Rule->new(
 		name => 'json/x',
 		def  => { %{$base_def}, classtype => $classtype }
 	);
@@ -132,7 +129,7 @@ foreach my $bad (
 	)
 {
 	my $err;
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base_def}, $bad->{key} => $bad->{val} } ); };
+	eval { App::Baphomet::Rule->new( name => 'json/x', def => { %{$base_def}, $bad->{key} => $bad->{val} } ); };
 	$err = $@;
 	like( $err, $bad->{re}, 'a bad ' . $bad->{key} . ' refuses to load' );
 } ## end foreach my $bad ( { key => 'severity', val => 'urgent'...})
@@ -151,7 +148,10 @@ my %rules = (
 );
 foreach my $name ( keys(%rules) ) {
 	open( my $fh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
-	print $fh "---\ngate:\n  - field: which\n    values: [ " . $name . " ]\nban_var:\n  - src_ip\n" . $rules{$name};
+	print $fh "---\nrule_gates:\n  - gate:\n      - field: which\n        values: [ "
+		. $name
+		. " ]\n  - ban_var:\n      - src_ip\n"
+		. $rules{$name};
 	close($fh);
 }
 

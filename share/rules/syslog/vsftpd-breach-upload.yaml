@@ -16,20 +16,20 @@ rev: 3
 msg: "[VSFTPD] upload by a branded source... the condemned is moving in"
 severity: critical
 classtype: successful-user
-daemons:
-  - vsftpd
-mungers:
-  - vsftpd
-message_regexp:
-  - '^(?:\[pid \d+\] )?\[[^\]]+\] OK UPLOAD: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+src_ip_var: SRC
+user_var: vsftpd_user
+max_score: 1
 rule_gates:
+  - daemons:
+      - vsftpd
+  - mungers:
+      - vsftpd
+  - message_regexp:
+      - '^(?:\[pid \d+\] )?\[[^\]]+\] OK UPLOAD: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
   - marked:
       names: [ brute_force, recon, exploit_attempt, honeypot ]
       var: SRC
-src_ip_var: SRC
-user_var: vsftpd_user
-detection_var: [ SRC ]
-max_score: 1
+  - detection_var: [ SRC ]
 tests:
   positive:
     - message: 'Jul 12 08:25:49 mail01 vsftpd[12345]: [pid 12345] [ftpuser] OK UPLOAD: Client "::ffff:192.0.2.60", "/srv/ftp/sh.php", 4823 bytes, 122.13Kbyte/sec'

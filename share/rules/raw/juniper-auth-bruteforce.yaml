@@ -15,17 +15,18 @@ rev: 1
 msg: "[JUNIPER] login failed - brute force"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - 'SSHD_LOGIN_FAILED: Login failed for user ''[^'']*'' from host ''%%%%SRC%%%%'''
-  - 'SSHD_LOGIN_FAILED_LIMIT: Login failure limit reached for user ''[^'']*'' from host ''%%%%SRC%%%%'''
-  - 'SSHD_LOGIN_FAILED \[junos@\S+ username="[^"]*" source-address="%%%%SRC%%%%"'
-  - 'LOGIN_FAILED: Login failed for user \S+ from host %%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - 'SSHD_LOGIN_FAILED: Login failed for user ''[^'']*'' from host ''%%%%SRC%%%%'''
+      - 'SSHD_LOGIN_FAILED_LIMIT: Login failure limit reached for user ''[^'']*'' from host ''%%%%SRC%%%%'''
+      - 'SSHD_LOGIN_FAILED \[junos@\S+ username="[^"]*" source-address="%%%%SRC%%%%"'
+      - 'LOGIN_FAILED: Login failed for user \S+ from host %%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 12 08:15:50 edge-r1 sshd[6123]: SSHD_LOGIN_FAILED: Login failed for user 'root' from host '203.0.113.45'"

@@ -7,20 +7,21 @@ rev: 3
 msg: "[POSTFIX] smtpd reject / abuse"
 severity: low
 classtype: misc-activity
-daemons:
-  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
-mungers:
-  - postfix
-message_regexp:
-  - '^\w+: (?:milter-)?reject: [A-Z]{4,} from [^\[]*\[%%%%SRC%%%%\](?::\d+)?: [45][50][04] [45]\.\d\.\d+ (?:(?:<[^>]*>)?: )?(?:(?:Helo command|(?:Sender|Recipient) address) rejected: )?(?:Service unavailable|Access denied|(?:Client host|Command|Data command) rejected|Relay access denied|Malformed DNS server reply|(?:Host|Domain) not found|need fully-qualified hostname|match|[Uu](?:ser unknown|ndeliverable address))\b'
-  # the queue id (or NOQUEUE) ahead and the "(N bytes)" postfix puts after a
-  # DATA are both optional. A pipelining line with anything after the address
-  # is left alone, which fail2ban's normal mode does count... see the negative
-  # tests.
-  - '^(?:\w+: )?(?:improper command pipelining|too many errors) after \S+(?: \(\d+ bytes\))? from [^\[]*\[%%%%SRC%%%%\](?::\d+)?:?\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
+  - mungers:
+      - postfix
+  - message_regexp:
+      - '^\w+: (?:milter-)?reject: [A-Z]{4,} from [^\[]*\[%%%%SRC%%%%\](?::\d+)?: [45][50][04] [45]\.\d\.\d+ (?:(?:<[^>]*>)?: )?(?:(?:Helo command|(?:Sender|Recipient) address) rejected: )?(?:Service unavailable|Access denied|(?:Client host|Command|Data command) rejected|Relay access denied|Malformed DNS server reply|(?:Host|Domain) not found|need fully-qualified hostname|match|[Uu](?:ser unknown|ndeliverable address))\b'
+      # the queue id (or NOQUEUE) ahead and the "(N bytes)" postfix puts after a
+      # DATA are both optional. A pipelining line with anything after the address
+      # is left alone, which fail2ban's normal mode does count... see the negative
+      # tests.
+      - '^(?:\w+: )?(?:improper command pipelining|too many errors) after \S+(?: \(\d+ bytes\))? from [^\[]*\[%%%%SRC%%%%\](?::\d+)?:?\s*$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Feb 21 09:21:54 xxx postfix/smtpd[14398]: NOQUEUE: reject: RCPT from example.com[192.0.43.10]: 450 4.7.1 : Helo command rejected: Host not found; from=<> to=<> proto=ESMTP helo="

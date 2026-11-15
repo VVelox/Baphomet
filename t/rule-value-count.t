@@ -26,15 +26,16 @@ make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
 open( my $r, '>', $dir . '/rules/json/vc.yaml' ) || die($!);
 print $r <<'EOR';
 ---
-gate:
-  - field: event
-    op: eq
-    value: login_fail
 distinct:
   of: src
   by: user
-ban_var:
-  - src
+rule_gates:
+  - gate:
+      - field: event
+        op: eq
+        value: login_fail
+  - ban_var:
+      - src
 EOR
 close($r);
 

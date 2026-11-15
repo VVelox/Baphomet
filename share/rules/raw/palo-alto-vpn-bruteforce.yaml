@@ -19,16 +19,17 @@ severity: high
 classtype: brute-force
 references:
   - https://live.paloaltonetworks.com/twzvq79624/attachments/twzvq79624/learning_tkb/428/1/System_log_PANOS4.1rev3.xlsx
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - 'SSL VPN user (?:authentication|login) failed.*?[Ff]rom:?\s*%%%%SRC%%%%'
-  - 'GlobalProtect (?:portal|gateway) (?:user|client) authentication failed.*?Login from:?\s*%%%%SRC%%%%'
-  - ',GLOBALPROTECT,(?:[^,]*,){4}(?:portal|gateway)-auth,(?:[^,]*,){6}%%%%SRC%%%%,.*,failure,'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - 'SSL VPN user (?:authentication|login) failed.*?[Ff]rom:?\s*%%%%SRC%%%%'
+      - 'GlobalProtect (?:portal|gateway) (?:user|client) authentication failed.*?Login from:?\s*%%%%SRC%%%%'
+      - ',GLOBALPROTECT,(?:[^,]*,){4}(?:portal|gateway)-auth,(?:[^,]*,){6}%%%%SRC%%%%,.*,failure,'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,SYSTEM,sslvpn,0,2026/07/12 08:15:50,vsys1,sslvpn-auth-fail,,0,0,general,medium,"SSL VPN user authentication failed. Login from: 203.0.113.88, user name: bob",1523,0x0,0,0,0,0,,PA-3220'

@@ -18,11 +18,12 @@ severity: medium
 classtype: unsuccessful-user
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' SSLVPN (?:(?:NON)?HTTP_RESOURCEACCESS_DENIED|CLISEC_(?:CHECK|EXP_EVAL)) \d+ \d+ :\s+Context (?<USER>[^@\s]+)@'
 user_var: USER
-detection_var:
-  - USER
+rule_gates:
+  - message_regexp:
+      - ' SSLVPN (?:(?:NON)?HTTP_RESOURCEACCESS_DENIED|CLISEC_(?:CHECK|EXP_EVAL)) \d+ \d+ :\s+Context (?<USER>[^@\s]+)@'
+  - detection_var:
+      - USER
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default SSLVPN HTTP_RESOURCEACCESS_DENIED 3060 0 : Context jdoe@203.0.113.5 - SessionId: 5- User jdoe - Vserver 192.0.2.1:443 - Denied_url http://intranet.example.com/admin/ - Denied_by_policy \"POL_DENY_ADMIN\""

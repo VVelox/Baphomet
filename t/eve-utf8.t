@@ -30,12 +30,13 @@ make_path( $dir . '/rules/syslog', $dir . '/run', $dir . '/cache', $dir . '/eve'
 open( my $fh, '>', $dir . '/rules/syslog/auth.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - myauth
-message_regexp:
-  - 'login (?<USER>\S+) from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - myauth
+  - message_regexp:
+      - 'login (?<USER>\S+) from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jan  1 00:00:00 h myauth[1]: login alice from 1.2.3.4"

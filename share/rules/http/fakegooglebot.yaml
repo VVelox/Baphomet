@@ -19,17 +19,18 @@ rev: 3
 msg: "[HTTP] fake Googlebot"
 severity: medium
 classtype: network-scan
-mark:
-  - name: recon
-    ttl: 86400
-match:
-  - field: user_agent
-    regexp: '(?i:Googlebot)'
+max_score: 1
 rule_gates:
+  - match:
+      - field: user_agent
+        regexp: '(?i:Googlebot)'
+  - ban_var: [ host ]
   - reverse_dns:
       matches: '\.google(?:bot)?\.com$'
       negate: true
-max_score: 1
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     # the pretender... a confirmed PTR that is nobody's crawler. it fires

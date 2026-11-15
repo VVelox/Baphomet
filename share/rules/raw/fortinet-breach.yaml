@@ -27,45 +27,45 @@ severity: critical
 classtype: correlated-attack
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-mungers:
-  - fortinet
-selections:
-  admin_login:
-    - field: fg_logid
-      op: re
-      value: '^\d*32001$'
-    - field: fg_type
-      op: eq
-      value: event
-  vpn_login:
-    - field: fg_logid
-      op: re
-      value: '^\d*39424$'
-    - field: fg_type
-      op: eq
-      value: event
-  ppp_auth:
-    - field: fg_logid
-      op: re
-      value: '^\d*29002$'
-    - field: fg_type
-      op: eq
-      value: event
-    # quoted or bare in the ledger, the value is the same once decomposed
-    - field: fg_action
-      op: eq
-      value: auth_success
-condition: "admin_login or vpn_login or ppp_auth"
-rule_gates:
-  - marked:
-      names: [ brute_force, recon, exploit_attempt, honeypot ]
-      var: fg_offender_ip
 src_ip_var: fg_offender_ip
 dest_ip_var: fg_dstip
 user_var: fg_user
-detection_var:
-  - fg_offender_ip
 max_score: 1
+rule_gates:
+  - mungers:
+      - fortinet
+  - selections:
+      admin_login:
+        - field: fg_logid
+          op: re
+          value: '^\d*32001$'
+        - field: fg_type
+          op: eq
+          value: event
+      vpn_login:
+        - field: fg_logid
+          op: re
+          value: '^\d*39424$'
+        - field: fg_type
+          op: eq
+          value: event
+      ppp_auth:
+        - field: fg_logid
+          op: re
+          value: '^\d*29002$'
+        - field: fg_type
+          op: eq
+          value: event
+        # quoted or bare in the ledger, the value is the same once decomposed
+        - field: fg_action
+          op: eq
+          value: auth_success
+  - condition: "admin_login or vpn_login or ppp_auth"
+  - marked:
+      names: [ brute_force, recon, exploit_attempt, honeypot ]
+      var: fg_offender_ip
+  - detection_var:
+      - fg_offender_ip
 tests:
   positive:
     # any one of the standard brands satisfies the any-of gate

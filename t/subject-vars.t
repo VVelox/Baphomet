@@ -24,11 +24,12 @@ make_path( $dir . '/rules/raw', $dir . '/run' );
 open( my $fh, '>', $dir . '/rules/raw/pair.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - '^flow %%%%SRC%%%% -> %%%%DEST%%%%$'
-ban_var:
-  - SRC
-  - DEST
+rule_gates:
+  - message_regexp:
+      - '^flow %%%%SRC%%%% -> %%%%DEST%%%%$'
+  - ban_var:
+      - SRC
+      - DEST
 tests:
   positive:
     - message: "flow 192.0.2.5 -> 198.51.100.9"

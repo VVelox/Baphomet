@@ -91,6 +91,6 @@ because the other side does not take names.
 The [`reverse_dns` rule gate](rules.md) is the other direction... PTR lookups
 refining a match rather than resolving an offender... and rides its own
 consent, `enable_rdns` (with its own `rdns_timeout`), on by default since
-a gate can only veto a count, never aim one. The two are deliberately
+that gate can only veto a count, never aim one. The two are deliberately
 separate switches. See [configuration](configuration.md) for those two
 settings.

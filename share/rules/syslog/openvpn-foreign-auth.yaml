@@ -20,26 +20,26 @@ rev: 3
 msg: "[OPENVPN] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  # the same tag set syslog/openvpn reads... ovpn-server on Debian
-  - //^(?:openvpn|ovpn)(?:[-_@]\w+)?$//
-message_regexp:
-  # the success... the peer is up
-  - '^%%%%SRC%%%%:\d+ \[(?<USER>[^\]]*)\] Peer Connection Initiated with \[AF_INET\d?\]'
-  # and everything syslog/openvpn counts, verbatim
-  - '^(?:[^/:]+/)?%%%%SRC%%%%:\d+ (?:TLS Auth Error:|VERIFY ERROR:|TLS Error: TLS handshake failed\b|SIGUSR1\[soft,connection-reset\] received\b|Decrypt packet error)'
-  - 'TLS Error: (?:incoming packet authentication failed|cannot locate HMAC in incoming packet|tls-crypt unwrapping failed) from \[AF_INET6?\]\s*%%%%SRC%%%%:\d+'
+src_ip_var: SRC
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      # the same tag set syslog/openvpn reads... ovpn-server on Debian
+      - //^(?:openvpn|ovpn)(?:[-_@]\w+)?$//
+  - message_regexp:
+      # the success... the peer is up
+      - '^%%%%SRC%%%%:\d+ \[(?<USER>[^\]]*)\] Peer Connection Initiated with \[AF_INET\d?\]'
+      # and everything syslog/openvpn counts, verbatim
+      - '^(?:[^/:]+/)?%%%%SRC%%%%:\d+ (?:TLS Auth Error:|VERIFY ERROR:|TLS Error: TLS handshake failed\b|SIGUSR1\[soft,connection-reset\] received\b|Decrypt packet error)'
+      - 'TLS Error: (?:incoming packet authentication failed|cannot locate HMAC in incoming packet|tls-crypt unwrapping failed) from \[AF_INET6?\]\s*%%%%SRC%%%%:\d+'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: USER
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign peer that got in

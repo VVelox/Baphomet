@@ -18,17 +18,18 @@ severity: medium
 classtype: unsuccessful-user
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-61[01]102: User authentication failed: Uname: (?<USER>\S+)'
-  - '%(?:ASA|PIX|FWSM)-\d-113006: User (?<USER>\S+) locked out on exceeding \d+ successive failed authentication attempts'
-  - '%(?:ASA|PIX|FWSM)-\d-109031: NT Domain Authentication Failed rejecting guest login for (?<USER>[^\s.]+)'
-  - '%ASA-\d-113021: Attempted console login failed\. User (?<USER>\S+) did NOT have appropriate Admin Rights'
-  - '%(?:ASA|PIX|FWSM)-\d-109016: Can''t find authorization ACL \S+ for user ''(?<USER>[^'']*)'''
-  - '%ASA-\d-719019: WebVPN user: ?(?<USER>\S+) authorization failed'
-  - '%ASA-\d-719023: WebVPN user:? ?(?<USER>\S+) has not been successfully authenticated\. Access denied'
 user_var: USER
-detection_var:
-  - USER
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-61[01]102: User authentication failed: Uname: (?<USER>\S+)'
+      - '%(?:ASA|PIX|FWSM)-\d-113006: User (?<USER>\S+) locked out on exceeding \d+ successive failed authentication attempts'
+      - '%(?:ASA|PIX|FWSM)-\d-109031: NT Domain Authentication Failed rejecting guest login for (?<USER>[^\s.]+)'
+      - '%ASA-\d-113021: Attempted console login failed\. User (?<USER>\S+) did NOT have appropriate Admin Rights'
+      - '%(?:ASA|PIX|FWSM)-\d-109016: Can''t find authorization ACL \S+ for user ''(?<USER>[^'']*)'''
+      - '%ASA-\d-719019: WebVPN user: ?(?<USER>\S+) authorization failed'
+      - '%ASA-\d-719023: WebVPN user:? ?(?<USER>\S+) has not been successfully authenticated\. Access denied'
+  - detection_var:
+      - USER
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %ASA-6-611102: User authentication failed: Uname: admin'

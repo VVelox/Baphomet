@@ -4,15 +4,11 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util                       qw( is_plain_hashref );
-use File::ShareDir                  ();
-use Path::Tiny                      qw( path );
-use YAML::XS                        ();
-use App::Baphomet::Rules::HTTP      ();
-use App::Baphomet::Rules::HTTPError ();
-use App::Baphomet::Rules::JSON      ();
-use App::Baphomet::Rules::Raw       ();
-use App::Baphomet::Rules::Syslog    ();
+use Ref::Util           qw( is_plain_hashref );
+use File::ShareDir      ();
+use Path::Tiny          qw( path );
+use YAML::XS            ();
+use App::Baphomet::Rule ();
 
 =pod
 
@@ -42,8 +38,8 @@ our $VERSION = '0.0.1';
 
 Loads rules from YAML files. A rule name is a relative path with out the
 C<.yaml>, so the rule C<syslog/sshd> is the file C<syslog/sshd.yaml>. The
-first component of the name is the rule type, which picks the handler the
-rest of the file is handed to.
+first component of the name is the rule type, which is what parser the
+rule's lines come from. Every rule is a L<App::Baphomet::Rule>.
 
 Rules are resolved across an ordered search path... a site's override dir
 first, then the rules shipped with the dist. The override dir is
@@ -53,22 +49,11 @@ L<File::ShareDir>. A rule present in the override dir shadows the shipped one
 of the same name, so a site can override or extend the shipped set with out
 touching what ships.
 
-The known types are as below.
-
-    - syslog :: L<App::Baphomet::Rules::Syslog>
-
-    - http :: L<App::Baphomet::Rules::HTTP>
-
-    - http_error :: L<App::Baphomet::Rules::HTTPError>
-
-    - json :: L<App::Baphomet::Rules::JSON>
-
-    - raw :: L<App::Baphomet::Rules::Raw>
-
-Each type consumes lines of specific parsers... syslog rules take the
-syslog parsers, http rules take http_access, http_error rules take
-apache_error and nginx_error, json rules take json, and raw rules take
-raw. See L</type_accepts_parser>.
+The known types are C<syslog>, C<http>, C<http_error>, C<json>, and C<raw>.
+Each consumes lines of specific parsers... syslog rules take the syslog
+parsers, http rules take http_access, http_error rules take apache_error
+and nginx_error, json rules take json, and raw rules take raw. See
+L</type_accepts_parser>.
 
 Loading compiles the rule and then runs the tests embedded in it, refusing
 to hand back a rule whose own tests do not pass, so a broken rule fails
@@ -106,14 +91,7 @@ At least one usable rules dir must resolve or new dies.
 
 =cut
 
-my %types = (
-	'syslog'     => 'App::Baphomet::Rules::Syslog',
-	'http'       => 'App::Baphomet::Rules::HTTP',
-	'http_error' => 'App::Baphomet::Rules::HTTPError',
-	'json'       => 'App::Baphomet::Rules::JSON',
-	'raw'        => 'App::Baphomet::Rules::Raw',
-);
-
+# the rule types, each with the parsers whose lines a rule of it can read
 my %type_parsers = (
 	'syslog'     => { 'syslog'       => 1, 'bsd_syslog' => 1, 'ietf_syslog' => 1, 'json_syslog' => 1, 'journal' => 1 },
 	'http'       => { 'http_access'  => 1 },
@@ -187,7 +165,8 @@ sub new {
 
 =head2 load
 
-Loads the specified rule, returning the compiled handler object for it.
+Loads the specified rule, returning the compiled L<App::Baphomet::Rule> of
+it.
 Will die on a unloadable rule... bad name, no such file, unparsable YAML,
 a compile failure, or its embedded tests failing.
 
@@ -221,7 +200,7 @@ sub load {
 	}
 
 	my ($type) = split( /\//, $name );
-	if ( !defined( $types{$type} ) ) {
+	if ( !defined( $type_parsers{$type} ) ) {
 		die( 'The rule "' . $name . '" is of the unknown type "' . $type . '"' );
 	}
 
@@ -243,7 +222,7 @@ sub load {
 		die( 'The rule "' . $name . '", "' . $path . '", did not parse to a hash' );
 	}
 
-	my $rule = $types{$type}->new( 'name' => $name, 'def' => $def );
+	my $rule = App::Baphomet::Rule->new( 'name' => $name, 'def' => $def );
 
 	# stamp the EVE gid from where the file resolved... shipped or override
 	$rule->set_gid( $self->_gid_for_path($path) );
@@ -531,7 +510,7 @@ sub known_type {
 		$type = $_[1];
 	}
 
-	return defined($type) && defined( $types{$type} ) ? 1 : 0;
+	return defined($type) && defined( $type_parsers{$type} ) ? 1 : 0;
 } ## end sub known_type
 
 =head2 is_rule_name

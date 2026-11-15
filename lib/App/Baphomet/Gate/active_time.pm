@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::ActiveTime;
+package App::Baphomet::Gate::active_time;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -10,7 +10,7 @@ use App::Baphomet::Shape qw( check_hash );
 
 =head1 NAME
 
-App::Baphomet::Gate::ActiveTime - The active_time gate, counting only in, or out of, certain hours.
+App::Baphomet::Gate::active_time - The active_time gate, counting only in, or out of, certain hours.
 
 =head1 VERSION
 

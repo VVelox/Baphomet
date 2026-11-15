@@ -16,8 +16,8 @@
 # many times it retries them. A hit counter would need every such path excluded
 # by hand and would still be wrong for the next one.
 #
-# The offender is the http type's own... the parsed client, so nothing is named
-# here and nothing is scanned for.
+# The offender is the parsed client, the host of the access log line, which the
+# ban_var names... nothing is scanned for.
 #
 # WHY `path` AND NOT `request`. The parser splits the request line, so `path`
 # drops the method and the protocol: a scanner alternating GET and HEAD over one
@@ -46,16 +46,18 @@ severity: medium
 classtype: attempted-recon
 attack:
   - T1595.003
-mark:
-  - name: recon
-    ttl: 86400
-status:
-  - 404
 # the score is the number of distinct missing paths, keyed by the client
 distinct:
   of: path
 max_score: 30
 find_time: 600
+rule_gates:
+  - status:
+      - 404
+  - ban_var: [ host ]
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: '203.0.113.7 - - [12/Jul/2026:08:15:50 -0500] "GET /wp-login.php HTTP/1.1" 404 196 "-" "curl/8.5.0"'

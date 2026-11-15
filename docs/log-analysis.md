@@ -13,7 +13,7 @@ the verdict at the end differs.
 
 ## The two verdicts
 
-A rule names its offender with one of two keys, and that choice is the whole
+A rule names its offender with one of two gates, and that choice is the whole
 of it:
 
 - **`ban_var`** :: For banishing. The named value is counted toward a ban and,

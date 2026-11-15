@@ -14,15 +14,16 @@ rev: 1
 msg: "[JUNIPER] system/network event"
 severity: low
 classtype: network-event
-detection_var:
-  - EVENT
-message_regexp:
-  - '(?<EVENT>KERN_ARP_DUPLICATE_ADDR): duplicate IP address'
-  - '(?<EVENT>KERN_ARP_ADDR_CHANGE): arp info overwritten'
-  - '(?<EVENT>bgp_pp_recv)(?::\d+)?: no group for \S+ from AS \d+'
-  - '(?<EVENT>tcp_auth_ok): Packet from \S+ missing MD5 digest'
-  - '(?<EVENT>bgp_connect_start): connect \S+ \([^)]*\): No route to host'
-  - '- ive - .*?(?<EVENT>Unable to download current virus)'
+rule_gates:
+  - message_regexp:
+      - '(?<EVENT>KERN_ARP_DUPLICATE_ADDR): duplicate IP address'
+      - '(?<EVENT>KERN_ARP_ADDR_CHANGE): arp info overwritten'
+      - '(?<EVENT>bgp_pp_recv)(?::\d+)?: no group for \S+ from AS \d+'
+      - '(?<EVENT>tcp_auth_ok): Packet from \S+ missing MD5 digest'
+      - '(?<EVENT>bgp_connect_start): connect \S+ \([^)]*\): No route to host'
+      - '- ive - .*?(?<EVENT>Unable to download current virus)'
+  - detection_var:
+      - EVENT
 tests:
   positive:
     - message: "Jul 12 07:00:00 edge-r1 /kernel: KERN_ARP_DUPLICATE_ADDR: duplicate IP address 192.0.2.1! sent from address: 00:11:22:33:44:55 (error count = 1)"

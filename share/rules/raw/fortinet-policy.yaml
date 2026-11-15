@@ -19,30 +19,31 @@ severity: low
 classtype: policy-violation
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-mungers:
-  - fortinet
-# The three groups the regexps kept apart... DLP (11000, 0954024576), app
-# control (116xxx, 10590286xx, 0814044033), and web filter (90000, 93002,
-# 99501)... are one union here, since all three asked the same thing of the
-# rest of the line. The id lives under logid= on modern FortiOS and log_id= on
-# legacy 4.0, so one arm reads each.
-selections:
-  modern:
-    - field: fg_logid
-      op: re
-      value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
-  legacy:
-    - field: fg_log_id
-      op: re
-      value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
-condition: "modern or legacy"
 src_ip_var: fg_offender_ip
 dest_ip_var: fg_dstip
 src_port_var: fg_srcport
 dest_port_var: fg_dstport
 user_var: fg_user
-detection_var:
-  - fg_offender_ip
+rule_gates:
+  - mungers:
+      - fortinet
+  # The three groups the regexps kept apart... DLP (11000, 0954024576), app
+  # control (116xxx, 10590286xx, 0814044033), and web filter (90000, 93002,
+  # 99501)... are one union here, since all three asked the same thing of the
+  # rest of the line. The id lives under logid= on modern FortiOS and log_id= on
+  # legacy 4.0, so one arm reads each.
+  - selections:
+      modern:
+        - field: fg_logid
+          op: re
+          value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
+      legacy:
+        - field: fg_log_id
+          op: re
+          value: '^(?:\d*11000|0954024576|\d*116(?:00[0-3]?|01[01])|10590286(?:72|75|76)|0814044033|\d*(?:90000|93002|99501))$'
+  - condition: "modern or legacy"
+  - detection_var:
+      - fg_offender_ip
 tests:
   positive:
     - message: 'Jul 12 13:02:11 fw01 date=2026-07-12 time=13:02:11 devname="FGT100F" devid="FG100FTK20012345" logid="0954024576" type="utm" subtype="dlp" eventtype="dlp" level="warning" vd="root" eventtime=1752343331000000000 tz="-0500" filteridx=1 filtername="ssn-filter" filtertype="regexp" filtercat="file" severity="high" policyid=5 sessionid=401882 srcip=192.168.1.55 srcport=51321 srcintf="lan" dstip=203.0.113.80 dstport=443 dstintf="wan1" proto=6 service="HTTPS" filetype="pdf" direction="outgoing" action="block" filename="payroll.pdf" filesize=48213 profile="default" msg="Data leak detected(Data Leak Prevention Rule matched)"'

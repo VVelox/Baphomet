@@ -21,15 +21,16 @@ severity: medium
 classtype: configuration-change
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-message_regexp:
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Access rule (?:added|deleted|modified)[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Access rules restored to defaults[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Administrator name changed[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="HTTP management port has changed[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Guest account [^"]*(?:created|deleted|disabled|pruned|re-enabled|re-generated)[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="SYN Flood (?:blacklisting enabled by user|Mode changed by user to)[^"]*"'
-detection_var:
-  - ADDR
+rule_gates:
+  - message_regexp:
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Access rule (?:added|deleted|modified)[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Access rules restored to defaults[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Administrator name changed[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="HTTP management port has changed[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Guest account [^"]*(?:created|deleted|disabled|pruned|re-enabled|re-generated)[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="SYN Flood (?:blacklisting enabled by user|Mode changed by user to)[^"]*"'
+  - detection_var:
+      - ADDR
 tests:
   positive:
     - message: 'Jul 12 13:01:12 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 13:01:12 UTC" fw=203.0.113.1 pri=5 c=16 m=440 msg="Access rule added" n=3 usr="admin" src=192.168.1.10:52200:X0 dst=192.0.2.1:443:X0 note="Policy 12: LAN->WAN Allow Any"'

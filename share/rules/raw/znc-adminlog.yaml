@@ -7,14 +7,15 @@ rev: 3
 msg: "[ZNC] failed login (adminlog)"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^\[%%%%TIMESTAMP_ISO8601%%%%\] \[[^]]+\] failed to login from %%%%SRC%%%%(?::\d+)?\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\[%%%%TIMESTAMP_ISO8601%%%%\] \[[^]]+\] failed to login from %%%%SRC%%%%(?::\d+)?\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "[2018-10-27 01:40:55] [girst] failed to login from 1.2.3.4"

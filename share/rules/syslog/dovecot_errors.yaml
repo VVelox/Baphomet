@@ -22,22 +22,23 @@ rev: 1
 msg: "[DOVECOT] service error"
 severity: medium
 classtype: program-error
-daemons:
-  - dovecot
-  - dovecot-auth
-  - //^dovecot//
-mungers:
-  - dovecot
-# no message_regexp... the munger's fields are the matcher
-gate:
-  - field: dovecot_level
-    op: re
-    nocase: true
-    value: '^(?:error|fatal|panic)$'
-detection_var:
-  - dovecot_service
 max_score: 5
 find_time: 600
+rule_gates:
+  - daemons:
+      - dovecot
+      - dovecot-auth
+      - //^dovecot//
+  - mungers:
+      - dovecot
+  # no message_regexp... the munger's fields are the matcher
+  - gate:
+      - field: dovecot_level
+        op: re
+        nocase: true
+        value: '^(?:error|fatal|panic)$'
+  - detection_var:
+      - dovecot_service
 tests:
   positive:
     - message: "Aug  1 00:03:00 mail01 dovecot[62102]: imap-login: Error: Failed to initialize SSL server context: Can't load DH parameters (ssl_dh setting): error:0A00018A:SSL routines::dh key too small: user=<>, rip=192.0.2.11, lip=192.0.2.42, session=<iAgaOPVXTWfAqA0L>"

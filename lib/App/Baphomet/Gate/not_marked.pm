@@ -1,4 +1,4 @@
-package App::Baphomet::Gate::NotMarked;
+package App::Baphomet::Gate::not_marked;
 
 use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
@@ -10,7 +10,7 @@ use App::Baphomet::Marks qw( mark_key live_mark value_verdict );
 
 =head1 NAME
 
-App::Baphomet::Gate::NotMarked - The not_marked gate, sparing what already has a brand.
+App::Baphomet::Gate::not_marked - The not_marked gate, sparing what already has a brand.
 
 =head1 VERSION
 
@@ -24,6 +24,7 @@ our $VERSION = '0.0.1';
 
     rule_gates:
       - not_marked: { name: cleared, vars: [ SRC, USER ] }
+      - ban_var: [ SRC ]
       - not_marked: { name: known_good }
 
 =head1 DESCRIPTION

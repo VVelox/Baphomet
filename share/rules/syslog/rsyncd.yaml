@@ -10,17 +10,18 @@ rev: 2
 msg: "[RSYNC] daemon module auth failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - rsyncd
-  - rsync
-message_regexp:
-  - '^auth failed on module \S+ from \S+ \(%%%%SRC%%%%\)'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - rsyncd
+      - rsync
+  - message_regexp:
+      - '^auth failed on module \S+ from \S+ \(%%%%SRC%%%%\)'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 14 08:15:50 backuphost rsyncd[9876]: auth failed on module backups from unknown (203.0.113.10)"

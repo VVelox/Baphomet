@@ -17,33 +17,34 @@ severity: medium
 classtype: network-scan
 references:
   - https://www.sonicwall.com/techdocs/pdf/sonicos-6-5-4-log-events-reference-guide.pdf
-mark:
-  - name: recon
-    ttl: 86400
-mungers:
-  - sonicwall
-# The event is named by msg=. "Possible port scan" alone is too loose to act
-# on, so as before it also wants the scanned-port-list note beside it; the
-# other three speak for themselves.
-selections:
-  possible:
-    - field: sw_msg
-      op: eq
-      value: "Possible port scan detected"
-    - field: sw_note
-      op: re
-      value: '^(?:TCP|UDP) scanned port list'
-  probable:
-    - field: sw_msg
-      op: re
-      value: '^(?:Probable port scan detected|Probable TCP (?:FIN|NULL|XMAS) scan detected|TCP Xmas [tT]ree dropped)$'
-condition: "possible or probable"
 src_ip_var: sw_offender_ip
 dest_ip_var: sw_dst_ip
 src_port_var: sw_src_port
 dest_port_var: sw_dst_port
-ban_var:
-  - sw_offender_ip
+rule_gates:
+  - mungers:
+      - sonicwall
+  # The event is named by msg=. "Possible port scan" alone is too loose to act
+  # on, so as before it also wants the scanned-port-list note beside it; the
+  # other three speak for themselves.
+  - selections:
+      possible:
+        - field: sw_msg
+          op: eq
+          value: "Possible port scan detected"
+        - field: sw_note
+          op: re
+          value: '^(?:TCP|UDP) scanned port list'
+      probable:
+        - field: sw_msg
+          op: re
+          value: '^(?:Probable port scan detected|Probable TCP (?:FIN|NULL|XMAS) scan detected|TCP Xmas [tT]ree dropped)$'
+  - condition: "possible or probable"
+  - ban_var:
+      - sw_offender_ip
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 08:15:50 UTC" fw=203.0.113.1 pri=1 c=32 m=82 msg="Possible port scan detected" n=42 src=203.0.113.45:52344:X1 dst=203.0.113.1:23:X0 note="TCP scanned port list, 21, 22, 23, 25, 80"'

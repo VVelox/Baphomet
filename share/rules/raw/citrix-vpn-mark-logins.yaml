@@ -18,35 +18,36 @@ severity: info
 classtype: not-suspicious
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  # GREEDY, not lazy, and that is the whole defence. A NetScaler LOGIN line
-  # opens with Context <user>@<addr>, so the account name... whatever the
-  # client typed... appears AHEAD of the real User/Client_ip pair. Lazy, the
-  # first "User " found is one an attacker can plant in their own name, and
-  # both the account and the address come back theirs. Greedy takes the LAST,
-  # which is the pair NetScaler wrote, and a forged one can only ever sit
-  # earlier. The format is too irregular to decompose (SessionId: 7- runs the
-  # separator together, and a Browser_type holds dashes of its own), so the
-  # anchor is the ordering rather than a parse.
-  #
-  # Greedy up to the first double quote, and no further. The line CLOSES with
-  # Browser_type, the client's own User-Agent, so a pair can be planted BEHIND
-  # the real one as well, where a greedy run to the end of the line takes it
-  # for the last. Everything NetScaler writes after the real pair is behind a
-  # quoted value... Nat_ip "Mapped Ip" at once, and a User-Agent is itself
-  # inside quotes... so a run that can not cross a double quote ends at the
-  # real pair and never sees what the client sent.
-  - ' SSLVPN LOGIN \d+ \d+ :[^"]*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
 mark_only: true
-mark:
-  - name: citrix-vpn-login-src
-    ttl: 28800
-    var: USER
-    value_var: SRC
+rule_gates:
+  - message_regexp:
+      # GREEDY, not lazy, and that is the whole defence. A NetScaler LOGIN line
+      # opens with Context <user>@<addr>, so the account name... whatever the
+      # client typed... appears AHEAD of the real User/Client_ip pair. Lazy, the
+      # first "User " found is one an attacker can plant in their own name, and
+      # both the account and the address come back theirs. Greedy takes the LAST,
+      # which is the pair NetScaler wrote, and a forged one can only ever sit
+      # earlier. The format is too irregular to decompose (SessionId: 7- runs the
+      # separator together, and a Browser_type holds dashes of its own), so the
+      # anchor is the ordering rather than a parse.
+      #
+      # Greedy up to the first double quote, and no further. The line CLOSES with
+      # Browser_type, the client's own User-Agent, so a pair can be planted BEHIND
+      # the real one as well, where a greedy run to the end of the line takes it
+      # for the last. Everything NetScaler writes after the real pair is behind a
+      # quoted value... Nat_ip "Mapped Ip" at once, and a User-Agent is itself
+      # inside quotes... so a run that can not cross a double quote ends at the
+      # real pair and never sees what the client sent.
+      - ' SSLVPN LOGIN \d+ \d+ :[^"]*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: citrix-vpn-login-src
+      ttl: 28800
+      var: USER
+      value_var: SRC
 tests:
   positive:
     # and the brand lands keyed by the account, carrying the source

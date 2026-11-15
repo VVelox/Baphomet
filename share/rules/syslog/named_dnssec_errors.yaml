@@ -40,26 +40,27 @@ severity: high
 classtype: program-error
 references:
   - https://bind9.readthedocs.io/en/latest/dnssec-guide.html
-daemons:
-  - //^named(?:-\w+)?$//
-mungers:
-  - named
-# no message_regexp... the munger's fields are the matcher
-selections:
-  trust_anchor:
-    - field: dns_managed_keys_message
-      op: re
-      value: '^(?:Unable to |unable to |Failed |failed |No valid |no valid )|(?:revoked|expired|: failure$)'
-  priming:
-    - field: dns_priming_result
-      op: re
-      value: '^(?!success)'
-condition: "1 of them"
-detection_var:
-  - dns_managed_keys_message
-  - dns_priming_result
 max_score: 1
 find_time: 3600
+rule_gates:
+  - daemons:
+      - //^named(?:-\w+)?$//
+  - mungers:
+      - named
+  # no message_regexp... the munger's fields are the matcher
+  - selections:
+      trust_anchor:
+        - field: dns_managed_keys_message
+          op: re
+          value: '^(?:Unable to |unable to |Failed |failed |No valid |no valid )|(?:revoked|expired|: failure$)'
+      priming:
+        - field: dns_priming_result
+          op: re
+          value: '^(?!success)'
+  - condition: "1 of them"
+  - detection_var:
+      - dns_managed_keys_message
+      - dns_priming_result
 tests:
   positive:
     - message: "Aug 13 04:00:00 ns01 named[55104]: managed-keys-zone/internal-view: Unable to fetch DNSKEY set '.': failure"

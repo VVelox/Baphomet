@@ -33,17 +33,19 @@ sub apache_line {
 
 write_rule( 'http_error/probes', <<'EOR' );
 ---
-level:
-  - error
-  - //^crit//
-module:
-  - auth_basic
-message_regexp:
-  - '^user (?<USER>\S*): password mismatch'
-  - '^user \S* not found'
-ignore_regexp:
-  - 'user probemaster:'
 test_parser: apache_error
+rule_gates:
+  - level:
+      - error
+      - //^crit//
+  - module:
+      - auth_basic
+  - ignore_regexp:
+      - 'user probemaster:'
+  - message_regexp:
+      - '^user (?<USER>\S*): password mismatch'
+      - '^user \S* not found'
+  - ban_var: [ client ]
 tests:
   positive:
     - message: '[Thu Jun 27 11:55:44.569531 2013] [auth_basic:error] [pid 4101] [client 1.2.3.4:23456] AH01617: user foo: password mismatch'
@@ -60,8 +62,22 @@ EOR
 my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('http_error/probes');
 ok( defined($rule), 'http_error rule loaded' );
-is( ( $rule->ban_var )[0], 'client', 'ban_var is client' );
+my ($naming) = grep { $_->{type} eq 'ban_var' } @{ $rule->rule_gates };
+is( $naming->{names}[0], 'client', 'ban_var is client' );
 is( $rule->src_ip_var, 'client', 'src_ip_var defaults to client, so the EVE src_ip carries the offender' );
+
+# client is not a default... a http_error rule naming no offender is refused
+write_rule( 'http_error/nobanvar', <<'EOR' );
+---
+rule_gates:
+  - level:
+      - error
+  - message_regexp:
+      - '^user \S* not found'
+EOR
+ok( !eval { $rules->load('http_error/nobanvar'); 1 },
+	'a http_error rule with neither a ban_var nor a detection_var refuses to load' );
+like( $@, qr/neither a ban_var nor a detection_var gate/, 'and the error says it names no offender' );
 
 my $found = $rule->check( apache_line( 'auth_basic', 'error', '1.2.3.4', 'user foo: password mismatch' ) );
 ok( defined($found), 'match found' );
@@ -97,11 +113,13 @@ ok( !defined( $rule->check($access_parsed) ), 'access log shaped lines are refus
 # a nginx line through a moduleless rule
 write_rule( 'http_error/nginx', <<'EOR' );
 ---
-level:
-  - error
-message_regexp:
-  - '^user "[^"]*":? (?:password mismatch|was not found in)'
 test_parser: nginx_error
+rule_gates:
+  - level:
+      - error
+  - message_regexp:
+      - '^user "[^"]*":? (?:password mismatch|was not found in)'
+  - ban_var: [ client ]
 tests:
   positive:
     - message: '2012/04/09 11:53:36 [error] 2865#0: *66647 user "xyz": password mismatch, client: 192.0.43.10, server: www.myhost.com, request: "GET / HTTP/1.1", host: "www.myhost.com"'
@@ -125,10 +143,16 @@ ok( !defined( $rule->check($nginx_parsed) ), 'module gate blocks nginx lines' );
 # invalid defs
 #
 
-write_rule( 'http_error/noregexp', "---\nlevel:\n  - error\n" );
+write_rule( 'http_error/noregexp', "---\nrule_gates:\n  - level:\n      - error\n  - ban_var: [ client ]\n" );
 ok( !eval { $rules->load('http_error/noregexp'); 1 }, 'missing message_regexp refuses to load' );
 
-write_rule( 'http_error/badregexp', "---\nmessage_regexp:\n  - '((('\n" );
+write_rule( 'http_error/badregexp', <<'EOR' );
+---
+rule_gates:
+  - message_regexp:
+      - '((('
+  - ban_var: [ client ]
+EOR
 ok( !eval { $rules->load('http_error/badregexp'); 1 }, 'uncompilable regexp refuses to load' );
 
 #

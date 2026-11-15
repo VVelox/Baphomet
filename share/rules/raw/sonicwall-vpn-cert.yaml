@@ -18,13 +18,14 @@ severity: medium
 classtype: suspicious-traffic
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-message_regexp:
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Bad CRL format[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Certificate on Revoked list ?\(CRL\)[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Allowed LDAP server certificate with wrong host name[^"]*"'
-  - 'fw=%%%%ADDR%%%%\s.*?msg="Fraudulent Microsoft certificate found[^"]*"'
-detection_var:
-  - ADDR
+rule_gates:
+  - message_regexp:
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Bad CRL format[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Certificate on Revoked list ?\(CRL\)[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Allowed LDAP server certificate with wrong host name[^"]*"'
+      - 'fw=%%%%ADDR%%%%\s.*?msg="Fraudulent Microsoft certificate found[^"]*"'
+  - detection_var:
+      - ADDR
 tests:
   positive:
     - message: 'Jul 12 11:01:07 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 11:01:07 UTC" fw=203.0.113.1 pri=1 c=16 m=751 msg="Bad CRL format" n=1'

@@ -7,14 +7,15 @@ rev: 2
 msg: "[CSTRIKE] bad RCON attempt"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^L \d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}: Bad Rcon: "rcon \d+ "\S+"  sv_contact ".*?"" from "%%%%SRC%%%%:\d+"$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^L \d{2}/\d{2}/\d{4} - \d{2}:\d{2}:\d{2}: Bad Rcon: "rcon \d+ "\S+"  sv_contact ".*?"" from "%%%%SRC%%%%:\d+"$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'L 01/01/2014 - 01:25:17: Bad Rcon: "rcon 1146003691 "284"  sv_contact "HLBrute 1.10"" from "31.29.29.89:57370"'

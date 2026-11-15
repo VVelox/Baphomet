@@ -14,13 +14,14 @@ classtype: successful-admin
 references:
   - CVE-2015-7755
   - https://kb.juniper.net/InfoCenter/index?page=content&id=JSA10713
-message_regexp:
-  - 'system-warning-00515: Admin user (?i:"?(?:system|username)"?) has logged on via \S+ from %%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
 # one hit is a verdict, honored when the kur allows per-rule thresholds
 max_score: 1
+rule_gates:
+  - message_regexp:
+      - 'system-warning-00515: Admin user (?i:"?(?:system|username)"?) has logged on via \S+ from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 06:00:00 fw02 ns5xp: NetScreen device_id=ns5xp [Root]system-warning-00515: Admin user system has logged on via SSH from 203.0.113.66:52983 (2026-07-12 06:00:00)"

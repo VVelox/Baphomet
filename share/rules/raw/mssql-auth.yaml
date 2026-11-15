@@ -9,14 +9,15 @@ rev: 3
 msg: "[MSSQL] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^%%%%TIMESTAMP_ISO8601%%%% Logon\s+Login failed for user ''(?:[^'']*|.*)''\. [^''\[]+\[CLIENT: %%%%SRC%%%%\]$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^%%%%TIMESTAMP_ISO8601%%%% Logon\s+Login failed for user ''(?:[^'']*|.*)''\. [^''\[]+\[CLIENT: %%%%SRC%%%%\]$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "2020-02-24 16:05:21.00 Logon       Login failed for user 'Backend'. Reason: Could not find a login matching the name provided. [CLIENT: 192.0.2.1]"

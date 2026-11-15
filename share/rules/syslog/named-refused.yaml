@@ -10,19 +10,20 @@ rev: 3
 msg: "[NAMED] denied query / transfer"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-daemons:
-  - //^named(?:-\w+)?$//
-mungers:
-  - named
-message_regexp:
-  - '^(?:[\w-]+: ){0,2}client(?: @\S*)? %%%%SRC%%%%#\d+(?: \([^\)]+\))?: (?:view [\w-]+: )?(?:query(?: \(cache\))?|zone transfer|bad zone transfer request: ''\S+/IN'': non-authoritative zone).* (?:denied|\(NOTAUTH\))\s*$'
 src_ip_var: SRC
 src_port_var: dns_client_port
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - //^named(?:-\w+)?$//
+  - mungers:
+      - named
+  - message_regexp:
+      - '^(?:[\w-]+: ){0,2}client(?: @\S*)? %%%%SRC%%%%#\d+(?: \([^\)]+\))?: (?:view [\w-]+: )?(?:query(?: \(cache\))?|zone transfer|bad zone transfer request: ''\S+/IN'': non-authoritative zone).* (?:denied|\(NOTAUTH\))\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 24 14:16:55 raid5 named[3935]: client 194.145.196.18#4795: query 'ricreig.com/NS/IN' denied"

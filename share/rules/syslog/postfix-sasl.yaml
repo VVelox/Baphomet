@@ -7,26 +7,27 @@ rev: 5
 msg: "[POSTFIX] SASL authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
-mungers:
-  - postfix
-message_regexp:
-  # The account is captured here rather than taken from the postfix munger...
-  # the munger names postfix_sasl_username only on the client=..., sasl_username=
-  # lines of a login that worked, never on this warning. Postfix 3.8 and later
-  # append `, sasl_username=<account>` to the failure, and older ones log no
-  # account at all, so the capture is optional and USER is simply absent there.
-  # It sits after the address and is anchored on the end of the line, so the
-  # account a client chose can name itself but can not move the offender.
-  - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)(?:.*, sasl_username=(?<USER>\S+)\s*$)?'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
+  - mungers:
+      - postfix
+  - message_regexp:
+      # The account is captured here rather than taken from the postfix munger...
+      # the munger names postfix_sasl_username only on the client=..., sasl_username=
+      # lines of a login that worked, never on this warning. Postfix 3.8 and later
+      # append `, sasl_username=<account>` to the failure, and older ones log no
+      # account at all, so the capture is optional and USER is simply absent there.
+      # It sits after the address and is anchored on the end of the line, so the
+      # account a client chose can name itself but can not move the offender.
+      - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)(?:.*, sasl_username=(?<USER>\S+)\s*$)?'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Dec  2 22:24:22 hel postfix/smtpd[7676]: warning: 114-44-142-233.dynamic.hinet.net[114.44.142.233]: SASL CRAM-MD5 authentication failed: PDc3OTEwNTkyNTEyMzA2NDIuMTIyODI1MzA2MUBoZWw+"

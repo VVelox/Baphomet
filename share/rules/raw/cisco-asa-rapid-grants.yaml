@@ -14,12 +14,13 @@ severity: medium
 classtype: brute-force
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-713160: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote user \(session Id - \d+\) has been granted access by the Firewall Server'
 src_ip_var: SRC
-detection_var: [ SRC ]
 max_score: 10
 find_time: 300
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-713160: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote user \(session Id - \d+\) has been granted access by the Firewall Server'
+  - detection_var: [ SRC ]
 tests:
   positive:
     - message: 'Jul 12 08:15:53 fw01 %ASA-7-713160: Group = clientgroup, IP = 192.0.2.5, Remote user (session Id - 24) has been granted access by the Firewall Server'

@@ -34,12 +34,13 @@ sub matches {
 # --- OR ---
 write_rule( 'json/or', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  a: [ { field: event, op: eq, value: x } ]
-  b: [ { field: event, op: eq, value: y } ]
-condition: "a or b"
+rule_gates:
+  - selections:
+      a: [ { field: event, op: eq, value: x } ]
+      b: [ { field: event, op: eq, value: y } ]
+  - condition: "a or b"
+  - ban_var:
+      - src
 EOR
 is( matches( 'json/or', '{"event":"x","src":"1.1.1.1"}' ), 1, 'or: left selection matches' );
 is( matches( 'json/or', '{"event":"y","src":"1.1.1.1"}' ), 1, 'or: right selection matches' );
@@ -48,12 +49,13 @@ is( matches( 'json/or', '{"event":"z","src":"1.1.1.1"}' ), 0, 'or: neither match
 # --- nested NOT ---
 write_rule( 'json/andnot', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  a:      [ { field: event, op: eq, value: auth } ]
-  filter: [ { field: user,  op: eq, value: healthcheck } ]
-condition: "a and not filter"
+rule_gates:
+  - selections:
+      a:      [ { field: event, op: eq, value: auth } ]
+      filter: [ { field: user,  op: eq, value: healthcheck } ]
+  - condition: "a and not filter"
+  - ban_var:
+      - src
 EOR
 is( matches( 'json/andnot', '{"event":"auth","user":"root","src":"1.1.1.1"}' ),        1, 'a and not filter: passes' );
 is( matches( 'json/andnot', '{"event":"auth","user":"healthcheck","src":"1.1.1.1"}' ), 0, 'a and not filter: filtered out' );
@@ -62,13 +64,14 @@ is( matches( 'json/andnot', '{"event":"other","user":"root","src":"1.1.1.1"}' ),
 # --- parens + double negation ---
 write_rule( 'json/paren', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  a: [ { field: a, op: eq, value: "1" } ]
-  b: [ { field: b, op: eq, value: "1" } ]
-  c: [ { field: c, op: eq, value: "1" } ]
-condition: "(a or b) and not not c"
+rule_gates:
+  - selections:
+      a: [ { field: a, op: eq, value: "1" } ]
+      b: [ { field: b, op: eq, value: "1" } ]
+      c: [ { field: c, op: eq, value: "1" } ]
+  - condition: "(a or b) and not not c"
+  - ban_var:
+      - src
 EOR
 is( matches( 'json/paren', '{"a":"1","c":"1","src":"1.1.1.1"}' ), 1, 'parens: (a or b) and c holds' );
 is( matches( 'json/paren', '{"a":"1","src":"1.1.1.1"}' ),         0, 'parens: c missing fails' );
@@ -77,13 +80,14 @@ is( matches( 'json/paren', '{"c":"1","src":"1.1.1.1"}' ),         0, 'parens: ne
 # --- N of M ---
 write_rule( 'json/nom', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  sig_a: [ { field: a, op: eq, value: "1" } ]
-  sig_b: [ { field: b, op: eq, value: "1" } ]
-  sig_c: [ { field: c, op: eq, value: "1" } ]
-condition: "2 of sig_*"
+rule_gates:
+  - selections:
+      sig_a: [ { field: a, op: eq, value: "1" } ]
+      sig_b: [ { field: b, op: eq, value: "1" } ]
+      sig_c: [ { field: c, op: eq, value: "1" } ]
+  - condition: "2 of sig_*"
+  - ban_var:
+      - src
 EOR
 is( matches( 'json/nom', '{"a":"1","b":"1","src":"1.1.1.1"}' ),         1, '2 of sig_*: two true' );
 is( matches( 'json/nom', '{"a":"1","b":"1","c":"1","src":"1.1.1.1"}' ), 1, '2 of sig_*: three true' );
@@ -92,21 +96,23 @@ is( matches( 'json/nom', '{"a":"1","src":"1.1.1.1"}' ),                 0, '2 of
 # --- all of them / 1 of them ---
 write_rule( 'json/allof', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  a: [ { field: a, op: eq, value: "1" } ]
-  b: [ { field: b, op: eq, value: "1" } ]
-condition: "all of them"
+rule_gates:
+  - selections:
+      a: [ { field: a, op: eq, value: "1" } ]
+      b: [ { field: b, op: eq, value: "1" } ]
+  - condition: "all of them"
+  - ban_var:
+      - src
 EOR
 write_rule( 'json/oneof', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  a: [ { field: a, op: eq, value: "1" } ]
-  b: [ { field: b, op: eq, value: "1" } ]
-condition: "1 of them"
+rule_gates:
+  - selections:
+      a: [ { field: a, op: eq, value: "1" } ]
+      b: [ { field: b, op: eq, value: "1" } ]
+  - condition: "1 of them"
+  - ban_var:
+      - src
 EOR
 is( matches( 'json/allof', '{"a":"1","b":"1","src":"1.1.1.1"}' ), 1, 'all of them: both true' );
 is( matches( 'json/allof', '{"a":"1","src":"1.1.1.1"}' ),         0, 'all of them: one missing' );
@@ -116,13 +122,14 @@ is( matches( 'json/oneof', '{"src":"1.1.1.1"}' ),                 0, '1 of them:
 # --- a selection ANDs its own predicates ---
 write_rule( 'json/multi', <<'EOR' );
 ---
-ban_var:
-  - src
-selections:
-  sel:
-    - { field: event, op: eq, value: auth }
-    - { field: user,  op: eq, values: [ root, admin ] }
-condition: "sel"
+rule_gates:
+  - selections:
+      sel:
+        - { field: event, op: eq, value: auth }
+        - { field: user,  op: eq, values: [ root, admin ] }
+  - condition: "sel"
+  - ban_var:
+      - src
 EOR
 is( matches( 'json/multi', '{"event":"auth","user":"root","src":"1.1.1.1"}' ),  1, 'selection ANDs its predicates: both hold' );
 is( matches( 'json/multi', '{"event":"auth","user":"guest","src":"1.1.1.1"}' ), 0, 'selection ANDs its predicates: one fails' );

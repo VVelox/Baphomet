@@ -37,31 +37,32 @@ severity: high
 classtype: attempted-recon
 attack:
   - T1589.002
-mark:
-  - name: recon
-    ttl: 86400
-daemons:
-  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
-mungers:
-  - postfix
-# no message_regexp at all... the munger's fields are the matcher
-gate:
-  - field: postfix_action
-    op: eq
-    value: reject
-  # the unknown-recipient rejections alone, not every reject
-  - field: postfix_status_message
-    op: re
-    nocase: true
-    value: '(?:[Uu]ser unknown|[Rr]ecipient address rejected)'
 # the score is the number of distinct recipients tried, keyed by the client
 distinct:
   of: postfix_to
 max_score: 10
 find_time: 3600
 src_ip_var: postfix_client_ip
-ban_var:
-  - postfix_client_ip
+rule_gates:
+  - daemons:
+      - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
+  - mungers:
+      - postfix
+  # no message_regexp at all... the munger's fields are the matcher
+  - gate:
+      - field: postfix_action
+        op: eq
+        value: reject
+      # the unknown-recipient rejections alone, not every reject
+      - field: postfix_status_message
+        op: re
+        nocase: true
+        value: '(?:[Uu]ser unknown|[Rr]ecipient address rejected)'
+  - ban_var:
+      - postfix_client_ip
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 postfix/smtpd[8738]: NOQUEUE: reject: RCPT from unknown[203.0.113.7]: 550 5.1.1 <nosuch@example.com>: Recipient address rejected: User unknown in local recipient table; from=<spam@bad.example> to=<nosuch@example.com> proto=ESMTP helo=<bad.example>"

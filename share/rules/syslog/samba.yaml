@@ -14,19 +14,20 @@ rev: 3
 msg: "[SAMBA] connection denied"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - smbd
-mungers:
-  - samba
-message_regexp:
-  - '(?:[dD]enied connection|[cC]onnection denied) from \S+ \(%%%%SRC%%%%\)'
-  - '(?:[dD]enied connection|[cC]onnection denied) from %%%%SRC%%%%(?:\s|$)'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - smbd
+  - mungers:
+      - samba
+  - message_regexp:
+      - '(?:[dD]enied connection|[cC]onnection denied) from \S+ \(%%%%SRC%%%%\)'
+      - '(?:[dD]enied connection|[cC]onnection denied) from %%%%SRC%%%%(?:\s|$)'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 14 08:15:50 fileserver smbd[4321]: Denied connection from 203.0.113.10 (203.0.113.10)"

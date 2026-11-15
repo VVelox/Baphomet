@@ -5,18 +5,19 @@ rev: 2
 msg: "[PROFTPD] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - proftpd
-message_regexp:
-  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+USER (?:\S+|.*?)(?: \(Login failed\))?: (?:[uU]ser not authorized for login|[nN]o such user found|[iI]ncorrect password|[pP]assword expired|[aA]ccount disabled|[iI]nvalid shell: ''\S+''|[uU]ser in \S+|[lL]imit (?:access|configuration) denies login|[nN]ot a UserAlias|[mM]aximum login length exceeded)'
-  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+SECURITY VIOLATION: (?:\S+|.*?) login attempted'
-  - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+Maximum login attempts \(\d+\) exceeded'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - proftpd
+  - message_regexp:
+      - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+USER (?:\S+|.*?)(?: \(Login failed\))?: (?:[uU]ser not authorized for login|[nN]o such user found|[iI]ncorrect password|[pP]assword expired|[aA]ccount disabled|[iI]nvalid shell: ''\S+''|[uU]ser in \S+|[lL]imit (?:access|configuration) denies login|[nN]ot a UserAlias|[mM]aximum login length exceeded)'
+      - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+SECURITY VIOLATION: (?:\S+|.*?) login attempted'
+      - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+Maximum login attempts \(\d+\) exceeded'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 proftpd[123]: myhost.domain.com (123.123.123.123[123.123.123.123]): USER username (Login failed): User in /etc/ftpusers"

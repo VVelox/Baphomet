@@ -16,7 +16,7 @@ BEGIN {
 }
 
 use App::Baphomet::Galla ();
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule ();
 use App::Baphomet::Config qw( kur_split resolve_country_codes );
 use App::Baphomet::Gate qw( bind_rule_gates );
 
@@ -51,10 +51,10 @@ ok( !defined( $watchers->{country_codes} ), '...and it is not mistaken for a wat
 # rule def validation of the country gate
 #
 
-my $base = {
-	gate    => [ { field => 'event', values => ['fail'] } ],
-	ban_var => ['ip'],
-};
+# what every rule here has around its country gate... the gate that judges the
+# record ahead of it, and the ban_var naming the offender
+my $match_gate = { gate    => [ { field => 'event', values => ['fail'] } ] };
+my $ban_gate   = { ban_var => ['ip'] };
 my %bad = (
 	'both is and isnot'    => { is => ['US'], isnot => ['CA'] },
 	'neither is nor isnot' => { vars => ['ip'] },
@@ -64,20 +64,21 @@ my %bad = (
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
 	eval {
-		App::Baphomet::Rules::JSON->new(
+		# behind the ban_var, where a country gate may sit however it is keyed
+		App::Baphomet::Rule->new(
 			name => 'json/x',
-			def  => { %{$base}, rule_gates => [ { country => $bad{$desc} } ] }
+			def  => { rule_gates => [ $match_gate, $ban_gate, { country => $bad{$desc} } ] }
 		);
 	};
 	like( $@, qr/^The country gate of the rule "json\/x"/, 'a country gate with ' . $desc . ' refuses to load' );
 }
 
 # a good gate loads and compiles normalized
-my $rule = App::Baphomet::Rules::JSON->new(
+my $rule = App::Baphomet::Rule->new(
 	name => 'json/x',
-	def  => { %{$base}, rule_gates => [ { country => { is => 'US', vars => 'dest_ip' } } ] }
+	def  => { rule_gates => [ $match_gate, { country => { is => 'US', vars => 'dest_ip' } }, $ban_gate ] }
 );
-my ($compiled) = @{ $rule->rule_gates };
+my ($compiled) = grep { $_->{type} eq 'country' } @{ $rule->rule_gates };
 is( $compiled->{mode}, 'is', 'the compiled gate has the mode' );
 is_deeply( $compiled->{entries}, ['US'],      'a scalar is normalizes to a list' );
 is_deeply( $compiled->{vars},    ['dest_ip'], 'a scalar vars normalizes to a list' );
@@ -86,21 +87,23 @@ is_deeply( $compiled->{vars},    ['dest_ip'], 'a scalar vars normalizes to a lis
 # the rule files the galla tests share
 #
 
+# the gates of each below the one every rule here leads with... a country gate
+# on a var reads the offense, so it is ahead of the ban_var, and one on the
+# offender is behind it
 my %rules = (
-	'iso-block'  => "rule_gates:\n  - country:\n      isnot:\n        - \"%%%country_codes{allowed}%%%\"\nmax_score: 1\n",
-	'iso-hunt'   => "rule_gates:\n  - country: { is: [ CN, RU ] }\nmax_score: 1\n",
-	'dest-guard' => "rule_gates:\n  - country: { is: [ US ], vars: [ dest_ip ] }\nmax_score: 1\n",
+	'iso-block' => "  - ban_var: [ ip ]\n  - country:\n      isnot:\n        - \"%%%country_codes{allowed}%%%\"\n",
+	'iso-hunt'  => "  - ban_var: [ ip ]\n  - country: { is: [ CN, RU ] }\n",
+	# dest-guard and both-ends ban the src, not the geo-checked dest
+	'dest-guard' => "  - country: { is: [ US ], vars: [ dest_ip ] }\n  - ban_var: [ src_ip ]\n",
 	# the gate named twice, once on a var and once on the offender
-	'both-ends' => "rule_gates:\n"
-		. "  - country: { is: [ US ], vars: [ dest_ip ] }\n"
-		. "  - country: { isnot: [ CN ] }\nmax_score: 1\n",
+	'both-ends' => "  - country: { is: [ US ], vars: [ dest_ip ] }\n"
+		. "  - ban_var: [ src_ip ]\n"
+		. "  - country: { isnot: [ CN ] }\n",
 );
-# dest-guard and both-ends ban the src, not the geo-checked dest
-my %ban_var = ( 'dest-guard' => 'src_ip', 'both-ends' => 'src_ip' );
 foreach my $name ( keys(%rules) ) {
 	open( my $fh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
-	my $bv = defined( $ban_var{$name} ) ? $ban_var{$name} : 'ip';
-	print $fh "---\ngate:\n  - field: event\n    values: [ fail ]\nban_var:\n  - " . $bv . "\n" . $rules{$name};
+	print $fh "---\nmax_score: 1\nrule_gates:\n  - gate:\n      - field: event\n        values: [ fail ]\n"
+		. $rules{$name};
 	close($fh);
 }
 
@@ -281,9 +284,9 @@ is_deeply( \@sent, ['1.1.1.1'], 'a watcher-overridden list bans a US offender th
 # a import of a list the watcher does not define is fatal at bind
 #
 
-my $import_rule = App::Baphomet::Rules::JSON->new(
+my $import_rule = App::Baphomet::Rule->new(
 	name => 'json/z',
-	def  => { %{$base}, rule_gates => [ { country => { isnot => ['%%%country_codes{nope}%%%'] } } ] }
+	def  => { rule_gates => [ $match_gate, $ban_gate, { country => { isnot => ['%%%country_codes{nope}%%%'] } } ] }
 );
 my $locator = sub { return undef; };
 eval {
@@ -292,6 +295,7 @@ eval {
 like( $@, qr/nope.*not a defined list/, 'importing a undefined country_codes list dies' );
 my $ok = bind_rule_gates( $import_rule->rule_gates,
 	{ locator => $locator, country_codes => { nope => [ 'cn', 'ru' ] } }, 'where' );
-is_deeply( $ok->{offender}[0]{codes}, { CN => 1, RU => 1 }, 'a defined import resolves and uppercases into a set' );
+my ($import_gate) = grep { $_->{type} eq 'country' } @{ $ok->{offense} };
+is_deeply( $import_gate->{codes}, { CN => 1, RU => 1 }, 'a defined import resolves and uppercases into a set' );
 
 done_testing;

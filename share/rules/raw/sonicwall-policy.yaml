@@ -20,19 +20,20 @@ severity: low
 classtype: suspicious-traffic
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-mungers:
-  - sonicwall
-# The event is named by msg=, read here off the decomposed value.
-gate:
-  - field: sw_msg
-    op: re
-    value: '^(?:Access attempt from host (?:out of compliance with GSC policy|without (?:Anti-Virus agent|GSC) installed)|Access to proxy server denied|ActiveX (?:or Java archive )?access denied|Data connection from non default port dropped|Internet Access restricted to authorized users|Forbidden E-Mail [aA]ttachment|Using LDAP [wW]ithout TLS|Heartbeat received from (?:an )?incompatible source)'
 src_ip_var: sw_offender_ip
 dest_ip_var: sw_dst_ip
 src_port_var: sw_src_port
 dest_port_var: sw_dst_port
-detection_var:
-  - sw_offender_ip
+rule_gates:
+  - mungers:
+      - sonicwall
+  # The event is named by msg=, read here off the decomposed value.
+  - gate:
+      - field: sw_msg
+        op: re
+        value: '^(?:Access attempt from host (?:out of compliance with GSC policy|without (?:Anti-Virus agent|GSC) installed)|Access to proxy server denied|ActiveX (?:or Java archive )?access denied|Data connection from non default port dropped|Internet Access restricted to authorized users|Forbidden E-Mail [aA]ttachment|Using LDAP [wW]ithout TLS|Heartbeat received from (?:an )?incompatible source)'
+  - detection_var:
+      - sw_offender_ip
 tests:
   positive:
     - message: 'Jul 12 10:02:14 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 10:02:14 UTC" fw=203.0.113.1 pri=4 c=16 m=990 msg="Access attempt from host out of compliance with GSC policy" n=4 src=192.0.2.61:50412:X0 dst=198.51.100.10:443:X1'

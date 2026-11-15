@@ -25,13 +25,14 @@ make_path( $dir . '/rules/syslog', $dir . '/rules/http', $dir . '/run', $dir . '
 open( my $fh, '>', $dir . '/rules/syslog/tripwire.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - audit
-message_regexp:
-  - 'policy tripwire tripped by (?<USER>\S+)'
-detection_var:
-  - USER
 msg: "[POLICY] tripwire tripped"
+rule_gates:
+  - daemons:
+      - audit
+  - message_regexp:
+      - 'policy tripwire tripped by (?<USER>\S+)'
+  - detection_var:
+      - USER
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 audit[1]: policy tripwire tripped by alice"
@@ -48,12 +49,13 @@ close($fh);
 open( $fh, '>', $dir . '/rules/syslog/ban.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -207,48 +209,53 @@ sub write_rule {
 
 write_rule( 'syslog/detonly', <<'EOR' );
 ---
-daemons:
-  - audit
-message_regexp:
-  - 'tripped by (?<USER>\S+)'
-detection_var:
-  - USER
+rule_gates:
+  - daemons:
+      - audit
+  - message_regexp:
+      - 'tripped by (?<USER>\S+)'
+  - detection_var:
+      - USER
 EOR
 
 write_rule( 'syslog/both', <<'EOR' );
 ---
-daemons:
-  - audit
-message_regexp:
-  - 'tripped by (?<USER>\S+) from %%%%SRC%%%%'
-ban_var:
-  - SRC
-detection_var:
-  - USER
+rule_gates:
+  - daemons:
+      - audit
+  - message_regexp:
+      - 'tripped by (?<USER>\S+) from %%%%SRC%%%%'
+  - detection_var:
+      - USER
+  - ban_var:
+      - SRC
 EOR
 
 write_rule( 'syslog/baddetvar', <<'EOR' );
 ---
-daemons:
-  - audit
-message_regexp:
-  - 'tripped by (?<USER>\S+)'
-detection_var: USER
+rule_gates:
+  - daemons:
+      - audit
+  - message_regexp:
+      - 'tripped by (?<USER>\S+)'
+  - detection_var: USER
 EOR
 
 write_rule( 'http/uri-watch', <<'EOR' );
 ---
-status:
-  - '404'
-detection_var:
-  - request
+rule_gates:
+  - status:
+      - '404'
+  - detection_var:
+      - request
 EOR
 
 my $vrules = App::Baphomet::Rules->new( rules_dir => $vdir, shipped => 0 );
 
 my $det = $vrules->load('syslog/detonly');
 ok( defined($det), 'a syslog detection rule loads with no ban_var' );
-is_deeply( [ $det->detection_var ], ['USER'], 'and reports its detection_var' );
+my ($det_naming) = grep { $_->{type} eq 'detection_var' } @{ $det->rule_gates };
+is_deeply( $det_naming->{names}, ['USER'], 'and reports its detection_var' );
 ok( $det->is_detection, 'and knows it is a detection rule' );
 
 ok( !eval { $vrules->load('syslog/both');      1 }, 'a rule with both ban_var and detection_var refuses to load' );
@@ -257,6 +264,8 @@ ok( !eval { $vrules->load('syslog/baddetvar'); 1 }, 'a non-array detection_var r
 my $http = $vrules->load('http/uri-watch');
 ok( defined($http),      'an http detection rule loads counting by request' );
 ok( $http->is_detection, 'and knows it is a detection rule' );
-is_deeply( [ $http->detection_var ], ['request'], 'and reports its detection_var over the hardcoded host' );
+my ($http_naming) = grep { $_->{type} eq 'detection_var' } @{ $http->rule_gates };
+is_deeply( $http_naming->{names}, ['request'], 'and reports its detection_var, no ban_var naming host beside it' );
+ok( !( grep { $_->{type} eq 'ban_var' } @{ $http->rule_gates } ), 'the rule having no ban_var gate at all' );
 
 done_testing;

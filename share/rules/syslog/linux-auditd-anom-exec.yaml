@@ -9,16 +9,17 @@ rev: 1
 msg: "[AUDITD] execution flagged as forbidden"
 severity: high
 classtype: trojan-activity
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=ANOM_EXEC msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)"'
 user_var: audit_msg_acct
-detection_var:
-  - EXE
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=ANOM_EXEC msg=audit\([\d.]+:\d+\): .*\bexe="(?<EXE>[^"]+)"'
+  - detection_var:
+      - EXE
 tests:
   positive:
     - message: "Nov 14 10:40:00 mail01 audisp-syslog[1800]: type=ANOM_EXEC msg=audit(1700000011.1:911): pid=4100 uid=33 auid=33 ses=5 msg='op=exec rule acct=\"www-data\" exe=\"/tmp/.x/backdoor\" terminal=? res=failed'"

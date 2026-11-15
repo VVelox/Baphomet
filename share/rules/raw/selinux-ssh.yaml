@@ -10,14 +10,15 @@ rev: 2
 msg: "[SELINUX] failed sshd authentication"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^type=USER_(?:ERR|AUTH) msg=audit\([\d.]+:\d+\): (?:user )?pid=\d+ uid=0 auid=\d+ ses=\d+ subj=(?:unconfined_u|system_u):system_r:sshd_t:s0-s0:c0\.c1023 msg=''op=\S+ acct="?\S+"? exe="/usr/sbin/sshd" hostname=(?:\?|(?:\d+\.){3}\d+) addr=%%%%SRC%%%% terminal=ssh res=failed''$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^type=USER_(?:ERR|AUTH) msg=audit\([\d.]+:\d+\): (?:user )?pid=\d+ uid=0 auid=\d+ ses=\d+ subj=(?:unconfined_u|system_u):system_r:sshd_t:s0-s0:c0\.c1023 msg=''op=\S+ acct="?\S+"? exe="/usr/sbin/sshd" hostname=(?:\?|(?:\d+\.){3}\d+) addr=%%%%SRC%%%% terminal=ssh res=failed''$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "type=USER_ERR msg=audit(1373330717.000:4070): user pid=12000 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:sshd_t:s0-s0:c0.c1023 msg='op=PAM:bad_ident acct=\"?\" exe=\"/usr/sbin/sshd\" hostname=173.242.116.187 addr=173.242.116.187 terminal=ssh res=failed'"

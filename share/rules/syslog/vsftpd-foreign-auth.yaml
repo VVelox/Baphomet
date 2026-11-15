@@ -19,31 +19,31 @@ rev: 3
 msg: "[VSFTPD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - vsftpd
-mungers:
-  - vsftpd
-  - pam
-message_regexp:
-  # the success... the account is a real one, so it holds no "]" and the
-  # first marker is vsftpd's own, whatever the anon password after it says
-  - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
-  # the failure... the account is whatever the client typed, so the last
-  # marker is taken and only vsftpd's own refusal reason may follow it
-  - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
-  # and the pam failure syslog/vsftpd counts, verbatim
-  - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
+src_ip_var: SRC
+user_var: vsftpd_user
+max_score: 1
 rule_gates:
+  - daemons:
+      - vsftpd
+  - mungers:
+      - vsftpd
+      - pam
+  - message_regexp:
+      # the success... the account is a real one, so it holds no "]" and the
+      # first marker is vsftpd's own, whatever the anon password after it says
+      - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
+      # the failure... the account is whatever the client typed, so the last
+      # marker is taken and only vsftpd's own refusal reason may follow it
+      - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
+      # and the pam failure syslog/vsftpd counts, verbatim
+      - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: vsftpd_user
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

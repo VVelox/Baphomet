@@ -46,7 +46,7 @@ level hash of dotted paths...
     c => "ACCESS", msg => "Authentication failed", attr.remote => "192.0.2.5:54321"
 
 ...and rules of the C<json> type address those paths explicitly. See
-L<App::Baphomet::Rules::JSON>.
+L<App::Baphomet::Rule>.
 
 The returned hash is C<< { format => 'json', fields => \%flat } >>...
 fields live under their own key so a log carrying a literal "format" key

@@ -17,19 +17,6 @@ severity: high
 classtype: unsuccessful-admin
 references:
   - https://www.sonicwall.com/downloads/SonicOS_Log_Event_Reference_Guide.pdf
-mark:
-  - name: brute_force
-    ttl: 21600
-mungers:
-  - sonicwall
-# The event is named by msg=, read here off the decomposed value. An admin
-# login failure logs the attempted account in usr=, and that name is whatever
-# the client typed... which is why this no longer scans the line for src=. See
-# the last positive test.
-gate:
-  - field: sw_msg
-    op: re
-    value: '^(?:(?:CLI administrator|Administrator) login denied due to bad credentials|Administrator login denied from .*logins disabled from this interface|Wrong Admin Password|Admin Login Disabled|FTP client user .*logged in failed)'
 src_ip_var: sw_offender_ip
 dest_ip_var: sw_dst_ip
 src_port_var: sw_src_port
@@ -37,8 +24,22 @@ dest_port_var: sw_dst_port
 # the decomposed usr=, not a scan of the line... the same reason the offender
 # is sw_offender_ip, as raw/fortinet-admin-auth does with fg_user
 user_var: sw_usr
-ban_var:
-  - sw_offender_ip
+rule_gates:
+  - mungers:
+      - sonicwall
+  # The event is named by msg=, read here off the decomposed value. An admin
+  # login failure logs the attempted account in usr=, and that name is whatever
+  # the client typed... which is why this no longer scans the line for src=. See
+  # the last positive test.
+  - gate:
+      - field: sw_msg
+        op: re
+        value: '^(?:(?:CLI administrator|Administrator) login denied due to bad credentials|Administrator login denied from .*logins disabled from this interface|Wrong Admin Password|Admin Login Disabled|FTP client user .*logged in failed)'
+  - ban_var:
+      - sw_offender_ip
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Jul 12 03:12:44 fw01 id=firewall sn=0017C5C0A63C time="2026-07-12 03:12:44 UTC" fw=203.0.113.1 pri=1 c=32 m=30 msg="Administrator login denied due to bad credentials" n=8 usr="admin" src=203.0.113.99:49152:X1 dst=192.0.2.1:443:X0'

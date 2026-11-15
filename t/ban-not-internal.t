@@ -22,13 +22,14 @@ make_path( $dir . '/rules/json', $dir . '/rules/http', $dir . '/rules/http_error
 open( my $fh, '>', $dir . '/rules/json/suri.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-gate:
-  - field: event_type
-    values: [ alert ]
-ban_var:
-  - src_ip
-  - dest_ip
-ban_not_internal: true
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+  - ban_var:
+      - src_ip
+      - dest_ip
+  - ban_not_internal: true
 EOR
 close($fh);
 
@@ -36,12 +37,13 @@ close($fh);
 open( $fh, '>', $dir . '/rules/json/both.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-gate:
-  - field: event_type
-    values: [ alert ]
-ban_var:
-  - src_ip
-  - dest_ip
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+  - ban_var:
+      - src_ip
+      - dest_ip
 EOR
 close($fh);
 
@@ -50,9 +52,11 @@ close($fh);
 open( $fh, '>', $dir . '/rules/http/scan.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-status:
-  - 404
-ban_not_internal: true
+rule_gates:
+  - status:
+      - 404
+  - ban_var: [ host ]
+  - ban_not_internal: true
 EOR
 close($fh);
 
@@ -60,9 +64,11 @@ close($fh);
 open( $fh, '>', $dir . '/rules/http_error/badauth.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - 'not found'
-ban_not_internal: true
+rule_gates:
+  - message_regexp:
+      - 'not found'
+  - ban_var: [ client ]
+  - ban_not_internal: true
 EOR
 close($fh);
 

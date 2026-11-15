@@ -5,17 +5,18 @@ rev: 2
 msg: "[WEBMIN] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - webmin
-message_regexp:
-  - '^Non-existent login as .+ from %%%%SRC%%%%\s*$'
-  - '^Invalid login as .+ from %%%%SRC%%%%\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - webmin
+  - message_regexp:
+      - '^Non-existent login as .+ from %%%%SRC%%%%\s*$'
+      - '^Invalid login as .+ from %%%%SRC%%%%\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Dec 13 08:15:18 sb1 webmin[25875]: Invalid login as root from 89.2.49.230 "

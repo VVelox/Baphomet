@@ -12,15 +12,16 @@ rev: 1
 msg: "[AUDITD] process abnormal end on a fault signal... possible exploit"
 severity: medium
 classtype: program-error
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=ANOM_ABEND msg=audit\([\d.]+:\d+\): .*\bcomm="(?<COMM>[^"]+)".*\bsig=(?<SIG>4|6|7|8|11)\b'
-detection_var:
-  - COMM
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=ANOM_ABEND msg=audit\([\d.]+:\d+\): .*\bcomm="(?<COMM>[^"]+)".*\bsig=(?<SIG>4|6|7|8|11)\b'
+  - detection_var:
+      - COMM
 tests:
   positive:
     - message: "Nov 14 10:30:00 mail01 audisp-syslog[1700]: type=ANOM_ABEND msg=audit(1700000010.1:910): auid=1000 uid=1000 ses=3 pid=4000 comm=\"nginx\" exe=\"/usr/sbin/nginx\" sig=11 res=1"

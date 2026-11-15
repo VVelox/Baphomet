@@ -5,14 +5,15 @@ rev: 1
 msg: "[COURIER] SMTP reject"
 severity: low
 classtype: misc-activity
-daemons:
-  - courieresmtpd
-message_regexp:
-  - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?[^:]*: 550 User (?:<.*> )?unknown\.?$'
-  - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?msg="535 Authentication failed\.",cmd:(?: AUTH \S+)?(?: [0-9a-zA-Z\+/=]+)?(?: \S+)$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - courieresmtpd
+  - message_regexp:
+      - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?[^:]*: 550 User (?:<.*> )?unknown\.?$'
+      - '^error,relay=(?:::ffff:)?%%%%SRC%%%%,(?:port=\d+,)?msg="535 Authentication failed\.",cmd:(?: AUTH \S+)?(?: [0-9a-zA-Z\+/=]+)?(?: \S+)$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Apr 10 03:47:57 web courieresmtpd: error,relay=::ffff:1.2.3.4,ident=tmf,from=<tmf@example.com>,to=<mailman-subscribe@example.com>: 550 User unknown."

@@ -12,11 +12,13 @@ msg: "[NGINX] limit_req rate-limit rejection"
 severity: medium
 classtype: denial-of-service
 test_parser: nginx_error
-level:
-  - error
-  - warn
-message_regexp:
-  - '^(?:limiting|delaying) (?:request|connection)s?(?:, excess: [\d.]+,?)? by zone "[^"]+"$'
+rule_gates:
+  - level:
+      - error
+      - warn
+  - message_regexp:
+      - '^(?:limiting|delaying) (?:request|connection)s?(?:, excess: [\d.]+,?)? by zone "[^"]+"$'
+  - ban_var: [ client ]
 tests:
   positive:
     - message: '2015/10/29 20:01:02 [error] 256554#0: *99927 limiting requests, excess: 1.852 by zone "one", client: 1.2.3.4, server: example.com, request: "POST /index.htm HTTP/1.0", host: "exmaple.com"'

@@ -15,101 +15,118 @@ BEGIN {
 }
 
 use App::Baphomet::Galla ();
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
 
 #
-# rule def validation of the mark keys
+# rule def validation of the mark gates
 #
 
-my $base = {
-	gate    => [ { field => 'event', values => ['fail'] } ],
-	ban_var => ['ip'],
-};
+# what every rule here has around its mark gates... the gate that judges the
+# record ahead of them, and the ban_var naming the offender
+my $match_gate = { gate    => [ { field => 'event', values => ['fail'] } ] };
+my $ban_gate   = { ban_var => ['ip'] };
 
 my %bad = (
-	'a mark entry without a name' => { mark => [ { ttl => 60 } ] },
-	'a mark entry without a ttl'  => { mark => [ { name => 'x' } ] },
-	'a mark entry with a unknown key' => { mark => [ { name => 'x', ttl => 60, nope => 1 } ] },
-	'a mark that is not an array'     => { mark => { name => 'x', ttl => 60 } },
-	'a marked with both value_is and value_not' =>
-		{ rule_gates => [ { marked => { name => 'x', value_is => 'ip', value_not => 'ip' } } ] },
-	'a marked entry with a bad name' => { rule_gates => [ { marked => { name => 'bad name' } } ] },
-	'a unmark with an empty var'     => { unmark => [ { name => 'x', var => '' } ] },
-	'a mark with both var and vars'  => { mark => [ { name => 'x', ttl => 60, var => 'a', vars => [ 'a', 'b' ] } ] },
-	'a mark with an empty vars'      => { mark => [ { name => 'x', ttl => 60, vars => [] } ] },
-	'a mark with an empty vars entry' => { mark   => [ { name => 'x', ttl => 60, vars => [ 'a', '' ] } ] },
-	'a marked with both name and names' => { rule_gates => [ { marked => { name => 'x', names => ['y'] } } ] },
-	'a marked with an empty names'      => { rule_gates => [ { marked => { names => [] } } ] },
-	'a marked with a bad names entry'   => { rule_gates => [ { marked => { names => ['bad name'] } } ] },
-	'a names on a not_marked'           => { rule_gates => [ { not_marked => { names => ['x'] } } ] },
+	'a mark entry without a name'     => { mark => { ttl  => 60 } },
+	'a mark entry without a ttl'      => { mark => { name => 'x' } },
+	'a mark entry with a unknown key' => { mark => { name => 'x', ttl => 60, nope => 1 } },
+	# a mark gate is the one brand, where the mark key it was once held a list
+	'a mark that is not a hash' => { mark => [ { name => 'x', ttl => 60 } ] },
+	'a marked with both value_is and value_not' => { marked => { name => 'x', value_is => 'ip', value_not => 'ip' } },
+	'a marked entry with a bad name'            => { marked => { name => 'bad name' } },
+	'a unmark with an empty var'                => { unmark => { name => 'x', var => '' } },
+	'a mark with both var and vars'       => { mark => { name => 'x', ttl => 60, var => 'a', vars => [ 'a', 'b' ] } },
+	'a mark with an empty vars'           => { mark => { name => 'x', ttl => 60, vars => [] } },
+	'a mark with an empty vars entry'     => { mark => { name => 'x', ttl => 60, vars => [ 'a', '' ] } },
+	'a marked with both name and names'   => { marked     => { name  => 'x', names => ['y'] } },
+	'a marked with an empty names'        => { marked     => { names => [] } },
+	'a marked with a bad names entry'     => { marked     => { names => ['bad name'] } },
+	'a names on a not_marked'             => { not_marked => { names => ['x'] } },
 	'a not_marked with both value_is and value_not' =>
-		{ rule_gates => [ { not_marked => { name => 'x', value_is => 'ip', value_not => 'ip' } } ] },
+		{ not_marked => { name => 'x', value_is => 'ip', value_not => 'ip' } },
 	'a sequence entry with both var and vars' =>
-		{ rule_gates => [ { sequence => { marks => [ 'a', 'b' ], var => 'user', vars => [ 'ip', 'user' ] } } ] },
+		{ sequence => { marks => [ 'a', 'b' ], var => 'user', vars => [ 'ip', 'user' ] } },
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base}, %{ $bad{$desc} } } ); };
+	# behind the ban_var, where a gate may sit however it is keyed
+	eval {
+		App::Baphomet::Rule->new( name => 'json/x', def => { rule_gates => [ $match_gate, $ban_gate, $bad{$desc} ] } );
+	};
 	ok( $@, $desc . ' refuses to load' );
 }
 
-# a good mark def loads and the accessors report it
-my $rule = App::Baphomet::Rules::JSON->new(
+# a good mark def loads and its gates report it
+my $rule = App::Baphomet::Rule->new(
 	name => 'json/x',
 	def  => {
-		%{$base},
-		mark   => [ { name => 'acct', ttl => 60, var => 'user', value_var => 'ip' } ],
-		unmark => [ { name => 'acct', var => 'user' } ],
-		rule_gates => [ { marked => { name => 'acct', var => 'user', value_not => 'ip' } } ],
+		rule_gates => [
+			$match_gate,
+			{ marked => { name => 'acct', var => 'user', value_not => 'ip' } },
+			$ban_gate,
+			{ mark   => { name => 'acct', ttl => 60, var => 'user', value_var => 'ip' } },
+			{ unmark => { name => 'acct', var => 'user' } },
+		],
 		mark_only => 1,
 	}
 );
-is( $rule->mark_only,               1,      'mark_only reported' );
-is( $rule->marks->[0]{name},        'acct', 'marks accessor' );
-is( $rule->unmarks->[0]{var},       'user', 'unmarks accessor' );
-is( $rule->rule_gates->[0]{value_not}, 'ip',   'rule_gates accessor' );
+my %gate_of = map { $_->{type} => $_ } @{ $rule->rule_gates };
+is( $rule->mark_only,            1,      'mark_only reported' );
+is( $gate_of{mark}{name},        'acct', 'the mark gate' );
+is( $gate_of{unmark}{var},       'user', 'the unmark gate' );
+is( $gate_of{marked}{value_not}, 'ip',   'the marked gate' );
 
 # the expanded shapes load too... a vars compound key, a names any-of, and
 # a value compare on a not_marked
-my $wide = App::Baphomet::Rules::JSON->new(
+my $wide = App::Baphomet::Rule->new(
 	name => 'json/y',
 	def  => {
-		%{$base},
-		mark       => [ { name => 'pair', ttl => 60, vars => [ 'ip', 'user' ] } ],
 		rule_gates => [
-			{ marked     => { names => [ 'pair', 'other' ] } },
-			{ not_marked => { name  => 'pair', vars => [ 'ip', 'user' ], value_is => 'ip' } },
+			$match_gate,
+			{ not_marked => { name => 'pair', vars => [ 'ip', 'user' ], value_is => 'ip' } },
+			$ban_gate,
+			{ marked => { names => [ 'pair', 'other' ] } },
+			{ mark   => { name  => 'pair', ttl => 60, vars => [ 'ip', 'user' ] } },
 		],
 	}
 );
-is_deeply( $wide->marks->[0]{vars}, [ 'ip', 'user' ], 'a vars mark loads' );
-is_deeply( $wide->rule_gates->[0]{names}, [ 'pair', 'other' ], 'a names marked gate loads' );
-is( $wide->rule_gates->[1]{value_is}, 'ip', 'a not_marked value compare loads' );
+my %wide_gate_of = map { $_->{type} => $_ } @{ $wide->rule_gates };
+is_deeply( $wide_gate_of{mark}{vars},    [ 'ip',   'user' ],  'a vars mark loads' );
+is_deeply( $wide_gate_of{marked}{names}, [ 'pair', 'other' ], 'a names marked gate loads' );
+is( $wide_gate_of{not_marked}{value_is}, 'ip', 'a not_marked value compare loads' );
 
 #
 # galla behavior
 #
 
-my %rules = (
-	'mark' => "mark_only: true\nmark:\n  - name: acct\n    ttl: 3600\n    var: user\n    value_var: ip\n",
-	'spray' =>
-		"rule_gates:\n  - marked: { name: acct, var: user, value_not: ip }\nmax_score: 1\n",
-	'count'     => '',
-	'markgood'  => "gate2: login\nmark_only: true\nmark:\n  - name: known\n    ttl: 3600\n",
-	'blockbad'  => "rule_gates:\n  - not_marked: { name: known }\nmax_score: 1\n",
-	'mark2'     => "gate2: bad\nmark_only: true\nmark:\n  - name: flag\n    ttl: 3600\n",
-	'clear'     => "gate2: good\nmark_only: true\nunmark:\n  - name: flag\n",
-	'ipmark'    => "gate2: hit\nmark_only: true\nmark:\n  - name: seen\n    ttl: 3600\n",
-	'pairclear' => "gate2: clear\nmark_only: true\nmark:\n  - name: cleared\n    ttl: 3600\n    vars: [ ip, user ]\n",
-	'pairlift'  => "gate2: lift\nmark_only: true\nunmark:\n  - name: cleared\n    vars: [ ip, user ]\n",
-	'pairfire'  => "rule_gates:\n  - not_marked: { name: cleared, vars: [ ip, user ] }\nmax_score: 1\n",
-	'seta'      => "gate2: a\nmark_only: true\nmark:\n  - name: brand-a\n    ttl: 3600\n",
-	'setb'      => "gate2: b\nmark_only: true\nmark:\n  - name: brand-b\n    ttl: 3600\n",
-	'anyfire'   => "rule_gates:\n  - marked: { names: [ brand-a, brand-b ] }\nmax_score: 1\n",
-	'brandsrc'  => "gate2: login\nmark_only: true\nmark:\n  - name: sess\n    ttl: 3600\n    var: user\n    value_var: ip\n",
-	'newsrc'    => "gate2: use\nrule_gates:\n  - not_marked: { name: sess, var: user, value_is: ip }\nmax_score: 1\n",
+# the gates of each below the one every rule here leads with, the gate on the
+# event, and then its top level keys... the event is fail unless a gate2 line
+# names another. a marked or not_marked on a var reads the offense, so it is
+# ahead of the ban_var, and one on the offender is behind it
+my $ban_ip = "  - ban_var: [ ip ]\n";
+my %rules  = (
+	'mark'  => $ban_ip . "  - mark: { name: acct, ttl: 3600, var: user, value_var: ip }\nmark_only: true\n",
+	'spray' => "  - marked: { name: acct, var: user, value_not: ip }\n" . $ban_ip . "max_score: 1\n",
+	'count' => $ban_ip,
+	'markgood'  => "gate2: login\n" . $ban_ip . "  - mark: { name: known, ttl: 3600 }\nmark_only: true\n",
+	'blockbad'  => $ban_ip . "  - not_marked: { name: known }\nmax_score: 1\n",
+	'mark2'     => "gate2: bad\n" . $ban_ip . "  - mark: { name: flag, ttl: 3600 }\nmark_only: true\n",
+	'clear'     => "gate2: good\n" . $ban_ip . "  - unmark: { name: flag }\nmark_only: true\n",
+	'ipmark'    => "gate2: hit\n" . $ban_ip . "  - mark: { name: seen, ttl: 3600 }\nmark_only: true\n",
+	'pairclear' => "gate2: clear\n"
+		. $ban_ip
+		. "  - mark: { name: cleared, ttl: 3600, vars: [ ip, user ] }\nmark_only: true\n",
+	'pairlift' => "gate2: lift\n" . $ban_ip . "  - unmark: { name: cleared, vars: [ ip, user ] }\nmark_only: true\n",
+	'pairfire' => "  - not_marked: { name: cleared, vars: [ ip, user ] }\n" . $ban_ip . "max_score: 1\n",
+	'seta'     => "gate2: a\n" . $ban_ip . "  - mark: { name: brand-a, ttl: 3600 }\nmark_only: true\n",
+	'setb'     => "gate2: b\n" . $ban_ip . "  - mark: { name: brand-b, ttl: 3600 }\nmark_only: true\n",
+	'anyfire'  => $ban_ip . "  - marked: { names: [ brand-a, brand-b ] }\nmax_score: 1\n",
+	'brandsrc' => "gate2: login\n"
+		. $ban_ip
+		. "  - mark: { name: sess, ttl: 3600, var: user, value_var: ip }\nmark_only: true\n",
+	'newsrc' => "gate2: use\n  - not_marked: { name: sess, var: user, value_is: ip }\n" . $ban_ip . "max_score: 1\n",
 );
 foreach my $name ( keys(%rules) ) {
 	my $body  = $rules{$name};
@@ -118,7 +135,7 @@ foreach my $name ( keys(%rules) ) {
 		$event = $1;
 	}
 	open( my $fh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
-	print $fh "---\ngate:\n  - field: event\n    values: [ " . $event . " ]\nban_var:\n  - ip\n" . $body;
+	print $fh "---\nrule_gates:\n  - gate:\n      - field: event\n        values: [ " . $event . " ]\n" . $body;
 	close($fh);
 }
 

@@ -12,22 +12,23 @@ rev: 3
 msg: "[DROPBEAR] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - dropbear
-mungers:
-  - dropbear
-message_regexp:
-  - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
-  - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
-  - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
 src_ip_var: SRC
 src_port_var: dropbear_src_port
 user_var: dropbear_user
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - dropbear
+  - mungers:
+      - dropbear
+  - message_regexp:
+      - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
+      - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
+      - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Mar 24 15:25:51 buffalo1 dropbear[4092]: bad password attempt for 'root' from 198.51.100.87:5543"

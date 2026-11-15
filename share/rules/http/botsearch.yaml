@@ -8,22 +8,24 @@ rev: 2
 msg: "[BOTSEARCH] probe for admin panel / login page"
 severity: medium
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-status:
-  - 401
-  - 403
-  - 404
-match:
-  - field: path
-    regexp: '(?i)^/*(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?myadmin|mysqladmin)(?:/|$)'
-  - field: path
-    regexp: '(?i)^/*(?:roundcube|(?:ext)?mail|horde|v?-?webmail)(?:/|$)'
-  - field: path
-    regexp: '(?i)/wp-(?:login|signup|admin)\.php(?:$|\?)'
-  - field: path
-    regexp: '^/*cgi-bin/'
+rule_gates:
+  - status:
+      - 401
+      - 403
+      - 404
+  - match:
+      - field: path
+        regexp: '(?i)^/*(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?myadmin|mysqladmin)(?:/|$)'
+      - field: path
+        regexp: '(?i)^/*(?:roundcube|(?:ext)?mail|horde|v?-?webmail)(?:/|$)'
+      - field: path
+        regexp: '(?i)/wp-(?:login|signup|admin)\.php(?:$|\?)'
+      - field: path
+        regexp: '^/*cgi-bin/'
+  - ban_var: [ host ]
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '115.249.248.145 - - [23/Dec/2013:09:49:10 +0100] "GET /pma/ HTTP/1.1" 404 196 "-" "python-requests/2.x"'

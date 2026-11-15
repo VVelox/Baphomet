@@ -48,13 +48,15 @@ Inside a galla, each new line of a watcher's log runs the gauntlet...
 
 ![the gauntlet, from a line to a ban](from-a-line-to-a-ban.svg)
 
-The gates a rule opens with were ground down when the rule was read... the
-plain shapes compiled to bare code refs (see compiled gates below). The ban
-itself is
+A rule runs in the order it is written, and the chart has its gates in the
+order a rule usually writes them. The field tests of a `gate` gate were
+ground down when the rule was read... the plain shapes compiled to bare code
+refs (see compiled gates below). The ban itself is
 `{"command":"ban","args":{"ips":["..."],"kur":"<name>","ban_time":...}}` on
 the Ereshkigal manager socket. Observe mode and detection rules walk the
-same road but count into the shadow buckets and never banish. The full
-clause set and its exact order of judgment live in [rules](rules.md).
+same road but count into the shadow buckets and never banish. The full set
+of gates and what a gate's place in the list decides live in
+[rules](rules.md).
 
 Counts are per galla, so an IP hitting two watchers of the same kur
 accumulates in one counter, while kurs count independently.
@@ -67,10 +69,10 @@ of the record, and walks only those... in config order, so the `overlap`
 semantics are untouched.
 
 Which field depends on what the rules have to offer. For a `syslog` watcher
-it is the daemon: every syslog rule carries a `daemons` list, and the gate is
-the first thing the rule does, before it looks at or remembers anything. For
-the types with no daemon it is whichever field the rules pin most
-*selectively* through a plain equality in their `gate`. On a
+it is the daemon: every syslog rule has a `daemons` gate, and leading the
+rule's list it is the first thing the rule does, before it looks at or
+remembers anything. For the types with no daemon it is whichever field the
+rules pin most *selectively* through a plain equality in their `gate`. On a
 `%json/suricata-all%` watcher that is `alert.category`, not `event_type`:
 nearly every rule pins both, but `event_type` takes the one value `alert`
 across the whole set where `alert.category` takes one per rule, so keying
@@ -84,7 +86,7 @@ string equality can be indexed at all. A json rule carrying a `capture`, an
 judges on its own gates and can complete a deferred offense on a line the
 rule's own gate refused, and a key defers the offense itself. A
 `selections`/`condition` boolean offers nothing either, an arm of it
-possibly sitting under an `or`. A `keywords` entry, a `//regexp//` value,
+possibly sitting under an `or`. A `keywords` gate, a `//regexp//` value,
 or a typed predicate merely contributes nothing for its field... the rule
 is still indexed on whatever plain equalities its `gate` holds, and only
 one holding none is always tried. A watcher whose rules pin nothing
@@ -105,24 +107,24 @@ a fresh one per line can not grow it without limit.
 
 ### Compiled gates
 
-The rules the index does hand a line to then run their gates. Answering a
-gate is two questions... what shape it is, a keyword fan, a typed predicate,
-or a plain field equality, and whether the line satisfies it. The first was
-settled when the rule was read, yet the one runner that handles every shape
-re-asks it per gate, per line.
+The rules the index does hand a line to then run their gates, among them the
+field tests of a `gate` gate. Answering a test is two questions... what
+shape it is, a keyword fan, a typed predicate, or a plain field equality,
+and whether the line satisfies it. The first was settled when the rule was
+read, yet the one runner that handles every shape re-asks it per test, per
+line.
 
-So each gate of the plain shape... one field, string equality... is compiled
-at load into a code ref that does only what that gate needs, a single hash
-lookup with no branching around it, and a rule whose boolean is nothing but
-such gates is run by walking those code refs and nothing else.
+So each test of the plain shape... one field, string equality... is compiled
+at load into a code ref that does only what that test needs, a single hash
+lookup with no branching around it, and a `gate` gate that is nothing but
+such tests is run by walking those code refs and nothing else.
 
 The rest stay with the shape-asking runner: a keyword fan, a typed
-predicate, a gate on the reserved `MESSAGE` field, and any rule whose
-boolean is more than a gate list... one carrying `keywords` to AND in, or
-`selections` with a `condition` to fold. Those are the rare shapes, so
-compiling them would restate more paths to buy nothing. Nothing about what
-a gate means changes; only when the question of which kind it is gets
-asked.
+predicate, a test on the reserved `MESSAGE` field, and any list that is
+not a `gate` gate's own... a `keywords` gate's fan, or the `selections` a
+`condition` gate folds. Those are the rare shapes, so compiling them would
+restate more paths to buy nothing. Nothing about what a test means changes;
+only when the question of which kind it is gets asked.
 
 ## The sweeper
 

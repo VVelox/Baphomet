@@ -45,7 +45,8 @@ sub matches {
 #
 # http... a generic gate on a parsed field
 #
-write_rule( 'http/gate', "---\ngate:\n  - { field: path, op: startswith, value: /admin }\n" );
+write_rule( 'http/gate',
+	"---\nrule_gates:\n  - gate:\n      - { field: path, op: startswith, value: /admin }\n  - ban_var: [ host ]\n" );
 is( matches( 'http/gate', http_line( 'GET /admin/panel HTTP/1.1', 200, 'x' ) ), 1, 'http gate: path startswith matches' );
 is( matches( 'http/gate', http_line( 'GET /public HTTP/1.1', 200, 'x' ) ),      0, 'http gate: other path misses' );
 
@@ -54,10 +55,12 @@ is( matches( 'http/gate', http_line( 'GET /public HTTP/1.1', 200, 'x' ) ),      
 #
 write_rule( 'http/sel', <<'EOR' );
 ---
-selections:
-  post:     [ { field: method, op: eq, value: POST } ]
-  notfound: [ { field: status, op: eq, value: "404" } ]
-condition: "post or notfound"
+rule_gates:
+  - selections:
+      post:     [ { field: method, op: eq, value: POST } ]
+      notfound: [ { field: status, op: eq, value: "404" } ]
+  - condition: "post or notfound"
+  - ban_var: [ host ]
 EOR
 is( matches( 'http/sel', http_line( 'POST /x HTTP/1.1', 200, 'x' ) ), 1, 'http selections: POST matches the or' );
 is( matches( 'http/sel', http_line( 'GET /x HTTP/1.1',  404, 'x' ) ), 1, 'http selections: 404 matches the or' );
@@ -66,8 +69,9 @@ is( matches( 'http/sel', http_line( 'GET /x HTTP/1.1',  200, 'x' ) ), 0, 'http s
 #
 # http... keywords over all fields, and scoped to the user agent
 #
-write_rule( 'http/kw',    "---\nkeywords: [ sqlmap, nikto ]\n" );
-write_rule( 'http/kwscope', "---\nkeywords:\n  in: user_agent\n  values: [ curl ]\n" );
+write_rule( 'http/kw', "---\nrule_gates:\n  - keywords: [ sqlmap, nikto ]\n  - ban_var: [ host ]\n" );
+write_rule( 'http/kwscope',
+	"---\nrule_gates:\n  - keywords:\n      in: user_agent\n      values: [ curl ]\n  - ban_var: [ host ]\n" );
 is( matches( 'http/kw', http_line( 'GET /x HTTP/1.1', 200, 'sqlmap/1.5' ) ), 1, 'http keywords: a scanner UA is found anywhere' );
 is( matches( 'http/kw', http_line( 'GET /x HTTP/1.1', 200, 'Mozilla/5' ) ),  0, 'http keywords: a clean UA misses' );
 is( matches( 'http/kwscope', http_line( 'GET /x HTTP/1.1', 200, 'curl/7.8' ) ), 1, 'http scoped keywords: curl in the UA matches' );
@@ -76,22 +80,28 @@ is( matches( 'http/kwscope', http_line( 'GET /curl HTTP/1.1', 200, 'Mozilla/5' )
 #
 # http... the generic gate ANDs with the status gate
 #
-write_rule( 'http/both', "---\nstatus: [ 200 ]\nkeywords: [ sqlmap ]\n" );
+write_rule( 'http/both',
+	"---\nrule_gates:\n  - status: [ 200 ]\n  - keywords: [ sqlmap ]\n  - ban_var: [ host ]\n" );
 is( matches( 'http/both', http_line( 'GET /x HTTP/1.1', 200, 'sqlmap/1' ) ), 1, 'http: status gate and keyword both hold' );
 is( matches( 'http/both', http_line( 'GET /x HTTP/1.1', 500, 'sqlmap/1' ) ), 0, 'http: the status gate fails' );
 
 #
 # http_error... a generic gate over the message, ANDed with message_regexp
 #
-write_rule( 'http_error/gate', "---\nmessage_regexp: [ '.' ]\ngate:\n  - { field: message, op: contains, value: shellshock }\n" );
+write_rule( 'http_error/gate',
+	"---\nrule_gates:\n  - gate:\n      - { field: message, op: contains, value: shellshock }\n"
+		. "  - message_regexp: [ '.' ]\n  - ban_var: [ client ]\n" );
 is( matches( 'http_error/gate', err_line( 'core', 'error', 'possible shellshock attempt' ) ), 1, 'http_error gate: message contains matches' );
 is( matches( 'http_error/gate', err_line( 'core', 'error', 'ordinary failure' ) ),             0, 'http_error gate: message without it misses' );
 
 #
 # http_error... keywords over the parsed fields, and %%%ANY%%% reaching module
 #
-write_rule( 'http_error/kw',  "---\nmessage_regexp: [ '.' ]\nkeywords: [ exploit ]\n" );
-write_rule( 'http_error/any', "---\nmessage_regexp: [ '.' ]\ngate:\n  - { field: '%%%ANY%%%', op: contains, value: modsecurity }\n" );
+write_rule( 'http_error/kw',
+	"---\nrule_gates:\n  - keywords: [ exploit ]\n  - message_regexp: [ '.' ]\n  - ban_var: [ client ]\n" );
+write_rule( 'http_error/any',
+	"---\nrule_gates:\n  - gate:\n      - { field: '%%%ANY%%%', op: contains, value: modsecurity }\n"
+		. "  - message_regexp: [ '.' ]\n  - ban_var: [ client ]\n" );
 is( matches( 'http_error/kw',  err_line( 'core', 'error', 'exploit blocked' ) ),   1, 'http_error keywords: found in the message' );
 is( matches( 'http_error/kw',  err_line( 'core', 'error', 'nothing here' ) ),      0, 'http_error keywords: absent, no match' );
 is( matches( 'http_error/any', err_line( 'modsecurity', 'error', 'clean text' ) ), 1, 'http_error %%%ANY%%%: matches in the module field' );

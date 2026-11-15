@@ -31,22 +31,23 @@ rev: 1
 msg: "[DAEMONLOGGER] capture dropping packets"
 severity: medium
 classtype: program-error
-daemons:
-  - daemonlogger
-mungers:
-  - daemonlogger
-message_regexp:
-  - 'packets dropped by (?<LAYER>kernel|interface)'
-gate:
-  - field: dlog_drop_percent
-    op: exists
-  - field: dlog_drop_percent
-    op: gt
-    value: 0
-detection_var:
-  - LAYER
 max_score: 3
 find_time: 3600
+rule_gates:
+  - daemons:
+      - daemonlogger
+  - mungers:
+      - daemonlogger
+  - message_regexp:
+      - 'packets dropped by (?<LAYER>kernel|interface)'
+  - gate:
+      - field: dlog_drop_percent
+        op: exists
+      - field: dlog_drop_percent
+        op: gt
+        value: 0
+  - detection_var:
+      - LAYER
 tests:
   positive:
     - message: "Aug 13 05:01:00 ids01 daemonlogger[2200]: 1482 packets dropped by kernel (0.42%)"

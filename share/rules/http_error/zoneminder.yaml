@@ -10,8 +10,10 @@ rev: 1
 msg: "[ZONEMINDER] login denied"
 severity: high
 classtype: unsuccessful-user
-message_regexp:
-  - '^(?:ERR|WAR) \[(?:Login denied|Could not retrieve)\b'
+rule_gates:
+  - message_regexp:
+      - '^(?:ERR|WAR) \[(?:Login denied|Could not retrieve)\b'
+  - ban_var: [ client ]
 tests:
   positive:
     - message: '[Mon Mar 28 16:50:49.522240 2016] [:error] [pid 1795] [client 10.1.1.1:50700] WAR [Login denied for user "username1"], referer: https://zoneminder/'

@@ -4,11 +4,12 @@ use v5.40;
 # log data is raw bytes of unknown encoding... under unicode_strings \s, \w,
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
-use Ref::Util            qw( is_plain_hashref );
+use Ref::Util            qw( is_plain_arrayref is_plain_hashref );
 use Exporter             qw( import );
 use App::Baphomet::Marks qw( bound_expiring_store );
 
 our @EXPORT_OK = qw(
+	correlation_key_components
 	correlation_key context_put context_get pending_park pending_complete
 	fold_completions correlation_prune correlation_restore
 );
@@ -56,6 +57,62 @@ a array of C<< { caps, regexp, expires } >>. A rule dumps the store to the
 context tablet as it is, so the shape is also the tablet's.
 
 =head1 FUNCTIONS
+
+=head2 correlation_key_components
+
+Vets a correlation key as a rule wrote it and returns its components. A key
+is a non-empty string or a non-empty array of them, each naming a capture or
+field, or one of the reserved envelope fields when the rule's type has any.
+Dies, the passed C<$where> leading the message, on a key that is neither, on
+a component that is not a non-empty string, and on one naming a envelope
+field the type does not have.
+
+    - key :: The key as the rule file wrote it.
+
+    - where :: The lead in for the die messages, naming what has the key.
+
+    - envelope_fields :: Hash ref of the envelope fields the rule's type
+          has, or undef for a type with none.
+
+Returns the two item list of a array ref of the components and whether any
+of them names a envelope field, 1 or 0, so the envelope is only built for a
+key that reads it.
+
+    my ( $components, $wants_envelope )
+        = correlation_key_components( $entry->{key}, $where, $rule->envelope_fields );
+
+=cut
+
+sub correlation_key_components {
+	my ( $key, $where, $envelope_fields ) = @_;
+
+	my @components;
+	if ( is_plain_arrayref($key) ) {
+		@components = @{$key};
+	} elsif ( defined($key) && ref($key) eq '' ) {
+		@components = ($key);
+	} else {
+		die( $where . ' has a key that is not a string or a array' );
+	}
+	if ( !@components ) {
+		die( $where . ' has a empty key array' );
+	}
+
+	my $wants_envelope = 0;
+	foreach my $component (@components) {
+		if ( !defined($component) || ref($component) ne '' || $component eq '' ) {
+			die( $where . ' has a key component that is not a non-empty string' );
+		}
+		if ( $component =~ /^syslog\./ ) {
+			if ( !is_plain_hashref($envelope_fields) || !$envelope_fields->{$component} ) {
+				die( $where . ' keys on "' . $component . '", which is not a envelope field this rule type carries' );
+			}
+			$wants_envelope = 1;
+		}
+	} ## end foreach my $component (@components)
+
+	return ( \@components, $wants_envelope );
+} ## end sub correlation_key_components
 
 =head2 correlation_key
 

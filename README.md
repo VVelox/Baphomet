@@ -19,7 +19,7 @@ firewalling. Baphomet never touches a firewall itself.
 That is the accuser. The same galla is also a log analysis engine, in the
 family of Sagan and Wazuh... a rule may detect in place of banishing,
 counting any subject and raising a triageable alert to the EVE event
-stream. Ban or detect is one key's difference. See
+stream. Ban or detect is one gate's difference. See
 [docs/log-analysis.md](docs/log-analysis.md).
 
 Watching sshd looks like this in `/usr/local/etc/baphomet/config.toml`...
@@ -125,4 +125,5 @@ Also...
 
 - `perldoc App::Baphomet`
 - `perldoc App::Baphomet::Galla`
-- `perldoc App::Baphomet::Rules::Syslog`
+- `perldoc App::Baphomet::Rule`
+- `perldoc App::Baphomet::Gate`

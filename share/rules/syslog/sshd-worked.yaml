@@ -16,25 +16,26 @@ rev: 2
 msg: "[SSHD] brute force succeeded... possible credential compromise"
 severity: critical
 classtype: successful-user
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-stages:
-  - message_regexp:
-      - '^Failed (?:password|keyboard-interactive\S*) for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
-    count: 5
-    within: 300
-  - message_regexp:
-      - '^Accepted \w+ for (?<USER>\S+) from %%%%SRC%%%%'
-    within: 600
-per: [ SRC ]
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: USER
-detection_var: [ SRC ]
 max_score: 1
+rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  - stages:
+      - message_regexp:
+          - '^Failed (?:password|keyboard-interactive\S*) for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
+        count: 5
+        within: 300
+      - message_regexp:
+          - '^Accepted \w+ for (?<USER>\S+) from %%%%SRC%%%%'
+        within: 600
+  - per: [ SRC ]
+  - detection_var: [ SRC ]
 tests:
   positive:
     - messages:

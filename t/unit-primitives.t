@@ -15,8 +15,8 @@ BEGIN {
 }
 
 use App::Baphomet::Primitives ();
-use App::Baphomet::Parser      ();
-use App::Baphomet::Rules::Raw  ();
+use App::Baphomet::Parser     ();
+use App::Baphomet::Rule       ();
 
 #
 # the library resolves from Log-Munger... every fragment a compilable
@@ -79,9 +79,14 @@ ok( defined( $fresh->{INT} ),    'the re-resolve produced the real library' );
 # back to a clean live resolution for the composition tests below
 App::Baphomet::Primitives::_reset();
 
+# a raw rule whose message_regexp gate is the passed list of patterns, SRC
+# its ban_var, with whatever is passed after the list as the rule's own keys
 sub raw_rule {
-	my (%def) = @_;
-	return App::Baphomet::Rules::Raw->new( name => 'raw/x', def => { ban_var => ['SRC'], %def } );
+	my ( $message_regexp, %def ) = @_;
+	return App::Baphomet::Rule->new(
+		name => 'raw/x',
+		def  => { rule_gates => [ { message_regexp => $message_regexp }, { ban_var => ['SRC'] } ], %def }
+	);
 }
 
 sub line { return App::Baphomet::Parser::parse( 'raw', $_[0] ); }
@@ -92,8 +97,8 @@ sub line { return App::Baphomet::Parser::parse( 'raw', $_[0] ); }
 # SRC is captured
 #
 
-my $rule = raw_rule(
-	message_regexp => ['^%%%%SYSLOGTIMESTAMP%%%% \S+ sshd\[%%%%INT%%%%\]: Failed password for \S+ from %%%%SRC%%%%'] );
+my $rule
+	= raw_rule( ['^%%%%SYSLOGTIMESTAMP%%%% \S+ sshd\[%%%%INT%%%%\]: Failed password for \S+ from %%%%SRC%%%%'] );
 my $found = $rule->check( line('Jul 12 08:15:50 host sshd[1234]: Failed password for root from 192.0.2.7') );
 ok( defined($found), 'a pattern built from primitive fragments plus SRC matches a real line' );
 is( $found->{data}{SRC}, '192.0.2.7', 'the capturing SRC token yields the offender field' );
@@ -105,16 +110,13 @@ is_deeply(
 
 # the same primitive twice in one pattern is fine, being non-capturing...
 # no duplicate-capture-name compile error
-my $twice = raw_rule( message_regexp => ['^%%%%INT%%%%\.%%%%INT%%%% from %%%%SRC%%%%'] );
+my $twice = raw_rule( ['^%%%%INT%%%%\.%%%%INT%%%% from %%%%SRC%%%%'] );
 ok( defined( $twice->check( line('10.20 from 192.0.2.7') ) ),
 	'a fragment used twice compiles and matches... no aliasing needed for the non-capturing kind' );
 
 # an author may wrap a fragment in their own named capture to keep it as a
 # field under a name of their choosing
-my $named = raw_rule(
-	message_regexp => ['^user (?<USER>%%%%USERNAME%%%%) from %%%%SRC%%%%'],
-	src_ip_var     => 'SRC',
-);
+my $named = raw_rule( ['^user (?<USER>%%%%USERNAME%%%%) from %%%%SRC%%%%'], src_ip_var => 'SRC' );
 my $nf = $named->check( line('user alice from 192.0.2.7') );
 is( $nf->{data}{USER}, 'alice',     'a fragment wrapped in (?<USER>...) captures under the chosen name' );
 is( $nf->{data}{SRC},  '192.0.2.7', 'beside the SRC token' );
@@ -129,7 +131,7 @@ ok( !defined( $rule->check( line('NOTATIME host sshd[1234]: Failed password for 
 #
 
 ok(
-	!eval { raw_rule( message_regexp => ['^%%%%NOSUCHTHING%%%% from %%%%SRC%%%%'] ); 1 },
+	!eval { raw_rule( ['^%%%%NOSUCHTHING%%%% from %%%%SRC%%%%'] ); 1 },
 	'an unknown token name is a load error'
 );
 like( $@, qr/unknown token "NOSUCHTHING"/, 'and the error names it' );

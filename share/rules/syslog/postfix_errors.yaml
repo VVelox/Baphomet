@@ -39,32 +39,33 @@ rev: 3
 msg: "[POSTFIX] daemon fault"
 severity: medium
 classtype: program-error
-daemons:
-  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
-mungers:
-  - postfix
-# no message_regexp... the munger's fields are the matcher
-selections:
-  # postfix in trouble by definition
-  fail_severe:
-    - field: postfix_message_level
-      op: re
-      nocase: true
-      value: '^(?:error|fatal|panic)$'
-  # and the warnings that are about postfix rather than about a client
-  fail_local_warning:
-    - field: postfix_message_level
-      op: eq
-      nocase: true
-      value: warning
-    - field: postfix_message
-      op: re
-      value: '^(?:database \S+ is older than source file|unable to (?:open|look up|create|read)|open database|cannot (?:load|open|start|access)|problem talking to service|premature end-of-input|insecure (?:permissions|directory)|queue file size limit exceeded|mail for \S+ loops back to myself|unsupported dictionary type|dict_\w+:|process \S+ pid \d+ killed by signal|master_wakeup_timer_event)'
-condition: "1 of them"
-detection_var:
-  - postfix_message
 max_score: 1
 find_time: 600
+rule_gates:
+  - daemons:
+      - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
+  - mungers:
+      - postfix
+  # no message_regexp... the munger's fields are the matcher
+  - selections:
+      # postfix in trouble by definition
+      fail_severe:
+        - field: postfix_message_level
+          op: re
+          nocase: true
+          value: '^(?:error|fatal|panic)$'
+      # and the warnings that are about postfix rather than about a client
+      fail_local_warning:
+        - field: postfix_message_level
+          op: eq
+          nocase: true
+          value: warning
+        - field: postfix_message
+          op: re
+          value: '^(?:database \S+ is older than source file|unable to (?:open|look up|create|read)|open database|cannot (?:load|open|start|access)|problem talking to service|premature end-of-input|insecure (?:permissions|directory)|queue file size limit exceeded|mail for \S+ loops back to myself|unsupported dictionary type|dict_\w+:|process \S+ pid \d+ killed by signal|master_wakeup_timer_event)'
+  - condition: "1 of them"
+  - detection_var:
+      - postfix_message
 tests:
   positive:
     - message: "Aug 12 00:00:02 mail01 postfix/local[67046]: warning: database /etc/mail/aliases.db is older than source file /etc/mail/aliases"

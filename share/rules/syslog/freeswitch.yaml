@@ -9,20 +9,21 @@ rev: 2
 msg: "[FREESWITCH] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - freeswitch
-message_regexp:
-  - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? Can''t find user \[[^@]+@[^\]]+\] from %%%%SRC%%%%$'
-  - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? SIP auth (?:failure|challenge) \((?:REGISTER|INVITE)\) on sofia profile ''[^'']+'' for \[[^\]]*\] from ip %%%%SRC%%%%$'
 src_ip_var: SRC
-ban_var:
-  - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
 max_score: 10
+rule_gates:
+  - daemons:
+      - freeswitch
+  - message_regexp:
+      - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? Can''t find user \[[^@]+@[^\]]+\] from %%%%SRC%%%%$'
+      - '^(?:(?:\d+-)?\d+-\d+ \d+:\d+:\d+\.\d+ )?\[WARN(?:ING)?\](?: \[SOFIA\])? \[?sofia_reg\.c:\d+\]? SIP auth (?:failure|challenge) \((?:REGISTER|INVITE)\) on sofia profile ''[^'']+'' for \[[^\]]*\] from ip %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 freeswitch[123]: [WARNING] sofia_reg.c:1533 SIP auth challenge (INVITE) on sofia profile 'internal' for [011448708752617@192.168.2.51] from ip 81.94.202.251"

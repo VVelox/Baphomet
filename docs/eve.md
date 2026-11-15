@@ -135,7 +135,7 @@ Every record carries these fields...
   matched against. See [raw, parsed, found](#raw-parsed-found).
 - `found` :: the assembled offense... the fields the rule matched,
   extracted, or correlated, and the ones `ban_var`/`detection_var`,
-  the gates, and the marks resolve against. See
+  the other gates, and the marks resolve against. See
   [raw, parsed, found](#raw-parsed-found).
 - `stages` :: a staged rule's whole story... an array of every stage
   hit (`stage` index, `time` epoch, `line`), `raw` above being only
@@ -166,7 +166,7 @@ two of them coincide, but each answers a different question.
   are tested against.
 
 - **`found`** :: the offense the rule assembled, and the hash that
-  `ban_var`/`detection_var`, the gates, the marks, and the promoted vars
+  `ban_var`/`detection_var`, the other gates, the marks, and the promoted vars
   (`src_ip_var` and its four siblings) all read. For a regexp rule
   (syslog/raw/http_error) it is
   the rule's named captures... often a small subset, like just `SRC` and
@@ -286,11 +286,11 @@ the records that rule is party to at the moment the event was written:
 `.tracked.key` is the id the record was filed under, a compound key rendered
 as an array of its components and a single one as a plain scalar, so both map
 to one keyword field rather than carrying the separator the store joins on.
-`.tracked.vars` is the record itself. It is read live, and the harvest at the
-end of the rule precedes the emit, so `vars` includes this line's own
-contribution... the reading an operator wants, at the price of the gate having
-decided on a state one line older than the event displays. A track whose key
-did not resolve on this line appears in neither.
+`.tracked.vars` is the record itself. It is read live, and the rule's `track`
+gate harvests ahead of the emit, so `vars` includes this line's own
+contribution... the reading an operator wants, at the price of a `tracked`
+gate above it having decided on a state one line older than the event
+displays. A track whose key did not resolve on this line appears in neither.
 
 A `track_only` rule's own events are not written at all unless
 `track_only_eve_store` is set, a harvest rule's `found` being largely

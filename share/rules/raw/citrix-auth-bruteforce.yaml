@@ -12,21 +12,22 @@ rev: 1
 msg: "[CITRIX] AAA login failure... brute force"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
 # Sagan's after... count 10, seconds 300, honored when the kur allows
 # per-rule thresholds
 max_score: 10
 find_time: 300
+rule_gates:
+  - message_regexp:
+      - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default AAA LOGIN_FAILED 4344 0 : User serviceacct - Client_ip 198.51.100.9 - Failure_reason \"External authentication server denied access\" - Browser Mozilla/5.0"

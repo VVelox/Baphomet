@@ -14,10 +14,11 @@ severity: low
 classtype: system-event
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' GMT (?<HOST>\S+) \d+-PPE-\d+ : default \S+ SSL_CERT_EXPIRY_IMMINENT \d+ \d+ :'
-detection_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - ' GMT (?<HOST>\S+) \d+-PPE-\d+ : default \S+ SSL_CERT_EXPIRY_IMMINENT \d+ \d+ :'
+  - detection_var:
+      - HOST
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default SSLLOG SSL_CERT_EXPIRY_IMMINENT 512 0 :  Certificate with serial number 0FAB12CD on entity server_cert expires in 25 days"

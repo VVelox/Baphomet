@@ -14,20 +14,21 @@ rev: 1
 msg: "[AUDITD] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=(?:USER_LOGIN|USER_AUTH|USER_ERR|USER_ACCT|CRED_ACQ) msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b.* res=failed'
 src_ip_var: SRC
 user_var: audit_msg_acct
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=(?:USER_LOGIN|USER_AUTH|USER_ERR|USER_ACCT|CRED_ACQ) msg=audit\([\d.]+:\d+\): .*\baddr=%%%%SRC%%%%\b.* res=failed'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     # a remote ssh login failure recorded by auditd, enriched from the same line

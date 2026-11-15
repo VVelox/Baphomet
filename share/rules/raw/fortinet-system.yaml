@@ -17,15 +17,16 @@ severity: medium
 classtype: system-event
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-message_regexp:
-  - 'devname="?(?<DEV>[^" ]+)"?.*?log_?id="?\d*(?:22700|32014|32020|29004)"? type='
-  - 'devname="?(?<DEV>[^" ]+)"?.*?pri=critical'
-ignore_regexp:
-  - 'Alarm Cleared'
-  - 'logged out from'
-  - 'physical-port-change'
-detection_var:
-  - DEV
+rule_gates:
+  - ignore_regexp:
+      - 'Alarm Cleared'
+      - 'logged out from'
+      - 'physical-port-change'
+  - message_regexp:
+      - 'devname="?(?<DEV>[^" ]+)"?.*?log_?id="?\d*(?:22700|32014|32020|29004)"? type='
+      - 'devname="?(?<DEV>[^" ]+)"?.*?pri=critical'
+  - detection_var:
+      - DEV
 tests:
   positive:
     - message: 'Jul 12 12:00:10 fw01 date=2026-07-12 time=12:00:10 devname="FGT100F" devid="FG100FTK20012345" logid="0100022700" type="event" subtype="system" level="critical" vd="root" eventtime=1752339610000000000 tz="-0500" logdesc="IPS session scan paused" action="scan-pause" reason="cpu-limit" msg="IPS session scan paused due to CPU usage limit"'

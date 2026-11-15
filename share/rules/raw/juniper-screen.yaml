@@ -20,16 +20,17 @@ severity: medium
 classtype: network-scan
 references:
   - https://www.juniper.net/techpubs/software/screenos/screenos5.2.0/NS_Messages.pdf
-mark:
-  - name: recon
-    ttl: 86400
-message_regexp:
-  - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)?: [^!]+! source: %%%%SRC%%%%'
-  - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)? \[junos@\S+ .*?source-address="%%%%SRC%%%%"'
-  - 'system-(?:alert|critical|emergency)-\d{5}: [^!]+! From %%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)?: [^!]+! source: %%%%SRC%%%%'
+      - 'RT_SCREEN_(?:TCP|UDP|ICMP|IP)(?:_LS)? \[junos@\S+ .*?source-address="%%%%SRC%%%%"'
+      - 'system-(?:alert|critical|emergency)-\d{5}: [^!]+! From %%%%SRC%%%%'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 12 08:15:50 srx01 RT_IDS: RT_SCREEN_TCP: SYN flood! source: 198.51.100.7:31337, destination: 192.0.2.10:80, zone name: untrust, interface name: ge-0/0/0.0, action: alarm-without-drop"

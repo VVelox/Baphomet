@@ -31,7 +31,7 @@ The options translate like so:
 
 | Sagan option                                                                  | becomes                                                                                             |
 |-------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
-| `program: sshd`                                                               | `daemons: [ sshd ]`                                                                                 |
+| `program: sshd`                                                               | a `daemons: [ sshd ]` gate                                                                          |
 | `content:"..."`, `pcre:"/.../"`                                               | `message_regexp` entries (Perl regexps)                                                             |
 | the tracked source (`parse_src_ip`, `by_src`)                                 | a `%%%%SRC%%%%` token in the regexp                                                                 |
 | `msg:"..."`                                                                   | `msg`                                                                                               |
@@ -40,8 +40,8 @@ The options translate like so:
 | `threshold:` / `after: count N, seconds M`                                    | `max_score` / `find_time`                                                                           |
 | `xbits` / `flexbits` (set/isset)                                              | `mark` / `marked` (see [rules](rules.md))                                                           |
 | the bit's `track` (`ip_src`/`by_src`, `by_username`, `ip_username`/`ip_both`) | the mark's keying... var-less for the offender IP, `var` for one capture, `vars` for a compound key |
-| a `\|`-joined isset (`isset, a\|b`)                                           | a `marked` entry with `names`                                                                       |
-| a `&`-joined set (`set, a&b`)                                                 | two entries under `mark`                                                                            |
+| a `\|`-joined isset (`isset, a\|b`)                                           | a `marked` gate with `names`                                                                        |
+| a `&`-joined set (`set, a&b`)                                                 | two `mark` gates                                                                                    |
 | `country_code:`                                                               | the `country` gate                                                                                  |
 | `blacklist:`                                                                  | the `namtar_list` gate                                                                              |
 | `alert_time:`                                                                 | the `active_time` gate                                                                              |
@@ -54,12 +54,12 @@ setters and the `-condemned`/`-escalation` readers instead of a private namespac
 standard brands in [rules](rules.md).
 
 **Ban or detect.** A Sagan rule alerts, it does not firewall. To keep that...
-surface the signature without banning... port it as a detection rule with
-`detection_var: [ SRC ]`, so it writes `sighting`/`sighted` to [EVE](eve.md)
-and touches
-no firewall. To turn the signature into a ban instead, name `ban_var: [ SRC ]`
-and let the kur's thresholds decide. This is the one real choice the port asks
-of you. See [rules](rules.md) for more info.
+surface the signature without banning... port it as a detection rule with a
+`detection_var: [ SRC ]` gate, so it writes `sighting`/`sighted` to
+[EVE](eve.md) and touches no firewall. To turn the signature into a ban
+instead, make that gate `ban_var: [ SRC ]` and let the kur's thresholds
+decide. This is the one real choice the port asks of you. See
+[rules](rules.md) for more info.
 
 **Tests.** Lift sample lines from the rule's comments or your own logs into a
 `tests:` block, then `baphomet test_line` pokes single lines at a draft and

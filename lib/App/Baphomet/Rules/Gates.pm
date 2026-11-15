@@ -49,9 +49,10 @@ L<https://github.com/LilithSec/Baphomet/blob/main/docs/rules.md#gate--selections
 
 Everything here is a plain function holding no rule state. A def's gate
 array goes in and a compiled list comes out, then a compiled list and a
-hash of field values go in and a verdict comes out. Which lists a rule has,
-and how they combine into its one boolean, is the rule's business and lives
-in L<App::Baphomet::Rules::Base>.
+hash of field values go in and a verdict comes out. Which lists a rule has
+is the business of its gates, L<App::Baphomet::Gate::gate>,
+L<App::Baphomet::Gate::keywords>, and L<App::Baphomet::Gate::condition>
+among them.
 
 =head1 FUNCTIONS
 

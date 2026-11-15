@@ -23,32 +23,33 @@ severity: high
 classtype: misc-attack
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-mungers:
-  - fortinet
-selections:
-  modern:
-    - field: fg_logid
-      op: eq
-      values: [ "0419016384", "0419016385", "0421016399", "0720018434" ]
-    - field: fg_type
-      op: eq
-      value: utm
-  legacy:
-    - field: fg_log_id
-      op: re
-      value: '^\d*(?:70000|73001)$'
-condition: "modern or legacy"
-ignore_regexp:
-  - 'severity="(?:low|info)"'
-  - 'SSL\.Anonymous\.Ciphers'
-  - 'URL blocked '
 src_ip_var: fg_offender_ip
 dest_ip_var: fg_dstip
 src_port_var: fg_srcport
 dest_port_var: fg_dstport
-ban_var:
-  - fg_offender_ip
-ban_not_internal: true
+rule_gates:
+  - mungers:
+      - fortinet
+  - ignore_regexp:
+      - 'severity="(?:low|info)"'
+      - 'SSL\.Anonymous\.Ciphers'
+      - 'URL blocked '
+  - selections:
+      modern:
+        - field: fg_logid
+          op: eq
+          values: [ "0419016384", "0419016385", "0421016399", "0720018434" ]
+        - field: fg_type
+          op: eq
+          value: utm
+      legacy:
+        - field: fg_log_id
+          op: re
+          value: '^\d*(?:70000|73001)$'
+  - condition: "modern or legacy"
+  - ban_var:
+      - fg_offender_ip
+  - ban_not_internal: true
 tests:
   positive:
     - message: 'Jul 12 09:01:12 fw01 date=2026-07-12 time=09:01:12 devname="FGT100F" devid="FG100FTK20012345" logid="0419016384" type="utm" subtype="ips" eventtype="signature" level="alert" vd="root" eventtime=1752328872000000000 tz="-0500" severity="critical" srcip=203.0.113.66 srccountry="Reserved" dstip=192.168.1.20 dstcountry="Reserved" srcintf="wan1" srcintfrole="wan" dstintf="lan" dstintfrole="lan" sessionid=402716 action="detected" proto=6 service="HTTP" policyid=1 attack="SQL.Injection" srcport=51345 dstport=80 hostname="www.example.com" url="/login.php?id=1" direction="outgoing" attackid=15621 profile="protect_servers" ref="http://www.fortinet.com/ids/VID15621" incidentserialno=163842013 msg="applications3: SQL.Injection"'

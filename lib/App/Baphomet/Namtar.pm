@@ -41,7 +41,7 @@ galla so it runs over any loaded lists... the galla passes the files it
 reads and refreshes as they change, while a test passes sets it compiled
 from lines of its own. Nothing here reads a file, watches a mtime, or knows
 of config. The gate that judges by these is
-L<App::Baphomet::Gate::NamtarList>.
+L<App::Baphomet::Gate::namtar_list>.
 
 A named list comes to one B<slot> per file it names, a hash of...
 

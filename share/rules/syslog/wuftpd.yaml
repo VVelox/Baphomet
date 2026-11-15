@@ -5,17 +5,18 @@ rev: 3
 msg: "[WUFTPD] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - wu-ftpd
-message_regexp:
-  - '^failed login from \S+ \[%%%%SRC%%%%\]\s*$'
-  - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - wu-ftpd
+  - message_regexp:
+      - '^failed login from \S+ \[%%%%SRC%%%%\]\s*$'
+      - '^\(?pam_unix(?:\(wu-ftpd:auth\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Oct  6 09:59:26 myserver wu-ftpd[18760]: failed login from hj-145-173-a8.bta.net.cn [202.108.145.173]"

@@ -30,31 +30,32 @@ rev: 2
 msg: "[EXIM] SMTP abuse (aggressive)"
 severity: medium
 classtype: network-scan
-mark:
-  - name: recon
-    ttl: 86400
-message_regexp:
-  # no MAIL in SMTP connection from [host] (helo) [addr]:port I=... D=... C=...
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no MAIL in SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\s*$'
-  # SMTP protocol error in "<the client's command>" H=... [addr] AUTH command used when not advertised
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol error in ".*" H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* [A-Za-z]+ (?:command used when not advertised|authentication mechanism not supported)\s*$'
-  # [msgid] SMTP connection from ... closed by DROP in ACL
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])?(?: [0-9A-Za-z]{6,}-[0-9A-Za-z]{6,}-[0-9A-Za-z]{2,})? SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* closed by DROP in ACL\s*$'
-  # SMTP call from ... dropped: too many unrecognized commands, and the
-  # nonmail / syntax drops with a ", C=..." after the last command, which
-  # raw/exim does not read
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[\w.-]+ )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped: too many (?:unrecognized commands|(?:nonmail commands|syntax or protocol errors) \(last (?:command )?was ".*",\s+C=\S+\))'
-  # a RCPT rejected for any reason raw/exim does not count
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* rejected RCPT [^@]+@\S+: (?!(?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$).+$'
-  # no reverse DNS for the peer
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no host name found for IP address %%%%SRC%%%%\s*$'
-  # a reverse name that does not resolve forward
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no IP address found for host \S+ \(during SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\)\s*$'
-  # H=[addr]:port dropped by 'connect' ACL: <reason>
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped by ''[^'']+'' ACL:'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      # no MAIL in SMTP connection from [host] (helo) [addr]:port I=... D=... C=...
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no MAIL in SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\s*$'
+      # SMTP protocol error in "<the client's command>" H=... [addr] AUTH command used when not advertised
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol error in ".*" H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* [A-Za-z]+ (?:command used when not advertised|authentication mechanism not supported)\s*$'
+      # [msgid] SMTP connection from ... closed by DROP in ACL
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])?(?: [0-9A-Za-z]{6,}-[0-9A-Za-z]{6,}-[0-9A-Za-z]{2,})? SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* closed by DROP in ACL\s*$'
+      # SMTP call from ... dropped: too many unrecognized commands, and the
+      # nonmail / syntax drops with a ", C=..." after the last command, which
+      # raw/exim does not read
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[\w.-]+ )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped: too many (?:unrecognized commands|(?:nonmail commands|syntax or protocol errors) \(last (?:command )?was ".*",\s+C=\S+\))'
+      # a RCPT rejected for any reason raw/exim does not count
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* rejected RCPT [^@]+@\S+: (?!(?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$).+$'
+      # no reverse DNS for the peer
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no host name found for IP address %%%%SRC%%%%\s*$'
+      # a reverse name that does not resolve forward
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? no IP address found for host \S+ \(during SMTP connection from (?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)*\)\s*$'
+      # H=[addr]:port dropped by 'connect' ACL: <reason>
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? H=(?:[\w.-]+ )?(?:\(\S+\) )?\[(?:IPv6:)?%%%%SRC%%%%\](?::\d+)?(?: [A-Za-z]{1,4}=\S+)* dropped by ''[^'']+'' ACL:'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: '2016-03-21 06:38:05 [5718] no MAIL in SMTP connection from www3005.example.jp [192.0.2.15]:28890 I=[192.0.2.6]:25 D=21s C=EHLO,STARTTLS'

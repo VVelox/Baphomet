@@ -38,20 +38,22 @@ sub parsed_line {
 
 write_rule( 'http/probes', <<'EOR' );
 ---
-status:
-  - 404
-  - //^4[0-9][0-9]$//
-method:
-  - GET
-  - POST
-match:
-  - field: path
-    regexp: '^/\.env'
-  - field: user_agent
-    regexp: '(?i:zgrab)'
-ignore:
-  - field: user_agent
-    regexp: 'FriendlyAuditBot'
+rule_gates:
+  - status:
+      - 404
+      - //^4[0-9][0-9]$//
+  - method:
+      - GET
+      - POST
+  - ignore:
+      - field: user_agent
+        regexp: 'FriendlyAuditBot'
+  - match:
+      - field: path
+        regexp: '^/\.env'
+      - field: user_agent
+        regexp: '(?i:zgrab)'
+  - ban_var: [ host ]
 tests:
   positive:
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 404 196 "-" "curl/8"'
@@ -69,8 +71,20 @@ EOR
 my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('http/probes');
 ok( defined($rule), 'http rule loaded' );
-is( ( $rule->ban_var )[0], 'host', 'ban_var is host' );
+my ($naming) = grep { $_->{type} eq 'ban_var' } @{ $rule->rule_gates };
+is( $naming->{names}[0], 'host', 'ban_var is host' );
 is( $rule->src_ip_var, 'host', 'src_ip_var defaults to host, so the EVE src_ip carries the client' );
+
+# host is not a default... a http rule naming no offender is refused
+write_rule( 'http/nobanvar', <<'EOR' );
+---
+rule_gates:
+  - status:
+      - 401
+EOR
+ok( !eval { $rules->load('http/nobanvar'); 1 },
+	'a http rule with neither a ban_var nor a detection_var refuses to load' );
+like( $@, qr/neither a ban_var nor a detection_var gate/, 'and the error says it names no offender' );
 
 my $found = $rule->check( parsed_line( '203.0.113.9', 'GET /.env HTTP/1.1', 404, 'curl/8' ) );
 ok( defined($found), 'path match found' );
@@ -102,8 +116,10 @@ ok( !defined( $rule->check($syslog_parsed) ), 'syslog shaped lines are refused' 
 
 write_rule( 'http/all401', <<'EOR' );
 ---
-status:
-  - 401
+rule_gates:
+  - status:
+      - 401
+  - ban_var: [ host ]
 tests:
   positive:
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /secret HTTP/1.1" 401 196 "-" "curl/8"'
@@ -128,18 +144,22 @@ ok( !eval { $rules->load('http/empty'); 1 }, 'no gates and no matches refuses to
 
 write_rule( 'http/badfield', <<'EOR' );
 ---
-match:
-  - field: lunar_phase
-    regexp: 'full'
+rule_gates:
+  - match:
+      - field: lunar_phase
+        regexp: 'full'
+  - ban_var: [ host ]
 EOR
 ok( !eval { $rules->load('http/badfield'); 1 }, 'unknown field refuses to load' );
 like( $@, qr/lunar_phase/, 'unknown field named in the error' );
 
 write_rule( 'http/badregexp', <<'EOR' );
 ---
-match:
-  - field: path
-    regexp: '((('
+rule_gates:
+  - match:
+      - field: path
+        regexp: '((('
+  - ban_var: [ host ]
 EOR
 ok( !eval { $rules->load('http/badregexp'); 1 }, 'uncompilable regexp refuses to load' );
 

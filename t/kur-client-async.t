@@ -32,12 +32,13 @@ make_path( $dir . '/rules/syslog', $dir . '/run', $dir . '/cache', $dir . '/cach
 open( my $fh, '>', $dir . '/rules/syslog/sshd.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 EOR
 close($fh);
 

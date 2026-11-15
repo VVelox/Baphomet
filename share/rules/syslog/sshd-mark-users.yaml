@@ -11,27 +11,28 @@ rev: 6
 msg: "[SSHD] brand account with source"
 severity: info
 classtype: not-suspicious
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-message_regexp:
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
-  - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: USER
-ban_var:
-  - SRC
 mark_only: true
-mark:
-  - name: sshd-account-src
-    ttl: 3600
-    var: USER
-    value_var: SRC
+rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  - message_regexp:
+      - '^(?:(?:error|fatal): (?:PAM: )?)?[iI](?:llegal|nvalid) user (?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: \[preauth\])?\s*$'
+      - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*(?:: \S+ \S+(?:, client user "[^"]*", client host "[^"]*")?)?)?(?: \[preauth\])?\s*$'
+      - '^(?:(?:error|fatal): (?:PAM: )?)?[aA]uthentication (?:failure|error|failed) for (?<USER>\S+) from %%%%SRC%%%%(?: via \S+)?(?: port \d+)?(?: \[preauth\])?\s*$'
+      - '^(?:(?:error|fatal): (?:PAM: )?)?maximum authentication attempts exceeded for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%(?: port \d+)?(?: ssh\d*)?(?: \[preauth\])?\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: sshd-account-src
+      ttl: 3600
+      var: USER
+      value_var: SRC
 tests:
   positive:
     # and the brand lands keyed by the account, carrying the source

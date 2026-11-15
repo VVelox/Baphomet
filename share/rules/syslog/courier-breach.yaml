@@ -14,17 +14,17 @@ rev: 2
 msg: "[COURIER] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: successful-user
-daemons:
-  - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
-message_regexp:
-  - '^LOGIN, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
+src_ip_var: SRC
+max_score: 1
 rule_gates:
+  - daemons:
+      - '//^(?:courier)?(?:imapd?|pop3d?)(?:login)?(?:-ssl)?$//'
+  - message_regexp:
+      - '^LOGIN, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
   - marked:
       names: [ brute_force, recon, exploit_attempt, honeypot ]
       var: SRC
-src_ip_var: SRC
-detection_var: [ SRC ]
-max_score: 1
+  - detection_var: [ SRC ]
 tests:
   positive:
     # any one of the standard brands satisfies the any-of gate

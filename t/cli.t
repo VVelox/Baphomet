@@ -33,12 +33,13 @@ my @config = ( '--config', $dir . '/cli.toml' );
 open( my $fh, '>', $dir . '/rules/syslog/good.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -51,12 +52,13 @@ close($fh);
 open( $fh, '>', $dir . '/rules/syslog/bad.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: something else"
@@ -134,12 +136,13 @@ rev: 1
 msg: "[LAZY] offender reached over a lazy wildcard"
 severity: high
 classtype: brute-force
-daemons:
-  - lazyd
-message_regexp:
-  - '^auth failed for user .*? from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - lazyd
+  - message_regexp:
+      - '^auth failed for user .*? from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 host01 lazyd[1]: auth failed for user bob from 192.0.2.7"

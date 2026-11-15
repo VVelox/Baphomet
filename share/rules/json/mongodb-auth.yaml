@@ -7,20 +7,21 @@ rev: 2
 msg: "[MONGODB] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-gate:
-  - field: c
-    values: [ ACCESS ]
-  - field: msg
-    values: [ "Authentication failed" ]
-match:
-  - field: attr.remote
-    regexp: '^%%%%SRC%%%%:\d+$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - gate:
+      - field: c
+        values: [ ACCESS ]
+      - field: msg
+        values: [ "Authentication failed" ]
+  - match:
+      - field: attr.remote
+        regexp: '^%%%%SRC%%%%:\d+$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: '{"t":{"$date":"2026-07-12T08:15:50.123+00:00"},"s":"I","c":"ACCESS","id":20249,"ctx":"conn123","msg":"Authentication failed","attr":{"mechanism":"SCRAM-SHA-256","speculative":false,"principalName":"root","authenticationDatabase":"admin","remote":"192.0.2.5:54321","extraInfo":{},"error":"AuthenticationFailed: SCRAM authentication failed, storedKey mismatch"}}'

@@ -30,21 +30,22 @@ rev: 1
 msg: "[AUDITD] mandatory access control set permissive/disabled"
 severity: high
 classtype: policy-violation
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  - '^type=MAC_STATUS msg=audit\([\d.]+:\d+\): enforcing=0\b.*\bauid=(?<AUID>\d+)'
-  - '^type=MAC_CONFIG_CHANGE msg=audit\([\d.]+:\d+\): .*\benforcing=0\b.*\bauid=(?<AUID>\d+)'
-  # AppArmor: the profile being unloaded. name= is the profile operated ON;
-  # profile= on these records is the actor's own confinement (unconfined,
-  # for apparmor_parser), which is not what we want to count by.
-  - '^type=(?:AVC|APPARMOR_\w+) msg=audit\([\d.]+:\d+\): apparmor="STATUS" .*?\boperation="profile_remove" .*?\bname="(?<PROFILE>[^"]+)"'
-detection_var:
-  - AUID
-  - PROFILE
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      - '^type=MAC_STATUS msg=audit\([\d.]+:\d+\): enforcing=0\b.*\bauid=(?<AUID>\d+)'
+      - '^type=MAC_CONFIG_CHANGE msg=audit\([\d.]+:\d+\): .*\benforcing=0\b.*\bauid=(?<AUID>\d+)'
+      # AppArmor: the profile being unloaded. name= is the profile operated ON;
+      # profile= on these records is the actor's own confinement (unconfined,
+      # for apparmor_parser), which is not what we want to count by.
+      - '^type=(?:AVC|APPARMOR_\w+) msg=audit\([\d.]+:\d+\): apparmor="STATUS" .*?\boperation="profile_remove" .*?\bname="(?<PROFILE>[^"]+)"'
+  - detection_var:
+      - AUID
+      - PROFILE
 tests:
   positive:
     - message: "Nov 14 10:10:00 mail01 audisp-syslog[1500]: type=MAC_STATUS msg=audit(1700000005.1:905): enforcing=0 old_enforcing=1 auid=1000 ses=3"

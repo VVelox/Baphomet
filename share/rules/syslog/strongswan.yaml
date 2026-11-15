@@ -23,31 +23,32 @@ severity: medium
 classtype: attempted-recon
 attack:
   - T1595.002
-mark:
-  - name: recon
-    ttl: 86400
 references:
   - https://docs.strongswan.org/docs/latest/daemons/charon-systemd.html
-daemons:
-  - //^(?:charon|ipsec|strongswan|charon-systemd)$//
-mungers:
-  - strongswan
-# no message_regexp... the munger's fields are the matcher
-gate:
-  - field: ipsec_subsystem
-    op: eq
-    value: CFG
-  - field: ipsec_missing
-    op: eq
-    nocase: true
-    value: peer config
 src_ip_var: ipsec_remote_ip
 dest_ip_var: ipsec_local_ip
 # the IKE identity the peer offered... the nearest thing to an account on a
 # line that never reaches authentication
 user_var: ipsec_remote_id
-ban_var:
-  - ipsec_remote_ip
+rule_gates:
+  - daemons:
+      - //^(?:charon|ipsec|strongswan|charon-systemd)$//
+  - mungers:
+      - strongswan
+  # no message_regexp... the munger's fields are the matcher
+  - gate:
+      - field: ipsec_subsystem
+        op: eq
+        value: CFG
+      - field: ipsec_missing
+        op: eq
+        nocase: true
+        value: peer config
+  - ban_var:
+      - ipsec_remote_ip
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Jul 12 08:15:50 vpngw charon[1234]: 12[CFG] no matching peer config found for 192.0.2.1[%any]...203.0.113.7[client]"

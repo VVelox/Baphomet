@@ -17,24 +17,24 @@ rev: 1
 msg: "[PURE-FTPD] authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - pure-ftpd
-message_regexp:
-  # the success... "[INFO] user is now logged in"
-  - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[INFO\] (?<USER>\S+) is now logged in'
-  # and the failure syslog/pure-ftpd counts, verbatim
-  - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
+src_ip_var: SRC
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - pure-ftpd
+  - message_regexp:
+      # the success... "[INFO] user is now logged in"
+      - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[INFO\] (?<USER>\S+) is now logged in'
+      # and the failure syslog/pure-ftpd counts, verbatim
+      - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: USER
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign login that worked

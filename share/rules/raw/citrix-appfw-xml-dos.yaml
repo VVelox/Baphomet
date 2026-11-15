@@ -18,11 +18,12 @@ severity: medium
 classtype: attempted-dos
 references:
   - https://support.citrix.com/article/CTX123875
-message_regexp:
-  - ' APPFW APPFW_XML_(?:D?DOS_ERR_\S+|ERR_D?DOS_\S+) \d+ \d+ :\s+%%%%SRC%%%%'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - ' APPFW APPFW_XML_(?:D?DOS_ERR_\S+|ERR_D?DOS_\S+) \d+ \d+ :\s+%%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default APPFW APPFW_XML_DOS_ERR_DTD 100 0 :  203.0.113.44 1054-PPE0 - xmlfw_prof http://api.example.com/soap DTD present in the XML message <blocked>"

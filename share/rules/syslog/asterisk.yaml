@@ -8,26 +8,27 @@ rev: 3
 msg: "[ASTERISK] auth / registration failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - asterisk
-message_regexp:
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? hacking attempt detected ''%%%%SRC%%%%''$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? "Rejecting unknown SIP connection from \[?%%%%SRC%%%%\]?(?::\d+)?"$'
-  - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Request (?:''[^'']*'' )?from ''(?:[^'']*|.*?)'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?''\s\(callid: [^\)]*\) - (?:No matching endpoint found|Not match Endpoint(?: Contact)? ACL|(?:Failed|Error) to authenticate)\b[^'']*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
 max_score: 10
+rule_gates:
+  - daemons:
+      - asterisk
+  - message_regexp:
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Registration from ''[^'']*'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?'' - (?:Wrong password|Username/auth name mismatch|No matching peer found|Not a local domain|Device does not match ACL|Peer is not supposed to register|ACL error \(permit/deny\))$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Call (?:from ''[^'']*'' )?\((?:(?:TCP|UDP):)?\[?%%%%SRC%%%%\]?:\d+\) to extension ''[^'']*'' rejected because extension not found in context'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? (?:Host )?%%%%SRC%%%% (?:failed (?:to authenticate\b|MD5 authentication\b)|tried to authenticate with nonexistent user\b)'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? No registration for peer ''[^'']*'' \(from %%%%SRC%%%%\)$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? hacking attempt detected ''%%%%SRC%%%%''$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)"(?:(?:,(?!RemoteAddress=)\w+="[^"]*")*|.*?),RemoteAddress="IPV[46]/[^/"]+/%%%%SRC%%%%/\d+"(?:,(?!RemoteAddress=)\w+="[^"]*")*$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? "Rejecting unknown SIP connection from \[?%%%%SRC%%%%\]?(?::\d+)?"$'
+      - '^(?:NOTICE|SECURITY|WARNING)\s*\[\d+\]:?(?:\[C-[\da-f]*\])?:? [^:]+:\d*(?:(?: in)? [^:]+:)? Request (?:''[^'']*'' )?from ''(?:[^'']*|.*?)'' failed for ''\[?%%%%SRC%%%%\]?(?::\d+)?''\s\(callid: [^\)]*\) - (?:No matching endpoint found|Not match Endpoint(?: Contact)? ACL|(?:Failed|Error) to authenticate)\b[^'']*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Nov 4 18:30:40 localhost asterisk[32229]: NOTICE[32257]: chan_sip.c:23417 in handle_request_register: Registration from '<sip:301@example.com>' failed for '192.168.200.100:36998' - Wrong password"

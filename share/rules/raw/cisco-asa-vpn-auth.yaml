@@ -19,18 +19,19 @@ severity: high
 classtype: unsuccessful-user
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-716056: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> Authentication to SSO server'
-  - '%(?:ASA|PIX|FWSM)-\d-713251: Group = [^,]*, Username = [^,]*, IP = %%%%SRC%%%%, Received authentication failure message'
-  - '%(?:ASA|PIX|FWSM)-\d-722003: (?:Group <[^>]*> User <[^>]*> )?IP <%%%%SRC%%%%> Error authenticating SVC connect request'
-  - '%(?:ASA|PIX|FWSM)-\d-713167: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote peer has failed user authentication'
-  - '%(?:ASA|PIX|FWSM)-\d-7130(?:59|60): (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Tunnel Rejected: User \([^)]*\)'
-  - '%(?:ASA|PIX|FWSM)-\d-713198: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, User Authorization failed'
-  - '%(?:ASA|PIX)-\d-611311: V(?:NP|PN)Client: XAUTH Failed: Peer: %%%%SRC%%%%'
-  - '%(?:ASA|PIX)-\d-402120: Received an ESP packet \([^)]*\) from %%%%SRC%%%% (?:\([^)]*\) )?to \S+ that failed authentication'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-716056: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> Authentication to SSO server'
+      - '%(?:ASA|PIX|FWSM)-\d-713251: Group = [^,]*, Username = [^,]*, IP = %%%%SRC%%%%, Received authentication failure message'
+      - '%(?:ASA|PIX|FWSM)-\d-722003: (?:Group <[^>]*> User <[^>]*> )?IP <%%%%SRC%%%%> Error authenticating SVC connect request'
+      - '%(?:ASA|PIX|FWSM)-\d-713167: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Remote peer has failed user authentication'
+      - '%(?:ASA|PIX|FWSM)-\d-7130(?:59|60): (?:Group = [^,]*, )?IP = %%%%SRC%%%%, Tunnel Rejected: User \([^)]*\)'
+      - '%(?:ASA|PIX|FWSM)-\d-713198: (?:Group = [^,]*, )?IP = %%%%SRC%%%%, User Authorization failed'
+      - '%(?:ASA|PIX)-\d-611311: V(?:NP|PN)Client: XAUTH Failed: Peer: %%%%SRC%%%%'
+      - '%(?:ASA|PIX)-\d-402120: Received an ESP packet \([^)]*\) from %%%%SRC%%%% (?:\([^)]*\) )?to \S+ that failed authentication'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: 'Jul 12 08:15:50 fw01 %ASA-3-716056: Group <vpn-users> User <jsmith> IP <192.0.2.5> Authentication to SSO server SSOSrv type SiteMinder failed'

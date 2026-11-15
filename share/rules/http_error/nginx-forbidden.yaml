@@ -12,14 +12,16 @@ rev: 1
 msg: "[NGINX] request forbidden by an access rule"
 severity: medium
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
 test_parser: nginx_error
-level:
-  - error
-message_regexp:
-  - '^access forbidden by rule$'
+rule_gates:
+  - level:
+      - error
+  - message_regexp:
+      - '^access forbidden by rule$'
+  - ban_var: [ client ]
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '2018/09/14 19:03:05 [error] 2035#2035: *9134 access forbidden by rule, client: 192.0.2.78, server: www.example.net, request: "GET /wp-content/themes/evolve/js/back-end/libraries/fileuploader/upload_handler.php HTTP/1.1", host: "www.example.net", referrer: "http://example.net/foo.php"'

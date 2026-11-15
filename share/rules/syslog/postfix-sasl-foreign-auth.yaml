@@ -24,34 +24,34 @@ rev: 3
 msg: "[POSTFIX] SASL authentication from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
-mungers:
-  - postfix
-message_regexp:
-  # the success that went on to hand over mail... the same line
-  # postfix-sasl-foreign reads. Both queue id shapes, short uppercase hex and
-  # the base 52 mixed-case one enable_long_queue_ids gives.
-  - '^(?:[0-9A-F]{6,}|[0-9A-Za-z]{12,}): client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
-  # and the success that handed over nothing, off the per-session command
-  # counters postfix 3.0 writes on the disconnect line... auth=N is N successful
-  # AUTHs, auth=M/N is M of N attempted, so a leading digit above zero is a
-  # password that worked. The failed session's auth=0/N is left alone, already
-  # counted off the warning line below.
-  - '^disconnect from [^\[]*\[%%%%SRC%%%%\](?::\d+)? .*\bauth=[1-9]\d*(?:/\d+)?(?:\s|$)'
-  # and the failure syslog/postfix-sasl counts, verbatim
-  - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
+src_ip_var: SRC
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - //^postfix(?:-[\w.-]+)?\/\w+(?:\/smtp[ds])?$//
+  - mungers:
+      - postfix
+  - message_regexp:
+      # the success that went on to hand over mail... the same line
+      # postfix-sasl-foreign reads. Both queue id shapes, short uppercase hex and
+      # the base 52 mixed-case one enable_long_queue_ids gives.
+      - '^(?:[0-9A-F]{6,}|[0-9A-Za-z]{12,}): client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
+      # and the success that handed over nothing, off the per-session command
+      # counters postfix 3.0 writes on the disconnect line... auth=N is N successful
+      # AUTHs, auth=M/N is M of N attempted, so a leading digit above zero is a
+      # password that worked. The failed session's auth=0/N is left alone, already
+      # counted off the warning line below.
+      - '^disconnect from [^\[]*\[%%%%SRC%%%%\](?::\d+)? .*\bauth=[1-9]\d*(?:/\d+)?(?:\s|$)'
+      # and the failure syslog/postfix-sasl counts, verbatim
+      - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-user_var: USER
-ban_var:
-  - SRC
-max_score: 1
+  - ban_var:
+      - SRC
 tests:
   positive:
     # a foreign SASL login that worked... a relay about to be abused

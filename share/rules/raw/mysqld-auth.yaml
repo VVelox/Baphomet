@@ -14,13 +14,14 @@ rev: 3
 msg: "[MYSQLD] authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})? )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%''(?:\s+(?:to database ''[^'']*''|\(using password: (?:YES|NO)\))){0,2}\s*$'
-ban_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - '^(?:(?:\d{6}|\d{4}-\d{2}-\d{2})[ T]\s?\d{1,2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})? )?(?:\d+ )?\[\w+\] (?:\[[^\]]+\] )*Access denied for user ''[^'']+''@''%%%%HOST%%%%''(?:\s+(?:to database ''[^'']*''|\(using password: (?:YES|NO)\))){0,2}\s*$'
+  - ban_var:
+      - HOST
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "130324  0:04:00 [Warning] Access denied for user 'root'@'192.168.1.35' (using password: NO)"
@@ -66,4 +67,3 @@ tests:
     - message: "2020-01-16 21:34:15 4645 [Warning] Access denied for user 'x'@'8.8.8.8' (using password: NO)'@'192.0.2.7' (using password: YES)"
       found: 0
       undefed: ["HOST"]
-

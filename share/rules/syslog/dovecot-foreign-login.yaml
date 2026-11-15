@@ -16,33 +16,33 @@ rev: 4
 msg: "[DOVECOT] login success from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - dovecot
-  - dovecot-auth
-  - //^dovecot//
-mungers:
-  - dovecot
-message_regexp:
-  # The account name reaches the address. user=<...> is bounded by ">", so an
-  # account holding one closes the field early and whatever follows in the
-  # name is read as further fields... an account of
-  # "a>, rip=8.8.8.8, lip=9.9.9.9" plants a whole rip/lip pair ahead of the
-  # real one, so neither lazy matching nor a lip= anchor can tell them apart.
-  # Nothing dovecot writes after the real pair comes from the client, so the
-  # wildcard is greedy and the last rip= is the one taken.
-  - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*\brip=%%%%SRC%%%%(?:, lip=|\s*$)'
+src_ip_var: SRC
+dest_ip_var: dovecot_lip
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - dovecot
+      - dovecot-auth
+      - //^dovecot//
+  - mungers:
+      - dovecot
+  - message_regexp:
+      # The account name reaches the address. user=<...> is bounded by ">", so an
+      # account holding one closes the field early and whatever follows in the
+      # name is read as further fields... an account of
+      # "a>, rip=8.8.8.8, lip=9.9.9.9" plants a whole rip/lip pair ahead of the
+      # real one, so neither lazy matching nor a lip= anchor can tell them apart.
+      # Nothing dovecot writes after the real pair comes from the client, so the
+      # wildcard is greedy and the last rip= is the one taken.
+      - '^(?:imap|pop3|submission|managesieve)-login: Login: user=<(?<USER>[^>]*)>.*\brip=%%%%SRC%%%%(?:, lip=|\s*$)'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-dest_ip_var: dovecot_lip
-user_var: USER
-detection_var:
-  - SRC
-max_score: 1
+  - detection_var:
+      - SRC
 tests:
   positive:
     # a mailbox login from abroad... counted

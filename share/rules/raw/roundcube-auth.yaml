@@ -13,14 +13,15 @@ rev: 2
 msg: "[ROUNDCUBE] webmail login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?(?:IMAP Error: )?(?:FAILED login|Login failed) for .* from %%%%HOST%%%%(?:(?:\([^)]*\))?\. (?:(?! from ).)*(?: user=.* from [\d.]+)? in \S+\.php on line \d+ \(\S+ \S+\))?$'
-  - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?Failed login for .* from %%%%HOST%%%% in session \w+(?: \(error: \d\))?$'
-ban_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?(?:IMAP Error: )?(?:FAILED login|Login failed) for .* from %%%%HOST%%%%(?:(?:\([^)]*\))?\. (?:(?! from ).)*(?: user=.* from [\d.]+)? in \S+\.php on line \d+ \(\S+ \S+\))?$'
+      - '^(?:\[[^\]]+\]: |\w{3} +\d+ \d{2}:\d{2}:\d{2} \S+ roundcube(?:\[\d+\])?: )(?:<\w+> )?Failed login for .* from %%%%HOST%%%% in session \w+(?: \(error: \d\))?$'
+  - ban_var:
+      - HOST
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "[22-Jan-2013 22:28:21 +0200]: FAILED login for user1 from 192.0.43.10"

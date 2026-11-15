@@ -18,15 +18,16 @@ severity: medium
 classtype: unsuccessful-user
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-109006: Authentication failed for user ''[^'']*'' from %%%%SRC%%%%'
-  - '%(?:ASA|PIX|FWSM)-\d-10903[34]: Authentication failed for (?:admin|network) user \S+ from %%%%SRC%%%%'
-  - '%(?:ASA|PIX|FWSM)-\d-109008: Authorization denied for user ''[^'']*'' from %%%%SRC%%%%/\d+'
-  - '%(?:ASA|PIX|FWSM)-\d-109024: Authorization denied from %%%%SRC%%%%/\d+ to \S+ \(not authenticated\)'
-  - '%(?:ASA|PIX|FWSM)-\d-109025: Authorization denied \(acl=[^)]*\) for user ''[^'']*'' from %%%%SRC%%%%/\d+'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-109006: Authentication failed for user ''[^'']*'' from %%%%SRC%%%%'
+      - '%(?:ASA|PIX|FWSM)-\d-10903[34]: Authentication failed for (?:admin|network) user \S+ from %%%%SRC%%%%'
+      - '%(?:ASA|PIX|FWSM)-\d-109008: Authorization denied for user ''[^'']*'' from %%%%SRC%%%%/\d+'
+      - '%(?:ASA|PIX|FWSM)-\d-109024: Authorization denied from %%%%SRC%%%%/\d+ to \S+ \(not authenticated\)'
+      - '%(?:ASA|PIX|FWSM)-\d-109025: Authorization denied \(acl=[^)]*\) for user ''[^'']*'' from %%%%SRC%%%%/\d+'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 fw01 %ASA-6-109006: Authentication failed for user 'jsmith' from 192.0.2.5/51294 to 10.1.1.20/23 on interface outside."

@@ -15,22 +15,22 @@ rev: 2
 msg: "[SSHD] the condemned walked in... login success from a branded source"
 severity: critical
 classtype: successful-user
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-message_regexp:
-  - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
-rule_gates:
-  - marked:
-      names: [ brute_force, recon, exploit_attempt, honeypot ]
-      var: SRC
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: ssh_user
-detection_var: [ SRC ]
 max_score: 1
+rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  - message_regexp:
+      - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
+  - marked:
+      names: [ brute_force, recon, exploit_attempt, honeypot ]
+      var: SRC
+  - detection_var: [ SRC ]
 tests:
   positive:
     # any one of the standard brands satisfies the any-of gate

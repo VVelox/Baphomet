@@ -43,22 +43,23 @@ severity: high
 classtype: misc-attack
 references:
   - https://docs.suricata.io/en/latest/output/eve/eve-json-format.html
-gate:
-  - field: event_type
-    values: [ alert ]
-  # an alert carrying no signature id has nothing for this rule to count, and
-  # firing on it would consume the record from the per-class rules while adding
-  # nothing to the set... so it is not this rule's business
-  - field: alert.signature_id
-    op: exists
 # the score is the number of distinct signatures, keyed by the offending source
 distinct:
   of: alert.signature_id
 max_score: 3
 find_time: 3600
-ban_var:
-  - src_ip
-ban_not_internal: true
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+      # an alert carrying no signature id has nothing for this rule to count, and
+      # firing on it would consume the record from the per-class rules while adding
+      # nothing to the set... so it is not this rule's business
+      - field: alert.signature_id
+        op: exists
+  - ban_var:
+      - src_ip
+  - ban_not_internal: true
 tests:
   positive:
     # A run as it would arrive: several different signatures from one source with

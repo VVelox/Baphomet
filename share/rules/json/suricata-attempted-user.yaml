@@ -12,21 +12,22 @@ rev: 2
 msg: "[SURICATA] Attempted User Privilege Gain"
 severity: high
 classtype: attempted-user
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-gate:
-  - field: event_type
-    values: [ alert ]
-  - field: alert.category
-    values: [ "Attempted User Privilege Gain" ]
-ban_var:
-  - src_ip
-  - dest_ip
-ban_not_internal: true
 # a priority 1 signal... one alert is enough, when the kur allows
 # per-rule thresholds
 max_score: 1
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+      - field: alert.category
+        values: [ "Attempted User Privilege Gain" ]
+  - ban_var:
+      - src_ip
+      - dest_ip
+  - ban_not_internal: true
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST attempted-user","category":"Attempted User Privilege Gain","severity":1}}'

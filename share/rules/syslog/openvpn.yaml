@@ -19,19 +19,20 @@ rev: 4
 msg: "[OPENVPN] auth / TLS handshake failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  # openvpn's --syslog takes a tag, and the per-instance units name one... ovpn-server
-  # on Debian. The bare default would have missed every one of those in silence.
-  - //^(?:openvpn|ovpn)(?:[-_@]\w+)?$//
-message_regexp:
-  - '^(?:[^/:]+/)?%%%%SRC%%%%:\d+ (?:TLS Auth Error:|VERIFY ERROR:|TLS Error: TLS handshake failed\b|SIGUSR1\[soft,connection-reset\] received\b|Decrypt packet error)'
-  - 'TLS Error: (?:incoming packet authentication failed|cannot locate HMAC in incoming packet|tls-crypt unwrapping failed) from \[AF_INET6?\]\s*%%%%SRC%%%%:\d+'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      # openvpn's --syslog takes a tag, and the per-instance units name one... ovpn-server
+      # on Debian. The bare default would have missed every one of those in silence.
+      - //^(?:openvpn|ovpn)(?:[-_@]\w+)?$//
+  - message_regexp:
+      - '^(?:[^/:]+/)?%%%%SRC%%%%:\d+ (?:TLS Auth Error:|VERIFY ERROR:|TLS Error: TLS handshake failed\b|SIGUSR1\[soft,connection-reset\] received\b|Decrypt packet error)'
+      - 'TLS Error: (?:incoming packet authentication failed|cannot locate HMAC in incoming packet|tls-crypt unwrapping failed) from \[AF_INET6?\]\s*%%%%SRC%%%%:\d+'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 14 08:15:50 vpngw openvpn[1234]: 203.0.113.10:56010 TLS Auth Error: Auth Username/Password verification failed for peer {{ Common Name }} [peer]"

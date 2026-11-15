@@ -18,13 +18,14 @@ severity: low
 classtype: system-event
 references:
   - https://live.paloaltonetworks.com/twzvq79624/attachments/twzvq79624/learning_tkb/428/1/System_log_PANOS4.1rev3.xlsx
-message_regexp:
-  - ',(?<SERIAL>\w+),SYSTEM,.*Certificate\b.*?\bhas illegal URL'
-  - ',(?<SERIAL>\w+),SYSTEM,.*Certificate\b.*?\bis revoked'
-  - ',(?<SERIAL>\w+),SYSTEM,.*Disconnecting due to possible replay attempt'
-detection_var:
-  - SERIAL
 max_score: 1
+rule_gates:
+  - message_regexp:
+      - ',(?<SERIAL>\w+),SYSTEM,.*Certificate\b.*?\bhas illegal URL'
+      - ',(?<SERIAL>\w+),SYSTEM,.*Certificate\b.*?\bis revoked'
+      - ',(?<SERIAL>\w+),SYSTEM,.*Disconnecting due to possible replay attempt'
+  - detection_var:
+      - SERIAL
 tests:
   positive:
     - message: 'Jul 12 08:15:50 pan01 1,2026/07/12 08:15:50,001801010101,SYSTEM,crypto,0,2026/07/12 08:15:50,vsys1,crl-fetch-fail,,0,0,general,medium,"Certificate portal-cert has illegal URL for CRL distribution point",1523,0x0,0,0,0,0,,PA-3220'

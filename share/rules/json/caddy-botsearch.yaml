@@ -7,23 +7,24 @@ rev: 2
 msg: "[CADDY] bad bot / scanner probe"
 severity: medium
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-gate:
-  - field: status
-    values: [ 401, 403, 404 ]
-match:
-  - field: request.uri
-    regexp: '(?i)^/*(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?myadmin|mysqladmin)(?:/|$|\?)'
-  - field: request.uri
-    regexp: '(?i)^/*(?:roundcube|(?:ext)?mail|horde|v?-?webmail)(?:/|$|\?)'
-  - field: request.uri
-    regexp: '(?i)/wp-(?:login|signup|admin)\.php(?:$|\?)'
-  - field: request.uri
-    regexp: '^/*cgi-bin/'
-ban_var:
-  - request.client_ip
+rule_gates:
+  - gate:
+      - field: status
+        values: [ 401, 403, 404 ]
+  - match:
+      - field: request.uri
+        regexp: '(?i)^/*(?:typo3/|xampp/|admin/)?(?:pma|(?:php)?myadmin|mysqladmin)(?:/|$|\?)'
+      - field: request.uri
+        regexp: '(?i)^/*(?:roundcube|(?:ext)?mail|horde|v?-?webmail)(?:/|$|\?)'
+      - field: request.uri
+        regexp: '(?i)/wp-(?:login|signup|admin)\.php(?:$|\?)'
+      - field: request.uri
+        regexp: '^/*cgi-bin/'
+  - ban_var:
+      - request.client_ip
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '{"level":"info","ts":1783948550.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"203.0.113.9","remote_port":"54321","client_ip":"203.0.113.9","proto":"HTTP/1.1","method":"GET","host":"example.com","uri":"/wp-login.php"},"status":404,"size":0}'

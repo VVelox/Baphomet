@@ -5,17 +5,18 @@ rev: 2
 msg: "[FROXLOR] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - Froxlor
-message_regexp:
-  - '^\[Login Action %%%%SRC%%%%\] Unknown user \S* tried to login\.$'
-  - '^\[Login Action %%%%SRC%%%%\] User \S* tried to login with wrong password\.$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - Froxlor
+  - message_regexp:
+      - '^\[Login Action %%%%SRC%%%%\] Unknown user \S* tried to login\.$'
+      - '^\[Login Action %%%%SRC%%%%\] User \S* tried to login with wrong password\.$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "May 21 00:56:27 jomu Froxlor: [Login Action 1.2.3.4] Unknown user 'user' tried to login."

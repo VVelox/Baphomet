@@ -17,15 +17,16 @@ rev: 1
 msg: "[XRDP] remote desktop login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:\[\d{8}-\d{2}:\d{2}:\d{2}\] )?\[INFO ?\] AUTHFAIL: user=(?<USER>.+) ip=(?:::ffff:)?%%%%SRC%%%% time=\d+$'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^(?:\[\d{8}-\d{2}:\d{2}:\d{2}\] )?\[INFO ?\] AUTHFAIL: user=(?<USER>.+) ip=(?:::ffff:)?%%%%SRC%%%% time=\d+$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: '[20220407-12:11:06] [INFO ] AUTHFAIL: user=badtypist ip=::ffff:192.0.2.151 time=1649351466'

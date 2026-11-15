@@ -18,22 +18,24 @@ rev: 1
 msg: "[COWRIE] connection to the honeypot"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-  - name: honeypot
-    ttl: 86400
-gate:
-  - field: eventid
-    values: [ cowrie.session.connect ]
-match:
-  - field: src_ip
-    regexp: '^%%%%SRC%%%%$'
 src_ip_var: SRC
 src_port_var: src_port
-ban_var:
-  - SRC
 max_score: 1
+rule_gates:
+  - gate:
+      - field: eventid
+        values: [ cowrie.session.connect ]
+  - match:
+      - field: src_ip
+        regexp: '^%%%%SRC%%%%$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
+  - mark:
+      name: honeypot
+      ttl: 86400
 tests:
   positive:
     - message: '{"session":"2a5e755afa79","protocol":"ssh","src_ip":"192.0.2.9","src_port":37416,"dst_ip":"172.18.0.2","dst_port":2222,"eventid":"cowrie.session.connect","sensor":"580d0186ebeb","uuid":"8c5b1af2-8fc4-11f1-9350-ee70fe9b2de3","timestamp":"2026-08-13T00:00:34.803989Z","message":"New connection: 192.0.2.9:37416 (172.18.0.2:2222) [session: 2a5e755afa79]"}'

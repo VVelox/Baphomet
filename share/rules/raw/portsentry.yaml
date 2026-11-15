@@ -7,19 +7,21 @@ rev: 3
 msg: "[PORTSENTRY] blocked port scan"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-  - name: honeypot
-    ttl: 86400
-message_regexp:
-  - '^\d+ - %%%%DATESTAMP%%%% Host: \S+/%%%%SRC%%%% Port: \d+ (?:TCP|UDP) Blocked$'
 src_ip_var: SRC
-ban_var:
-  - SRC
 # fail2ban jail.conf's word for this filter, honored when the kur allows
 # per-rule thresholds
 max_score: 1
+rule_gates:
+  - message_regexp:
+      - '^\d+ - %%%%DATESTAMP%%%% Host: \S+/%%%%SRC%%%% Port: \d+ (?:TCP|UDP) Blocked$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
+  - mark:
+      name: honeypot
+      ttl: 86400
 tests:
   positive:
     - message: "1403884279 - 06/27/2014 17:51:19 Host: 192.168.56.1/192.168.56.1 Port: 1 TCP Blocked"

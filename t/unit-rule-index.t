@@ -11,10 +11,8 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Galla         ();
-use App::Baphomet::Rules::Syslog ();
-use App::Baphomet::Rules::JSON   ();
-use App::Baphomet::Rules::Raw    ();
+use App::Baphomet::Galla ();
+use App::Baphomet::Rule  ();
 
 my $galla = bless( {}, 'App::Baphomet::Galla' );
 
@@ -54,15 +52,18 @@ sub candidate_names {
 
 #
 # accepts_daemon... the rule-side half for syslog. a syslog rule answers off
-# its daemons list, every other type keeps the base always-true
+# the daemons gate that leads its list, a rule of any other type having none
+# and so always answering true
 #
 
-my $sshd = App::Baphomet::Rules::Syslog->new(
+my $sshd = App::Baphomet::Rule->new(
 	'name' => 'syslog/sshd-ish',
 	'def'  => {
-		'daemons'        => [ 'sshd', 'sshd-session' ],
-		'message_regexp' => ['bad thing from %%%SRC%%%'],
-		'ban_var'        => ['SRC'],
+		'rule_gates' => [
+			{ 'daemons'        => [ 'sshd', 'sshd-session' ] },
+			{ 'message_regexp' => ['bad thing from %%%%SRC%%%%'] },
+			{ 'ban_var'        => ['SRC'] },
+		],
 	}
 );
 ok( $sshd->accepts_daemon('sshd'),         'a listed daemon is accepted' );
@@ -71,21 +72,23 @@ ok( !$sshd->accepts_daemon('otherd'),      'an unlisted daemon is refused' );
 ok( !$sshd->accepts_daemon(undef),         'a line with no daemon is refused' );
 ok( !$sshd->accepts_daemon(''),            'and so is an empty one' );
 
-my $regexp_daemon = App::Baphomet::Rules::Syslog->new(
+my $regexp_daemon = App::Baphomet::Rule->new(
 	'name' => 'syslog/dovecot-ish',
 	'def'  => {
-		'daemons'        => ['//^dovecot(?:-auth)?$//'],
-		'message_regexp' => ['bad thing from %%%SRC%%%'],
-		'ban_var'        => ['SRC'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^dovecot(?:-auth)?$//'] },
+			{ 'message_regexp' => ['bad thing from %%%%SRC%%%%'] },
+			{ 'ban_var'        => ['SRC'] },
+		],
 	}
 );
 ok( $regexp_daemon->accepts_daemon('dovecot'),      'a //regexp// daemon entry is honored' );
 ok( $regexp_daemon->accepts_daemon('dovecot-auth'), 'and matches its whole alternation' );
 ok( !$regexp_daemon->accepts_daemon('dovecotd'),    'without matching what it should not' );
 
-my $raw_rule = App::Baphomet::Rules::Raw->new(
+my $raw_rule = App::Baphomet::Rule->new(
 	'name' => 'raw/anything',
-	'def'  => { 'message_regexp' => ['bad thing from %%%SRC%%%'], 'ban_var' => ['SRC'] }
+	'def'  => { 'rule_gates' => [ { 'message_regexp' => ['bad thing from %%%%SRC%%%%'] }, { 'ban_var' => ['SRC'] } ] }
 );
 ok( $raw_rule->accepts_daemon(undef), 'a raw rule accepts a daemon-less line' );
 is_deeply( $raw_rule->gate_discriminators, {}, 'and offers no gate discriminator... its gate is over captures' );
@@ -95,14 +98,18 @@ is_deeply( $raw_rule->gate_discriminators, {}, 'and offers no gate discriminator
 # only the flat gate form contributes, and only its plain equalities
 #
 
-my $alert_scan = App::Baphomet::Rules::JSON->new(
+my $alert_scan = App::Baphomet::Rule->new(
 	'name' => 'json/scan-ish',
 	'def'  => {
-		'gate' => [
-			{ 'field' => 'event_type',     'values' => ['alert'] },
-			{ 'field' => 'alert.category', 'values' => ['Detection of a Network Scan'] },
+		'rule_gates' => [
+			{
+				'gate' => [
+					{ 'field' => 'event_type',     'values' => ['alert'] },
+					{ 'field' => 'alert.category', 'values' => ['Detection of a Network Scan'] },
+				]
+			},
+			{ 'ban_var' => ['src_ip'] },
 		],
-		'ban_var' => ['src_ip'],
 	}
 );
 is_deeply(
@@ -112,10 +119,14 @@ is_deeply(
 );
 is( $alert_scan->gate_discriminators, $alert_scan->gate_discriminators, 'and the answer is built once and cached' );
 
-my $multi = App::Baphomet::Rules::JSON->new(
+my $multi = App::Baphomet::Rule->new(
 	'name' => 'json/multi',
-	'def'  =>
-		{ 'gate' => [ { 'field' => 'event_type', 'values' => [ 'alert', 'anomaly' ] } ], 'ban_var' => ['src_ip'] }
+	'def'  => {
+		'rule_gates' => [
+			{ 'gate'    => [ { 'field' => 'event_type', 'values' => [ 'alert', 'anomaly' ] } ] },
+			{ 'ban_var' => ['src_ip'] },
+		],
+	}
 );
 is_deeply(
 	$multi->gate_discriminators,
@@ -123,61 +134,77 @@ is_deeply(
 	'a values list pins each of its values'
 );
 
-my $regexp_gate = App::Baphomet::Rules::JSON->new(
+my $regexp_gate = App::Baphomet::Rule->new(
 	'name' => 'json/regexp-gate',
-	'def'  => { 'gate' => [ { 'field' => 'event_type', 'values' => ['//^al//'] } ], 'ban_var' => ['src_ip'] }
+	'def'  => {
+		'rule_gates' =>
+			[ { 'gate' => [ { 'field' => 'event_type', 'values' => ['//^al//'] } ] }, { 'ban_var' => ['src_ip'] } ],
+	}
 );
 is_deeply( $regexp_gate->gate_discriminators, {}, 'a //regexp// value pins nothing the index could enumerate' );
 
-my $predicate_gate = App::Baphomet::Rules::JSON->new(
+my $predicate_gate = App::Baphomet::Rule->new(
 	'name' => 'json/predicate-gate',
 	'def'  => {
-		'gate'    => [ { 'field' => 'alert.severity', 'op' => 'lt', 'value' => 3 } ],
-		'ban_var' => ['src_ip'],
+		'rule_gates' => [
+			{ 'gate'    => [ { 'field' => 'alert.severity', 'op' => 'lt', 'value' => 3 } ] },
+			{ 'ban_var' => ['src_ip'] },
+		],
 	}
 );
 is_deeply( $predicate_gate->gate_discriminators, {}, 'a typed predicate pins no exact value' );
 
-my $keyword_gate = App::Baphomet::Rules::JSON->new(
+my $keyword_gate = App::Baphomet::Rule->new(
 	'name' => 'json/keyword-gate',
-	'def'  => { 'keywords' => ['bad'], 'ban_var' => ['src_ip'] }
+	'def'  => { 'rule_gates' => [ { 'keywords' => ['bad'] }, { 'ban_var' => ['src_ip'] } ] }
 );
 is_deeply( $keyword_gate->gate_discriminators, {}, 'a keyword fan pins no one field' );
 
 # selections may sit under an or in the condition, so no arm of one is
 # mandatory and none may be indexed
-my $selected = App::Baphomet::Rules::JSON->new(
+my $selected = App::Baphomet::Rule->new(
 	'name' => 'json/selections',
 	'def'  => {
-		'selections' => {
-			'is_alert' => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
-			'is_flow'  => [ { 'field' => 'event_type', 'values' => ['flow'] } ],
-		},
-		'condition' => 'is_alert or is_flow',
-		'ban_var'   => ['src_ip'],
+		'rule_gates' => [
+			{
+				'selections' => {
+					'is_alert' => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
+					'is_flow'  => [ { 'field' => 'event_type', 'values' => ['flow'] } ],
+				}
+			},
+			{ 'condition' => 'is_alert or is_flow' },
+			{ 'ban_var'   => ['src_ip'] },
+		],
 	}
 );
 is_deeply( $selected->gate_discriminators, {}, 'a selections arm is not mandatory, so it is never indexed' );
 
 # the contract's second clause... a rule with a path to a result that goes
 # around its own gate offers nothing, however plain its gate looks
-my $with_capture = App::Baphomet::Rules::JSON->new(
+my $with_capture = App::Baphomet::Rule->new(
 	'name' => 'json/with-capture',
 	'def'  => {
-		'gate'    => [ { 'field' => 'event_type', 'values' => ['alert'] } ],
-		'capture' => [ { 'key'   => 'flow_id',    'gate'   => [ { 'field' => 'event_type', 'values' => ['flow'] } ] } ],
-		'key'     => 'flow_id',
-		'ban_var' => ['src_ip'],
+		'rule_gates' => [
+			{
+				'capture' =>
+					[ { 'key' => 'flow_id', 'gate' => [ { 'field' => 'event_type', 'values' => ['flow'] } ] } ]
+			},
+			{ 'gate'    => [ { 'field' => 'event_type', 'values' => ['alert'] } ] },
+			{ 'key'     => 'flow_id' },
+			{ 'ban_var' => ['src_ip'] },
+		],
 	}
 );
 is_deeply( $with_capture->gate_discriminators, {}, 'a rule that harvests context offers no discriminator' );
 
-my $with_ignore = App::Baphomet::Rules::JSON->new(
+my $with_ignore = App::Baphomet::Rule->new(
 	'name' => 'json/with-ignore',
 	'def'  => {
-		'gate'    => [ { 'field' => 'event_type',      'values' => ['alert'] } ],
-		'ignore'  => [ { 'field' => 'alert.signature', 'regexp' => 'TEST' } ],
-		'ban_var' => ['src_ip'],
+		'rule_gates' => [
+			{ 'ignore'  => [ { 'field' => 'alert.signature', 'regexp' => 'TEST' } ] },
+			{ 'gate'    => [ { 'field' => 'event_type',      'values' => ['alert'] } ] },
+			{ 'ban_var' => ['src_ip'] },
+		],
 	}
 );
 is_deeply( $with_ignore->gate_discriminators, {}, 'and neither does one carrying an ignore' );
@@ -206,14 +233,18 @@ is(
 # alert and anomaly, where the two alert.category values are one each. so
 # event_type hands a line both rules and alert.category hands it one
 {
-	my $scan_two = App::Baphomet::Rules::JSON->new(
+	my $scan_two = App::Baphomet::Rule->new(
 		'name' => 'json/scan-two',
 		'def'  => {
-			'gate' => [
-				{ 'field' => 'event_type',     'values' => [ 'alert', 'anomaly' ] },
-				{ 'field' => 'alert.category', 'values' => ['Attempted Administrator Privilege Gain'] },
+			'rule_gates' => [
+				{
+					'gate' => [
+						{ 'field' => 'event_type',     'values' => [ 'alert', 'anomaly' ] },
+						{ 'field' => 'alert.category', 'values' => ['Attempted Administrator Privilege Gain'] },
+					]
+				},
+				{ 'ban_var' => ['src_ip'] },
 			],
-			'ban_var' => ['src_ip'],
 		}
 	);
 	my $both = watcher_of( undef, 'json/scan' => $alert_scan, 'json/scan-two' => $scan_two )->{bindings};
@@ -222,14 +253,18 @@ is(
 	# and it is really the values that decide... give the two rules the same
 	# category and alert.category stops thinning anything, so event_type,
 	# which still separates them, takes it
-	my $same_category = App::Baphomet::Rules::JSON->new(
+	my $same_category = App::Baphomet::Rule->new(
 		'name' => 'json/same-category',
 		'def'  => {
-			'gate' => [
-				{ 'field' => 'event_type',     'values' => ['anomaly'] },
-				{ 'field' => 'alert.category', 'values' => ['Detection of a Network Scan'] },
+			'rule_gates' => [
+				{
+					'gate' => [
+						{ 'field' => 'event_type',     'values' => ['anomaly'] },
+						{ 'field' => 'alert.category', 'values' => ['Detection of a Network Scan'] },
+					]
+				},
+				{ 'ban_var' => ['src_ip'] },
 			],
-			'ban_var' => ['src_ip'],
 		}
 	);
 	is(
@@ -262,12 +297,14 @@ is_deeply( candidate_names( $syslog_watcher, syslog_record( undef, 'x' ) ),
 
 # the config's rule order is what the overlap semantics rest on, so the
 # candidates must come back in it however the index was filled
-my $ordered = App::Baphomet::Rules::Syslog->new(
+my $ordered = App::Baphomet::Rule->new(
 	'name' => 'syslog/ordered',
 	'def'  => {
-		'daemons'        => ['shared'],
-		'message_regexp' => ['bad thing from %%%SRC%%%'],
-		'ban_var'        => ['SRC'],
+		'rule_gates' => [
+			{ 'daemons'        => ['shared'] },
+			{ 'message_regexp' => ['bad thing from %%%%SRC%%%%'] },
+			{ 'ban_var'        => ['SRC'] },
+		],
 	}
 );
 my $five = watcher_of(
@@ -288,9 +325,12 @@ is_deeply(
 # _rule_candidates, the gate half
 #
 
-my $anomaly = App::Baphomet::Rules::JSON->new(
+my $anomaly = App::Baphomet::Rule->new(
 	'name' => 'json/anomaly',
-	'def'  => { 'gate' => [ { 'field' => 'event_type', 'values' => ['anomaly'] } ], 'ban_var' => ['src_ip'] }
+	'def'  => {
+		'rule_gates' =>
+			[ { 'gate' => [ { 'field' => 'event_type', 'values' => ['anomaly'] } ] }, { 'ban_var' => ['src_ip'] } ],
+	}
 );
 my $json_watcher = watcher_of(
 	'event_type',

@@ -15,14 +15,15 @@ severity: critical
 classtype: trojan-activity
 references:
   - https://www.resillion.com/wp-content/uploads/2023/07/Resillion-Citrix-Vulnerability-Report-1.pdf
-message_regexp:
-  - ' CLI CMD_EXECUTED \d+ \d+ :\s+User (?<USER>\S+) - Remote_ip %%%%SRC%%%% - Command "man '
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
 weight: 10
 max_score: 10
+rule_gates:
+  - message_regexp:
+      - ' CLI CMD_EXECUTED \d+ \d+ :\s+User (?<USER>\S+) - Remote_ip %%%%SRC%%%% - Command "man '
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 ns01 07/12/2026:08:15:50 GMT ns01 0-PPE-0 : default CLI CMD_EXECUTED 999 0 :  User readonly - Remote_ip 203.0.113.77 - Command \"man -P /bin/sh man\" - Status Success"

@@ -26,10 +26,11 @@ make_path( $dir . '/run' );
 open( my $fh, '>', $dir . '/rules/raw/hostile.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - '^bad thing from %%%%HOST%%%%$'
-ban_var:
-  - HOST
+rule_gates:
+  - message_regexp:
+      - '^bad thing from %%%%HOST%%%%$'
+  - ban_var:
+      - HOST
 tests:
   positive:
     - message: "bad thing from evil.example.com"

@@ -32,15 +32,16 @@ sub parsed_line {
 
 write_rule( 'syslog/basic', <<'EOR' );
 ---
-daemons:
-  - sshd
-  - //^foo//
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-  - 'addr %%%%ADDR%%%% host %%%%HOST%%%% dns %%%%DNS%%%%'
-  - 'subnet %%%%SUBNET%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+      - //^foo//
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+      - 'addr %%%%ADDR%%%% host %%%%HOST%%%% dns %%%%DNS%%%%'
+      - 'subnet %%%%SUBNET%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -63,7 +64,8 @@ my $found = $rule->check( parsed_line( 'sshd', 'bad thing from 1.2.3.4' ) );
 ok( defined($found), 'IPv4 SRC matched' );
 is( $found->{data}{SRC}, '1.2.3.4', 'IPv4 SRC captured' );
 is( $found->{regexp},    0,         'matching regexp reported' );
-is( ( $rule->ban_var )[0], 'SRC', 'ban_var' );
+my ($naming) = grep { $_->{type} eq 'ban_var' } @{ $rule->rule_gates };
+is( $naming->{names}[0], 'SRC', 'ban_var' );
 
 $found = $rule->check( parsed_line( 'sshd', 'bad thing from 2001:db8::1' ) );
 ok( defined($found), 'IPv6 SRC matched' );
@@ -105,12 +107,13 @@ ok( !defined( $rule->check( parsed_line( 'sshd', 'nothing of note' ) ) ), 'non-m
 
 write_rule( 'syslog/paired', <<'EOR' );
 ---
-daemons:
-  - routerd
-message_regexp:
-  - 'flow from %%%%SRC%%%%(?: to %%%%DEST%%%%)?'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - routerd
+  - message_regexp:
+      - 'flow from %%%%SRC%%%%(?: to %%%%DEST%%%%)?'
+  - ban_var:
+      - SRC
 EOR
 
 my $paired = $rules->load('syslog/paired');
@@ -127,12 +130,13 @@ ok( !defined( $paired->check( parsed_line( 'routerd', 'flow from 1.2.3.4' ) ) ),
 
 write_rule( 'syslog/dup', <<'EOR' );
 ---
-daemons:
-  - dupd
-message_regexp:
-  - 'either a=%%%%SRC%%%% or b=%%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - dupd
+  - message_regexp:
+      - 'either a=%%%%SRC%%%% or b=%%%%SRC%%%%'
+  - ban_var:
+      - SRC
 EOR
 
 my $dup = $rules->load('syslog/dup');
@@ -147,15 +151,16 @@ ok( !defined( $found->{data}{SRC_2} ), 'numbered occurrence removed after foldin
 
 write_rule( 'syslog/ignore', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ignore_regexp:
-  - 'from %%%%SRC%%%% whom we like'
-  - 'probably fine'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - ignore_regexp:
+      - 'from %%%%SRC%%%% whom we like'
+      - 'probably fine'
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -177,14 +182,15 @@ ok( !defined( $ignore->check( parsed_line( 'sshd', 'bad thing from 1.2.3.4 proba
 
 write_rule( 'syslog/badignore', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ignore_regexp:
-  - '((('
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - ignore_regexp:
+      - '((('
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 EOR
 
 ok( !eval { $rules->load('syslog/badignore'); 1 }, 'uncompilable ignore_regexp refuses to load' );
@@ -195,12 +201,13 @@ ok( !eval { $rules->load('syslog/badignore'); 1 }, 'uncompilable ignore_regexp r
 
 write_rule( 'syslog/failing', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: something else entirely"
@@ -223,12 +230,13 @@ ok( !eval { $rules->load('syslog/failing'); 1 }, 'a cached skip_tests load does 
 # a typo'd tests section must not mean zero tests and a clean load
 write_rule( 'syslog/typotests', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   postive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"
@@ -239,12 +247,13 @@ like( $@, qr/unknown tests section/, 'and names the unknown section' );
 
 write_rule( 'syslog/badtoken', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%LAMASHTU%%%%'
-ban_var:
-  - LAMASHTU
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from %%%%LAMASHTU%%%%'
+  - ban_var:
+      - LAMASHTU
 EOR
 
 ok( !eval { $rules->load('syslog/badtoken'); 1 }, 'unknown token refuses to load' );
@@ -252,12 +261,13 @@ like( $@, qr/unknown token/, 'unknown token error mentions the token' );
 
 write_rule( 'syslog/badregexp', <<'EOR' );
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from ((('
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'bad thing from ((('
+  - ban_var:
+      - SRC
 EOR
 
 ok( !eval { $rules->load('syslog/badregexp'); 1 }, 'uncompilable regexp refuses to load' );
@@ -274,7 +284,7 @@ ok( $rules->known_type('syslog'),               'known_type works as a method to
 #
 # rule_from_path, the reverse of rule_path
 #
-write_rule( 'syslog/from-path', "---\nmessage_regexp:\n  - '^x %%%%SRC%%%%\$'\n" );
+write_rule( 'syslog/from-path', "---\nrule_gates:\n  - message_regexp:\n      - '^x %%%%SRC%%%%\$'\n" );
 is_deeply(
 	[ App::Baphomet::Rules::rule_from_path( $rules_dir . '/syslog/from-path.yaml' ) ],
 	[ $rules_dir, 'syslog/from-path' ],

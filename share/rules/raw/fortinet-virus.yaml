@@ -16,33 +16,34 @@ severity: high
 classtype: suspicious-traffic
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-mungers:
-  - fortinet
-selections:
-  modern:
-    - field: fg_logid
-      op: eq
-      values: [ "0211008192", "0211008194", "0206008452" ]
-    - field: fg_type
-      op: eq
-      value: utm
-  # the legacy antivirus ids, which arrive under either spelling of the key
-  legacy_logid:
-    - field: fg_logid
-      op: re
-      value: '^\d*(?:60000|63000|63002)$'
-  legacy_log_id:
-    - field: fg_log_id
-      op: re
-      value: '^\d*(?:60000|63000|63002)$'
-condition: "modern or legacy_logid or legacy_log_id"
 src_ip_var: fg_offender_ip
 dest_ip_var: fg_dstip
 src_port_var: fg_srcport
 dest_port_var: fg_dstport
 user_var: fg_user
-detection_var:
-  - fg_offender_ip
+rule_gates:
+  - mungers:
+      - fortinet
+  - selections:
+      modern:
+        - field: fg_logid
+          op: eq
+          values: [ "0211008192", "0211008194", "0206008452" ]
+        - field: fg_type
+          op: eq
+          value: utm
+      # the legacy antivirus ids, which arrive under either spelling of the key
+      legacy_logid:
+        - field: fg_logid
+          op: re
+          value: '^\d*(?:60000|63000|63002)$'
+      legacy_log_id:
+        - field: fg_log_id
+          op: re
+          value: '^\d*(?:60000|63000|63002)$'
+  - condition: "modern or legacy_logid or legacy_log_id"
+  - detection_var:
+      - fg_offender_ip
 tests:
   positive:
     - message: 'Jul 12 14:20:31 fw01 date=2026-07-12 time=14:20:31 devname="FGT100F" devid="FG100FTK20012345" logid="0211008192" type="utm" subtype="virus" eventtype="infected" level="warning" vd="root" eventtime=1752348031000000000 tz="-0500" msg="File is infected." action="blocked" service="HTTP" sessionid=90233 srcip=192.168.1.30 dstip=203.0.113.99 srcport=51882 dstport=80 srcintf="lan" dstintf="wan1" policyid=4 proto=6 direction="incoming" filename="invoice.exe" checksum="0f4e2d31" quarskip="File-was-not-quarantined" virus="EICAR_TEST_FILE" dtype="Virus" url="http://malware.example/invoice.exe" profile="default"'

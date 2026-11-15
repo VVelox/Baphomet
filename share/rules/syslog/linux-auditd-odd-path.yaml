@@ -13,27 +13,28 @@ rev: 2
 msg: "[AUDITD] path with a name chosen to hide... possible rootkit"
 severity: high
 classtype: trojan-activity
-daemons:
-  - //^audisp(?:-syslog|d)?$//
-  - audit
-mungers:
-  - auditd
-message_regexp:
-  # an executable hidden as a dotfile inside a system bin/lib directory
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<PATH>[^"]*/(?:s?bin|lib(?:64)?|libexec)/\.[^"]*)"'
-  # an executable living under a '...' directory
-  - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<PATH>[^"]*/\.\.\.[^"]*)"'
-  # the same, seen as a PATH record: dotfile in a system dir
-  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/(?:s?bin|lib(?:64)?|libexec)/\.[^"]*)"'
-  # a '...' directory in a PATH record
-  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/\.\.\.[^"]*)"'
-  # a hidden name dropped into /dev/shm
-  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/dev/shm/\.[^"]*)"'
-  # a bare, unquoted hex name... audit encodes filenames with spaces or control
-  # characters, and an honest filename is rarely bare hex
-  - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname=(?<PATH>[0-9A-Fa-f]{4,})(?:\s|$)'
-detection_var:
-  - PATH
+rule_gates:
+  - daemons:
+      - //^audisp(?:-syslog|d)?$//
+      - audit
+  - mungers:
+      - auditd
+  - message_regexp:
+      # an executable hidden as a dotfile inside a system bin/lib directory
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<PATH>[^"]*/(?:s?bin|lib(?:64)?|libexec)/\.[^"]*)"'
+      # an executable living under a '...' directory
+      - '^type=SYSCALL msg=audit\([\d.]+:\d+\): .*\bexe="(?<PATH>[^"]*/\.\.\.[^"]*)"'
+      # the same, seen as a PATH record: dotfile in a system dir
+      - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/(?:s?bin|lib(?:64)?|libexec)/\.[^"]*)"'
+      # a '...' directory in a PATH record
+      - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/\.\.\.[^"]*)"'
+      # a hidden name dropped into /dev/shm
+      - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname="(?<PATH>[^"]*/dev/shm/\.[^"]*)"'
+      # a bare, unquoted hex name... audit encodes filenames with spaces or control
+      # characters, and an honest filename is rarely bare hex
+      - '^type=PATH msg=audit\([\d.]+:\d+\): .*\bname=(?<PATH>[0-9A-Fa-f]{4,})(?:\s|$)'
+  - detection_var:
+      - PATH
 tests:
   positive:
     # a binary hidden as a dotfile under /usr/sbin

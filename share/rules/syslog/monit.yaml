@@ -9,18 +9,19 @@ rev: 2
 msg: "[MONIT] httpd access failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - monit
-message_regexp:
-  - '^(?:error\s*:\s+)?(?:Warning|HttpRequest):\s+(?:access denied\s+--\s+)?[Cc]lient ''?\[?%%%%SRC%%%%\]?''?(?:\s+supplied|\s*:)\s+(?:unknown user ''[^'']+''|wrong password for user ''[^'']*''|empty password)'
-ignore_regexp:
-  - '^\w+: access denied -- client \[?%%%%SRC%%%%\]?: unknown user ''''$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - monit
+  - ignore_regexp:
+      - '^\w+: access denied -- client \[?%%%%SRC%%%%\]?: unknown user ''''$'
+  - message_regexp:
+      - '^(?:error\s*:\s+)?(?:Warning|HttpRequest):\s+(?:access denied\s+--\s+)?[Cc]lient ''?\[?%%%%SRC%%%%\]?''?(?:\s+supplied|\s*:)\s+(?:unknown user ''[^'']+''|wrong password for user ''[^'']*''|empty password)'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Mar  9 09:18:32 hostname monit[5731]: HttpRequest: access denied -- client 1.2.3.4: empty password"

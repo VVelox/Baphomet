@@ -25,10 +25,11 @@ make_path( $dir . '/run' );
 open( my $fh, '>', $dir . '/rules/raw/trace.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-message_regexp:
-  - '(?s)^PANIC: auth exploded.*request from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '(?s)^PANIC: auth exploded.*request from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "PANIC: auth exploded\n    at Foo.pm line 1\n    request from 192.0.2.80"

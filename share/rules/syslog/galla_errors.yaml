@@ -33,18 +33,19 @@ severity: critical
 classtype: program-error
 references:
   - https://github.com/LilithSec/Ereshkigal
-daemons:
-  - //^galla(?:-\S+)?$//
-mungers:
-  - galla
-# no message_regexp... the munger's fields are the matcher
-gate:
-  - field: galla_error
-    op: exists
-detection_var:
-  - galla_error
 max_score: 1
 find_time: 3600
+rule_gates:
+  - daemons:
+      - //^galla(?:-\S+)?$//
+  - mungers:
+      - galla
+  # no message_regexp... the munger's fields are the matcher
+  - gate:
+      - field: galla_error
+        op: exists
+  - detection_var:
+      - galla_error
 tests:
   positive:
     - message: 'Aug 13 04:19:02 fw01 galla-sshd[1234]: banishing 192.0.2.7 to Kur failed, will retry... no answer from below'

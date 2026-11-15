@@ -117,7 +117,7 @@ if ( !$probed ) {
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/raw', $dir . '/run' );
 open( my $fh, '>', $dir . '/rules/raw/hostile.yaml' ) || die($!);
-print $fh "---\nmessage_regexp:\n  - 'bad thing from %%%%HOST%%%%'\nban_var:\n  - HOST\n";
+print $fh "---\nrule_gates:\n  - message_regexp:\n      - 'bad thing from %%%%HOST%%%%'\n  - ban_var:\n      - HOST\n";
 close($fh);
 open( $fh, '>', $dir . '/log' ) || die($!);
 close($fh);

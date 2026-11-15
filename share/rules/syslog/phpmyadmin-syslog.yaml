@@ -5,16 +5,17 @@ rev: 2
 msg: "[PHPMYADMIN] login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - phpMyAdmin
-message_regexp:
-  - '^user denied: (?:\S+|.*?) \(mysql-denied\) from %%%%SRC%%%%\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - phpMyAdmin
+  - message_regexp:
+      - '^user denied: (?:\S+|.*?) \(mysql-denied\) from %%%%SRC%%%%\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Aug 22 14:50:22 eurostream phpMyAdmin[16358]: user denied: root (mysql-denied) from 192.0.2.1"

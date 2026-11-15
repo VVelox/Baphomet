@@ -32,11 +32,16 @@ sub write_rule {
 }
 
 # stage brands, keyed by the join key, branding only
-write_rule( 'json/s1', "---\ngate:\n  - { field: event, op: eq, value: a }\nmark:\n  - { name: stage1, ttl: 600, var: key }\nmark_only: true\nban_var: [ key ]\n" );
-write_rule( 'json/s2', "---\ngate:\n  - { field: event, op: eq, value: b }\nmark:\n  - { name: stage2, ttl: 600, var: key }\nmark_only: true\nban_var: [ key ]\n" );
+write_rule( 'json/s1',
+	"---\nmark_only: true\nrule_gates:\n  - gate:\n      - { field: event, op: eq, value: a }\n"
+		. "  - ban_var: [ key ]\n  - mark: { name: stage1, ttl: 600, var: key }\n" );
+write_rule( 'json/s2',
+	"---\nmark_only: true\nrule_gates:\n  - gate:\n      - { field: event, op: eq, value: b }\n"
+		. "  - ban_var: [ key ]\n  - mark: { name: stage2, ttl: 600, var: key }\n" );
 # the correlation... stage1 then stage2 for the key, then ban the source
 write_rule( 'json/seq',
-	"---\ngate:\n  - { field: event, op: eq, value: go }\nrule_gates:\n  - sequence: { marks: [ stage1, stage2 ], var: key }\nban_var: [ src ]\n" );
+	"---\nrule_gates:\n  - gate:\n      - { field: event, op: eq, value: go }\n"
+		. "  - sequence: { marks: [ stage1, stage2 ], var: key }\n  - ban_var: [ src ]\n" );
 
 open( my $cfg, '>', $dir . '/config.toml' ) || die($!);
 print $cfg <<"EOC";

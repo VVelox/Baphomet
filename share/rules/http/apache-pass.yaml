@@ -12,16 +12,18 @@ rev: 2
 msg: "[APACHE] port-knock pass request (repurpose as honeypot offense)"
 severity: medium
 classtype: web-application-attack
-mark:
-  - name: exploit_attempt
-    ttl: 86400
-status:
-  - 200
-method:
-  - GET
-match:
-  - field: path
-    regexp: '^/knocking/'
+rule_gates:
+  - status:
+      - 200
+  - method:
+      - GET
+  - match:
+      - field: path
+        regexp: '^/knocking/'
+  - ban_var: [ host ]
+  - mark:
+      name: exploit_attempt
+      ttl: 86400
 tests:
   positive:
     - message: '192.0.2.12 - user1 [27/Jun/2013:11:55:44] "GET /knocking/ HTTP/1.1" 200 266 "http://domain.net/hello-world/" "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:40.0) Gecko/20100101 Firefox/40.0"'

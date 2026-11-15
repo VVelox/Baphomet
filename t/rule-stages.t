@@ -36,17 +36,18 @@ sub raw_line {
 
 write_rule( 'syslog/worked', <<'EOR' );
 ---
-daemons:
-  - sshd
-stages:
-  - message_regexp:
-      - '^Failed password for (?<USER>\S+) from %%%%SRC%%%%'
-    count: 2
-  - message_regexp:
-      - '^Accepted \w+ for \S+ from %%%%SRC%%%%'
-per: [ SRC ]
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - stages:
+      - message_regexp:
+          - '^Failed password for (?<USER>\S+) from %%%%SRC%%%%'
+        count: 2
+      - message_regexp:
+          - '^Accepted \w+ for \S+ from %%%%SRC%%%%'
+  - per: [ SRC ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -134,15 +135,16 @@ ok( !defined($found), 'another scope knows nothing of the sequence' );
 
 write_rule( 'raw/timed', <<'EOR' );
 ---
-stages:
-  - message_regexp:
-      - '^open (?<KEY>\S+)'
-  - message_regexp:
-      - '^boom (?<KEY>\S+) from %%%%SRC%%%%'
-    within: 60
-per: [ KEY ]
-ban_var:
-  - SRC
+rule_gates:
+  - stages:
+      - message_regexp:
+          - '^open (?<KEY>\S+)'
+      - message_regexp:
+          - '^boom (?<KEY>\S+) from %%%%SRC%%%%'
+        within: 60
+  - per: [ KEY ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -154,12 +156,14 @@ tests:
 EOR
 my $timed = $rules->load('raw/timed');
 ok( defined($timed), 'within rule loaded' );
+# the sequences under way are kept by the rule's stages gate
+my ($timed_stages) = grep { $_->{type} eq 'stages' } @{ $timed->rule_gates };
 
 $timed->check( raw_line('open k2'), 't', ctx() );
-$timed->{stage_state}{t}{k2}{last_time} = time - 120;
+$timed_stages->{sequences}{t}{k2}{last_time} = time - 120;
 $found = $timed->check( raw_line('boom k2 from 192.0.2.21'), 't', ctx() );
-ok( !defined($found),                         'a hit past within did not fire' );
-ok( !defined( $timed->{stage_state}{t}{k2} ), 'and the stale sequence is dead' );
+ok( !defined($found),                              'a hit past within did not fire' );
+ok( !defined( $timed_stages->{sequences}{t}{k2} ), 'and the stale sequence is dead' );
 $timed->check( raw_line('open k2'), 't', ctx() );
 $found = $timed->check( raw_line('boom k2 from 192.0.2.21'), 't', ctx() );
 ok( defined($found), 'a fresh sequence fires normally after the reset' );
@@ -167,10 +171,10 @@ ok( defined($found), 'a fresh sequence fires normally after the reset' );
 # a slot past its expires is dead at read, even before any sweep... the
 # same judged-at-read rule the context and pending stores follow
 $timed->check( raw_line('open k3'), 't', ctx() );
-$timed->{stage_state}{t}{k3}{expires} = time - 1;
+$timed_stages->{sequences}{t}{k3}{expires} = time - 1;
 $found = $timed->check( raw_line('boom k3 from 192.0.2.22'), 't', ctx() );
-ok( !defined($found),                         'a hit on an expired slot did not fire' );
-ok( !defined( $timed->{stage_state}{t}{k3} ), 'and the expired slot is dropped' );
+ok( !defined($found),                              'a hit on an expired slot did not fire' );
+ok( !defined( $timed_stages->{sequences}{t}{k3} ), 'and the expired slot is dropped' );
 
 #
 # skip... too many intervening lines kills the sequence
@@ -178,15 +182,16 @@ ok( !defined( $timed->{stage_state}{t}{k3} ), 'and the expired slot is dropped' 
 
 write_rule( 'raw/near', <<'EOR' );
 ---
-stages:
-  - message_regexp:
-      - '^head (?<KEY>\S+)'
-  - message_regexp:
-      - '^tail (?<KEY>\S+) from %%%%SRC%%%%'
-    skip: 1
-per: [ KEY ]
-ban_var:
-  - SRC
+rule_gates:
+  - stages:
+      - message_regexp:
+          - '^head (?<KEY>\S+)'
+      - message_regexp:
+          - '^tail (?<KEY>\S+) from %%%%SRC%%%%'
+        skip: 1
+  - per: [ KEY ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     # one intervening line is with in the skip
@@ -215,13 +220,14 @@ ok( defined($near), 'skip rule loaded, embedded tests proved the bound' );
 
 write_rule( 'raw/repeat', <<'EOR' );
 ---
-stages:
-  - message_regexp:
-      - '^auth failure on (?<CONN>\S+) from %%%%SRC%%%%'
-    count: 3
-per: [ CONN ]
-ban_var:
-  - SRC
+rule_gates:
+  - stages:
+      - message_regexp:
+          - '^auth failure on (?<CONN>\S+) from %%%%SRC%%%%'
+        count: 3
+  - per: [ CONN ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -248,15 +254,16 @@ ok( defined($repeat), 'single counted stage rule loaded' );
 
 write_rule( 'syslog/persession', <<'EOR' );
 ---
-daemons:
-  - imapd
-stages:
-  - message_regexp:
-      - '^LOGIN FAILED.* host=%%%%SRC%%%%'
-    count: 3
-per: [ syslog.host, syslog.daemon, syslog.pid ]
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - imapd
+  - stages:
+      - message_regexp:
+          - '^LOGIN FAILED.* host=%%%%SRC%%%%'
+        count: 3
+  - per: [ syslog.host, syslog.daemon, syslog.pid ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -283,13 +290,14 @@ ok( defined($persession), 'envelope keyed per rule loaded, embedded tests proved
 
 write_rule( 'raw/adjacent', <<'EOR' );
 ---
-stages:
-  - message_regexp:
-      - '^PANIC in auth layer'
-  - message_regexp:
-      - '^client %%%%SRC%%%% disconnected'
-ban_var:
-  - SRC
+rule_gates:
+  - stages:
+      - message_regexp:
+          - '^PANIC in auth layer'
+      - message_regexp:
+          - '^client %%%%SRC%%%% disconnected'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -315,17 +323,18 @@ is( $found->{data}{SRC}, '192.0.2.51', 'with the address of the completing line'
 
 write_rule( 'raw/ignoring', <<'EOR' );
 ---
-ignore_regexp:
-  - 'from the health checker'
-stages:
-  - message_regexp:
-      - '^bad thing (?<KEY>\S+)'
-    count: 2
-  - message_regexp:
-      - '^worse thing (?<KEY>\S+) from %%%%SRC%%%%'
-per: [ KEY ]
-ban_var:
-  - SRC
+rule_gates:
+  - ignore_regexp:
+      - 'from the health checker'
+  - stages:
+      - message_regexp:
+          - '^bad thing (?<KEY>\S+)'
+        count: 2
+      - message_regexp:
+          - '^worse thing (?<KEY>\S+) from %%%%SRC%%%%'
+  - per: [ KEY ]
+  - ban_var:
+      - SRC
 tests:
   positive:
     - messages:
@@ -352,29 +361,37 @@ ok( defined($ignoring), 'ignore_regexp on a staged rule proved by embedded tests
 
 $timed->check( raw_line('open k9'), 't', ctx() );
 $timed->sweep_state( time + 3600 );
-ok( !defined( $timed->{stage_state}{t} ), 'a swept slot is gone' );
+ok( !defined( $timed_stages->{sequences}{t} ), 'a swept slot is gone' );
 
 #
 # invalid defs
 #
 
 write_rule( 'raw/bothmatchers',
-	"---\nmessage_regexp:\n  - 'x'\nstages:\n  - message_regexp: [ 'y' ]\nban_var:\n  - SRC\n" );
+		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'y' ]\n"
+		. "  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('raw/bothmatchers'); 1 }, 'stages beside message_regexp refuses to load' );
 
-write_rule( 'raw/orphanper', "---\nmessage_regexp:\n  - 'x'\nper: [ SRC ]\nban_var:\n  - SRC\n" );
+write_rule( 'raw/orphanper',
+	"---\nrule_gates:\n  - per: [ SRC ]\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('raw/orphanper'); 1 }, 'a per with out stages refuses to load' );
 
-write_rule( 'raw/emptystages', "---\nstages: []\nban_var:\n  - SRC\n" );
+write_rule( 'raw/emptystages', "---\nrule_gates:\n  - stages: []\n  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('raw/emptystages'); 1 }, 'empty stages refuses to load' );
 
-write_rule( 'raw/badstagekey', "---\nstages:\n  - message_regexp: [ 'x' ]\n    derp: 1\nban_var:\n  - SRC\n" );
+write_rule( 'raw/badstagekey',
+		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'x' ]\n        derp: 1\n"
+		. "  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('raw/badstagekey'); 1 }, 'a unknown stage key refuses to load' );
 
-write_rule( 'raw/badcount', "---\nstages:\n  - message_regexp: [ 'x' ]\n    count: 0\nban_var:\n  - SRC\n" );
+write_rule( 'raw/badcount',
+		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'x' ]\n        count: 0\n"
+		. "  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('raw/badcount'); 1 }, 'a zero count refuses to load' );
 
-write_rule( 'raw/badper', "---\nstages:\n  - message_regexp: [ 'x' ]\nper: [ syslog.pid ]\nban_var:\n  - SRC\n" );
+write_rule( 'raw/badper',
+		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'x' ]\n"
+		. "  - per: [ syslog.pid ]\n  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('raw/badper'); 1 }, 'a raw per keying on the envelope refuses to load' );
 
 done_testing;

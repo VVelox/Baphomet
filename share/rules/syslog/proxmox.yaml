@@ -16,20 +16,21 @@ rev: 1
 msg: "[PROXMOX] web interface login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - pvedaemon
-message_regexp:
-  - '^authentication failure; rhost=(?:::ffff:)?%%%%SRC%%%% user=(?<USER>.*?)(?: msg=(?<REASON>.*))?$'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
 # fail2ban's suggested jail for this filter, honored when the kur allows
 # per-rule thresholds
 max_score: 3
+rule_gates:
+  - daemons:
+      - pvedaemon
+  - message_regexp:
+      - '^authentication failure; rhost=(?:::ffff:)?%%%%SRC%%%% user=(?<USER>.*?)(?: msg=(?<REASON>.*))?$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'Mar  8 09:37:44 pve01 pvedaemon[12021]: authentication failure; rhost=192.0.2.123 user=root@pam msg=Authentication failure'

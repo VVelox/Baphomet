@@ -14,19 +14,20 @@ rev: 1
 msg: "[DANTE] SOCKS login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  # danted, and sockd as older Dante releases named the daemon
-  - danted
-  - sockd
-message_regexp:
-  - '^info: block\(\d+\): tcp/accept \]: (?:::ffff:)?%%%%SRC%%%%\.\d+ \S+: error after reading \d+ bytes? in \d+ seconds?: (?<REASON>could not access|system password authentication failed for|pam_authenticate\(\) for) user "(?<USER>[^"]+)"'
 src_ip_var: SRC
 user_var: USER
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      # danted, and sockd as older Dante releases named the daemon
+      - danted
+      - sockd
+  - message_regexp:
+      - '^info: block\(\d+\): tcp/accept \]: (?:::ffff:)?%%%%SRC%%%%\.\d+ \S+: error after reading \d+ bytes? in \d+ seconds?: (?<REASON>could not access|system password authentication failed for|pam_authenticate\(\) for) user "(?<USER>[^"]+)"'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     # an account the system password file does not have

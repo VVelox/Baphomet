@@ -8,21 +8,19 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Rules::JSON ();
+use App::Baphomet::Rule ();
 
+# what a banning rule here names its offender with... where in the list it
+# sits is the caller's to say, a gate on a var going ahead of it and one on
+# the offender behind it
+my $ban_gate = { ban_var => ['ip'] };
+
+# every rule here leads with the one gate, and the rest of its list is the
+# passed rule_gates
 sub results_for {
 	my (%def) = @_;
-	my %merged = (
-		gate    => [ { field => 'event', values => ['fail'] } ],
-		ban_var => ['ip'],
-		%def,
-	);
-	# a undef value means the caller wants the default key gone entirely...
-	# how the detection variant sheds the ban_var
-	foreach my $key ( keys(%merged) ) {
-		delete( $merged{$key} ) if !defined( $merged{$key} );
-	}
-	my $rule = App::Baphomet::Rules::JSON->new( name => 'json/x', def => \%merged );
+	$def{rule_gates} = [ { gate => [ { field => 'event', values => ['fail'] } ] }, @{ $def{rule_gates} } ];
+	my $rule = App::Baphomet::Rule->new( name => 'json/x', def => \%def );
 	return $rule->run_tests;
 }
 
@@ -38,7 +36,7 @@ sub line {
 #
 
 my $negated = results_for(
-	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+	rule_gates => [ $ban_gate, { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
 	tests      => {
 		positive => [
 			# a confirmed PTR that is not the crawler's... counted
@@ -95,7 +93,7 @@ is( $negated->{pass}, 6, 'all six counted' );
 #
 
 my $unfixtured = results_for(
-	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+	rule_gates => [ $ban_gate, { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
 	tests      => { positive => [ { message => line( event => 'fail', ip => '192.0.2.10' ) } ] },
 );
 is( $unfixtured->{fail}, 0, 'a gated rule with no dns fixture skips the gate as before' )
@@ -107,7 +105,7 @@ is( $unfixtured->{fail}, 0, 'a gated rule with no dns fixture skips the gate as 
 #
 
 my $claimed = results_for(
-	rule_gates => [ { reverse_dns => { matches_var => 'claim', var => 'ip' } } ],
+	rule_gates => [ { reverse_dns => { matches_var => 'claim', var => 'ip' } }, $ban_gate ],
 	tests      => {
 		positive => [
 			{
@@ -139,7 +137,8 @@ is( $claimed->{fail}, 0, 'a var-keyed matches_var entry proves both ways in the 
 #
 
 my $knobs = results_for(
-	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1, forward_confirm => 0 } } ],
+	rule_gates =>
+		[ $ban_gate, { reverse_dns => { matches => '\.crawler\.example$', negate => 1, forward_confirm => 0 } } ],
 	tests      => {
 		negative => [
 			# with confirmation refused the spoofed PTR is taken at its word
@@ -154,7 +153,8 @@ is( $knobs->{fail}, 0, 'forward_confirm refused takes the PTR at its word' )
 	|| diag( join( "\n", @{ $knobs->{failures} } ) );
 
 my $sfcompare = results_for(
-	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1, on_servfail => 'compare' } } ],
+	rule_gates =>
+		[ $ban_gate, { reverse_dns => { matches => '\.crawler\.example$', negate => 1, on_servfail => 'compare' } } ],
 	tests      => {
 		positive => [
 			{
@@ -168,7 +168,7 @@ is( $sfcompare->{fail}, 0, 'on_servfail compare counts through the outage, knowi
 	|| diag( join( "\n", @{ $sfcompare->{failures} } ) );
 
 my $sfpass = results_for(
-	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', on_servfail => 'pass' } } ],
+	rule_gates => [ $ban_gate, { reverse_dns => { matches => '\.crawler\.example$', on_servfail => 'pass' } } ],
 	tests      => {
 		positive => [
 			{
@@ -189,16 +189,17 @@ is( $sfpass->{fail}, 0, 'on_servfail pass is a terminal verdict' )
 ok(
 	!eval {
 		results_for(
-			ban_var       => undef,
-			detection_var => ['ip'],
-			rule_gates    => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
-			tests         => { positive => [ { message => line( event => 'fail', ip => '192.0.2.40' ) } ] },
+			rule_gates => [
+				{ detection_var => ['ip'] },
+				{ reverse_dns   => { matches => '\.crawler\.example$', negate => 1 } },
+			],
+			tests => { positive => [ { message => line( event => 'fail', ip => '192.0.2.40' ) } ] },
 		);
 		1;
 	},
 	'a gate keyed by the offender on a detection rule refuses to load'
 );
-like( $@, qr/^The reverse_dns gate of the rule "json\/x" \(rule_gates entry 0\) keys on the offender/,
+like( $@, qr/^The reverse_dns gate of the rule "json\/x" \(rule_gates entry 2\) keys on the offender/,
 	'and the die names the gate and why' );
 
 #
@@ -212,7 +213,7 @@ foreach my $broken (
 	)
 {
 	my $broken_results = results_for(
-		rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+		rule_gates => [ $ban_gate, { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
 		tests      => {
 			positive => [ { message => line( event => 'fail', ip => '192.0.2.50' ), dns => $broken->{dns} } ]
 		},

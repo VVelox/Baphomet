@@ -22,13 +22,14 @@ sub write_rule {
 
 write_rule( 'raw/appfail', <<'EOR' );
 ---
-message_regexp:
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} auth failure from %%%%SRC%%%%$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} flow from %%%%SRC%%%%(?: to %%%%DEST%%%%)?$'
-ignore_regexp:
-  - 'from %%%%SRC%%%% whom we like'
-ban_var:
-  - SRC
+rule_gates:
+  - ignore_regexp:
+      - 'from %%%%SRC%%%% whom we like'
+  - message_regexp:
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} auth failure from %%%%SRC%%%%$'
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} flow from %%%%SRC%%%%(?: to %%%%DEST%%%%)?$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "2026-07-12 08:15:50 auth failure from 1.2.3.4"
@@ -44,7 +45,8 @@ EOR
 my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('raw/appfail');
 ok( defined($rule), 'raw rule loaded' );
-is( ( $rule->ban_var )[0], 'SRC', 'ban_var' );
+my ($naming) = grep { $_->{type} eq 'ban_var' } @{ $rule->rule_gates };
+is( $naming->{names}[0], 'SRC', 'ban_var' );
 
 sub raw_line {
 	my ($line) = @_;
@@ -74,13 +76,29 @@ ok( !defined( $rule->check( {} ) ),   'messageless hash refused' );
 # invalid defs
 #
 
-write_rule( 'raw/nobanvar', "---\nmessage_regexp:\n  - 'foo'\n" );
+write_rule( 'raw/nobanvar', "---\nrule_gates:\n  - message_regexp:\n      - 'foo'\n" );
 ok( !eval { $rules->load('raw/nobanvar'); 1 }, 'missing ban_var refuses to load' );
 
-write_rule( 'raw/daemons', "---\ndaemons:\n  - sshd\nmessage_regexp:\n  - 'foo'\nban_var:\n  - SRC\n" );
-ok( !eval { $rules->load('raw/daemons'); 1 }, 'a daemons key on a raw rule refuses to load' );
+write_rule( 'raw/daemons', <<'EOR' );
+---
+rule_gates:
+  - daemons:
+      - sshd
+  - message_regexp:
+      - 'foo'
+  - ban_var:
+      - SRC
+EOR
+ok( !eval { $rules->load('raw/daemons'); 1 }, 'a daemons gate on a raw rule refuses to load' );
 
-write_rule( 'raw/badtoken', "---\nmessage_regexp:\n  - '%%%%LAMASHTU%%%%'\nban_var:\n  - SRC\n" );
+write_rule( 'raw/badtoken', <<'EOR' );
+---
+rule_gates:
+  - message_regexp:
+      - '%%%%LAMASHTU%%%%'
+  - ban_var:
+      - SRC
+EOR
 ok( !eval { $rules->load('raw/badtoken'); 1 }, 'unknown token refuses to load' );
 
 #

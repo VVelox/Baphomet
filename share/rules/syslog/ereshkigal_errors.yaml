@@ -30,30 +30,31 @@ severity: high
 classtype: program-error
 references:
   - https://github.com/LilithSec/Ereshkigal
-daemons:
-  - ereshkigal
-mungers:
-  - ereshkigal
-# no message_regexp... the munger's fields are the matcher
-selections:
-  died:
-    - field: eresh_action
-      op: eq
-      value: died
-  exited_nonzero:
-    - field: eresh_exit_status
-      op: exists
-    - field: eresh_exit_status
-      op: gt
-      value: 0
-  stop_failed:
-    - field: eresh_error
-      op: exists
-condition: "1 of them"
-detection_var:
-  - eresh_kur
 max_score: 3
 find_time: 600
+rule_gates:
+  - daemons:
+      - ereshkigal
+  - mungers:
+      - ereshkigal
+  # no message_regexp... the munger's fields are the matcher
+  - selections:
+      died:
+        - field: eresh_action
+          op: eq
+          value: died
+      exited_nonzero:
+        - field: eresh_exit_status
+          op: exists
+        - field: eresh_exit_status
+          op: gt
+          value: 0
+      stop_failed:
+        - field: eresh_error
+          op: exists
+  - condition: "1 of them"
+  - detection_var:
+      - eresh_kur
 tests:
   positive:
     - message: 'Aug 13 04:41:00 fw01 ereshkigal[9100]: kur "sshd" died, restarting in 1 seconds'

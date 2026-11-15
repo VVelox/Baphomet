@@ -12,18 +12,19 @@ rev: 2
 msg: "[SURICATA] Information Leak"
 severity: medium
 classtype: successful-recon-limited
-mark:
-  - name: recon
-    ttl: 86400
-gate:
-  - field: event_type
-    values: [ alert ]
-  - field: alert.category
-    values: [ "Information Leak" ]
-ban_var:
-  - src_ip
-  - dest_ip
-ban_not_internal: true
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+      - field: alert.category
+        values: [ "Information Leak" ]
+  - ban_var:
+      - src_ip
+      - dest_ip
+  - ban_not_internal: true
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: '{"timestamp":"2026-07-12T08:15:50.123456+0000","event_type":"alert","src_ip":"192.0.2.66","src_port":4444,"dest_ip":"203.0.113.5","dest_port":22,"proto":"TCP","alert":{"action":"allowed","gid":1,"signature_id":2001219,"rev":1,"signature":"TEST successful-recon-limited","category":"Information Leak","severity":2}}'

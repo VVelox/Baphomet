@@ -7,15 +7,16 @@ rev: 2
 msg: "[SQUID] denied proxy attempt"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-message_regexp:
-  - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+[A-Z_]+_DENIED/403 .*$'
-  - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+NONE/405 .*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+[A-Z_]+_DENIED/403 .*$'
+      - '^\d+\.\d+\s+\d+\s%%%%SRC%%%%\s+NONE/405 .*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "1386543323.000      4 91.188.124.227 TCP_DENIED/403 4099 GET http://www.proxy-listen.de/azenv.php - HIER_NONE/- text/html"

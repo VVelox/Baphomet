@@ -8,22 +8,23 @@ rev: 2
 msg: "[SLAPD] bind failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - slapd
-capture_regexp:
-  - regexp: '^conn=(?<CONN>\d+) fd=\d+ ACCEPT from IP=%%%%SRC%%%%:\d{1,5} \(IP=\S+\)\s*$'
-    key: CONN
-    ttl: 600
-message_regexp:
-  - regexp: '^conn=(?<CONN>\d+) op=\d+ RESULT(?:\s(?!err)\S+=\S*)* err=49 text=[\w\s]*$'
-    key: CONN
-    defer: 600
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - slapd
+  - capture_regexp:
+      - regexp: '^conn=(?<CONN>\d+) fd=\d+ ACCEPT from IP=%%%%SRC%%%%:\d{1,5} \(IP=\S+\)\s*$'
+        key: CONN
+        ttl: 600
+  - message_regexp:
+      - regexp: '^conn=(?<CONN>\d+) op=\d+ RESULT(?:\s(?!err)\S+=\S*)* err=49 text=[\w\s]*$'
+        key: CONN
+        defer: 600
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     # the err=49 result resolves through the conn id back to the ACCEPT host

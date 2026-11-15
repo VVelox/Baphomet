@@ -13,18 +13,19 @@ rev: 4
 msg: "[EXIM] auth failure / SMTP abuse"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? \w+ authenticator failed for (?:[^\[\( ]* )?(?:\(\S*\) )?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?: 535 Incorrect authentication data(?: \(set_id=.*\)|: \d+ Time\(s\))?\s*$'
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? sender verify fail for <\S+>: (?:Unknown user|Unrouteable address|all relevant MX records point to non-existent hosts)\s*$'
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? rejected RCPT [^@]+@\S+: (?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$'
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol synchronization error \([^)]*\): rejected (?:connection from|"\S+") (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? (?:next )?input=".*"\s*$'
-  - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[^\[\( ]* )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? dropped: too many (?:nonmail commands|syntax or protocol errors) \(last (?:command )?was "[^"]*"\)\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? \w+ authenticator failed for (?:[^\[\( ]* )?(?:\(\S*\) )?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?: 535 Incorrect authentication data(?: \(set_id=.*\)|: \d+ Time\(s\))?\s*$'
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? sender verify fail for <\S+>: (?:Unknown user|Unrouteable address|all relevant MX records point to non-existent hosts)\s*$'
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))? rejected RCPT [^@]+@\S+: (?:relay not permitted|Sender verify failed|Unknown user|Unrouteable address)\s*$'
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP protocol synchronization error \([^)]*\): rejected (?:connection from|"\S+") (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? (?:next )?input=".*"\s*$'
+      - '^(?:[\w.-]+ exim\[\d+\]: )?\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?(?: [+-]\d{4})?(?: [\w.-]+ exim\[\d+\]:)?(?: \[\d+\])? SMTP call from (?:[^\[\( ]* )?(?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: Ci=\d+)?(?: X=\S+)?(?: CV=\S+)?(?: SNI=\S+)? dropped: too many (?:nonmail commands|syntax or protocol errors) \(last (?:command )?was "[^"]*"\)\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "2013-01-04 17:03:46 login authenticator failed for rrcs-24-106-174-74.se.biz.rr.com ([192.168.2.33]) [24.106.174.74]: 535 Incorrect authentication data (set_id=brian)"

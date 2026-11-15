@@ -1,24 +1,25 @@
 #!perl
-# direct unit tests for App::Baphomet::Marks, the mark store's pure core, and
-# the three gates that read it, marked, not_marked, and sequence... no galla,
-# no store on an object, just the functions and gates over a hashref. pins the
-# conservative value-compare rules and the store bound that the galla and
-# run_tests both lean on but neither exercises exhaustively
+# direct unit tests for App::Baphomet::Marks, the mark store's pure core, the
+# three gates that read it, marked, not_marked, and sequence, and the two that
+# write it, mark and unmark... no galla, no store on an object, just the
+# functions and gates over a hashref. pins the conservative value-compare
+# rules and the store bound that the galla and run_tests both lean on but
+# neither exercises exhaustively
 use 5.006;
 use strict;
 use warnings;
 use Test::More;
 use List::Util qw( all );
 
-use App::Baphomet::Marks qw( mark_key mark_set apply_marks bound_expiring_store );
-use App::Baphomet::Gate  qw( gate_class bind_rule_gates );
+use App::Baphomet::Marks qw( mark_key mark_set mark_unset bound_expiring_store );
+use App::Baphomet::Gate  qw( gate_class compile_rule_gates bind_rule_gates walk_offense );
 
 my $now = 1_000_000_000;
 
-# whether the mark gates the passed entries make all hold over a store, asked
-# as the galla asks them... a hash of gate type to the list of what each gate
-# of the type is told, bound and sorted by pass, then the result pass asked
-# with a undef $ip and the offender pass with one
+# whether the mark gates the passed entries make all hold over a store... a
+# hash of gate type to the list of what each gate of the type is told, bound,
+# then those of the result pass asked with a undef $ip and those of the
+# offender pass with one
 sub gates_hold {
 	my ( $store, $entries_of, $data, $ip, $now_is ) = @_;
 
@@ -29,9 +30,37 @@ sub gates_hold {
 		}
 	}
 	my $bound = bind_rule_gates( \@gates, { 'marks' => sub { return $store; } }, 'the rule "x"' );
+	my $pass  = defined($ip) ? 'offender' : 'result';
 
-	return ( all { $_->holds( $data, $ip, $now_is ) } @{ $bound->{ defined($ip) ? 'offender' : 'result' } } ) ? 1 : 0;
-}
+	return ( all { $_->holds( $data, $ip, $now_is ) } grep { $_->pass eq $pass } @{ $bound->{offense} } ) ? 1 : 0;
+} ## end sub gates_hold
+
+# takes one offense down a rule_gates list over a store, as the galla does...
+# the list compiled as a rule's is, with no rule behind it as the gates here
+# ask nothing of one, bound over the store and whatever else of the context
+# is passed, and walked at $now.
+#
+# args:
+#   $store      :: the mark store, a hash of mark name to its branded keys
+#   $rule_gates :: the list, each entry a hash of one key, the gate type
+#   $data       :: the found data of the offense
+#   %context    :: the context keys beside marks... brandable, on_set, on_unset
+#
+# returns the offense, its set and lifted the brands the walk set and lifted,
+# each a hash of name and key.
+#
+#   my $offense = walked( \%store, [ { 'ban_var' => ['ip'] }, { 'mark' => { 'name' => 'seen', 'ttl' => 60 } } ],
+#       { 'ip' => '192.0.2.7' } );
+sub walked {
+	my ( $store, $rule_gates, $data, %context ) = @_;
+
+	my $gates   = compile_rule_gates( $rule_gates, undef, 'json/x' );
+	my $bound   = bind_rule_gates( $gates, { 'marks' => sub { return $store; }, %context }, 'the rule "x"' );
+	my $offense = { 'data' => $data, 'regexp' => undef, 'now' => $now, 'set' => [], 'lifted' => [] };
+	walk_offense( $bound, $offense );
+
+	return $offense;
+} ## end sub walked
 
 #
 # mark_key... the compound join, the single var, the var-less offender
@@ -243,37 +272,153 @@ mark_set( \%ms, 'n', 'k', 'v', 100, $now + 200 );
 is( $ms{n}{k}{set}, $now + 200, 'a re-brand of an expired entry resets the set time' );
 
 #
-# apply_marks... var-less, var, vars, value_var, and unmark
+# mark_unset... the lift, the emptied name dropped, on_unset fires
+#
+
+my %mu = ( 'n' => { 'k' => { 'expires' => $now + 100 }, 'beside' => { 'expires' => $now + 100 } } );
+my @heard_lifts;
+my $hear_lift = sub { push( @heard_lifts, [@_] ); return; };
+is( mark_unset( \%mu, 'n', 'k', $hear_lift ), 1, 'mark_unset says it lifted a brand' );
+ok( !defined( $mu{n}{k} ),     'the brand is gone' );
+ok( defined( $mu{n}{beside} ), 'and the one beside it under the name is left' );
+is_deeply( \@heard_lifts, [ [ 'n', 'k' ] ], 'the on_unset callback heard the lift' );
+
+is( mark_unset( \%mu, 'n', 'k', $hear_lift ), 0, 'a key with no such brand lifts nothing' );
+is( scalar(@heard_lifts), 1, 'which the callback does not hear' );
+
+mark_unset( \%mu, 'n', 'beside' );
+ok( !defined( $mu{n} ), 'lifting the last brand under a name drops the name' );
+
+#
+# the mark and unmark gates... var-less, var, vars, value_var, and the lift
 #
 
 my %am = ( 'seen' => { '9.9.9.9' => { 'expires' => $now + 10 } } );
-my ( $set, $lifted ) = apply_marks(
+my ( @heard_set, @heard_unset );
+my $branded = walked(
 	\%am,
-	[ { 'name' => 'brand', 'ttl' => 100 } ],
-	[ { 'name' => 'seen' } ],
-	{ 'ip' => '1.2.3.4' },
-	['9.9.9.9'],
-	$now
+	[
+		{ 'ban_var' => ['ip'] },
+		{ 'mark'    => { 'name' => 'brand', 'ttl' => 100 } },
+		{ 'unmark'  => { 'name' => 'seen' } },
+	],
+	{ 'ip' => '9.9.9.9' },
+	'on_set'   => sub { push( @heard_set,   [@_] ); return; },
+	'on_unset' => sub { push( @heard_unset, [@_] ); return; },
 );
-ok( defined( $am{brand}{'9.9.9.9'} ), 'apply_marks brands the var-less offender' );
+ok( defined( $am{brand}{'9.9.9.9'} ), 'a mark naming no var brands the offender' );
+is( $am{brand}{'9.9.9.9'}{expires}, $now + 100, 'for the ttl it was told' );
 ok( !defined( $am{seen} ), 'and the unmark lifted the brand, dropping the emptied name' );
-is_deeply( $set,    [ { 'name' => 'brand', 'key' => '9.9.9.9' } ], 'the set list names the brand and key' );
-is_deeply( $lifted, [ { 'name' => 'seen',  'key' => '9.9.9.9' } ], 'the lifted list too' );
+is_deeply( $branded->{set},    [ { 'name' => 'brand', 'key' => '9.9.9.9' } ], 'the set list names the brand and key' );
+is_deeply( $branded->{lifted}, [ { 'name' => 'seen',  'key' => '9.9.9.9' } ], 'the lifted list too' );
+is_deeply( \@heard_set, [ [ 'brand', '9.9.9.9', undef, $now + 100, $now ] ], 'the on_set callback heard the brand' );
+is_deeply( \@heard_unset, [ [ 'seen', '9.9.9.9' ] ], 'and the on_unset callback the lift' );
+
+# a unmark of what is not branded lifts nothing and says nothing of it
+my %amu;
+my $unlifted
+	= walked( \%amu, [ { 'ban_var' => ['ip'] }, { 'unmark' => { 'name' => 'seen' } } ], { 'ip' => '9.9.9.9' } );
+is_deeply( $unlifted->{lifted}, [], 'a unmark of a offender with no such brand lifts nothing' );
 
 my %amv;
-apply_marks( \%amv, [ { 'name' => 'acct', 'ttl' => 100, 'var' => 'user', 'value_var' => 'ip' } ],
-	[], { 'user' => 'bob', 'ip' => '1.1.1.1' }, [], $now );
+walked(
+	\%amv,
+	[ { 'mark' => { 'name' => 'acct', 'ttl' => 100, 'var' => 'user', 'value_var' => 'ip' } } ],
+	{ 'user' => 'bob', 'ip' => '1.1.1.1' }
+);
 is( $amv{acct}{bob}{value}, '1.1.1.1', 'a var-keyed mark brands by the capture and stores value_var' );
 
 my %amc;
-apply_marks( \%amc, [ { 'name' => 'pair', 'ttl' => 100, 'vars' => [ 'ip', 'user' ] } ],
-	[], { 'ip' => '1.2.3.4', 'user' => 'bob' }, [], $now );
+walked(
+	\%amc,
+	[ { 'mark' => { 'name' => 'pair', 'ttl' => 100, 'vars' => [ 'ip', 'user' ] } } ],
+	{ 'ip' => '1.2.3.4', 'user' => 'bob' }
+);
 ok( defined( $amc{pair}{"1.2.3.4\x1fbob"} ), 'a vars mark brands the compound key' );
+
+my %aml = ( 'pair' => { "1.2.3.4\x1fbob" => { 'expires' => $now + 10 }, 'bob' => { 'expires' => $now + 10 } } );
+my $pair_lifted = walked(
+	\%aml,
+	[ { 'unmark' => { 'name' => 'pair', 'vars' => [ 'ip', 'user' ] } } ],
+	{ 'ip' => '1.2.3.4', 'user' => 'bob' }
+);
+ok( !defined( $aml{pair}{"1.2.3.4\x1fbob"} ), 'a vars unmark lifts the compound key' );
+ok( defined( $aml{pair}{bob} ),               'and nothing else under the name' );
+is_deeply( $pair_lifted->{lifted}, [ { 'name' => 'pair', 'key' => "1.2.3.4\x1fbob" } ], 'which the lifted list names' );
 
 # a rule that brands nothing touches nothing
 my %amn;
-my ( $s2, $l2 ) = apply_marks( \%amn, [], [], {}, ['1.2.3.4'], $now );
-is_deeply( [ $s2, $l2 ], [ [], [] ], 'a rule with no marks brands and lifts nothing' );
+my $unbranded = walked( \%amn, [ { 'ban_var' => ['ip'] } ], { 'ip' => '1.2.3.4' } );
+is_deeply( [ $unbranded->{set}, $unbranded->{lifted} ], [ [], [] ], 'a rule with no marks brands and lifts nothing' );
+is_deeply( \%amn, {}, 'and leaves the store as it was' );
+
+# a offender the context says may not be branded is neither branded nor has a
+# brand lifted, and one beside it is... only where the key is the offender
+my %amb = ( 'seen' => { '127.0.0.1' => { 'expires' => $now + 10 }, '1.2.3.4' => { 'expires' => $now + 10 } } );
+my $spared = walked(
+	\%amb,
+	[
+		{ 'ban_var' => [ 'src', 'dest' ] },
+		{ 'mark'    => { 'name' => 'brand', 'ttl' => 100 } },
+		{ 'mark'    => { 'name' => 'peer',  'ttl' => 100, 'var' => 'dest' } },
+		{ 'unmark'  => { 'name' => 'seen' } },
+	],
+	{ 'src'     => '1.2.3.4', 'dest' => '127.0.0.1' },
+	'brandable' => sub { return $_[0] ne '127.0.0.1'; },
+);
+ok( defined( $amb{brand}{'1.2.3.4'} ),    'a brandable offender is branded' );
+ok( !defined( $amb{brand}{'127.0.0.1'} ), 'a unbrandable one is not' );
+ok( defined( $amb{peer}{'127.0.0.1'} ),   'though a mark naming a var brands whatever the var holds' );
+ok( !defined( $amb{seen}{'1.2.3.4'} ),    'a brandable offender has its brand lifted' );
+ok( defined( $amb{seen}{'127.0.0.1'} ),   'a unbrandable one keeps its own' );
+is_deeply(
+	$spared->{set},
+	[ { 'name' => 'brand', 'key' => '1.2.3.4' }, { 'name' => 'peer', 'key' => '127.0.0.1' } ],
+	'the set list names only what was branded'
+);
+is_deeply(
+	$spared->{lifted},
+	[ { 'name' => 'seen', 'key' => '1.2.3.4' } ],
+	'and the lifted list only what was lifted'
+);
+
+#
+# a mark or unmark naming no var keys on the offender, so one with nothing
+# above it in the list to name a offender is refused when the rule loads
+#
+
+my %told_no_var = ( 'mark' => { 'name' => 'brand', 'ttl' => 100 }, 'unmark' => { 'name' => 'brand' } );
+foreach my $type ( sort( keys(%told_no_var) ) ) {
+	ok(
+		!eval {
+			compile_rule_gates( [ { $type => $told_no_var{$type} }, { 'ban_var' => ['ip'] } ], undef, 'json/x' );
+			1;
+		},
+		'a ' . $type . ' naming no var with no ban_var above it refuses to load'
+	);
+	is(
+		$@ =~ s/ at \S+ line \d+\.\n\z//r,
+		'The '
+			. $type
+			. ' gate of the rule "json/x" (rule_gates entry 0) keys on the offender, and no ban_var above it names one',
+		'the die naming the gate and what it lacks'
+	);
+	ok(
+		eval {
+			compile_rule_gates( [ { 'detection_var' => ['user'] }, { $type => $told_no_var{$type} } ],
+				undef, 'json/x' );
+			1;
+		},
+		'while one below a detection_var loads'
+	);
+	ok(
+		eval {
+			compile_rule_gates( [ { $type => { %{ $told_no_var{$type} }, 'var' => 'user' } } ], undef, 'json/x' );
+			1;
+		},
+		'and so does one naming a var with nothing above it'
+	);
+} ## end foreach my $type ( sort( keys(%told_no_var) ) )
 
 #
 # bound_expiring_store... the 10000 cap, the branch nothing else reaches

@@ -21,19 +21,20 @@ make_path( $dir . '/rules/syslog', $dir . '/run', $dir . '/cache' );
 open( my $fh, '>', $dir . '/rules/syslog/sshd.yaml' ) || die($!);
 print $fh <<'EOR';
 ---
-daemons:
-  - sshd
-message_regexp:
-  - 'bad thing from %%%%SRC%%%%'
-  - regexp: '^\[conn(?<KEY>\d+)\] auth failed'
-    key: KEY
-    defer: 600
-capture_regexp:
-  - regexp: '^\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
-    key: KEY
-    ttl: 600
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sshd
+  - capture_regexp:
+      - regexp: '^\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+        key: KEY
+        ttl: 600
+  - message_regexp:
+      - 'bad thing from %%%%SRC%%%%'
+      - regexp: '^\[conn(?<KEY>\d+)\] auth failed'
+        key: KEY
+        defer: 600
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd[1]: bad thing from 1.2.3.4"

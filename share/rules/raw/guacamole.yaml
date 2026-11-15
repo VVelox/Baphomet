@@ -9,15 +9,16 @@ rev: 2
 msg: "[GUACAMOLE] failed authentication attempt"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^WARNING: Authentication attempt from %%%%SRC%%%% for user "[^"]*" failed\.$'
-  - '^\d{2}:\d{2}:\d{2}\.\d+ \[\S+\] WARN\s+\S+ - Authentication attempt from %%%%SRC%%%% for user "[^"]+" failed\.$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^WARNING: Authentication attempt from %%%%SRC%%%% for user "[^"]*" failed\.$'
+      - '^\d{2}:\d{2}:\d{2}\.\d+ \[\S+\] WARN\s+\S+ - Authentication attempt from %%%%SRC%%%% for user "[^"]+" failed\.$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: 'WARNING: Authentication attempt from 192.0.2.0 for user "null" failed.'

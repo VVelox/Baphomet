@@ -27,19 +27,20 @@ sub json_line {
 
 write_rule( 'json/probes', <<'EOR' );
 ---
-gate:
-  - field: c
-    values: [ ACCESS, //^AUTH// ]
-match:
-  - field: attr.remote
-    regexp: '^%%%%SRC%%%%:\d+$'
-  - field: msg
-    regexp: 'denied for %%%%ADDR%%%%'
-ignore:
-  - field: attr.user
-    regexp: '^healthcheck$'
-ban_var:
-  - SRC
+rule_gates:
+  - ignore:
+      - field: attr.user
+        regexp: '^healthcheck$'
+  - gate:
+      - field: c
+        values: [ ACCESS, //^AUTH// ]
+  - match:
+      - field: attr.remote
+        regexp: '^%%%%SRC%%%%:\d+$'
+      - field: msg
+        regexp: 'denied for %%%%ADDR%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: '{"c":"ACCESS","msg":"failed","attr":{"remote":"192.0.2.5:54321"}}'
@@ -55,7 +56,8 @@ EOR
 my $rules = App::Baphomet::Rules->new( rules_dir => $rules_dir, shipped => 0 );
 my $rule  = $rules->load('json/probes');
 ok( defined($rule), 'json rule loaded' );
-is( ( $rule->ban_var )[0], 'SRC', 'ban_var' );
+my ($naming) = grep { $_->{type} eq 'ban_var' } @{ $rule->rule_gates };
+is( $naming->{names}[0], 'SRC', 'ban_var' );
 
 my $found = $rule->check( json_line('{"c":"ACCESS","msg":"failed","attr":{"remote":"192.0.2.5:54321"}}') );
 ok( defined($found), 'match found' );
@@ -89,11 +91,12 @@ ok( !defined( $rule->check($syslog_parsed) ), 'syslog shaped lines are refused' 
 
 write_rule( 'json/direct', <<'EOR' );
 ---
-gate:
-  - field: event_type
-    values: [ alert ]
-ban_var:
-  - src_ip
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+  - ban_var:
+      - src_ip
 tests:
   positive:
     - message: '{"event_type":"alert","src_ip":"192.0.2.66"}'
@@ -112,13 +115,21 @@ ok( !defined( $found->{regexp} ), 'gates only rule has no regexp index' );
 # invalid defs
 #
 
-write_rule( 'json/empty', "---\nban_var:\n  - SRC\n" );
+write_rule( 'json/empty', "---\nrule_gates:\n  - ban_var:\n      - SRC\n" );
 ok( !eval { $rules->load('json/empty'); 1 }, 'no gates and no matches refuses to load' );
 
-write_rule( 'json/nobanvar', "---\ngate:\n  - field: a\n    values: [ b ]\n" );
+write_rule( 'json/nobanvar', "---\nrule_gates:\n  - gate:\n      - field: a\n        values: [ b ]\n" );
 ok( !eval { $rules->load('json/nobanvar'); 1 }, 'missing ban_var refuses to load' );
 
-write_rule( 'json/badtoken', "---\nmatch:\n  - field: a\n    regexp: '%%%%LAMASHTU%%%%'\nban_var:\n  - SRC\n" );
+write_rule( 'json/badtoken', <<'EOR' );
+---
+rule_gates:
+  - match:
+      - field: a
+        regexp: '%%%%LAMASHTU%%%%'
+  - ban_var:
+      - SRC
+EOR
 ok( !eval { $rules->load('json/badtoken'); 1 }, 'unknown token refuses to load' );
 
 #

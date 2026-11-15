@@ -9,15 +9,16 @@ rev: 1
 msg: "[EXIM] spam / content reject"
 severity: low
 classtype: misc-activity
-message_regexp:
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ F=(?:<>|\S+@\S+) (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+rejected by local_scan\(\): .{0,256}$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+F=(?:<>|[^@]+@\S+) rejected RCPT [^@]+@\S+: .*dnsbl.*\s*$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+F=(?:<>|[^@]+@\S+) rejected after DATA: This message contains a virus \(\S+\)\.\s*$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ SA: Action: flagged as Spam but accepted: score=\d+\.\d+ required=\d+\.\d+ \(scanned in \d+/\d+ secs \| Message-Id: \S+\)\. From \S+ \(host=\S+ \[%%%%SRC%%%%\]\) for \S+$'
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ SA: Action: silently tossed message: score=\d+\.\d+ required=\d+\.\d+ trigger=\d+\.\d+ \(scanned in \d+/\d+ secs \| Message-Id: \S+\)\. From \S+ \(host=(?:\S+ )?\[%%%%SRC%%%%\]\) for \S+$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ F=(?:<>|\S+@\S+) (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+rejected by local_scan\(\): .{0,256}$'
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+F=(?:<>|[^@]+@\S+) rejected RCPT [^@]+@\S+: .*dnsbl.*\s*$'
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ (?:H=(?:[\w.-]+ )?(?:\(\S+\) )?)?\[%%%%SRC%%%%\](?::\d+)?(?: I=\[\S+\](?::\d+)?)?(?: U=\S+)?(?: P=e?smtp)?(?: F=(?:<>|[^@]+@\S+))?\s+F=(?:<>|[^@]+@\S+) rejected after DATA: This message contains a virus \(\S+\)\.\s*$'
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ SA: Action: flagged as Spam but accepted: score=\d+\.\d+ required=\d+\.\d+ \(scanned in \d+/\d+ secs \| Message-Id: \S+\)\. From \S+ \(host=\S+ \[%%%%SRC%%%%\]\) for \S+$'
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?: \[\d+\]| \w+ exim\[\d+\]:)? \S+ SA: Action: silently tossed message: score=\d+\.\d+ required=\d+\.\d+ trigger=\d+\.\d+ \(scanned in \d+/\d+ secs \| Message-Id: \S+\)\. From \S+ \(host=(?:\S+ )?\[%%%%SRC%%%%\]\) for \S+$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "2004-01-18 07:15:35 1Ai79e-0000Dq-8i F=uzwltcmwto24@melissacam.biz H=lsanca1-ar3-4-47-028-040.lsanca1.elnk.dsl.genuity.net [4.47.28.40] P=smtp rejected by local_scan(): Rejected: hits=7.5 required=5.0 trigger=5.0"

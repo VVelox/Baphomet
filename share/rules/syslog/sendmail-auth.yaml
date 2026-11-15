@@ -5,19 +5,20 @@ rev: 2
 msg: "[SENDMAIL] AUTH failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - sendmail
-  - sm-mta
-  - sm-acceptingconnections
-message_regexp:
-  - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?: possible SMTP attack: command=AUTH, count=\d+$'
-  - '^(?:\w{14,20}: )?AUTH failure \([^\)]+\):(?: [^:]+:)? (?:authentication failure|user not found): [^,]*, (?:user=(?:\S+|.*?), )?relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sendmail
+      - sm-mta
+      - sm-acceptingconnections
+  - message_regexp:
+      - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?: possible SMTP attack: command=AUTH, count=\d+$'
+      - '^(?:\w{14,20}: )?AUTH failure \([^\)]+\):(?: [^:]+:)? (?:authentication failure|user not found): [^,]*, (?:user=(?:\S+|.*?), )?relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Feb 16 23:33:20 smtp1 sm-mta[5133]: s1GNXHYB005133: [190.5.230.178]: possible SMTP attack: command=AUTH, count=5"

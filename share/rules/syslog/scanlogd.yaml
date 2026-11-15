@@ -5,16 +5,17 @@ rev: 2
 msg: "[SCANLOGD] port scan detected"
 severity: medium
 classtype: attempted-recon
-mark:
-  - name: recon
-    ttl: 86400
-daemons:
-  - scanlogd
-message_regexp:
-  - '^%%%%SRC%%%%(?::\d+)? to \S+ ports\b'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - scanlogd
+  - message_regexp:
+      - '^%%%%SRC%%%%(?::\d+)? to \S+ ports\b'
+  - ban_var:
+      - SRC
+  - mark:
+      name: recon
+      ttl: 86400
 tests:
   positive:
     - message: "Mar  5 21:44:43 srv scanlogd: 192.0.2.123 to 192.0.2.1 ports 80, 81, 83, 88, 99, 443, 1080, 3128, ..., f????uxy, TOS 00, TTL 49 @20:44:43"

@@ -8,14 +8,15 @@ rev: 2
 msg: "[MONITORIX] HTTP access / auth error"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  - '^\w{3} \w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} \d{4} - (?:NOTEXIST|AUTHERR|NOTALLOWED) - \[%%%%SRC%%%%\]'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\w{3} \w{3}\s+\d{1,2} \d{2}:\d{2}:\d{2} \d{4} - (?:NOTEXIST|AUTHERR|NOTALLOWED) - \[%%%%SRC%%%%\]'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Wed Apr 14 08:54:22 2021 - NOTEXIST - [127.0.0.1] File does not exist: /manager/html"

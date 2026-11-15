@@ -6,18 +6,19 @@ rev: 2
 msg: "[UWIMAP] IMAP/POP login failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-daemons:
-  - ipop3d
-  - imapd
-message_regexp:
-  - '^Login (?:failed|excessive login failures|disabled|SYSTEM BREAK-IN ATTEMPT) user=\S* auth=\S* host=.*\[%%%%SRC%%%%\]\s*$'
-  - '^Failed .* override of user=.* host=.*\[%%%%SRC%%%%\]\s*$'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - ipop3d
+      - imapd
+  - message_regexp:
+      - '^Login (?:failed|excessive login failures|disabled|SYSTEM BREAK-IN ATTEMPT) user=\S* auth=\S* host=.*\[%%%%SRC%%%%\]\s*$'
+      - '^Failed .* override of user=.* host=.*\[%%%%SRC%%%%\]\s*$'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "Jul 3 20:56:53 Linux2 imapd[666]: Login failed user=lizdy auth=lizdy host=h2066373.stratoserver.net [81.169.154.112]"

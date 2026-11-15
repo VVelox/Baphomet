@@ -14,27 +14,28 @@ rev: 2
 msg: "[SENDMAIL] spam / relay reject"
 severity: low
 classtype: misc-activity
-daemons:
-  - sendmail
-  - sm-mta
-  - sm-acceptingconnections
-mungers:
-  - sendmail
-message_regexp:
-  - '^(?:\w{14,20}: )?ruleset=check_rcpt, arg1=<\S+@\S+>, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=(?:550 5\.7\.1(?: <\S+@\S+>\.\.\.)?(?: Relaying denied\.)? (?:IP name possibly forged \[(?:\d+\.){3}\d+\]|Proper authentication required\.|IP name lookup failed \[(?:\d+\.){3}\d+\]|Fix reverse DNS for \S+)|553 5\.1\.8(?: <\S+@\S+>\.\.\.)? Domain of sender address \S+ does not exist|550 5\.[71]\.1 <\S+@\S+>\.\.\. (?:Rejected: .*|User unknown))$'
-  - '^(?:\w{14,20}: )?ruleset=check_relay(?:, arg\d+=\S*)*, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=421 4\.3\.2 (?:Connection rate limit exceeded\.|Too many open connections\.)$'
-  - '^(?:\w{14,20}: )?rejecting commands from (?:\S* )?\[(?:IPv6:)?%%%%SRC%%%%\] due to pre-greeting traffic after \d+ seconds$'
-  - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\]: (?i:expn|vrfy) \S+ \[rejected\]$'
-  - regexp: '^(?<QID>\w{14,20}): <[^@]+@[^>]+>\.\.\. No such user here$'
-    key: QID
-    defer: 300
-capture_regexp:
-  - regexp: '^(?<QID>\w{14,20}): from=<[^@]+@[^>]+>, size=\d+, class=\d+, nrcpts=\d+, bodytype=\w+, proto=E?SMTP, daemon=MTA, relay=\S+ \[(?:IPv6:)?%%%%SRC%%%%\]$'
-    key: QID
-    ttl: 300
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - sendmail
+      - sm-mta
+      - sm-acceptingconnections
+  - mungers:
+      - sendmail
+  - capture_regexp:
+      - regexp: '^(?<QID>\w{14,20}): from=<[^@]+@[^>]+>, size=\d+, class=\d+, nrcpts=\d+, bodytype=\w+, proto=E?SMTP, daemon=MTA, relay=\S+ \[(?:IPv6:)?%%%%SRC%%%%\]$'
+        key: QID
+        ttl: 300
+  - message_regexp:
+      - '^(?:\w{14,20}: )?ruleset=check_rcpt, arg1=<\S+@\S+>, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=(?:550 5\.7\.1(?: <\S+@\S+>\.\.\.)?(?: Relaying denied\.)? (?:IP name possibly forged \[(?:\d+\.){3}\d+\]|Proper authentication required\.|IP name lookup failed \[(?:\d+\.){3}\d+\]|Fix reverse DNS for \S+)|553 5\.1\.8(?: <\S+@\S+>\.\.\.)? Domain of sender address \S+ does not exist|550 5\.[71]\.1 <\S+@\S+>\.\.\. (?:Rejected: .*|User unknown))$'
+      - '^(?:\w{14,20}: )?ruleset=check_relay(?:, arg\d+=\S*)*, relay=(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\](?: \(may be forged\))?, reject=421 4\.3\.2 (?:Connection rate limit exceeded\.|Too many open connections\.)$'
+      - '^(?:\w{14,20}: )?rejecting commands from (?:\S* )?\[(?:IPv6:)?%%%%SRC%%%%\] due to pre-greeting traffic after \d+ seconds$'
+      - '^(?:\w{14,20}: )?(?:\S+ )?\[(?:IPv6:)?%%%%SRC%%%%\]: (?i:expn|vrfy) \S+ \[rejected\]$'
+      - regexp: '^(?<QID>\w{14,20}): <[^@]+@[^>]+>\.\.\. No such user here$'
+        key: QID
+        defer: 300
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Feb 25 03:01:10 kismet sm-acceptingconnections[27713]: s1P819mk027713: ruleset=check_rcpt, arg1=<asservnew@freemailhost.ru>, relay=128-68-136-133.broadband.corbina.ru [128.68.136.133], reject=550 5.7.1 <asservnew@freemailhost.ru>... Relaying denied. Proper authentication required."

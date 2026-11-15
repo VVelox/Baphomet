@@ -4,9 +4,9 @@ use 5.006;
 use strict;
 use warnings;
 use Test::More;
-use App::Baphomet::Rules::Syslog ();
-use App::Baphomet::Parser        ();
-use App::Baphomet::Tracks        ();
+use App::Baphomet::Rule   ();
+use App::Baphomet::Parser ();
+use App::Baphomet::Tracks ();
 
 plan tests => 34;
 
@@ -15,7 +15,7 @@ sub build_rule {
 	my ( $name, $def ) = @_;
 
 	my $rule;
-	eval { $rule = App::Baphomet::Rules::Syslog->new( 'name' => $name, 'def' => $def ); };
+	eval { $rule = App::Baphomet::Rule->new( 'name' => 'syslog/' . $name, 'def' => $def ); };
 	return ( $rule, $@ );
 }
 
@@ -36,37 +36,47 @@ sub build_ok {
 my ( undef, $error ) = build_rule(
 	'orphan-read',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^bounced (?<postfix_queueid>[0-9A-F]+)'],
-		'tracked'        => [ { 'name' => 'mail-queue', 'into' => ['client_ip'] } ],
-		'ban_var'        => ['client_ip'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^bounced (?<postfix_queueid>[0-9A-F]+)'] },
+			{ 'tracked'        => { 'name' => 'mail-queue', 'into' => ['client_ip'] } },
+			{ 'ban_var'        => ['client_ip'] },
+		],
 	}
 );
 like(
 	$error,
-	qr/names a record the rule declares no track for/,
+	qr/names the record "mail-queue", which the rule declares no track for/,
 	'a tracked naming a record the rule declared no track for will not load'
 );
 
 ( undef, $error ) = build_rule(
 	'orphan-not',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^bounced (?<postfix_queueid>[0-9A-F]+)'],
-		'not_tracked'    => [ { 'name' => 'mail-queue' } ],
-		'ban_var'        => ['postfix_queueid'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^bounced (?<postfix_queueid>[0-9A-F]+)'] },
+			{ 'not_tracked'    => { 'name' => 'mail-queue' } },
+			{ 'ban_var'        => ['postfix_queueid'] },
+		],
 	}
 );
-like( $error, qr/names a record the rule declares no track for/, 'a not_tracked wants a track beside it too' );
+like(
+	$error,
+	qr/names the record "mail-queue", which the rule declares no track for/,
+	'a not_tracked wants a track beside it too'
+);
 
 ( undef, $error ) = build_rule(
 	'does-nothing',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'],
-		'track'          => [ { 'name' => 'mail-queue', 'key' => 'queueid' } ],
-		'tracked'        => [ { 'name' => 'mail-queue' } ],
-		'ban_var'        => ['queueid'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'] },
+			{ 'tracked'        => { 'name' => 'mail-queue' } },
+			{ 'track'          => { 'name' => 'mail-queue', 'key' => 'queueid' } },
+			{ 'ban_var'        => ['queueid'] },
+		],
 	}
 );
 like(
@@ -78,11 +88,13 @@ like(
 ( undef, $error ) = build_rule(
 	'not-tracked-where',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'],
-		'track'          => [ { 'name' => 'mail-queue', 'key'   => 'queueid' } ],
-		'not_tracked'    => [ { 'name' => 'mail-queue', 'where' => [ { 'field' => 'x', 'op' => 'exists' } ] } ],
-		'ban_var'        => ['queueid'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'] },
+			{ 'not_tracked'    => { 'name' => 'mail-queue', 'where' => [ { 'field' => 'x', 'op' => 'exists' } ] } },
+			{ 'track'          => { 'name' => 'mail-queue', 'key'   => 'queueid' } },
+			{ 'ban_var'        => ['queueid'] },
+		],
 	}
 );
 like( $error, qr/unknown key "where"/, 'a not_tracked takes no where, that being tracked with a negated one' );
@@ -90,11 +102,13 @@ like( $error, qr/unknown key "where"/, 'a not_tracked takes no where, that being
 ( undef, $error ) = build_rule(
 	'twice-declared',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'],
-		'track'          =>
-			[ { 'name' => 'mail-queue', 'key' => 'queueid' }, { 'name' => 'mail-queue', 'key' => 'other' }, ],
-		'ban_var' => ['queueid'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'] },
+			{ 'track'          => { 'name' => 'mail-queue', 'key' => 'queueid' } },
+			{ 'track'          => { 'name' => 'mail-queue', 'key' => 'other' } },
+			{ 'ban_var'        => ['queueid'] },
+		],
 	}
 );
 like( $error, qr/twice, which leaves its key ambiguous/, 'one rule may not declare the same track twice' );
@@ -102,13 +116,15 @@ like( $error, qr/twice, which leaves its key ambiguous/, 'one rule may not decla
 ( undef, $error ) = build_rule(
 	'track-only-no-track',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'],
-		'track_only'     => 1,
-		'ban_var'        => ['queueid'],
+		'track_only' => 1,
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^bounced (?<queueid>[0-9A-F]+)'] },
+			{ 'ban_var'        => ['queueid'] },
+		],
 	}
 );
-like( $error, qr/track_only but declares no track/, 'a track_only rule that declares no track will not load' );
+like( $error, qr/is track_only but has no track gate/, 'a track_only rule that declares no track will not load' );
 
 #
 # the harvest rule and the reading rule, the postfix shape from the design
@@ -117,18 +133,23 @@ like( $error, qr/track_only but declares no track/, 'a track_only rule that decl
 my $harvest = build_ok(
 	'mail-harvest',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: client=\S+\[(?<postfix_client_ip>[0-9.]+)\]'],
-		'track'          => [
-			{
-				'name'   => 'mail-queue',
-				'key'    => 'postfix_queueid',
-				'fields' => ['postfix_client_ip'],
-				'ttl'    => 3600,
-			}
-		],
 		'track_only' => 1,
-		'ban_var'    => ['postfix_client_ip'],
+		'rule_gates' => [
+			{ 'daemons' => ['//^postfix(?:/\w+)?$//'] },
+			{
+				'message_regexp' =>
+					['^(?<postfix_queueid>[0-9A-F]{6,})\: client=\S+\[(?<postfix_client_ip>[0-9.]+)\]']
+			},
+			{
+				'track' => {
+					'name'   => 'mail-queue',
+					'key'    => 'postfix_queueid',
+					'fields' => ['postfix_client_ip'],
+					'ttl'    => 3600,
+				}
+			},
+			{ 'ban_var' => ['postfix_client_ip'] },
+		],
 	}
 );
 
@@ -140,23 +161,28 @@ is( $harvest->tracks->[0]{ttl}, 3600, 'the declared ttl rides the compiled track
 my $reader = build_ok(
 	'mail-bounce',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>.* status=bounced'],
-		'track'          => [ { 'name' => 'mail-queue', 'key' => 'postfix_queueid', 'fields' => ['postfix_to'] } ],
-		'tracked'        => [
+		'rule_gates' => [
+			{ 'daemons' => ['//^postfix(?:/\w+)?$//'] },
 			{
-				'name'  => 'mail-queue',
-				'where' => [ { 'field' => 'postfix_client_ip', 'op' => 'exists' } ],
-				'into'  => ['postfix_client_ip'],
-			}
+				'message_regexp' =>
+					['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>.* status=bounced']
+			},
+			{
+				'tracked' => {
+					'name'  => 'mail-queue',
+					'where' => [ { 'field' => 'postfix_client_ip', 'op' => 'exists' } ],
+					'into'  => ['postfix_client_ip'],
+				}
+			},
+			{ 'track'   => { 'name' => 'mail-queue', 'key' => 'postfix_queueid', 'fields' => ['postfix_to'] } },
+			{ 'ban_var' => ['postfix_client_ip'] },
 		],
-		'ban_var' => ['postfix_client_ip'],
 	}
 );
 
 is( $reader->tracks->[0]{ttl}, 3600, 'an undeclared ttl defaults to the hour' );
-is_deeply( $reader->track_gates->{tracked}[0]{key},
-	['postfix_queueid'], 'the read takes its key from the declaration beside it' );
+my ($reader_tracked) = grep { $_->{type} eq 'tracked' } @{ $reader->rule_gates };
+is_deeply( $reader_tracked->{key}, ['postfix_queueid'], 'the read takes its key from the declaration beside it' );
 
 #
 # the two rules over one transaction, sharing a store
@@ -180,11 +206,12 @@ my $bounce_line
 # leaves the assertion unproven, so it fails closed
 is( feed( $reader, $bounce_line ), undef, 'the reading rule vetoes while there is no record to read' );
 
-# ...but it still harvested, the sweep not caring that the boolean vetoed
+# ...but it still harvested, the track gate being asked though the tracked
+# gate above it vetoed
 is_deeply(
 	App::Baphomet::Tracks::track_get( \%store, 'mail-queue', '1C36D185729', $now ),
 	{ 'postfix_to' => 'victim@example.org' },
-	'a rule whose tracked clause vetoed still contributed to the record'
+	'a rule whose tracked gate vetoed still contributed to the record'
 );
 
 # the smtpd line, which is not an offense at all, contributes the address
@@ -212,11 +239,13 @@ App::Baphomet::Tracks::track_put( \%own, 'mail-queue', 'AAA111', { 'postfix_to' 
 my $overwrite = build_ok(
 	'mail-overwrite',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>'],
-		'track'          => [ { 'name' => 'mail-queue', 'key'  => 'postfix_queueid', 'fields' => [] } ],
-		'tracked'        => [ { 'name' => 'mail-queue', 'into' => ['postfix_to'] } ],
-		'ban_var'        => ['postfix_to'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>'] },
+			{ 'tracked'        => { 'name' => 'mail-queue', 'into' => ['postfix_to'] } },
+			{ 'track'          => { 'name' => 'mail-queue', 'key'  => 'postfix_queueid', 'fields' => [] } },
+			{ 'ban_var'        => ['postfix_to'] },
+		],
 	}
 );
 my $parsed_own = App::Baphomet::Parser::parse( 'syslog',
@@ -238,11 +267,13 @@ my %quiet;
 my $noqueue = build_ok(
 	'mail-noqueue',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^NOQUEUE\: reject\: RCPT from \S+\[(?<postfix_client_ip>[0-9.]+)\]'],
-		'track'          => [ { 'name' => 'mail-queue', 'key'   => 'postfix_queueid' } ],
-		'tracked'        => [ { 'name' => 'mail-queue', 'where' => [ { 'field' => 'x', 'op' => 'exists' } ] } ],
-		'ban_var'        => ['postfix_client_ip'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^NOQUEUE\: reject\: RCPT from \S+\[(?<postfix_client_ip>[0-9.]+)\]'] },
+			{ 'tracked'        => { 'name' => 'mail-queue', 'where' => [ { 'field' => 'x', 'op' => 'exists' } ] } },
+			{ 'track'          => { 'name' => 'mail-queue', 'key'   => 'postfix_queueid' } },
+			{ 'ban_var'        => ['postfix_client_ip'] },
+		],
 	}
 );
 my $noqueue_parsed = App::Baphomet::Parser::parse( 'syslog',
@@ -261,11 +292,13 @@ my %first;
 my $first_only = build_ok(
 	'first-sighting',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: '],
-		'track'          => [ { 'name' => 'seen', 'key' => 'postfix_queueid', 'fields' => [] } ],
-		'not_tracked'    => [ { 'name' => 'seen' } ],
-		'ban_var'        => ['postfix_queueid'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: '] },
+			{ 'not_tracked'    => { 'name' => 'seen' } },
+			{ 'track'          => { 'name' => 'seen', 'key' => 'postfix_queueid', 'fields' => [] } },
+			{ 'ban_var'        => ['postfix_queueid'] },
+		],
 	}
 );
 my $seen_parsed
@@ -284,11 +317,13 @@ my %ignored;
 my $ignoring = build_ok(
 	'mail-ignoring',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'ignore_regexp'  => ['status=sent'],
-		'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>'],
-		'track'          => [ { 'name' => 'mail-queue', 'key' => 'postfix_queueid' } ],
-		'ban_var'        => ['postfix_to'],
+		'rule_gates' => [
+			{ 'daemons'        => ['//^postfix(?:/\w+)?$//'] },
+			{ 'ignore_regexp'  => ['status=sent'] },
+			{ 'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>'] },
+			{ 'track'          => { 'name' => 'mail-queue', 'key' => 'postfix_queueid' } },
+			{ 'ban_var'        => ['postfix_to'] },
+		],
 	}
 );
 my $sent_parsed = App::Baphomet::Parser::parse( 'syslog',
@@ -309,18 +344,23 @@ is_deeply( \%ignored, {}, 'and a ignored line harvests nothing, ignore being the
 my $selftest = build_ok(
 	'mail-selftest',
 	{
-		'daemons'        => ['//^postfix(?:/\w+)?$//'],
-		'message_regexp' => ['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>.* status=bounced'],
-		'track'          => [ { 'name' => 'mail-queue', 'key' => 'postfix_queueid', 'fields' => ['postfix_to'] } ],
-		'tracked'        => [
+		'rule_gates' => [
+			{ 'daemons' => ['//^postfix(?:/\w+)?$//'] },
 			{
-				'name'  => 'mail-queue',
-				'where' => [ { 'field' => 'postfix_client_ip', 'op' => 'exists' } ],
-				'into'  => ['postfix_client_ip'],
-			}
+				'message_regexp' =>
+					['^(?<postfix_queueid>[0-9A-F]{6,})\: to=<(?<postfix_to>[^>]+)>.* status=bounced']
+			},
+			{
+				'tracked' => {
+					'name'  => 'mail-queue',
+					'where' => [ { 'field' => 'postfix_client_ip', 'op' => 'exists' } ],
+					'into'  => ['postfix_client_ip'],
+				}
+			},
+			{ 'track'   => { 'name' => 'mail-queue', 'key' => 'postfix_queueid', 'fields' => ['postfix_to'] } },
+			{ 'ban_var' => ['postfix_client_ip'] },
 		],
-		'ban_var' => ['postfix_client_ip'],
-		'tests'   => {
+		'tests' => {
 			'positive' => [
 				{
 					'message'        => $bounce_line,
@@ -352,37 +392,38 @@ is( $results->{fail}, 0, 'the embedded tests prove the seed, the lift, and the h
 is( $results->{pass}, 2, 'both embedded tests ran' );
 
 #
-# the getter on a rule with no gates is read-only... a defined track_gates is
-# what the per-line paths take as "this rule has gates", so a getter that
-# stored a empty pair would have every rule the galla ever asked run the
-# tracked and boolean passes for nothing
+# a rule with no track, tracked, or not_tracked gate has none to be asked...
+# reading its gates changes nothing of it, and a line goes down the gates the
+# rule wrote and no others
 #
 
 my $plain = build_ok(
 	'plain',
 	{
-		'daemons'        => ['sshd'],
-		'message_regexp' => ['^bad thing from %%%%SRC%%%%$'],
-		'ban_var'        => ['SRC'],
+		'rule_gates' => [
+			{ 'daemons'        => ['sshd'] },
+			{ 'message_regexp' => ['^bad thing from %%%%SRC%%%%$'] },
+			{ 'ban_var'        => ['SRC'] },
+		],
 	}
 );
-is_deeply(
-	$plain->track_gates,
-	{ 'tracked' => [], 'not_tracked' => [] },
-	'a rule with no gates reads back an empty pair'
-);
-$plain->track_gates->{tracked} = ['scribbled'];
-is_deeply( $plain->track_gates->{tracked}, [], 'each read is a fresh pair, so a caller can not scribble on the next' );
-ok( !defined( $plain->{track_gates} ), 'reading the gates stores nothing on the rule' );
+my @plain_keys = sort( keys( %{$plain} ) );
+is_deeply( $plain->tracks, [], 'a rule with no track gate reads back a empty list' );
+is_deeply( [ grep { $_->{type} eq 'tracked' || $_->{type} eq 'not_tracked' } @{ $plain->rule_gates } ],
+	[], 'and none of its gates is a tracked or a not_tracked' );
+is_deeply( [ sort( keys( %{$plain} ) ) ], \@plain_keys, 'reading the gates stores nothing on the rule' );
 
-my $boolean_passes = 0;
+# what the three sorts of tracked gate are asked with, swapped for a count...
+# a line of a rule that has none of them is to ask none
+my $tracked_asks = 0;
 {
-	no warnings 'redefine';
-	my $real_pass = \&App::Baphomet::Rules::Base::_offense_boolean_pass;
-	local *App::Baphomet::Rules::Base::_offense_boolean_pass = sub { $boolean_passes++; return $real_pass->(@_); };
+	no warnings qw( redefine once );
+	local *App::Baphomet::Gate::tracked::ask     = sub { $tracked_asks++; return 1; };
+	local *App::Baphomet::Gate::not_tracked::ask = sub { $tracked_asks++; return 1; };
+	local *App::Baphomet::Gate::track::ask       = sub { $tracked_asks++; return 1; };
 	my $plain_line
 		= App::Baphomet::Parser::parse( 'bsd_syslog', 'Jul 12 08:15:50 mail01 sshd[1]: bad thing from 192.0.2.8' );
 	my $found = $plain->check( $plain_line, 'plain-scope', { 'seq' => 0, 'source' => '', 'now' => 1_000_000_000 } );
 	ok( defined($found), 'the plain rule still matches after its gates were read' );
 }
-is( $boolean_passes, 0, 'a rule with no boolean and no gates skips the boolean pass after its gates were read' );
+is( $tracked_asks, 0, 'a rule with no tracked gates asks none of them of a line after its gates were read' );

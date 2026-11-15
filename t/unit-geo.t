@@ -1,5 +1,5 @@
 #!perl
-# direct unit tests for App::Baphomet::Gate::Country, the country gate... a
+# direct unit tests for App::Baphomet::Gate::country, the country gate... a
 # fixture map stands in for the GeoIP lookups, so the fail-closed rules and
 # the token resolution are pinned with out a database
 use 5.006;
@@ -7,14 +7,14 @@ use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Gate::Country ();
+use App::Baphomet::Gate::country ();
 
 # a country gate told what a rule entry would tell it, and bound over a
 # locator of the passed address to code map and the passed named lists
 sub country_gate {
 	my ( $args, $countries, $lists ) = @_;
 
-	my $gate = App::Baphomet::Gate::Country->new( 'type' => 'country', 'args' => $args, 'where' => 'the gate' );
+	my $gate = App::Baphomet::Gate::country->new( 'type' => 'country', 'args' => $args, 'where' => 'the gate' );
 	return $gate->bound( { 'locator' => sub { return $countries->{ $_[0] }; }, 'country_codes' => $lists },
 		'the rule "x"' );
 }
@@ -25,7 +25,7 @@ my %countries = ( '203.0.113.9' => 'NL', '198.51.100.5' => 'US' );
 # compile... the mode, lone values as lists, and the pass
 #
 
-my $compiled = App::Baphomet::Gate::Country->new(
+my $compiled = App::Baphomet::Gate::country->new(
 	'type'  => 'country',
 	'args'  => { 'isnot' => 'mx', 'vars' => 'src' },
 	'where' => 'the gate'
@@ -37,12 +37,12 @@ is( $compiled->pass, 'result', 'a gate naming vars is of the result pass' );
 is_deeply( [ $compiled->needs ], ['locator'], 'it needs the locator' );
 
 my $offender_keyed
-	= App::Baphomet::Gate::Country->new( 'type' => 'country', 'args' => { 'is' => ['US'] }, 'where' => 'the gate' );
+	= App::Baphomet::Gate::country->new( 'type' => 'country', 'args' => { 'is' => ['US'] }, 'where' => 'the gate' );
 is( $offender_keyed->pass, 'offender', 'a gate naming no vars is of the offender pass' );
 
 ok(
 	!eval {
-		App::Baphomet::Gate::Country->new(
+		App::Baphomet::Gate::country->new(
 			'type'  => 'country',
 			'args'  => { 'is' => 'USA' },
 			'where' => 'the gate'

@@ -26,20 +26,20 @@ severity: critical
 classtype: correlated-attack
 references:
   - https://www.cisco.com/c/en/us/td/docs/security/asa/syslog/b_syslog.html
-message_regexp:
-  - '%(?:ASA|PIX|FWSM)-\d-605005: Login permitted from %%%%SRC%%%%/\d+'
-  - '%ASA-\d-716001: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> WebVPN session started'
-  - '%ASA-\d-716038: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> Authentication: successful'
-  - '%ASA-\d-734001: DAP: User [^,]*, Addr %%%%SRC%%%%'
-  - '%ASA-\d-72202[23]: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> (?:TCP|UDP) SVC connection established'
-  - '%(?:ASA|PIX|FWSM)-\d-303002: FTP connection from [^:]+:%%%%SRC%%%%/\d+ to [^:]+:\S+, user \S+ (?:Stored|Retrieved) file'
+src_ip_var: SRC
+max_score: 1
 rule_gates:
+  - message_regexp:
+      - '%(?:ASA|PIX|FWSM)-\d-605005: Login permitted from %%%%SRC%%%%/\d+'
+      - '%ASA-\d-716001: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> WebVPN session started'
+      - '%ASA-\d-716038: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> Authentication: successful'
+      - '%ASA-\d-734001: DAP: User [^,]*, Addr %%%%SRC%%%%'
+      - '%ASA-\d-72202[23]: Group <[^>]*> User <[^>]*> IP <%%%%SRC%%%%> (?:TCP|UDP) SVC connection established'
+      - '%(?:ASA|PIX|FWSM)-\d-303002: FTP connection from [^:]+:%%%%SRC%%%%/\d+ to [^:]+:\S+, user \S+ (?:Stored|Retrieved) file'
   - marked:
       names: [ brute_force, recon, exploit_attempt, honeypot ]
       var: SRC
-src_ip_var: SRC
-detection_var: [ SRC ]
-max_score: 1
+  - detection_var: [ SRC ]
 tests:
   positive:
     # any one of the standard brands satisfies the any-of gate

@@ -11,11 +11,13 @@ msg: "[NGINX] basic auth failure"
 severity: high
 classtype: unsuccessful-user
 test_parser: nginx_error
-level:
-  - error
-message_regexp:
-  - '^user "(?:[^"]+|.*?)":? (?:password mismatch|was not found in "[^"]*")'
-  - '^(?:PAM: )?user ''(?:[^'']+|.*?)'' - not authenticated: Authentication failure$'
+rule_gates:
+  - level:
+      - error
+  - message_regexp:
+      - '^user "(?:[^"]+|.*?)":? (?:password mismatch|was not found in "[^"]*")'
+      - '^(?:PAM: )?user ''(?:[^'']+|.*?)'' - not authenticated: Authentication failure$'
+  - ban_var: [ client ]
 tests:
   positive:
     - message: '2012/04/09 11:53:29 [error] 2865#0: *66647 user "xyz" was not found in "/var/www/.htpasswd", client: 192.0.43.10, server: www.myhost.com, request: "GET / HTTP/1.1", host: "www.myhost.com"'

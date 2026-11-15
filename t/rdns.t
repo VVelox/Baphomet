@@ -32,14 +32,14 @@ sub write_rule {
 # confirmed PTR name is the crawler's
 write_rule( 'raw/fake', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
   - reverse_dns:
       matches: '\.crawler\.example$'
       negate: true
-ban_var:
-  - SRC
 tests:
   positive:
     - message: "probe from 192.0.2.10"
@@ -51,15 +51,15 @@ EOR
 # the outcome knobs, one variant each
 write_rule( 'raw/sfcompare', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
   - reverse_dns:
       matches: '\.crawler\.example$'
       negate: true
       on_servfail: compare
-ban_var:
-  - SRC
 tests:
   positive:
     - message: "probe from 192.0.2.10"
@@ -68,14 +68,14 @@ EOR
 
 write_rule( 'raw/sfpass', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
   - reverse_dns:
       matches: '\.crawler\.example$'
       on_servfail: pass
-ban_var:
-  - SRC
 tests:
   positive:
     - message: "probe from 192.0.2.10"
@@ -84,14 +84,14 @@ EOR
 
 write_rule( 'raw/nxpass', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
   - reverse_dns:
       matches: '\.crawler\.example$'
       on_nxdomain: pass
-ban_var:
-  - SRC
 tests:
   positive:
     - message: "probe from 192.0.2.10"
@@ -100,15 +100,15 @@ EOR
 
 write_rule( 'raw/nxfail', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
   - reverse_dns:
       matches: '\.crawler\.example$'
       negate: true
       on_nxdomain: fail
-ban_var:
-  - SRC
 tests:
   positive:
     - message: "probe from 192.0.2.10"
@@ -120,17 +120,17 @@ EOR
 # counted, and the line falls through to the next rule
 write_rule( 'raw/gmark', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
   - reverse_dns:
       matches: '\.crawler\.example$'
       negate: true
-mark:
-  - name: recon
-    ttl: 3600
-ban_var:
-  - SRC
+  - mark:
+      name: recon
+      ttl: 3600
 tests:
   positive:
     - message: "probe from 192.0.2.14"
@@ -139,10 +139,11 @@ EOR
 
 write_rule( 'raw/catchall', <<'EOR' );
 ---
-message_regexp:
-  - '^probe from %%%%SRC%%%%$'
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^probe from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "probe from 192.0.2.14"
@@ -152,14 +153,14 @@ EOR
 # the matches_var form... the PTR must equal what the client claimed
 write_rule( 'raw/claim', <<'EOR' );
 ---
-message_regexp:
-  - '^hello (?<CLAIM>\S+) from %%%%SRC%%%%$'
 rule_gates:
+  - message_regexp:
+      - '^hello (?<CLAIM>\S+) from %%%%SRC%%%%$'
   - reverse_dns:
       var: SRC
       matches_var: CLAIM
-ban_var:
-  - SRC
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "hello some.example from 192.0.2.14"
@@ -368,30 +369,32 @@ ok( !defined( $quiet->{counters}{'192.0.2.11'} ), 'the gate fails closed with ou
 my $rules = App::Baphomet::Rules->new( rules_dir => $dir . '/rules', shipped => 0 );
 
 write_rule( 'raw/bothcompare',
-	"---\nmessage_regexp:\n  - 'x'\nrule_gates:\n  - reverse_dns:\n      matches: 'y'\n      matches_var: Z\nban_var:\n  - SRC\n"
-);
+	"---\nrule_gates:\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n"
+		. "  - reverse_dns:\n      matches: 'y'\n      matches_var: Z\n" );
 ok( !eval { $rules->load('raw/bothcompare'); 1 }, 'both matches and matches_var refuses to load' );
 like( $@, qr/The reverse_dns gate of the rule/, 'and it is the gate that refuses' );
 
 write_rule( 'raw/nocompare',
-	"---\nmessage_regexp:\n  - 'x'\nrule_gates:\n  - reverse_dns:\n      negate: true\nban_var:\n  - SRC\n" );
+	"---\nrule_gates:\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n"
+		. "  - reverse_dns:\n      negate: true\n" );
 ok( !eval { $rules->load('raw/nocompare'); 1 }, 'neither matches nor matches_var refuses to load' );
 like( $@, qr/The reverse_dns gate of the rule/, 'and it is the gate that refuses' );
 
 write_rule( 'raw/badkey',
-	"---\nmessage_regexp:\n  - 'x'\nrule_gates:\n  - reverse_dns:\n      matches: 'y'\n      derp: 1\nban_var:\n  - SRC\n"
-);
+	"---\nrule_gates:\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n"
+		. "  - reverse_dns:\n      matches: 'y'\n      derp: 1\n" );
 ok( !eval { $rules->load('raw/badkey'); 1 }, 'a unknown entry key refuses to load' );
 like( $@, qr/The reverse_dns gate of the rule/, 'and it is the gate that refuses' );
 
 write_rule( 'raw/badregexp',
-	"---\nmessage_regexp:\n  - 'x'\nrule_gates:\n  - reverse_dns:\n      matches: '('\nban_var:\n  - SRC\n" );
+	"---\nrule_gates:\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n"
+		. "  - reverse_dns:\n      matches: '('\n" );
 ok( !eval { $rules->load('raw/badregexp'); 1 }, 'a matches that does not compile refuses to load' );
 like( $@, qr/The reverse_dns gate of the rule/, 'and it is the gate that refuses' );
 
 write_rule( 'raw/badknob',
-	"---\nmessage_regexp:\n  - 'x'\nrule_gates:\n  - reverse_dns:\n      matches: 'y'\n      on_servfail: derp\nban_var:\n  - SRC\n"
-);
+	"---\nrule_gates:\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n"
+		. "  - reverse_dns:\n      matches: 'y'\n      on_servfail: derp\n" );
 ok( !eval { $rules->load('raw/badknob'); 1 }, 'a unknown outcome knob value refuses to load' );
 like( $@, qr/The reverse_dns gate of the rule/, 'and it is the gate that refuses' );
 

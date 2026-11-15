@@ -17,7 +17,7 @@ is how a jail with several actions maps over (see below).
 | filter (`filter.d/*.conf`)                             | a rule (`rules/<type>/<name>.yaml`)... some shipped rules cite the fail2ban filter they were translated from             |
 | `failregex`                                            | `message_regexp` (syslog/raw/http_error types) or `match` entries (http/json types)                                      |
 | `ignoreregex`                                          | `ignore_regexp` / `ignore`                                                                                               |
-| `<HOST>`                                               | `%%%%SRC%%%%` etc... or nothing at all for the http/http_error/json types, where the parser already extracted the client |
+| `<HOST>`                                               | `%%%%SRC%%%%` etc... or, for the http/http_error/json types, the field the parser put the client in, named in `ban_var`  |
 | `maxretry`                                             | `max_score`                                                                                                              |
 | `findtime`                                             | `find_time`                                                                                                              |
 | `bantime`                                              | `ban_time`... 0 means eternal, and unset defers to the Ereshkigal side default                                           |

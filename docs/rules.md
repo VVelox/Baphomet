@@ -112,40 +112,49 @@ watcher whole. What ships:
 
 ## Anatomy of a rule
 
-Every rule, whatever its type, is a YAML hash that does four things:
+Every rule, whatever its type, is a YAML hash of two sorts of key.
 
-1. **Matches** ... decides which lines are offenses. This is the one part
-   that differs by type, covered under [how the types differ](#how-the-types-differ)
-   and each type's own section below.
-2. **Names the offender** ... who or what the offense counts against, with
+`rule_gates` is everything the rule matches with. It is a list of gates, each
+entry a hash of one key, the gate type, over what that gate is told. A line
+goes down the list in the order it is written, and between them the gates do
+three things:
+
+1. **Match** ... decide which lines are offenses. Which gates a rule can
+   match with depends on its type, covered under
+   [how the types differ](#how-the-types-differ) and each type's own section
+   below.
+2. **Name the offender** ... who or what the offense counts against, with
    [`ban_var`](#ban_var) or [`detection_var`](#detection_var).
-3. **Counts** ... how hits accumulate and when a ban fires, with
+3. **Refine** ... the [gates](#refining-a-match-the-gates) that judge a match
+   after the fact, by marks, geography, blocklists, time of day, or reverse
+   DNS, and the ones that brand the offender. These are shared by every type.
+
+The rest of the keys are about the rule and not the line:
+
+1. **Counting** ... how hits accumulate and when a ban fires, with
    [`max_score`/`find_time`/`ban_time`/`weight`](#max_score--find_time--ban_time--weight),
    [`distinct`](#distinct-counting-how-many-not-how-often) when the offense is a
    count of different things rather than of hits, and [`eve_only`](#eve_only).
-4. **Describes and proves itself** ... [triage metadata](#triage-metadata)
+2. **Describing and proving itself** ... [triage metadata](#triage-metadata)
    for EVE, and its own [tests](#tests).
 
-Optionally it also carries [gates](#refining-a-match-the-gates) that refine a
-match after the fact... marks, geography, blocklists, time of day, reverse
-DNS. Those are shared by every type.
-
-Here is a whole syslog rule. Everything but the `daemons`/`message_regexp`
-matcher is common to all five types:
+Here is a whole syslog rule. Only the `daemons` and `message_regexp` gates are
+the syslog type's own:
 
 ```yaml
 ---
-daemons:                       # syslog's matcher... a daemon gate,
-  - sshd                       #   then the regexps below
-  - sshd-session
-message_regexp:
-  - '^[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
-ban_var:                       # common... who to count and ban
-  - SRC
-msg: "[SSHD] invalid user"     # common... triage metadata
+msg: "[SSHD] invalid user"     # about the rule... triage metadata
 severity: high
 classtype: brute-force
-tests:                         # common... proven every load
+rule_gates:                    # what it matches with, in the order it runs
+  - daemons:                   # syslog's matcher... a daemon gate,
+      - sshd                   #   then the regexps below
+      - sshd-session
+  - message_regexp:
+      - '^[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
+  - ban_var:                   # who to count and ban
+      - SRC
+tests:                         # about the rule... proven every load
   positive:
     - message: "Jul 12 08:15:50 mail01 sshd-session[66891]: Invalid user moth3r from 216.137.179.214 port 34640"
       found: 1
@@ -157,15 +166,31 @@ tests:                         # common... proven every load
       undefed: ["SRC"]
 ```
 
+A key that is a gate is refused at the top level, and a gate is refused by a
+rule of a type that does not have what it reads, both when the rule loads.
+Every rule has to have a `ban_var` or a `detection_var`, and something that
+makes an offense of a line or judges one. A type may be named more than once
+where that means something... two `gate` entries are ANDed, and each `mark`,
+`unmark`, `track`, `tracked`, and `not_tracked` is an entry of its own.
+
 ### The order it runs in
 
-A rule is not read in the order it is written. Its keys run in a fixed
-order, and where a key sits in that order decides what a veto there costs.
-A line the daemon gate turns away cost nothing at all. One turned away by a
-gate after the match cost a regexp and left nothing behind it. One that
-reaches the threshold has already been counted, and will be counted again
-by the next line like it. This is the whole passage of one line through one
-rule.
+A rule runs in the order it is written. Each gate is one of two phases, going
+by what it reads, and each phase is asked in the order of the list.
+
+- line :: Reads the line. Asked once per line. It may turn the line away
+  outright, lay fields down, make an offense, or refuse one. `daemons`,
+  `message_regexp`, and `gate` are of it.
+- offense :: Reads an offense the line made. Asked once per offense, once the
+  line gates are done. It may veto the offense, name its offenders, drop some
+  of them, or brand them. `country`, `ban_var`, and `mark` are of it.
+
+Where a gate sits decides what it sees and what a veto there costs. A line the
+`daemons` gate turns away cost nothing at all. One refused by a gate below the
+matcher cost a regexp and left nothing behind it. One that reaches the
+threshold has already been counted, and will be counted again by the next line
+like it. This is the whole passage of one line through one rule, with the
+gates in the order a rule usually writes them.
 
 ```
    a line arrives on a watched log
@@ -178,181 +203,182 @@ rule.
    │
    ├─ the rule index picks the candidates
    │  It holds which of the watcher's rules a line could possibly match,
-   │  keyed on the daemon for a syslog watcher and on the most
-   │  selectively pinned gate field for the rest.
-   │  └─▶ a rule the index does not name is never called.
+   │  keyed on the `daemons` gates leading the lists of a syslog
+   │  watcher's rules and on the most selectively pinned `gate` field
+   │  for a json one.
+   │  └─▶ a rule the index does not name is never asked.
    │
    ▼
    The candidates are tried in the watcher's config order. Everything
    below happens inside one of them.
 
-   ├──[ 1  MATCHING ]  is this line an offense?
+   ├──[ 1  THE LINE ]  is this line an offense?
    │
-   ├─ 1.1  the type gate
-   │       A syslog rule checks the line's daemon against `daemons`. An
-   │       http rule checks `status` and `method`. An http_error rule
-   │       checks `level` and `module`. The raw and json types have no
+   │  The gates of the line phase, each asked once, in the order the
+   │  rule wrote them.
+   │
+   ├─ 1.1  daemons / status / method / level / module
+   │       A syslog rule checks the line's daemon. An http rule checks
+   │       the status and method of the request. An http_error rule
+   │       checks the level and module. The raw and json types have no
    │       such gate.
-   │       └─▶ no match. The rule stops. It has read nothing and
-   │           remembered nothing, which is what makes the index above
-   │           safe.
+   │       └─▶ no match. The rule stops. Leading the list, it has read
+   │           nothing and remembered nothing, which is what makes the
+   │           index above safe.
    │
    ├─ 1.2  message_json                              syslog rules only
    │       The message is decoded as JSON and its fields are flattened
-   │       into dotted paths that the rest of the rule can read.
+   │       into dotted paths that the gates below can read.
    │       └─▶ the message is not a JSON object. The rule stops.
    │
    ├─ 1.3  mungers                          syslog and raw rules only
-   │       Log-Munger decodes the line and its fields are laid into the
-   │       offense. They go down first, so a capture of the same name in
-   │       1.7 or 1.8 overwrites one of them.
+   │       Log-Munger decodes the line and its fields are laid down for
+   │       the gates below. They go underneath, so a capture of the same
+   │       name at 1.6 or 1.7 wins over one of them.
    │
-   ├─ 1.4  track
-   │       The rule declares which tracked records it is party to. It
-   │       reads nothing and can not veto, there being nothing yet to
-   │       judge... the declaration is what arms 1.9 and 1.10.
+   ├─ 1.4  ignore_regexp / ignore
+   │       └─▶ a hit. The rule stops. No gate below it is asked, so no
+   │           context is stored, no deferred offense completes, and
+   │           nothing is harvested at 1.9.
    │
-   ├─ 1.5  ignore_regexp / ignore
-   │       └─▶ a hit. The rule stops. No context is stored, no deferred
-   │           offense completes, and nothing is harvested at 1.10.
-   │
-   ├─ 1.6  stages                           syslog and raw rules only
-   │       The line is tested against the stage this sequence is waiting
+   ├─ 1.5  stages, with per                 syslog and raw rules only
+   │       The line is tested against the stage its sequence is waiting
    │       on. A hit advances the sequence if that stage's `within` and
    │       `skip` bounds allow it, and kills the sequence if they do not.
    │       A line matching the first stage starts a fresh sequence unless
    │       one is already in flight for its key. Only the line completing
-   │       the last stage is an offense, and it carries the captures of
-   │       every stage before it.
-   │       └─▶ the sequence is not complete. The rule stops. Steps 1.7
-   │           and 1.8 do not run on a staged rule.
+   │       the last stage is an offense, and it holds the captures of
+   │       every stage before it. A staged rule has no 1.6 or 1.7.
    │
-   ├─ 1.7  capture_regexp / capture
+   ├─ 1.6  capture_regexp / capture
    │       A hit stores this line's captures under its correlation key,
    │       where a later offense can claim them. An offense already
    │       deferred against that key completes here and now.
    │
-   ├─ 1.8  message_regexp / match
-   │       The entries are tried in order and the first to hit wins. An
-   │       entry carrying a `key` needs its context. If the context holds
+   ├─ 1.7  message_regexp / match, with key and defer
+   │       The entries are tried in order and the first to hit makes the
+   │       offense. A keyed one needs its context. If the context holds
    │       that key, the stored captures merge with this line's into one
-   │       offense. If it does not, the entry either defers the offense
-   │       to wait for a capture line or gives way to the next entry.
-   │       └─▶ nothing hit and nothing completed. The rule stops.
+   │       offense. If it does not, the offense is deferred to wait for a
+   │       capture line, or passed over. A rule with no such gate makes
+   │       its offense of the line's fields, once every gate has let
+   │       them by.
    │
-   ├─ 1.9  tracked / not_tracked / gate / keywords / selections / condition
-   │       The rule's boolean, ANDed with everything above. It reads the
-   │       captures, the munger fields, and the JSON fields alike.
-   │       `tracked` is a clause of it and is judged first among them, so
-   │       whatever its `into` lifts is readable by the rest.
-   │       └─▶ false. The rule stops, but 1.10 still runs.
+   ├─ 1.8  tracked / not_tracked / keywords / gate / selections / condition
+   │       The gates that judge. Each reads what stands when it is
+   │       asked... the offense, with its captures, munger fields, and
+   │       JSON fields alike, or the line's fields while there is no
+   │       offense yet. `tracked` goes first among them, so whatever its
+   │       `into` lifts is readable by the rest.
+   │       └─▶ one of them does not hold. The offense is refused, and the
+   │           gates below are not asked, 1.9 aside.
    │
-   ├─ 1.10 the track sweep
-   │       Each declared record takes this line's contribution. It does
-   │       not care whether the regexps hit or whether the boolean
-   │       passed, a record being a record of the transaction rather than
-   │       of offenses... only 1.1 and 1.5 stop it. It runs after the
-   │       read at 1.9 and never before it, so `tracked` judges the
-   │       history rather than a record this line just wrote.
+   ├─ 1.9  track
+   │       Each record the rule declares takes this line's contribution.
+   │       It does not care whether the regexps hit or whether 1.8 held,
+   │       a record being a record of the transaction rather than of
+   │       offenses... only a gate that turns the line away outright
+   │       stops it. Below the `tracked` and `not_tracked` of 1.8, those
+   │       judge the history rather than a record this line just wrote.
    │
    ▼
-   An offense, holding every field the steps above put in it.
-   A rule that got no further than 1.10 harvested and stopped.
+   An offense, holding every field the gates above put in it, and
+   beside it any offense a capture line just completed.
+   A rule that got no further than 1.9 harvested and stopped.
 
-   ├──[ 2  THE GATES ]  is the offense a real one?
+   ├──[ 2  THE OFFENSE ]  is it a real one, and whose is it?
    │
-   │  The entries of `rule_gates`, each asked exactly once. Whether one
-   │  is asked here or in 3.4 depends on what it keys on. An entry
-   │  naming a var reads a captured field, so it can be settled now. An
-   │  entry naming no var reads the offender, which does not exist yet.
+   │  The gates of the offense phase. Each offense goes down them once,
+   │  in the order the rule wrote them.
    │
-   ├─ 2.1  the entries naming a var, in the order the rule wrote them
+   ├─ 2.1  the gates naming a var
    │       Any of marked, not_marked, sequence, country, namtar_list,
-   │       and reverse_dns. Every active_time is asked here too, as with
-   │       no var it keys on the clock and never on an offender.
+   │       and reverse_dns told a `var` or `vars`, which read a field of
+   │       the offense. Every active_time is of these too, as with no
+   │       var it reads the clock and never an offender.
    │       └─▶ any one of them vetoes. The rule did not fire, and the
-   │           entries after it are not asked. See "a veto is not a
-   │           quiet pass" below.
+   │           gates below it are not asked. See "a veto is not a quiet
+   │           pass" below.
    │
-   ├──[ 3  THE OFFENDER ]  who does this count against?
+   ├─ 2.2  ban_var / detection_var
+   │       The candidates are read out of the offense. A banning rule
+   │       takes the value of each var `ban_var` names. A detection rule
+   │       takes the value of each `detection_var` names instead and
+   │       will banish nobody.
    │
-   ├─ 3.1  the candidates are read out of the offense
-   │       A banning rule takes the value of each `ban_var`, or, on the
-   │       http and http_error types, the parsed host or client. A
-   │       detection rule takes the value of each `detection_var`
-   │       instead and will banish nobody.
-   │
-   ├─ 3.2  ban_not_internal
+   ├─ 2.3  ban_not_internal
    │       A candidate that is one of your own hosts is dropped. Your own
    │       hosts are the `internal` list, which defaults to `ignore_ips`.
    │
-   ├─ 3.3  usedns
-   │       A candidate that is a hostname rather than an address is
-   │       dropped under `no`, replaced by the addresses it resolves to
-   │       under `resolve_seen`, or kept as a name under `resolve_ban`.
+   ├─ 2.4  usedns
+   │       Not a gate, but settled here, the first time anything asks
+   │       who the offenders are. A candidate that is a hostname rather
+   │       than an address is dropped under `no`, replaced by the
+   │       addresses it resolves to under `resolve_seen`, or kept as a
+   │       name under `resolve_ban`.
    │
-   ├─ 3.4  the gates, keyed by the offender
-   │       The entries of `rule_gates` naming no var are asked once per
-   │       candidate, in the order the rule wrote them. A candidate any
-   │       of them vetoes is dropped. A detection rule has no such
-   │       entry, one being refused when the rule loads.
+   ├─ 2.5  the gates keyed by the offender
+   │       The same types as 2.1, told no var. Each is asked once per
+   │       candidate, and a candidate it does not hold for is dropped.
+   │       One of these has to be below the `ban_var`, and a detection
+   │       rule can not have one, both refused when the rule loads.
    │       └─▶ no candidate survives. The rule did not fire.
+   │
+   ├─ 2.6  mark / unmark
+   │       Each offender is branded with the rule's `mark` gates and
+   │       lifted from the ones its `unmark` gates name. An offender in
+   │       `ignore_ips` is never branded.
    │
    ▼
    The survivors. These are the offenders.
 
-   ├──[ 4  BRANDING AND COUNTING ]  what does the hit change?
+   ├──[ 3  COUNTING ]  what does the hit change?
    │
-   ├─ 4.1  mark and unmark
-   │       Each offender is branded with the rule's `mark` entries and
-   │       lifted from the ones `unmark` names. An offender in
-   │       `ignore_ips` is never branded.
-   │
-   ├─ 4.2  mark_only / track_only
+   ├─ 3.1  mark_only / track_only
    │       └─▶ either set. The rule stops here. It harvests and does
    │           nothing else, so the line is not consumed.
    │
-   ├─ 4.3  ignore_ips
+   ├─ 3.2  ignore_ips
    │       └─▶ the offender is on the list. It is not counted. Observe
    │           mode with `observe_ignored` counts it into the shadow
    │           buckets anyway, so an operator can see what the list
    │           hides.
    │
-   ├─ 4.4  the numbers are resolved
+   ├─ 3.3  the numbers are resolved
    │       `max_score`, `find_time`, `ban_time`, and `weight` are taken
    │       from the per-rule config table first, then the rule file
    │       (which speaks only under `allow_per_rule_thresholds`), then
    │       the watcher, then the kur, then the global config.
    │
-   ├─ 4.5  the bucket is chosen
+   ├─ 3.4  the bucket is chosen
    │       Observe mode, a detection rule, and a rule demoted by
    │       `overlap: shadow` all count into the shadow buckets, which can
    │       neither cause nor delay a ban. Everything else counts into the
    │       real ones. A rule overriding `max_score` or `find_time` counts
    │       into a bucket of its own either way.
    │
-   ├─ 4.6  the hit is deposited
+   ├─ 3.5  the hit is deposited
    │       A plain rule adds its `weight` to the offender's score. A
    │       `distinct` rule adds the value of `of` to a set keyed by `by`,
    │       or by the offender when `by` is absent, and the score is the
    │       size of that set. Either way, anything last seen more than
    │       `find_time` ago is dropped before the score is read.
    │
-   ├─ 4.7  the subnet tally
+   ├─ 3.6  the subnet tally
    │       With `ban_subnet_v4` or `ban_subnet_v6` set, the offender's
    │       network takes the same deposit in a bucket of its own.
    │
    ▼
    A score, and the max_score it is racing.
 
-   ├──[ 5  THE VERDICT ]  does anyone get banished?
+   ├──[ 4  THE VERDICT ]  does anyone get banished?
    │
-   ├─ 5.1  the score is short of max_score
+   ├─ 4.1  the score is short of max_score
    │       One event goes to EVE and nothing else happens. It is `found`
    │       normally, `noted` in observe mode, and `sighting` from a
    │       detection rule.
    │
-   ├─ 5.2  the score has reached max_score
+   ├─ 4.2  the score has reached max_score
    │       A detection rule writes `sighted` and stops. Observe mode
    │       writes `alert` and stops. Every other rule writes `banish` and
    │       the galla sends a ban command to the Ereshkigal manager for
@@ -361,45 +387,63 @@ rule.
    │       offender's bucket is then cleared. A subnet that crossed on
    │       the same hit is banished as a whole CIDR.
    │
-   ├──[ 6  CONSUMPTION ]  which rules see the line next?
+   ├──[ 5  CONSUMPTION ]  which rules see the line next?
    │
    │  A rule that fired and is not mark_only consumes the line. What
    │  that costs the rules after it is the watcher's `overlap`.
    │
-   ├─ 6.1  overlap: first, the default
+   ├─ 5.1  overlap: first, the default
    │       No later rule is tried. The line is done.
    │
-   ├─ 6.2  overlap: shadow
+   ├─ 5.2  overlap: shadow
    │       Later rules still run, and any that fires is demoted. It
    │       counts into the shadow buckets and its events read `noted`.
    │
-   ├─ 6.3  overlap: all
+   ├─ 5.3  overlap: all
    │       Every later rule that fires judges for real.
    │
    ▼
    the next line
 ```
 
-**A veto is not a quiet pass.** A rule turned away anywhere in phase 2, 3,
-or 4 did not fire. It counts nothing, brands nobody, writes no EVE event,
-and does not consume the line, so the line carries on to the rules listed
-after it. This is what lets a legitimate Googlebot cleared by `reverse_dns`
-go on to match a benign rule, rather than being branded by the rule that
-just spared it.
+**A veto is not a quiet pass.** A rule turned away anywhere in phase 2 or 3
+did not fire. It counts nothing, writes no EVE event, and does not consume the
+line, so the line carries on to the rules listed after it. This is what lets a
+legitimate Googlebot cleared by `reverse_dns` go on to match a benign rule.
+
+**The order is yours, and it is read literally.** Written some other way, a
+rule runs some other way:
+
+- A gate that turns the line away stops every gate below it and none above
+  it. An `ignore_regexp` below a `capture_regexp` lets the context be stored
+  on a line the rule was told to ignore.
+- A gate that judges reads what stands when it is asked. Above the matcher it
+  judges the line's fields, and a line it refuses is not matched at all.
+  Below the matcher it judges the captures.
+- `message_json` and `mungers` go above the gates that read their fields.
+- `track` goes below the `tracked` and `not_tracked` that read its record.
+  Above them, `not_tracked` could never hold and a `where` would judge what
+  this line just wrote.
+- A gate keyed by the offender goes below the `ban_var` that names one.
+- `mark` and `unmark` go below the gates that are to be able to stop them. A
+  `mark` above a `country` gate brands the offender the `country` gate then
+  spares.
+- The gates of 1.1 and 1.4 cost least leading the list. They read nothing but
+  the parsed line, so a line one of them turns away there has had nothing
+  made for it.
 
 ## Naming the offender
 
 ### ban_var
 
-The captures or fields whose value is the offender, the thing a hit is
-registered against and, at the threshold, banished. For each name here that
-a matched line carries a value for, that value gets counted. Usually just
-`SRC`. How the names resolve depends on the type... a regexp capture on
-syslog/raw, a flattened field or capture on json; the http and http_error
-types do not use `ban_var` at all, their offender is fixed (see
-[how the types differ](#how-the-types-differ)). A rule names `ban_var` or
-`detection_var`, never both, and the syslog, raw, and json types require one
-of the two.
+The gate naming the captures or fields whose value is the offender, the
+thing a hit is registered against and, at the threshold, banished. For each
+name here that a matched line carries a value for, that value gets counted.
+Usually just `SRC`. How the names resolve depends on the type... a regexp
+capture on syslog/raw, a flattened field or capture on json, and a parsed
+field on http and http_error, whose rules name `host` and `client` (see
+[how the types differ](#how-the-types-differ)). A rule has a `ban_var` or a
+`detection_var` gate, never both, and every type requires one of the two.
 
 Naming several is ordinary... both ends of a flow, say. Each is counted in
 its own bucket, each is judged by the per-offender gates on its own, and a
@@ -425,34 +469,34 @@ apply. This is Sagan/Wazuh-style detection... alerting on a thing with no
 address to banish, a policy tripwire, a config change, a service crash.
 
 Because a detection rule writes only to EVE, loading one forces `eve_enable`
-on (logged at start) so it is never a silent no-op. On the http and
-http_error types, which count `host`/`client` by default, a `detection_var`
-overrides that to count by whatever it names. See [eve](eve.md) for the event
-shapes.
+on (logged at start) so it is never a silent no-op. See [eve](eve.md) for the
+event shapes.
 
-A detection rule has no offender, so an entry of its
-[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear) has to name the
-var it checks. One keyed by the offender would never be asked, and is
-refused when the rule loads.
+A detection rule has no offender, so any of the gates
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear)
+has to name the var it checks. One keyed by the offender would never be
+asked, and is refused when the rule loads.
 
 ```yaml
 # count by the offending username, banish nobody
-detection_var:
-  - USER
+rule_gates:
+  - detection_var:
+      - USER
 ```
 
 ### ban_not_internal
 
 Some sources, Suricata's eve.json above all, log both ends of a flow, and
 which one is the offender depends on where in the stream the alert fired. A
-rule that lists both endpoints as `ban_var`s and sets `ban_not_internal`
-banishes only the ends that are not one of your own hosts:
+rule whose `ban_var` names both endpoints, with a `ban_not_internal` gate
+below it, banishes only the ends that are not one of your own hosts:
 
 ```yaml
-ban_var:
-  - src_ip
-  - dest_ip
-ban_not_internal: true
+rule_gates:
+  - ban_var:
+      - src_ip
+      - dest_ip
+  - ban_not_internal: true
 ```
 
 Your own hosts are the `internal` config field, which defaults to the
@@ -461,11 +505,11 @@ callout bans the external dest, a transit flow bans both, and a
 host-to-host flow bans neither. A ignored IP is never banished regardless.
 
 It works on every type, not just the multi-endpoint case: with a single
-offender... one `ban_var`, or the http/http_error fixed `host`/`client`... it
-simply skips the ban when that offender is one of your own. Set `internal`
-wider than `ignore_ips` (say all of RFC 1918) to spare internal clients from a
-rule without globally ignoring them. Anything whose ban target is an IP can
-carry it.
+offender... a `ban_var` naming one var, as the `host` of an http rule or the
+`client` of an http_error one is... it simply skips the ban when that
+offender is one of your own. Set `internal` wider than `ignore_ips` (say all
+of RFC 1918) to spare internal clients from a rule without globally ignoring
+them. Anything whose ban target is an IP can carry it.
 
 ## How it is counted
 
@@ -536,8 +580,9 @@ distinct:
   of: USER
 max_score: 10
 find_time: 600
-ban_var:
-  - SRC
+rule_gates:
+  - ban_var:
+      - SRC
 ```
 
 **Keyed by something else** ... "how many different X against one Y", where Y is
@@ -551,8 +596,9 @@ distinct:
   by: USER
 max_score: 5
 find_time: 3600
-ban_var:
-  - SRC
+rule_gates:
+  - ban_var:
+      - SRC
 ```
 
 The set here is keyed by the account, so nothing is ever keyed by an address and
@@ -568,20 +614,22 @@ a `mark_only` brander and a `value_not` reader (the `syslog/sshd-mark-users` and
 purely "how many", where the marks pair earns its keep when the answer needs a
 brand other rules can also read.
 
-It is not only an auth-log key. On the http types the offender is the fixed
+It is not only an auth-log key. On the http types the offender is the parsed
 `client`/`host` and the path is already parsed, so the shipped `http/path-scan`
-is little more than the two lines that matter... a client fetching thirty
+is little more than the few lines that matter... a client fetching thirty
 different paths that do not exist is mapping your install, whatever it makes of
 any one of them:
 
 ```yaml
 # a scanner by breadth rather than by signature... no path list to keep current
-status:
-  - 404
 distinct:
   of: path
 max_score: 30
 find_time: 600
+rule_gates:
+  - status:
+      - 404
+  - ban_var: [ host ]
 ```
 
 That complements `http/botsearch`, which knows a list of paths worth alarming
@@ -755,10 +803,10 @@ span lines, are tested. `data` then asserts against the last result found.
 The whole `test_parser` key sets a rule-wide default
 parser for its tests.
 
-Each test entry runs the galla's own order per line... parse, match, the
-rule's gates, the mark ones against a throwaway store, then the rule's own
-brands applied... so `found` counts what would really have fired, a gate
-veto and all. Time inside a test is a virtual clock, base `1000000000`,
+Each test entry runs the galla's own order per line... parse, then the
+rule's gates in the order it wrote them, the mark ones against a throwaway
+store... so `found` counts what would really have fired, a gate veto and
+all. Time inside a test is a virtual clock, base `1000000000`,
 threading through matching (correlation windows, staged `within`) and the
 mark store alike. A `messages` entry may be a hash instead of a bare line
 to steer and probe it mid-run:
@@ -777,7 +825,8 @@ always do, the throwaway store being there for every entry. `reverse_dns`
 does with a `dns` fixture and `country` with a `geo` one, and either is
 skipped with out it. `namtar_list` and `active_time` have no fixture, their
 lists and windows being config a rule file has none of, so those two stay
-proven galla-side only (see each gate below).
+proven galla-side only (see each gate below). `ban_not_internal` has none
+either, your own hosts being config as well, so it drops nobody in a test.
 
 ### Injection tests... who picks the offender
 
@@ -920,9 +969,13 @@ exists to end.
 ```yaml
 # a reader... success from a source holding any standard brand
 rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
   - marked:
       names: [ brute_force, recon, exploit_attempt, honeypot ]
       var: SRC
+  - detection_var: [ SRC ]
 tests:
   positive:
     - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
@@ -1053,11 +1106,15 @@ mail siblings are the worked example:
 
 ```yaml
 rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
+  - detection_var: [ SRC ]
 tests:
   positive:
     # a login from abroad... the isnot gate lets it count
@@ -1085,20 +1142,20 @@ one that catches a rule mistakenly written to fire on database gaps.
 
 ## Refining a match... the gates
 
-After a rule matches and its offender is in hand, a set of optional gates can
-still drop the count. They are the shared vocabulary layered over every
-type's matcher... a match that passes the matcher but fails a gate is not an
-offense. An offender a gate vetoes is neither counted nor branded... the
-rule's `mark` skips it too, since a non-offense earns no brand. And a rule
+After a rule matches, a set of optional gates can still drop the count. They
+are the shared vocabulary layered over every type's matcher... a match that
+passes the matcher but fails one of them is not an offense. An offender one
+of them vetoes is neither counted nor branded... a `mark` written below it
+skips that offender too, since a non-offense earns no brand. And a rule
 whose gates veto every offender did not fire at all, so the line falls
 through to the rules after it...
 [a veto is not a quiet pass](#the-order-it-runs-in).
 
-The gates are universal, but the matcher and offender keys that precede them
-are not... which is the whole shape of the types. The full support matrix, a
-✓ where a type accepts a key:
+These gates are universal, but the ones a rule matches with are not... which
+is the whole shape of the types. The full support matrix, a ✓ where a type
+accepts a gate or key:
 
-| key | syslog | raw | http | http_error | json |
+| gate or key | syslog | raw | http | http_error | json |
 | --- | :---: | :---: | :---: | :---: | :---: |
 | `daemons` | ✓ | — | — | — | — |
 | `message_regexp` | ✓ | ✓ | — | ✓ | — |
@@ -1109,35 +1166,29 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `status` / `method` | — | — | ✓ | — | — |
 | `level` / `module` | — | — | — | ✓ | — |
 | `match` / `ignore` | — | — | ✓ | — | ✓ |
-| `ban_var` | ✓ | ✓ | —¹ | —¹ | ✓ |
+| `ban_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `ban_not_internal` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `detection_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `gate` / `selections` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `mark_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `rule_gates` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `marked` / `not_marked` / `sequence` / `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` / `src_port_var` / `dest_port_var` / `user_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `tests` / `test_parser` | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-¹ the http and http_error types have no `ban_var`... their offender is the
-parsed `host` / `client`, fixed, so only a `detection_var` overrides what they
-count by. `ban_not_internal` still applies over that fixed offender, sparing it
-when it is one of your own hosts.
-
-Everything from `ban_not_internal` down is universal... any rule whose ban
-target is an IP can spare your own hosts. The one asymmetry among the universal
-rows is not *whether* a gate runs but *what it can key on*: a gate or
-mark naming a `field`/`var`/`vars` resolves it against the matched line's
-data... regexp captures on syslog, raw, and json, flattened dotted paths on
-json. The http and http_error types expose no arbitrary captures, so on them a
-keyed gate reaches the parsed fields and the fixed offender, not a custom
-capture.
+Everything from `ban_var` down is universal... any rule whose ban target is an
+IP can spare your own hosts. The one asymmetry among the universal rows is not
+*whether* a gate runs but *what it can key on*: a gate naming a
+`field`/`var`/`vars` resolves it against the matched line's data... regexp
+captures on syslog, raw, and json, flattened dotted paths on json. The http
+and http_error types expose no arbitrary captures, so on them a keyed gate
+reaches the parsed fields, not a custom capture.
 
 ### gate / selections / condition / keywords
 
 The predicate layer, a boolean refinement over a line's fields or captures,
-ANDed ahead of the type's own matching. Every type has it, in three forms:
+ANDed with the type's own matching. Every type has it, in three forms:
 a flat [`gate`](#gate) list, the [`keywords`](#keywords) shorthand, and the
 boolean [`selections` / `condition`](#selections--condition).
 
@@ -1159,11 +1210,12 @@ The legacy form is `{field, values: [ ... ]}`, where a values entry starting
 and ending with `//` is a regexp and everything else is string equality:
 
 ```yaml
-gate:
-  - field: event_type
-    values: [ alert ]
-  - field: alert.category
-    values: [ "//Attack$//", "Misc activity" ]
+rule_gates:
+  - gate:
+      - field: event_type
+        values: [ alert ]
+      - field: alert.category
+        values: [ "//Attack$//", "Misc activity" ]
 ```
 
 The typed form is opt-in, detected by the presence of an `op`, `value`,
@@ -1171,12 +1223,13 @@ The typed form is opt-in, detected by the presence of an `op`, `value`,
 `field`/`values` entry stays the legacy form above.
 
 ```yaml
-gate:
-  - { field: event,     op: eq,       value: auth_fail }
-  - { field: bytes_out, op: gt,       value: 1000000 }
-  - { field: src,       op: cidr,     values: [ 10.0.0.0/8, 2001:db8::/32 ] }
-  - { field: cmd,       op: contains, values: [ psexec, mimikatz ], all: false }
-  - { field: user,      op: eq,       value: healthcheck, negate: true }
+rule_gates:
+  - gate:
+      - { field: event,     op: eq,       value: auth_fail }
+      - { field: bytes_out, op: gt,       value: 1000000 }
+      - { field: src,       op: cidr,     values: [ 10.0.0.0/8, 2001:db8::/32 ] }
+      - { field: cmd,       op: contains, values: [ psexec, mimikatz ], all: false }
+      - { field: user,      op: eq,       value: healthcheck, negate: true }
 ```
 
 - `op` :: The operator.
@@ -1230,7 +1283,8 @@ Optional, shorthand for a `contains` over the keyword field. A plain list
 searches every field:
 
 ```yaml
-keywords: [ mimikatz, sekurlsa, "Invoke-Mimikatz" ]
+rule_gates:
+  - keywords: [ mimikatz, sekurlsa, "Invoke-Mimikatz" ]
 ```
 
 The table form scopes it with `in`... a field path, a `%%%ANY:prefix%%%`
@@ -1238,13 +1292,14 @@ subtree, or `%%%ANY%%%`, which is the default... so nothing unrelated is
 searched when the path is known:
 
 ```yaml
-keywords:
-  in: process.command_line
-  values: [ mimikatz ]
+rule_gates:
+  - keywords:
+      in: process.command_line
+      values: [ mimikatz ]
 ```
 
-Keywords are ANDed ahead of any `gate` or `selections`, and may stand alone
-as the whole matcher.
+Keywords are ANDed with any `gate` or `selections`, and may stand alone as
+the whole matcher.
 
 #### selections / condition
 
@@ -1257,11 +1312,12 @@ the OR, the nesting, and the N-of-M a flat gate can not express, the Sigma
 detection model.
 
 ```yaml
-selections:
-  auth:  [ { field: event, op: eq, value: authFailure } ]
-  admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
-  trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
-condition: "auth and admin and not trust"
+rule_gates:
+  - selections:
+      auth:  [ { field: event, op: eq, value: authFailure } ]
+      admin: [ { field: user,  op: eq, values: [ root, admin ] } ]
+      trust: [ { field: src,   op: cidr, value: 10.0.0.0/8 } ]
+  - condition: "auth and admin and not trust"
 ```
 
 A selection referenced but not defined, an unbalanced paren, or a stray
@@ -1270,22 +1326,24 @@ token is a load-time error, as is a `condition` without `selections` or
 
 ### rule_gates... what a match still has to clear
 
-A match says a line looks like an offense. `rule_gates` is the list of what
-it still has to clear to count as one, each entry a gate asking something
-the line can not answer for itself... if an address is branded, what
-country it is in, if it is on a list, what its reverse DNS says, what time
-it is. Legal on every rule type.
+A match says a line looks like an offense. `rule_gates` is the whole list a
+line goes down, and seven of its gate types are what a match still has to
+clear to count as one, each asking something the line can not answer for
+itself... if an address is branded, what country it is in, if it is on a
+list, what its reverse DNS says, what time it is. They are of the offense
+phase, and legal on every rule type.
 
 ```yaml
 rule_gates:
   - active_time: { isnot: [ business ] }
   - marked: { name: brute_force, var: SRC }
+  - ban_var: [ SRC ]
   - country: { isnot: [ "%%%country_codes{home}%%%" ] }
   - reverse_dns: { matches: '\.example\.org$', negate: true }
 ```
 
 Each entry is a hash of one key, the gate's type, over what that gate is
-told. The types are...
+told. The seven are...
 
 - [`marked`](#marks-cross-rule-state-keyed-by-anything) :: The key has a
       brand.
@@ -1301,26 +1359,27 @@ told. The types are...
 - [`reverse_dns`](#reverse_dns-the-client-is-who-its-address-says) :: An
       address reverses to what it should.
 
-**Every entry has to hold.** The first that does not ends the asking, so the
-order written decides only what a veto spares... put the gate cheapest to
-ask, or likeliest to veto, first, and one that goes to DNS last. A type may
-be named more than once, which is how one rule gates the country of both a
-captured address and the offender.
+**Every entry has to hold.** The first that does not ends the asking, so
+among these gates the order written decides only what a veto spares... put
+the gate cheapest to ask, or likeliest to veto, first, and one that goes to
+DNS last. A type may be named more than once, which is how one rule gates
+the country of both a captured address and the offender.
 
-**What an entry keys on decides when it is asked.** One naming a `var` or
-`vars` reads a found value, resolved like `ban_var`, so JSON dotted paths
-work. It is asked once for the whole result, ahead of there being an
-offender, and a veto drops the result. One naming neither keys on the
-offender and is asked once per candidate, filtering which of them count,
-like `ban_not_internal`. Each lot is asked in the order written.
-`active_time` is the exception... with no var it keys on the clock, so it
-is always asked once for the result.
+**What an entry keys on decides what it is asked of.** One naming a `var`
+or `vars` reads a found value, resolved like `ban_var`, so JSON dotted paths
+work. It is asked once for the whole result, needs no offender, and a veto
+drops the result. One naming neither keys on the offender and is asked once
+per candidate, filtering which of them count, like `ban_not_internal`, so
+it has to be written below the `ban_var` that names them. `active_time` is
+the exception... with no var it keys on the clock, so it is always asked
+once for the result.
 
 **A rule that can not have a gate does not load.** An entry naming a type
-there is none of, one telling a gate what it does not know, and one keyed
-by the offender on a [detection rule](#detection_var), which has no
-offender for it to key on, each die when the rule loads rather than leave
-it counting what its author gated off.
+there is none of, one telling a gate what it does not know, one keyed by
+the offender with no `ban_var` above it, and one keyed by the offender on a
+[detection rule](#detection_var), which has no offender for it to key on,
+each die when the rule loads rather than leave it counting what its author
+gated off.
 
 ### marks... cross-rule state, keyed by anything
 
@@ -1328,8 +1387,8 @@ Correlation (below) ties lines together with in one rule. Marks tie rules
 together... a mark is a named, expiring brand a rule leaves on a key that a
 later rule, in the same or another watcher of that galla, can gate on. It is
 how one rule remembers something for another, Sagan's xbits and flexbits. The
-keys are legal on every rule type, the two that read a brand being types of
-[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear).
+mark gates are legal on every rule type, the two that read a brand being among
+those [a match still has to clear](#rule_gates-what-a-match-still-has-to-clear).
 
 The key defaults to the offender IP, but any capture or field of the matched
 line can be the key (`var`), or several joined into one compound key
@@ -1338,18 +1397,18 @@ line can be the key (`var`), or several joined into one compound key
 username", "this source on this account", and store "the address that used
 it".
 
-| key | what |
+| gate or key | what |
 | --- | --- |
-| `mark` | Array of brands to set on match, each `{name, ttl, var?, vars?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var`/`vars` the brand is keyed by each offender IP, with `var` by that capture, with `vars` by the named captures joined into one compound key. `value_var` names a capture to store on the brand. |
-| `unmark` | Array of brands to lift on match, each `{name, var?, vars?}`. A successful login lifting a suspicion, say. |
-| `marked` | A `rule_gates` type... the entry holds when the brand is set. Told `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
-| `not_marked` | A `rule_gates` type, the inverse... the entry holds when the named brand is not set. Told `{name, var?, vars?, value_is?, value_not?}`, with the same keying and the same value compares... with one, a live brand only vetoes when the compare holds, so `value_is` spares a brand storing a *different* value and `value_not` one storing the *same*. A compare that can not be evaluated still vetoes. |
-| `mark_only` | When true the rule only brands and gates, never counting toward a ban, and does not consume the line, so matching falls through to the later rules. |
+| `mark` | A gate, one entry per brand to set on match. Told `{name, ttl, var?, vars?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var`/`vars` the brand is keyed by each offender IP, with `var` by that capture, with `vars` by the named captures joined into one compound key. `value_var` names a capture to store on the brand. |
+| `unmark` | A gate, one entry per brand to lift on match. Told `{name, var?, vars?}`. A successful login lifting a suspicion, say. |
+| `marked` | A gate... the entry holds when the brand is set. Told `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
+| `not_marked` | A gate, the inverse... the entry holds when the named brand is not set. Told `{name, var?, vars?, value_is?, value_not?}`, with the same keying and the same value compares... with one, a live brand only vetoes when the compare holds, so `value_is` spares a brand storing a *different* value and `value_not` one storing the *same*. A compare that can not be evaluated still vetoes. |
+| `mark_only` | A key of the rule. When true the rule only brands and gates, never counting toward a ban, and does not consume the line, so matching falls through to the later rules. |
 
 A rule whose mark gates veto, like a mark_only rule, does not consume the
 line either, so a branding rule and the rule that reads it can both act on
 the same line by falling through. What consuming costs the rules after it
-is the watcher's [`overlap`](configuration.md) setting, phase 6 of
+is the watcher's [`overlap`](configuration.md) setting, phase 5 of
 [the order it runs in](#the-order-it-runs-in).
 
 The shipped `syslog/sshd-mark-users` and `syslog/sshd-spray` pair catch a
@@ -1361,11 +1420,12 @@ hit it:
 ```yaml
 # syslog/sshd-mark-users, mark_only... brand USER with the SRC
 mark_only: true
-mark:
-  - name: sshd-account-src
-    ttl: 3600
-    var: USER
-    value_var: SRC
+rule_gates:
+  - mark:
+      name: sshd-account-src
+      ttl: 3600
+      var: USER
+      value_var: SRC
 ```
 
 The second matches the same failures and fires only when the account is
@@ -1394,10 +1454,11 @@ captures into one compound key, so "this source cleared this account" and
 ```yaml
 # brand the pair on a good login
 mark_only: true
-mark:
-  - name: cleared
-    ttl: 3600
-    vars: [ SRC, USER ]
+rule_gates:
+  - mark:
+      name: cleared
+      ttl: 3600
+      vars: [ SRC, USER ]
 ```
 
 ```yaml
@@ -1434,7 +1495,7 @@ rule_gates:
       var: HOST
 ```
 
-A `rule_gates` type, told:
+The gate is told:
 
 - `marks` :: Two or more mark names that must all be set for the key, in the
       listed order by when each first fired.
@@ -1520,44 +1581,47 @@ or `smtp` an hour later, and the only thing joining them is the queue id.
 The line that finally says something worth banning on is rarely the line
 that says who to ban.
 
-    track:
-      - name: mail-queue
-        key: postfix_queueid
-        fields: [ postfix_client_ip, postfix_sasl_username ]
-        ttl: 3600
     track_only: true
+    rule_gates:
+      - track:
+          name: mail-queue
+          key: postfix_queueid
+          fields: [ postfix_client_ip, postfix_sasl_username ]
+          ttl: 3600
 
 That is the harvest rule. It watches the `smtpd` lines, files what they say
 under the queue id, and does nothing else. And this is the rule that reads
 it back:
 
-    track:
-      - name: mail-queue
-        key: postfix_queueid
-        fields: [ postfix_status ]
-    tracked:
-      - name: mail-queue
-        where:
-          - { field: postfix_sasl_username, op: exists }
-          - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
-        into: [ postfix_client_ip ]
-    ban_var: [ postfix_client_ip ]
+    rule_gates:
+      - tracked:
+          name: mail-queue
+          where:
+            - { field: postfix_sasl_username, op: exists }
+            - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
+          into: [ postfix_client_ip ]
+      - track:
+          name: mail-queue
+          key: postfix_queueid
+          fields: [ postfix_status ]
+      - ban_var: [ postfix_client_ip ]
 
 The bounce fires on the `local` line, and `ban_var` names an address that
 only ever appeared on an `smtpd` line an hour earlier. That is what `into`
 is for.
 
-- `track` :: The records this rule is party to. Each names the record
-      (`name`), the found var holding the joining id (`key`, or a list of
-      them for a compound key), optionally the found vars to contribute
-      (`fields`, defaulting to everything found), and optionally a `ttl` in
-      seconds, default 3600.
+- `track` :: The gate that harvests, one entry per record this rule is
+      party to. Each names the record (`name`), the found var holding the
+      joining id (`key`, or a list of them for a compound key), optionally
+      the found vars to contribute (`fields`, defaulting to everything
+      found), and optionally a `ttl` in seconds, default 3600.
 
-- `tracked` :: The gate. Each names a record and carries at least one of
-      `where` (predicate entries, the ordinary gate vocabulary, judged
-      against the **stored** record rather than the line) and `into` (stored
-      fields lifted into this line's offense). It takes no key of its own,
-      using the one the `track` beside it declared.
+- `tracked` :: The gate that reads, one entry per record. Each names a
+      record and carries at least one of `where` (predicate entries, the
+      ordinary gate vocabulary, judged against the **stored** record rather
+      than the line) and `into` (stored fields lifted into this line's
+      offense). It takes no key of its own, using the one the `track` beside
+      it declared.
 
 - `not_tracked` :: The inverse gate, naming a record and nothing else. It
       means "no live record for this key". A record that exists but does not
@@ -1583,12 +1647,14 @@ Four states a read can find:
 | resolves | exists | names a field no line ever gave | veto. A missing value fails every operator but `exists`, which makes `{ op: exists, negate: true }` the never-appeared test |
 
 The harvest runs whether or not the message regexps hit and whether or not
-the boolean passed, a record being a record of the transaction rather than
-of offenses. Only the type gate and `ignore` stop it: the one because a
+the gates that judge held, a record being a record of the transaction
+rather than of offenses. Only a gate above it that turns the line away
+outright stops it, as the `daemons` gate and `ignore` do: the one because a
 postfix track has no business reading sshd lines, the other because
-`ignore` is the operator saying this line is not evidence. The read at 1.9
-always precedes the write at 1.10, so a `where` judges the history rather
-than a record the same line just wrote.
+`ignore` is the operator saying this line is not evidence. With the `track`
+written below the `tracked` that reads its record, the read at 1.8 precedes
+the write at 1.9, so a `where` judges the history rather than a record the
+same line just wrote.
 
 Records live per galla, cross watchers and rules but not kurs, survive a
 restart, and are visible with `baphomet tracked`. They are deliberately not
@@ -1605,14 +1671,15 @@ the gate reads is one the rule really built. See
 
 ### country... narrowing an offense by geography
 
-A `country` gate, a type of
-[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), only lets a
-match count when the offender, or some captured address, is in (or not in) a
-set of countries. It needs a GeoIP database, the `geoip_db` config setting,
-read through the optional `IP::Geolocation::MMDB` module.
+A `country` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+only lets a match count when the offender, or some captured address, is in
+(or not in) a set of countries. It needs a GeoIP database, the `geoip_db`
+config setting, read through the optional `IP::Geolocation::MMDB` module.
 
 ```yaml
 rule_gates:
+  - ban_var: [ SRC ]
   - country:
       isnot:                              # count only if NOT in these
         - "%%%country_codes{allowed}%%%"  # import a named list from the config
@@ -1634,11 +1701,11 @@ rule_gates:
   - country:
       is: [ "%%%country_codes{yours}%%%" ]
       vars: [ dest_ip ]        # gate on the dest's country, still ban the src
-ban_var: [ src_ip ]
+  - ban_var: [ src_ip ]
 ```
 
-- **No `vars`** ... offender-keyed. Checked per ban_var candidate in the ban
-  loop, filtering which offenders count, like `ban_not_internal`.
+- **No `vars`** ... offender-keyed. Written below the `ban_var` and checked
+  per candidate, filtering which offenders count, like `ban_not_internal`.
 - **`vars` given** ... data-keyed. Checked once per result against the named
   found vars (resolved like `ban_var`, so JSON dotted paths work); all must
   pass, and a veto drops the whole result.
@@ -1678,9 +1745,9 @@ a `country` gate and your own `country_codes` lists.
 
 ### namtar_list... only the already-condemned
 
-A `namtar_list` gate, a type of
-[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), only lets a
-match count when a value appears on a named
+A `namtar_list` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+only lets a match count when a value appears on a named
 blocklist, the inverse of `ignore_ips`. The lists are named in the config's
 `namtar_lists`, layered per watcher and reloaded on mtime change, so a rule
 can count only what a feed you supply condemns. A list is either a **CIDR
@@ -1714,11 +1781,11 @@ namtar rule, since which addresses are condemned is your policy.
 
 ### active_time... only in, or out of, certain hours
 
-A `active_time` gate, a type of
-[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), only lets a
-match count when the time falls in, or out of, named windows... an admin
-login that is routine at midday and worth a ban at 03:00. The windows are
-defined in the config's `active_time`, layered per watcher.
+A `active_time` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+only lets a match count when the time falls in, or out of, named windows...
+an admin login that is routine at midday and worth a ban at 03:00. The
+windows are defined in the config's `active_time`, layered per watcher.
 
 ```yaml
 rule_gates:
@@ -1745,9 +1812,9 @@ active_time rule, since which hours matter is your policy.
 
 ### reverse_dns... the client is who its address says
 
-A `reverse_dns` gate, a type of
-[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), compares the
-PTR names of an address against a regexp
+A `reverse_dns` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+compares the PTR names of an address against a regexp
 or against another found value, negatable... how a claim in the log is
 checked against what DNS says about the client. The gate that finally
 ports `apache-fakegooglebot` (shipped as `http/fakegooglebot`): a
@@ -1760,6 +1827,7 @@ the optional `Net::DNS` and `POE::Component::Client::DNS` modules (see
 
 ```yaml
 rule_gates:
+  - ban_var: [ SRC ]
   - reverse_dns:
       matches: '\.google(?:bot)?\.com$'   # regexp over the PTR names
       negate: true                        # count when it does NOT hold
@@ -1773,8 +1841,8 @@ An entry names exactly one of
 `matches` (a Perl regexp any PTR name must satisfy) or `matches_var`
 (equality against another found value, case-folded, trailing dots
 stripped). A `var` entry checks that found value's address once per result,
-vetoing the whole result; a var-less entry checks each offender in the ban
-loop, like `country`. `negate` inverts the comparison.
+vetoing the whole result; a var-less entry checks each offender the
+`ban_var` above it names, like `country`. `negate` inverts the comparison.
 
 **Forward confirmation is on by default.** An attacker controls their own
 PTR, so with out it a negated Google pattern is evaded by pointing your
@@ -1805,8 +1873,8 @@ non-address value, a missing `matches_var`.
 
 Lookups happen per match, not per line, bounded by `rdns_timeout` and
 cached... still, keep the gate behind a cheap matcher, never on a rule
-that matches everything, and last in its `rule_gates` so a cheaper gate's
-veto spares the lookup. Unlike the config-side gates, a rule's embedded
+that matches everything, and the last of its gates that judge so a cheaper
+gate's veto spares the lookup. Unlike the config-side gates, a rule's embedded
 tests exercise this one whole... a `dns` fixture in the test stands in
 for the resolver, PTRs, forwards, absences, and outages alike (see
 [tests](#tests)), which is how `http/fakegooglebot` proves its judgment
@@ -1817,18 +1885,20 @@ from its own file.
 Where the [primitive fragments](#primitive-fragments-building-blocks-not-captures)
 above borrow Log-Munger's regexp *pieces* to help write a pattern, a
 **munger** borrows a whole Log-Munger decoder to *read* the line for you. A
-rule names the mungers that apply to it, they run over the line before the
-rule's own `message_regexp`, and every field they decode is laid into the
-offense... available to the gates, the marks, `ban_var`/`detection_var`, the
-promoted vars, and the EVE `found` alike, no rule-format change.
+rule names the mungers that apply to it in a `mungers` gate, written above
+its `message_regexp` so they run over the line before it, and every field
+they decode is laid into the offense... available to the gates below, the
+marks, `ban_var`/`detection_var`, the promoted vars, and the EVE `found`
+alike, no rule-format change.
 
 ```yaml
 # a sshd rule that leans on Log-Munger's sshd decoder for the ssh_* fields
-daemons: [sshd]
-mungers: [sshd]
-message_regexp:
-  - 'Failed password for (?:invalid user )?\S+ from %%%%SRC%%%% port'
-ban_var: [SRC]
+rule_gates:
+  - daemons: [sshd]
+  - mungers: [sshd]
+  - message_regexp:
+      - 'Failed password for (?:invalid user )?\S+ from %%%%SRC%%%% port'
+  - ban_var: [SRC]
 ```
 
 Each entry is a **leaf** munger... a
@@ -1844,11 +1914,12 @@ syslog rule the message maps to Log-Munger's `MESSAGE`, the daemon to its
 rule has only its message to give. The munger's first matching rule decides,
 and its captures come back as the enrichment.
 
-Order is deliberate: the munger runs **first**, its fields laid down
-underneath, and the rule's own `message_regexp` captures then overwrite any
-of the same name... the rule choosing a different read than the munger's
-for that one field, on purpose. Everything the munger decoded that the rule
-did not recapture rides along untouched.
+Order is deliberate: written above the `message_regexp`, the munger runs
+**first**, its fields laid down underneath, and the rule's own
+`message_regexp` captures then overwrite any of the same name... the rule
+choosing a different read than the munger's for that one field, on purpose.
+Everything the munger decoded that the rule did not recapture rides along
+untouched.
 
 Mungers are supported on `syslog` and `raw` rules, including
 [staged](#stages-ordered-sequences-with-in-one-rule) ones... a staged rule enriches the *completed
@@ -1860,7 +1931,7 @@ fail-soft: a rule that asks for enrichment it can not get is a
 misconfiguration, so a missing Log::Munger or a munger file that will not
 resolve is fatal... caught and named at galla load (an `err` to the log),
 never silently skipped and never a surprise mid-line. A malformed `mungers`
-key is refused when the rule loads.
+gate is refused when the rule loads.
 
 ### A munger as the matcher
 
@@ -1878,16 +1949,17 @@ there is nothing to scan for:
 
 ```yaml
 # raw/fortinet-admin-auth... no regexp, the ledger read rather than scanned
-mungers:
-  - fortinet
-gate:
-  - field: fg_logid
-    op: re
-    value: '^\d*32002$'
-  - field: fg_type
-    values: [ event ]
-ban_var:
-  - fg_offender_ip
+rule_gates:
+  - mungers:
+      - fortinet
+  - gate:
+      - field: fg_logid
+        op: re
+        value: '^\d*32002$'
+      - field: fg_type
+        values: [ event ]
+  - ban_var:
+      - fg_offender_ip
 ```
 
 The gain is not tidiness. These events log the attempted account name, and
@@ -1916,8 +1988,8 @@ a raw line becomes a match, and where the offender comes from.
 | --- | --- | --- | --- |
 | `syslog` | syslog lines (`bsd_syslog`/`syslog`/`ietf_syslog`/`json_syslog`/journal) | a `daemons` gate, then `message_regexp` over the message text | `ban_var` captures |
 | `raw` | whole lines (`raw`) | `message_regexp` over the whole line, no daemon gate | `ban_var` captures |
-| `http` | access logs (`http_access`) | `status`/`method` gates and `match` regexps over parsed fields | always `host` |
-| `http_error` | error logs (`apache_error`/`nginx_error`) | `level`/`module` gates, then `message_regexp` over the message | always `client` |
+| `http` | access logs (`http_access`) | `status`/`method` gates and `match` regexps over parsed fields | `ban_var` naming the parsed `host` |
+| `http_error` | error logs (`apache_error`/`nginx_error`) | `level`/`module` gates, then `message_regexp` over the message | `ban_var` naming the parsed `client` |
 | `json` | JSON logs (`json`) | `gate`/`match` over flattened dotted fields | `ban_var` naming a field or capture |
 
 The axes underneath that table:
@@ -1927,11 +1999,10 @@ The axes underneath that table:
   already broke out (`status`, `attr.remote`). The predicate
   [gate/selections/keywords](#gate--selections--condition--keywords) layer
   refines either kind, on every type.
-- **Extracted or handed over.** syslog, raw, and json dig the offender out
-  with `ban_var` (a token capture, a named group, or a field path). http and
-  http_error need no `ban_var`... the parser already isolated the client, so
-  the offender is fixed at `host` / `client`, and a
-  [`detection_var`](#detection_var) is the only reason to name a subject.
+- **Extracted or handed over.** syslog, raw, and json dig the offender out,
+  their `ban_var` naming a token capture, a named group, or a field path. On
+  http and http_error there is nothing to dig for... the parser already
+  isolated the client, so their `ban_var` names the parsed `host` / `client`.
 - **Tokens.** The `%%%%TOKEN%%%%` shortcuts (`SRC`, `HOST`, `ADDR`, ...)
   compile into address-matching named captures. They work in the
   `message_regexp` of syslog and raw, and in the `match` entries of json.
@@ -1940,9 +2011,9 @@ The axes underneath that table:
   the data).
 - **Correlation.** Offense-and-address-on-different-lines correlation is a
   syslog, raw, and json feature... `capture_regexp` and keyed
-  `message_regexp` on the text types, `capture` entries and a rule-level
-  `key`/`defer` keyed on fields for json. The http and http_error types
-  have no need of it, every line already carrying its offender.
+  `message_regexp` on the text types, a `capture` gate and the `key`/`defer`
+  gates keyed on fields for json. The http and http_error types have no
+  need of it, every line already carrying its offender.
 - **Staging.** In-rule ordered sequences... counted stages with time and
   line bounds (`stages`/`per`)... are a syslog and raw feature.
 - **JSON in a syslog envelope.** `message_json` decodes a JSON message inside
@@ -1958,11 +2029,12 @@ cheap daemon gate.
 
 ### daemons
 
-Which daemons this rule processes. The daemon of a parsed line is checked
-against this list first and if it does not match, the regexps are never
-tried, which keeps rules cheap on busy shared logs. Entries starting and
-ending with `//` are regexps... `//^sshd//` is the regexp `^sshd`.
-Everything else is a plain string equality check.
+Which daemons this rule processes, a gate every syslog rule has to have.
+Leading the list, the daemon of a parsed line is checked against it first
+and if it does not match, the regexps are never tried, which keeps rules
+cheap on busy shared logs. Entries starting and ending with `//` are
+regexps... `//^sshd//` is the regexp `^sshd`. Everything else is a plain
+string equality check.
 
 ### message_regexp
 
@@ -2013,10 +2085,11 @@ when you want its value as a field... the fragment writes the pattern, the
 capture names the field:
 
 ```yaml
-message_regexp:
-  # SYSLOGTIMESTAMP and INT are fragments (no field); SRC and the wrapped
-  # USER are captures
-  - '^%%%%SYSLOGTIMESTAMP%%%% \S+ myapp\[%%%%INT%%%%\]: login (?<USER>%%%%USERNAME%%%%) from %%%%SRC%%%%'
+rule_gates:
+  - message_regexp:
+      # SYSLOGTIMESTAMP and INT are fragments (no field); SRC and the wrapped
+      # USER are captures
+      - '^%%%%SYSLOGTIMESTAMP%%%% \S+ myapp\[%%%%INT%%%%\]: login (?<USER>%%%%USERNAME%%%%) from %%%%SRC%%%%'
 ```
 
 An offender token wins any name collision, and an unknown name in either
@@ -2025,25 +2098,27 @@ to clash.
 
 ### ignore_regexp
 
-Optional. Regexps that veto a line... checked after the daemon gate and
-before `message_regexp`, and if any matches the message, the line is not
+Optional. Regexps that veto a line... written below the `daemons` gate and
+above `message_regexp`, and if any matches the message, the line is not
 regarded as found no matter what the message regexps would of said. The
 fail2ban equivalent is `ignoreregex`. Tokens work here too.
 
 ```yaml
-ignore_regexp:
-  - 'Registration from ''\S+'' failed for %%%%SRC%%%% - ACL rule'
+rule_gates:
+  - ignore_regexp:
+      - 'Registration from ''\S+'' failed for %%%%SRC%%%% - ACL rule'
 ```
 
 ### message_json
 
-Optional boolean. When a daemon logs a JSON object as its message,
-`message_json: true` decodes it and flattens it into fields the
-[predicate gate](#gate--selections--condition--keywords) can test by their
-dotted paths, the way a `json` rule works, while the syslog envelope stays
-reachable under reserved keys (`syslog.daemon`, `syslog.host`, ...). With it
-on, `message_regexp` becomes optional, the gate being the matcher. See
-[`App::Baphomet::Rules::Syslog`](https://metacpan.org/pod/App::Baphomet::Rules::Syslog).
+Optional, a gate told a boolean. When a daemon logs a JSON object as its
+message, `message_json: true` decodes it and flattens it into fields the
+[predicate gate](#gate--selections--condition--keywords) below it can test
+by their dotted paths, the way a `json` rule works, while the syslog
+envelope stays reachable under reserved keys (`syslog.daemon`,
+`syslog.host`, ...). With it on, `message_regexp` becomes optional, the gate
+being the matcher. See
+[`App::Baphomet::Gate::message_json`](https://metacpan.org/pod/App::Baphomet::Gate::message_json).
 
 ### correlation... offense and address on different lines
 
@@ -2055,16 +2130,17 @@ with `capture_regexp` entries, which harvest context rather than being
 offenses, and keyed `message_regexp` entries:
 
 ```yaml
-capture_regexp:
-  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
-    key: KEY
-    ttl: 600
-message_regexp:
-  - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
-    key: KEY
-    defer: 600
-ban_var:
-  - SRC
+rule_gates:
+  - capture_regexp:
+      - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] end connection %%%%SRC%%%%:\d+'
+        key: KEY
+        ttl: 600
+  - message_regexp:
+      - regexp: '^\S+\s+\[conn(?<KEY>\d+)\] Failed to authenticate '
+        key: KEY
+        defer: 600
+  - ban_var:
+      - SRC
 ```
 
 A keyed offense resolves through the stored captures of a capture line with
@@ -2083,16 +2159,17 @@ lines share nothing but the logging process itself, the fail2ban F-MLFID
 shape, correlates by its session with no key in the message at all:
 
 ```yaml
-capture_regexp:
-  - regexp: '^Connection from %%%%SRC%%%% port \d+'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    ttl: 120
-message_regexp:
-  - regexp: '^Too many authentication failures'
-    key: [ syslog.host, syslog.daemon, syslog.pid ]
-    defer: 60
-ban_var:
-  - SRC
+rule_gates:
+  - capture_regexp:
+      - regexp: '^Connection from %%%%SRC%%%% port \d+'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        ttl: 120
+  - message_regexp:
+      - regexp: '^Too many authentication failures'
+        key: [ syslog.host, syslog.daemon, syslog.pid ]
+        defer: 60
+  - ban_var:
+      - SRC
 ```
 
 Every component must resolve for a key to hold... a keyed offense any of
@@ -2111,23 +2188,24 @@ bound in seconds on the gap since the previous hit, and a `skip` bound on
 the log lines allowed between hits. The final stage completing is the
 offense, its data the captures of every hit merged, later stages
 authoritative. `stages` replaces `message_regexp`/`capture_regexp`
-entirely... a staged rule's stages are its whole matcher, with
-`ignore_regexp` still vetoing lines ahead of them.
+entirely... a staged rule's stages are its whole matcher, with an
+`ignore_regexp` above them still vetoing lines.
 
 The brute-force-that-worked shape... failures, then a success, the
 compromised-credential alarm one typo never trips:
 
 ```yaml
-stages:
-  - message_regexp:
-      - '^Failed (?:password|publickey) for .* from %%%%SRC%%%%'
-    count: 5
-    within: 300
-  - message_regexp:
-      - '^Accepted \w+ for .* from %%%%SRC%%%%'
-    within: 60
-per: [ SRC ]
-detection_var: [ SRC ]
+rule_gates:
+  - stages:
+      - message_regexp:
+          - '^Failed (?:password|publickey) for .* from %%%%SRC%%%%'
+        count: 5
+        within: 300
+      - message_regexp:
+          - '^Accepted \w+ for .* from %%%%SRC%%%%'
+        within: 60
+  - per: [ SRC ]
+  - detection_var: [ SRC ]
 ```
 
 `per` names the key the sequence state lives under... captures, and on
@@ -2162,9 +2240,10 @@ exercised from embedded tests... prove the order and counts there, and
 the gap behavior in a `.t` against the rule object (see
 `t/rule-stages.t`).
 
-See
-[`App::Baphomet::Rules::Syslog`](https://metacpan.org/pod/App::Baphomet::Rules::Syslog)
-for the full reference.
+See [`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule)
+and the class of each gate,
+[`App::Baphomet::Gate::daemons`](https://metacpan.org/pod/App::Baphomet::Gate::daemons)
+and the like, for the full reference.
 
 ## raw rules
 
@@ -2180,10 +2259,11 @@ with no envelope a raw `per` keys on captures only. Tests default to the
 
 ```yaml
 ---
-message_regexp:
-  - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} auth failure from %%%%SRC%%%%$'
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      - '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} auth failure from %%%%SRC%%%%$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "2026-07-12 08:15:50 auth failure from 1.2.3.4"
@@ -2202,29 +2282,32 @@ raw watchers on single purpose app logs rather than busy shared ones.
 Rules of the `http` type work on lines parsed by the `http_access` parser
 (common and combined access logs). There is nothing to extract... the client
 is already the `host` field of the parsed line, so a http rule just decides
-which lines are offenses, and what gets banished is always `host` (unless a
-[`detection_var`](#detection_var) overrides it).
+which lines are offenses, and its `ban_var` names `host` (or a
+[`detection_var`](#detection_var) stands in its place).
 
 ```yaml
 ---
-# gates... optional, ANDed, same string-or-//regexp// convention
-status:
-  - 401
-  - 403
-  - //^5//
-method:
-  - GET
-  - POST
-# matches... ORed, first hit wins, each naming the parsed field it runs against
-match:
-  - field: user_agent
-    regexp: '(?i:masscan|zgrab|sqlmap)'
-  - field: path
-    regexp: '\.(?:env|git)(?:$|/)'
-# ignores... same shape, a hit vetoes the line
-ignore:
-  - field: user_agent
-    regexp: 'FriendlyAuditBot'
+rule_gates:
+  # status and method... optional, ANDed, same string-or-//regexp// convention
+  - status:
+      - 401
+      - 403
+      - //^5//
+  - method:
+      - GET
+      - POST
+  # ignores... a hit vetoes the line, each naming the field it runs against
+  - ignore:
+      - field: user_agent
+        regexp: 'FriendlyAuditBot'
+  # matches... same shape, ORed, first hit wins
+  - match:
+      - field: user_agent
+        regexp: '(?i:masscan|zgrab|sqlmap)'
+      - field: path
+        regexp: '\.(?:env|git)(?:$|/)'
+  # the offender... the client the parser already split out
+  - ban_var: [ host ]
 tests:
   positive:
     - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 404 196 "-" "zgrab/0.x"'
@@ -2236,18 +2319,20 @@ tests:
 The matchable fields are host, ident, user, time, request, method, path,
 protocol, status, bytes, referer, user_agent, and format. The
 [predicate gate](#gate--selections--condition--keywords) works over them too,
-ahead of the matches. Gates-only rules (every 401, say) are legal... a rule
-with neither gates nor matches is a error. Tests default to the `http_access`
-parser. See
-[`App::Baphomet::Rules::HTTP`](https://metacpan.org/pod/App::Baphomet::Rules::HTTP)
-for the full reference.
+written above the `match`. A rule with no `match` (every 401, say) is legal...
+one with neither a `match` nor a gate that judges is a error. Tests default to
+the `http_access` parser. See
+[`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and the
+class of each gate,
+[`App::Baphomet::Gate::match`](https://metacpan.org/pod/App::Baphomet::Gate::match)
+and the like, for the full reference.
 
 ## http_error rules
 
 Rules of the `http_error` type work on lines parsed by the `apache_error` or
-`nginx_error` parsers. As with http rules, the offender is already the
-`client` field of the parsed line and is what gets banished, and lines with no
-client (startup notices) are never offenses. As with syslog rules, the
+`nginx_error` parsers. As with http rules, the offender is already a field of
+the parsed line, the `client` its `ban_var` names, and lines with no client
+(startup notices) are never offenses. As with syslog rules, the
 matching is `message_regexp`/`ignore_regexp` against the message free text...
 for apache that is what follows the `[client ip]` and the optional
 `AHnnnnn:` code, and for nginx the trailing `, client: ..., server: ...`
@@ -2258,15 +2343,17 @@ feature, not used here, but named captures in a winning regexp merge into
 
 ```yaml
 ---
-level:                   # optional gates, ANDed, string-or-//regexp//
-  - error
-module:                  # apache 2.4 module... a module gate makes a rule 2.4 only
-  - auth_basic
-message_regexp:
-  - '^user \S*: password mismatch'
-ignore_regexp:
-  - 'from the health checker'
 test_parser: nginx_error # per rule test parser default... apache_error if unset
+rule_gates:
+  - level:               # optional gates, ANDed, string-or-//regexp//
+      - error
+  - module:              # apache 2.4 module... a module gate makes a rule 2.4 only
+      - auth_basic
+  - ignore_regexp:
+      - 'from the health checker'
+  - message_regexp:
+      - '^user \S*: password mismatch'
+  - ban_var: [ client ]
 tests:
   positive:
     - message: '[Wed Jul 17 22:18:52 2013] [error] [client 127.0.0.1] user username: authentication failure for "/basic/file": Password Mismatch'
@@ -2276,9 +2363,11 @@ tests:
 ```
 
 The [predicate gate](#gate--selections--condition--keywords) is available,
-ANDed ahead of the message match. See
-[`App::Baphomet::Rules::HTTPError`](https://metacpan.org/pod/App::Baphomet::Rules::HTTPError)
-for the full reference.
+written above the `message_regexp`, which every http_error rule has to have.
+See [`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and
+the class of each gate,
+[`App::Baphomet::Gate::level`](https://metacpan.org/pod/App::Baphomet::Gate::level)
+and the like, for the full reference.
 
 ## json rules
 
@@ -2299,16 +2388,17 @@ the log hands the address over bare.
 
 ```yaml
 ---
-gate:
-  - field: c
-    values: [ ACCESS ]
-  - field: msg
-    values: [ "Authentication failed" ]
-match:
-  - field: attr.remote
-    regexp: '^%%%%SRC%%%%:\d+$'
-ban_var:
-  - SRC
+rule_gates:
+  - gate:
+      - field: c
+        values: [ ACCESS ]
+      - field: msg
+        values: [ "Authentication failed" ]
+  - match:
+      - field: attr.remote
+        regexp: '^%%%%SRC%%%%:\d+$'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: '{"c":"ACCESS","msg":"Authentication failed","attr":{"remote":"192.0.2.5:54321"}}'
@@ -2321,8 +2411,10 @@ Tests default to the `json` parser, each message being one line of JSON. The
 full [predicate gate](#gate--selections--condition--keywords) vocabulary,
 `selections`/`condition` and `keywords` included, is at home here... json is
 where the Sigma-style boolean model earns its keep. See
-[`App::Baphomet::Rules::JSON`](https://metacpan.org/pod/App::Baphomet::Rules::JSON)
-for the full reference.
+[`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and the
+class of each gate,
+[`App::Baphomet::Gate::match`](https://metacpan.org/pod/App::Baphomet::Gate::match)
+and the like, for the full reference.
 
 ### correlation on json... capture, key, defer
 
@@ -2332,29 +2424,30 @@ the same shape its old text logs had. The json type carries the same
 two-phase [correlation](#correlation-offense-and-address-on-different-lines)
 as syslog and raw, keyed on fields instead of an envelope: `capture`
 entries (their own `gate`/`match`, a `key`, a `ttl`) harvest context
-without being offenses, and a rule-level `key`, with an optional `defer`,
-makes the rule's own match resolve through it, whichever order the events
-arrive in.
+without being offenses, and a `key` gate, with an optional `defer` gate
+beside it, makes the rule's own match resolve through it, whichever order
+the events arrive in.
 
 ```yaml
-gate:
-  - field: c
-    values: [ ACCESS ]
-  - field: msg
-    values: [ "Authentication failed" ]
-key: [ ctx ]
-defer: 60
-capture:
+rule_gates:
+  - capture:
+      - gate:
+          - field: msg
+            values: [ "Connection ended" ]
+        match:
+          - field: attr.remote
+            regexp: '^%%%%SRC%%%%:\d+$'
+        key: [ ctx ]
+        ttl: 120
   - gate:
+      - field: c
+        values: [ ACCESS ]
       - field: msg
-        values: [ "Connection ended" ]
-    match:
-      - field: attr.remote
-        regexp: '^%%%%SRC%%%%:\d+$'
-    key: [ ctx ]
-    ttl: 120
-ban_var:
-  - SRC
+        values: [ "Authentication failed" ]
+  - key: [ ctx ]
+  - defer: 60
+  - ban_var:
+      - SRC
 ```
 
 A `key` is a field path or capture name, or an array of them compounding

@@ -9,17 +9,18 @@ rev: 2
 msg: "[EJABBERD] c2s authentication failure"
 severity: high
 classtype: brute-force
-mark:
-  - name: brute_force
-    ttl: 21600
-message_regexp:
-  # old format... the I(...) line that the =INFO REPORT banner precedes
-  - '^I\(<0\.\d+\.0>:ejabberd_c2s:\d+\) : \([^)]+\) Failed authentication for \S+ from (?:IP )?%%%%SRC%%%%(?: \(\{\{(?:\d+,){3}\d+\},\d+\}\))?$'
-  # lager format, with or without the leading timestamp
-  - '^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? )?\[info\] <0\.\d+\.\d+>@ejabberd_c2s:\w+:\d+ \([^\)]+\) Failed (?:c2s \w+ )?authentication for \S+ from (?:IP )?(?:::FFFF:)?%%%%SRC%%%%(?:: |$)'
 src_ip_var: SRC
-ban_var:
-  - SRC
+rule_gates:
+  - message_regexp:
+      # old format... the I(...) line that the =INFO REPORT banner precedes
+      - '^I\(<0\.\d+\.0>:ejabberd_c2s:\d+\) : \([^)]+\) Failed authentication for \S+ from (?:IP )?%%%%SRC%%%%(?: \(\{\{(?:\d+,){3}\d+\},\d+\}\))?$'
+      # lager format, with or without the leading timestamp
+      - '^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? )?\[info\] <0\.\d+\.\d+>@ejabberd_c2s:\w+:\d+ \([^\)]+\) Failed (?:c2s \w+ )?authentication for \S+ from (?:IP )?(?:::FFFF:)?%%%%SRC%%%%(?:: |$)'
+  - ban_var:
+      - SRC
+  - mark:
+      name: brute_force
+      ttl: 21600
 tests:
   positive:
     - message: "I(<0.1440.0>:ejabberd_c2s:813) : ({socket_state,tls,{tlssock,#Port<0.6910>,#Port<0.6912>},<0.1439.0>}) Failed authentication for user@example.com from IP 192.0.2.4 ({{192,0,2,4},12716})"

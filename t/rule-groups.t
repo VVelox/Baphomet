@@ -23,7 +23,8 @@ make_path( $dir . '/rules/json', $dir . '/rules/syslog', $dir . '/groups/json', 
 # minimal json gate rules, one per named "which"
 foreach my $name (qw( a b c extra )) {
 	open( my $rfh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
-	print $rfh "---\ngate:\n  - field: which\n    values: [ " . $name . " ]\nban_var:\n  - src_ip\n";
+	print $rfh "---\nrule_gates:\n  - gate:\n      - field: which\n        values: [ " . $name . " ]\n"
+		. "  - ban_var:\n      - src_ip\n";
 	close($rfh);
 }
 
@@ -33,12 +34,13 @@ foreach my $name (qw( a b c extra )) {
 open( my $sfh, '>', $dir . '/rules/syslog/s.yaml' ) || die($!);
 print $sfh <<'EOR';
 ---
-daemons:
-  - foo
-message_regexp:
-  - 'bar from %%%%SRC%%%%'
-ban_var:
-  - SRC
+rule_gates:
+  - daemons:
+      - foo
+  - message_regexp:
+      - 'bar from %%%%SRC%%%%'
+  - ban_var:
+      - SRC
 tests:
   positive:
     - message: "Jul 12 08:15:50 host foo[1]: bar from 1.2.3.4"

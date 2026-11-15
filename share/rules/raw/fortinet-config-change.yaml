@@ -18,13 +18,14 @@ severity: medium
 classtype: configuration-change
 references:
   - https://fortinetweb.s3.amazonaws.com/docs.fortinet.com/v2/attachments/b43f86b1-9e63-11ed-8e6d-fa163e15d75b/FortiOS_7.2.4_Log_Reference.pdf
-message_regexp:
-  - 'logid="\d*(?:32151|32101|32102|32103|32120|32150|32005)" type="event".*?user="(?<USER>[^"]+)"'
-  - 'logid="\d*32095" type="event".*?user="(?<USER>[^"]+)".*?action="?factory_reset'
-  - 'logid="\d*(?:32007|32013)" type="event".*?user="(?<USER>[^"]+)".*?(?:removed|deleted|cleared)'
 user_var: USER
-detection_var:
-  - USER
+rule_gates:
+  - message_regexp:
+      - 'logid="\d*(?:32151|32101|32102|32103|32120|32150|32005)" type="event".*?user="(?<USER>[^"]+)"'
+      - 'logid="\d*32095" type="event".*?user="(?<USER>[^"]+)".*?action="?factory_reset'
+      - 'logid="\d*(?:32007|32013)" type="event".*?user="(?<USER>[^"]+)".*?(?:removed|deleted|cleared)'
+  - detection_var:
+      - USER
 tests:
   positive:
     - message: 'Jul 12 10:02:33 fw01 date=2026-07-12 time=10:02:33 devname="FGT60F" devid="FGT60FTK20012345" logid="0100032102" type="event" subtype="system" level="information" vd="root" eventtime=1752332553000000000 tz="-0500" logdesc="Attribute configured" user="admin" ui="https(192.168.1.10)" action="Edit" cfgtid=204832 cfgpath="firewall.policy" cfgobj="12" cfgattr="policyid" msg="Edit firewall.policy 12"'

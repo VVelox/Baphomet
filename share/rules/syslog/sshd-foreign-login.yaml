@@ -22,25 +22,25 @@ rev: 2
 msg: "[SSHD] login success from outside the home countries"
 severity: high
 classtype: suspicious-login
-daemons:
-  - sshd
-  - sshd-session
-mungers:
-  - sshd
-message_regexp:
-  - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
+src_ip_var: SRC
+src_port_var: ssh_src_port
+user_var: USER
+max_score: 1
 rule_gates:
+  - daemons:
+      - sshd
+      - sshd-session
+  - mungers:
+      - sshd
+  - message_regexp:
+      - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
   - country:
       isnot:
         - "%%%country_codes{home}%%%"
       vars:
         - SRC
-src_ip_var: SRC
-src_port_var: ssh_src_port
-user_var: USER
-detection_var:
-  - SRC
-max_score: 1
+  - detection_var:
+      - SRC
 tests:
   positive:
     # a login from abroad... the isnot gate lets it count
