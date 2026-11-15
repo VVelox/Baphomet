@@ -5,11 +5,11 @@ use v5.40;
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
 use parent 'App::Baphomet::Gate';
-use List::Util                   qw( first uniqstr );
+use List::Util                   qw( uniqstr );
 use App::Baphomet::Gate          qw( passage_envelope );
-use App::Baphomet::Shape         qw( check_entries );
+use App::Baphomet::Shape         qw( check_hash check_entries );
 use App::Baphomet::Marks         qw( bound_expiring_store );
-use App::Baphomet::Correlation   qw( correlation_key );
+use App::Baphomet::Correlation   qw( correlation_key_components correlation_key );
 use App::Baphomet::Rules::Tokens qw( compile_tokened_regexp match_tokened );
 
 =head1 NAME
@@ -29,11 +29,12 @@ our $VERSION = '0.0.1';
     rule_gates:
       - daemons: [ sshd ]
       - stages:
-          - message_regexp: [ '^Connection from %%%%SRC%%%%' ]
-          - message_regexp: [ '^Bad protocol version identification' ]
-            count: 3
-            within: 60
-      - per: SRC
+          per: SRC
+          stages:
+            - message_regexp: [ '^Connection from %%%%SRC%%%%' ]
+            - message_regexp: [ '^Bad protocol version identification' ]
+              count: 3
+              within: 60
       - ban_var: [ SRC ]
 
 =head1 DESCRIPTION
@@ -44,8 +45,9 @@ offense's data is the captures of every hit, a later one winning, with the
 fields of the completing line underneath, and its C<stages> is the hits that
 made it. A line that completes nothing makes no offense of its own.
 
-The sequences are kept apart by the C<per> gate beside it, or with out one
-there is a single sequence per log file. A line that hits the stage a
+The sequences are kept apart by its C<per>, or with out one there is a
+single sequence per log file, the stages having to be hit by lines that
+follow one another. A line that hits the stage a
 sequence is waiting on advances it. One that hits the first stage and has no
 sequence under way opens one, never trampling one already in flight. A hit
 that comes too late or too far on kills the sequence, and the line may then
@@ -56,7 +58,18 @@ A gate above it that judges the line's fields has judged before it is asked,
 so a line already refused does not feed a sequence. A gate that is to judge
 the completed sequence goes below it.
 
-It is told a array of stages, each a hash of...
+It is told a hash of...
+
+    - stages :: The array of stages, in the order they are to be hit.
+
+    - per :: Optional. What the sequences are kept apart by, so the stages
+          of one offender are never completed by the lines of another... a
+          capture of the stages' regexps, or a array of them to join into
+          one key. On a syslog rule a component may be one of the reserved
+          C<syslog.daemon>, C<syslog.host>, and C<syslog.pid>. A line with
+          out a value for all of it is part of no sequence.
+
+Each stage is a hash of...
 
     - message_regexp :: A non-empty array of regexp strings, which may use
           the C<%%%%TOKEN%%%%> tokens. The stage is hit by a line any of
@@ -78,7 +91,7 @@ one, and only one.
 
 =head2 compile
 
-Vets and compiles the stages.
+Vets and compiles the stages, and the key of the C<per> when there is one.
 
     $gate->compile( $args, $where, $rule );
 
@@ -88,8 +101,15 @@ sub compile {
 	my ( $self, $args, $where, $rule ) = @_;
 
 	$self->of_types( $rule, $where, 'syslog', 'raw' );
+	check_hash( $args, { 'required' => { 'stages' => 'any' }, 'optional' => { 'per' => 'any' } }, $where );
+	if ( defined( $args->{per} ) ) {
+		( $self->{per_key}, $self->{wants_envelope} )
+			= correlation_key_components( $args->{per}, $where . ' per', $rule->envelope_fields );
+	}
+
+	my $stages_where = $where . ' stages';
 	check_entries(
-		$args,
+		$args->{stages},
 		{
 			'required' => {
 				'message_regexp' =>
@@ -97,12 +117,12 @@ sub compile {
 			},
 			'optional' => { 'count' => 'positive_int', 'within' => 'positive_int', 'skip' => 'positive_int' },
 		},
-		$where
+		$stages_where
 	);
 
 	my @stages;
-	foreach my ( $stage_int, $stage ) ( indexed @{$args} ) {
-		my $stage_where = $where . ' entry ' . $stage_int;
+	foreach my ( $stage_int, $stage ) ( indexed @{ $args->{stages} } ) {
+		my $stage_where = $stages_where . ' entry ' . $stage_int;
 
 		my @matchers;
 		foreach my ( $entry_int, $regexp ) ( indexed @{ $stage->{message_regexp} } ) {
@@ -118,7 +138,7 @@ sub compile {
 				'skip'     => defined( $stage->{skip} )   ? $stage->{skip} + 0   : undef,
 			}
 		);
-	} ## end foreach my ( $stage_int, $stage ) ( indexed @{$args...})
+	} ## end foreach my ( $stage_int, $stage ) ( indexed @{ ...})
 	$self->{stages} = \@stages;
 
 	# the sequences under way, by scope and then by what per keys them on
@@ -129,8 +149,7 @@ sub compile {
 
 =head2 settle
 
-Takes the key of the rule's C<per> gate, when it has one. Dies when the rule
-has another matcher beside the stages.
+Dies when the rule has another matcher beside the stages.
 
 =cut
 
@@ -147,12 +166,6 @@ sub settle {
 	);
 	if (@beside) {
 		die( $self->{where} . ' is beside ' . join( ', ', @beside ) . '... stages are the whole matcher' );
-	}
-
-	my $per = first { $_->{type} eq 'per' } @{$gates};
-	if ( defined($per) ) {
-		$self->{per_key}        = $per->{key};
-		$self->{wants_envelope} = $per->{wants_envelope};
 	}
 
 	return;

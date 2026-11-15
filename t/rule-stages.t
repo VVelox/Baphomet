@@ -40,12 +40,13 @@ rule_gates:
   - daemons:
       - sshd
   - stages:
-      - message_regexp:
-          - '^Failed password for (?<USER>\S+) from %%%%SRC%%%%'
-        count: 2
-      - message_regexp:
-          - '^Accepted \w+ for \S+ from %%%%SRC%%%%'
-  - per: [ SRC ]
+      per: [ SRC ]
+      stages:
+        - message_regexp:
+            - '^Failed password for (?<USER>\S+) from %%%%SRC%%%%'
+          count: 2
+        - message_regexp:
+            - '^Accepted \w+ for \S+ from %%%%SRC%%%%'
   - ban_var:
       - SRC
 tests:
@@ -137,12 +138,13 @@ write_rule( 'raw/timed', <<'EOR' );
 ---
 rule_gates:
   - stages:
-      - message_regexp:
-          - '^open (?<KEY>\S+)'
-      - message_regexp:
-          - '^boom (?<KEY>\S+) from %%%%SRC%%%%'
-        within: 60
-  - per: [ KEY ]
+      per: [ KEY ]
+      stages:
+        - message_regexp:
+            - '^open (?<KEY>\S+)'
+        - message_regexp:
+            - '^boom (?<KEY>\S+) from %%%%SRC%%%%'
+          within: 60
   - ban_var:
       - SRC
 tests:
@@ -184,12 +186,13 @@ write_rule( 'raw/near', <<'EOR' );
 ---
 rule_gates:
   - stages:
-      - message_regexp:
-          - '^head (?<KEY>\S+)'
-      - message_regexp:
-          - '^tail (?<KEY>\S+) from %%%%SRC%%%%'
-        skip: 1
-  - per: [ KEY ]
+      per: [ KEY ]
+      stages:
+        - message_regexp:
+            - '^head (?<KEY>\S+)'
+        - message_regexp:
+            - '^tail (?<KEY>\S+) from %%%%SRC%%%%'
+          skip: 1
   - ban_var:
       - SRC
 tests:
@@ -222,10 +225,11 @@ write_rule( 'raw/repeat', <<'EOR' );
 ---
 rule_gates:
   - stages:
-      - message_regexp:
-          - '^auth failure on (?<CONN>\S+) from %%%%SRC%%%%'
-        count: 3
-  - per: [ CONN ]
+      per: [ CONN ]
+      stages:
+        - message_regexp:
+            - '^auth failure on (?<CONN>\S+) from %%%%SRC%%%%'
+          count: 3
   - ban_var:
       - SRC
 tests:
@@ -258,10 +262,11 @@ rule_gates:
   - daemons:
       - imapd
   - stages:
-      - message_regexp:
-          - '^LOGIN FAILED.* host=%%%%SRC%%%%'
-        count: 3
-  - per: [ syslog.host, syslog.daemon, syslog.pid ]
+      per: [ syslog.host, syslog.daemon, syslog.pid ]
+      stages:
+        - message_regexp:
+            - '^LOGIN FAILED.* host=%%%%SRC%%%%'
+          count: 3
   - ban_var:
       - SRC
 tests:
@@ -292,10 +297,11 @@ write_rule( 'raw/adjacent', <<'EOR' );
 ---
 rule_gates:
   - stages:
-      - message_regexp:
-          - '^PANIC in auth layer'
-      - message_regexp:
-          - '^client %%%%SRC%%%% disconnected'
+      stages:
+        - message_regexp:
+            - '^PANIC in auth layer'
+        - message_regexp:
+            - '^client %%%%SRC%%%% disconnected'
   - ban_var:
       - SRC
 tests:
@@ -327,12 +333,13 @@ rule_gates:
   - ignore_regexp:
       - 'from the health checker'
   - stages:
-      - message_regexp:
-          - '^bad thing (?<KEY>\S+)'
-        count: 2
-      - message_regexp:
-          - '^worse thing (?<KEY>\S+) from %%%%SRC%%%%'
-  - per: [ KEY ]
+      per: [ KEY ]
+      stages:
+        - message_regexp:
+            - '^bad thing (?<KEY>\S+)'
+          count: 2
+        - message_regexp:
+            - '^worse thing (?<KEY>\S+) from %%%%SRC%%%%'
   - ban_var:
       - SRC
 tests:
@@ -367,31 +374,99 @@ ok( !defined( $timed_stages->{sequences}{t} ), 'a swept slot is gone' );
 # invalid defs
 #
 
-write_rule( 'raw/bothmatchers',
-		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'y' ]\n"
-		. "  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n" );
-ok( !eval { $rules->load('raw/bothmatchers'); 1 }, 'stages beside message_regexp refuses to load' );
+# writes a raw rule of the passed gates, a ban_var below them, and returns
+# what loading it dies with, or undef when it loads
+sub load_error {
+	my ( $name, $gates ) = @_;
 
-write_rule( 'raw/orphanper',
-	"---\nrule_gates:\n  - per: [ SRC ]\n  - message_regexp:\n      - 'x'\n  - ban_var:\n      - SRC\n" );
-ok( !eval { $rules->load('raw/orphanper'); 1 }, 'a per with out stages refuses to load' );
+	write_rule( 'raw/' . $name, "---\nrule_gates:\n" . $gates . "  - ban_var:\n      - SRC\n" );
+	if ( eval { $rules->load( 'raw/' . $name ); 1 } ) {
+		return undef;
+	}
+	return $@;
+}
 
-write_rule( 'raw/emptystages', "---\nrule_gates:\n  - stages: []\n  - ban_var:\n      - SRC\n" );
-ok( !eval { $rules->load('raw/emptystages'); 1 }, 'empty stages refuses to load' );
+like(
+	load_error( 'bothmatchers', <<'EOR' ),
+  - stages:
+      stages:
+        - message_regexp: [ 'y' ]
+  - message_regexp:
+      - 'x'
+EOR
+	qr/The stages gate of the rule "raw\/bothmatchers" \(rule_gates entry 0\) is beside message_regexp/,
+	'stages beside message_regexp refuses to load'
+);
 
-write_rule( 'raw/badstagekey',
-		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'x' ]\n        derp: 1\n"
-		. "  - ban_var:\n      - SRC\n" );
-ok( !eval { $rules->load('raw/badstagekey'); 1 }, 'a unknown stage key refuses to load' );
+like(
+	load_error( 'pergate', <<'EOR' ),
+  - stages:
+      stages:
+        - message_regexp: [ 'x' ]
+  - per: [ SRC ]
+EOR
+	qr/entry 1 names the gate "per", which is not a known gate type/,
+	'a per written as a gate of its own refuses to load'
+);
 
-write_rule( 'raw/badcount',
-		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'x' ]\n        count: 0\n"
-		. "  - ban_var:\n      - SRC\n" );
-ok( !eval { $rules->load('raw/badcount'); 1 }, 'a zero count refuses to load' );
+like(
+	load_error( 'stagelist', <<'EOR' ),
+  - stages:
+      - message_regexp: [ 'x' ]
+EOR
+	qr/The stages gate of the rule "raw\/stagelist" \(rule_gates entry 0\) is not a hash/,
+	'stages told the bare list of them refuses to load'
+);
 
-write_rule( 'raw/badper',
-		  "---\nrule_gates:\n  - stages:\n      - message_regexp: [ 'x' ]\n"
-		. "  - per: [ syslog.pid ]\n  - ban_var:\n      - SRC\n" );
-ok( !eval { $rules->load('raw/badper'); 1 }, 'a raw per keying on the envelope refuses to load' );
+like(
+	load_error( 'nostages', <<'EOR' ),
+  - stages:
+      per: [ SRC ]
+EOR
+	qr/\(rule_gates entry 0\) lacks a stages/,
+	'a per with out stages refuses to load'
+);
+
+like(
+	load_error( 'emptystages', <<'EOR' ),
+  - stages:
+      stages: []
+EOR
+	qr/\(rule_gates entry 0\) stages is not a non-empty array/,
+	'empty stages refuses to load'
+);
+
+like(
+	load_error( 'badstagekey', <<'EOR' ),
+  - stages:
+      stages:
+        - message_regexp: [ 'x' ]
+          derp: 1
+EOR
+	qr/\(rule_gates entry 0\) stages entry 0 has the unknown key "derp"/,
+	'a unknown stage key refuses to load'
+);
+
+like(
+	load_error( 'badcount', <<'EOR' ),
+  - stages:
+      stages:
+        - message_regexp: [ 'x' ]
+          count: 0
+EOR
+	qr/\(rule_gates entry 0\) stages entry 0 has a count that is not a positive int/,
+	'a zero count refuses to load'
+);
+
+like(
+	load_error( 'badper', <<'EOR' ),
+  - stages:
+      per: [ syslog.pid ]
+      stages:
+        - message_regexp: [ 'x' ]
+EOR
+	qr/\(rule_gates entry 0\) per keys on "syslog\.pid", which is not a envelope field this rule type carries/,
+	'a raw per keying on the envelope refuses to load'
+);
 
 done_testing;

@@ -241,7 +241,7 @@ gates in the order a rule usually writes them.
    │           context is stored, no deferred offense completes, and
    │           nothing is harvested at 1.9.
    │
-   ├─ 1.5  stages, with per                 syslog and raw rules only
+   ├─ 1.5  stages                           syslog and raw rules only
    │       The line is tested against the stage its sequence is waiting
    │       on. A hit advances the sequence if that stage's `within` and
    │       `skip` bounds allow it, and kills the sequence if they do not.
@@ -1161,7 +1161,7 @@ accepts a gate or key:
 | `message_regexp` | ✓ | ✓ | — | ✓ | — |
 | `ignore_regexp` | ✓ | ✓ | — | ✓ | — |
 | `capture_regexp` / `capture`+`key`+`defer` (correlation) | ✓ | ✓ | — | — | ✓ |
-| `stages` / `per` (staged sequences) | ✓ | ✓ | — | — | — |
+| `stages` (staged sequences) | ✓ | ✓ | — | — | — |
 | `message_json` | ✓ | — | — | — | — |
 | `status` / `method` | — | — | ✓ | — | — |
 | `level` / `module` | — | — | — | ✓ | — |
@@ -2015,7 +2015,7 @@ The axes underneath that table:
   gates keyed on fields for json. The http and http_error types have no
   need of it, every line already carrying its offender.
 - **Staging.** In-rule ordered sequences... counted stages with time and
-  line bounds (`stages`/`per`)... are a syslog and raw feature.
+  line bounds (`stages`)... are a syslog and raw feature.
 - **JSON in a syslog envelope.** `message_json` decodes a JSON message inside
   a syslog line into gateable fields, a syslog-only bridge to the json
   machinery.
@@ -2189,7 +2189,8 @@ the log lines allowed between hits. The final stage completing is the
 offense, its data the captures of every hit merged, later stages
 authoritative. `stages` replaces `message_regexp`/`capture_regexp`
 entirely... a staged rule's stages are its whole matcher, with an
-`ignore_regexp` above them still vetoing lines.
+`ignore_regexp` above them still vetoing lines. The gate is told a hash
+of `stages`, the list of them, and an optional `per`.
 
 The brute-force-that-worked shape... failures, then a success, the
 compromised-credential alarm one typo never trips:
@@ -2197,14 +2198,15 @@ compromised-credential alarm one typo never trips:
 ```yaml
 rule_gates:
   - stages:
-      - message_regexp:
-          - '^Failed (?:password|publickey) for .* from %%%%SRC%%%%'
-        count: 5
-        within: 300
-      - message_regexp:
-          - '^Accepted \w+ for .* from %%%%SRC%%%%'
-        within: 60
-  - per: [ SRC ]
+      per: [ SRC ]
+      stages:
+        - message_regexp:
+            - '^Failed (?:password|publickey) for .* from %%%%SRC%%%%'
+          count: 5
+          within: 300
+        - message_regexp:
+            - '^Accepted \w+ for .* from %%%%SRC%%%%'
+          within: 60
   - detection_var: [ SRC ]
 ```
 

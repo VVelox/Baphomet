@@ -47,7 +47,6 @@ my @modules = (
 	'App::Baphomet::Gate::namtar_list',
 	'App::Baphomet::Gate::not_marked',
 	'App::Baphomet::Gate::not_tracked',
-	'App::Baphomet::Gate::per',
 	'App::Baphomet::Gate::reverse_dns',
 	'App::Baphomet::Gate::selections',
 	'App::Baphomet::Gate::sequence',

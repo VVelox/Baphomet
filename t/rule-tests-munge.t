@@ -183,16 +183,21 @@ my $staged = App::Baphomet::Rule->new(
 			{ daemons => ['sshd'] },
 			{ mungers => ['sshd'] },
 			{
-				stages => [
-					{
-						message_regexp => ['^Failed password for \S+ from (?<SRC>\S+) port'],
-						count          => 2,
-						within         => 300,
-					},
-					{ message_regexp => ['^Accepted \w+ for (?<USER>\S+) from (?<SRC>\S+) port'], within => 600 },
-				],
+				stages => {
+					per    => ['SRC'],
+					stages => [
+						{
+							message_regexp => ['^Failed password for \S+ from (?<SRC>\S+) port'],
+							count          => 2,
+							within         => 300,
+						},
+						{
+							message_regexp => ['^Accepted \w+ for (?<USER>\S+) from (?<SRC>\S+) port'],
+							within         => 600
+						},
+					],
+				},
 			},
-			{ per           => ['SRC'] },
 			{ detection_var => ['SRC'] },
 		],
 		max_score => 1,

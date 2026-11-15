@@ -19,7 +19,7 @@ alert. The rest of the platform has no counterpart.
 | a rule's numeric `id`                                   | `sid`, derived from the rule name; `gid` marks shipped vs override         |
 | `<if_sid>` / `<if_group>`, composite rules              | marks... one rule gates on another having fired (`mark`/`marked`)          |
 | `<if_matched_sid>` + `<frequency>` + `<timeframe>`      | per-rule `max_score` / `find_time`, under `allow_per_rule_thresholds`      |
-| `<same_source_ip>`, `<different_url>`, ...              | a staged rule's `per` gate, or a mark's `var` / `value_var`                |
+| `<same_source_ip>`, `<different_url>`, ...              | a staged rule's `per`, or a mark's `var` / `value_var`                     |
 | a CDB `<list>` lookup                                   | the `namtar_list` gate (boolean membership)                                |
 | `alerts.json`                                           | the EVE stream ([eve](eve.md))                                             |
 | active response (`firewall-drop`)                       | Ereshkigal's kur backends... the ban itself                                |

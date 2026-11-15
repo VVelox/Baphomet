@@ -72,7 +72,6 @@ lib/App/Baphomet/Gate/mungers.pm
 lib/App/Baphomet/Gate/namtar_list.pm
 lib/App/Baphomet/Gate/not_marked.pm
 lib/App/Baphomet/Gate/not_tracked.pm
-lib/App/Baphomet/Gate/per.pm
 lib/App/Baphomet/Gate/reverse_dns.pm
 lib/App/Baphomet/Gate/selections.pm
 lib/App/Baphomet/Gate/sequence.pm

@@ -27,14 +27,15 @@ rule_gates:
   - mungers:
       - sshd
   - stages:
-      - message_regexp:
-          - '^Failed (?:password|keyboard-interactive\S*) for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
-        count: 5
-        within: 300
-      - message_regexp:
-          - '^Accepted \w+ for (?<USER>\S+) from %%%%SRC%%%%'
-        within: 600
-  - per: [ SRC ]
+      per: [ SRC ]
+      stages:
+        - message_regexp:
+            - '^Failed (?:password|keyboard-interactive\S*) for (?:invalid user )?(?<USER>\S+) from %%%%SRC%%%%'
+          count: 5
+          within: 300
+        - message_regexp:
+            - '^Accepted \w+ for (?<USER>\S+) from %%%%SRC%%%%'
+          within: 600
   - detection_var: [ SRC ]
 tests:
   positive:

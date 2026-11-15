@@ -52,6 +52,8 @@ sub load_error {
 my $name_says = 'a name matching /^[a-zA-Z0-9_\-]+$/';
 my $strings   = 'a non-empty array of non-empty strings';
 my $gate      = [ { 'field' => 'event', 'values' => ['login'] } ];
+# the one stage the staged cases that are not about a stage are given
+my $probe_stage = { 'message_regexp' => ['^probe from %%%%SRC%%%%'] };
 
 # each case is the rule type, what the case is, the keys it adds to the base
 # def, and the message the def dies with, or undef for a def that loads
@@ -748,47 +750,74 @@ my @cases = (
 	],
 	[
 		'syslog',
-		'a stages that is a hash',
+		'a stages that is the bare list of them',
 		{
 			'rule_gates' =>
-				[ $daemons, { 'stages' => { 'message_regexp' => ['^probe from %%%%SRC%%%%'] } }, $ban_src ]
+				[ $daemons, { 'stages' => [ { 'message_regexp' => ['^probe from %%%%SRC%%%%'] } ] }, $ban_src ]
 		},
-		'The stages gate of the rule "syslog/x" (rule_gates entry 1) is not a non-empty array'
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) is not a hash'
+	],
+	[
+		'syslog',
+		'a stages with a per and no stages',
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'per' => 'SRC' } }, $ban_src ] },
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) lacks a stages'
+	],
+	[
+		'syslog',
+		'a stages with a unknown key',
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'stages' => [$probe_stage], 'pre' => 'SRC' } }, $ban_src ] },
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) has the unknown key "pre"'
+	],
+	[
+		'syslog',
+		'a stages whose stages is a hash',
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'stages' => $probe_stage } }, $ban_src ] },
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) stages is not a non-empty array'
+	],
+	[
+		'syslog',
+		'a stages with a per that is a empty array',
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'stages' => [$probe_stage], 'per' => [] } }, $ban_src ] },
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) per has a empty key array'
+	],
+	[
+		'syslog',
+		'a stages with a per and its stages',
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'stages' => [$probe_stage], 'per' => 'SRC' } }, $ban_src ] },
+		undef
 	],
 	[
 		'syslog',
 		'a stage with no message_regexp',
-		{ 'rule_gates' => [ $daemons, { 'stages' => [ { 'count' => 2 } ] }, $ban_src ] },
-		'The stages gate of the rule "syslog/x" (rule_gates entry 1) entry 0 lacks a message_regexp'
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'stages' => [ { 'count' => 2 } ] } }, $ban_src ] },
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) stages entry 0 lacks a message_regexp'
 	],
 	[
 		'syslog',
 		'a stage with a empty message_regexp',
-		{ 'rule_gates' => [ $daemons, { 'stages' => [ { 'message_regexp' => [] } ] }, $ban_src ] },
-		'The stages gate of the rule "syslog/x" (rule_gates entry 1) entry 0 has a message_regexp that is not '
-			. 'a non-empty array of regexp strings'
+		{ 'rule_gates' => [ $daemons, { 'stages' => { 'stages' => [ { 'message_regexp' => [] } ] } }, $ban_src ] },
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) stages entry 0 has a message_regexp '
+			. 'that is not a non-empty array of regexp strings'
 	],
 	[
 		'syslog',
 		'a stage with a count of 0',
 		{
-			'rule_gates' => [
-				$daemons, { 'stages' => [ { 'message_regexp' => ['^probe from %%%%SRC%%%%'], 'count' => 0 } ] },
-				$ban_src
-			]
+			'rule_gates' =>
+				[ $daemons, { 'stages' => { 'stages' => [ { %{$probe_stage}, 'count' => 0 } ] } }, $ban_src ]
 		},
-		'The stages gate of the rule "syslog/x" (rule_gates entry 1) entry 0 has a count that is not a positive int'
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) stages entry 0 has a count '
+			. 'that is not a positive int'
 	],
 	[
 		'syslog',
 		'a stage with a unknown key',
 		{
-			'rule_gates' => [
-				$daemons, { 'stages' => [ { 'message_regexp' => ['^probe from %%%%SRC%%%%'], 'withn' => 5 } ] },
-				$ban_src
-			]
+			'rule_gates' =>
+				[ $daemons, { 'stages' => { 'stages' => [ { %{$probe_stage}, 'withn' => 5 } ] } }, $ban_src ]
 		},
-		'The stages gate of the rule "syslog/x" (rule_gates entry 1) entry 0 has the unknown key "withn"'
+		'The stages gate of the rule "syslog/x" (rule_gates entry 1) stages entry 0 has the unknown key "withn"'
 	],
 
 	#

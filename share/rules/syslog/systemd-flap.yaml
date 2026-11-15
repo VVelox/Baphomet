@@ -22,11 +22,12 @@ rule_gates:
   - mungers:
       - systemd
   - stages:
-      - message_regexp:
-          - '^(?<UNIT>\S+\.service): Scheduled restart job, restart counter is at \d+'
-        count: 3
-        within: 120
-  - per: [ syslog.host, UNIT ]
+      per: [ syslog.host, UNIT ]
+      stages:
+        - message_regexp:
+            - '^(?<UNIT>\S+\.service): Scheduled restart job, restart counter is at \d+'
+          count: 3
+          within: 120
   - detection_var: [ UNIT ]
 tests:
   positive:
