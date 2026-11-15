@@ -29,7 +29,7 @@ Version 0.0.1
 our $VERSION = '0.0.1';
 
 our @EXPORT_OK
-	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
+	= qw( load_config kur_split check_kur_def resolve_settings resolve_country_codes resolve_asn_lists resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family pidfile_or_daemonize known_command );
 
 # the manager commands a per-command authorization rule may name... the one
 # authority the config checks validate against, so the config and the
@@ -336,6 +336,11 @@ Top level keys are as below.
           country gate fails closed.
         Default :: undef
 
+    - geoip_asn_db :: Path to a MaxMind GeoLite2 ASN database, for rules
+          with a asn gate. Read via the same optional module. Unset or
+          unloadable, and every asn gate fails closed.
+        Default :: undef
+
     - enable_dns :: The consent for DNS resolution. With out it any
           usedns is treated as no, loudly. Resolution rides the optional
           Net::DNS and POE::Component::Client::DNS modules... set but
@@ -388,9 +393,22 @@ Top level keys are as below.
           from the cache on the next line.
         Default :: 2
 
+    - enable_dnsbl :: Whether the dnsbl rule gate may look things up. A
+          consent of its own, and off by default, as every lookup tells
+          whoever runs the blocklist which address this host was talking
+          to. Off, dnsbl gates fail closed and count nothing, loudly. It
+          rides the machinery of the reverse_dns gate, rdns_timeout
+          included, and so the same two optional modules.
+        Default :: 0
+
     - country_codes :: A hash of named ISO 3166 code lists a rule's country
           gate can import. Global here, and also per kur and per watcher,
           merged per name.
+        Default :: {}
+
+    - asn_lists :: A hash of named AS number lists a rule's asn gate can
+          import, each number bare or written AS64496. Global here, and
+          also per kur and per watcher, merged per name.
         Default :: {}
 
     - namtar_lists :: A hash of named lists a rule's namtar_list gate can
@@ -463,6 +481,9 @@ Watcher hashes take the keys below.
 
     - country_codes :: Named country-code lists overriding the kur's and
           global's for this watcher's rules.
+
+    - asn_lists :: Named AS number lists overriding the kur's and global's
+          for this watcher's rules.
 
     - namtar_lists :: Named lists (cidr or string) overriding the kur's and
           global's for this watcher's rules.
@@ -545,6 +566,7 @@ sub load_config {
 		'usedns_max_addrs'          => 4,
 		'enable_rdns'               => 1,
 		'rdns_timeout'              => 2,
+		'enable_dnsbl'              => 0,
 		'default_severity'          => undef,
 		'ignore_ips'                => [],
 		'internal'                  => undef,
@@ -559,7 +581,9 @@ sub load_config {
 		'eve_log'                   => '/var/log/baphomet/eve.json',
 		'eve_enable'                => 0,
 		'geoip_db'                  => undef,
+		'geoip_asn_db'              => undef,
 		'country_codes'             => {},
+		'asn_lists'                 => {},
 		'namtar_lists'              => {},
 		'active_time'               => {},
 		'ClayTablet'                => undef,
@@ -645,6 +669,7 @@ sub load_config {
 	$config->{observe_ignored}           = $config->{observe_ignored}           ? 1 : 0;
 	$config->{enable_dns}                = $config->{enable_dns}                ? 1 : 0;
 	$config->{enable_rdns}               = $config->{enable_rdns}               ? 1 : 0;
+	$config->{enable_dnsbl}              = $config->{enable_dnsbl}              ? 1 : 0;
 
 	# usedns... how a hostname offender is handled, gated behind enable_dns
 	my $usedns_error = _usedns_error( $config->{usedns} );
@@ -668,12 +693,18 @@ sub load_config {
 		die('eve_log is not a path');
 	}
 
-	if ( defined( $config->{geoip_db} ) && ( ref( $config->{geoip_db} ) ne '' || $config->{geoip_db} eq '' ) ) {
-		die('geoip_db is not a path');
+	foreach my $item ( 'geoip_db', 'geoip_asn_db' ) {
+		if ( defined( $config->{$item} ) && ( ref( $config->{$item} ) ne '' || $config->{$item} eq '' ) ) {
+			die( $item . ' is not a path' );
+		}
 	}
 	my $codes_error = _country_codes_error( $config->{country_codes}, 'The top level country_codes' );
 	if ( defined($codes_error) ) {
 		die($codes_error);
+	}
+	my $asn_error = _asn_lists_error( $config->{asn_lists}, 'The top level asn_lists' );
+	if ( defined($asn_error) ) {
+		die($asn_error);
 	}
 	my $namtar_error = _namtar_lists_error( $config->{namtar_lists}, 'The top level namtar_lists' );
 	if ( defined($namtar_error) ) {
@@ -835,9 +866,10 @@ watchers, everything else is a setting.
 =cut
 
 # settings that are hashes rather than scalars, so kur_split does not
-# mistake them for watchers... country_codes, namtar_lists, and active_time
-# are hashes of named things
-my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' => 1, 'rule_config' => 1 );
+# mistake them for watchers... country_codes, asn_lists, namtar_lists, and
+# active_time are hashes of named things
+my %hash_settings
+	= ( 'country_codes' => 1, 'asn_lists' => 1, 'namtar_lists' => 1, 'active_time' => 1, 'rule_config' => 1 );
 
 # the allowed keys, built once from a shared core so the kur-level and
 # watcher-level checks can not drift apart... the kur level adds ignore_ips
@@ -847,7 +879,7 @@ my %hash_settings = ( 'country_codes' => 1, 'namtar_lists' => 1, 'active_time' =
 my @shared_setting_keys = qw(
 	max_score find_time ban_time ban_subnet_v4 ban_subnet_v6
 	subnet_max_score subnet_find_time allow_per_rule_thresholds eve_only track_only_eve_store
-	observe_ignored overlap default_severity usedns country_codes
+	observe_ignored overlap default_severity usedns country_codes asn_lists
 	namtar_lists active_time rule_config
 );
 my %kur_setting_keys     = map { $_ => 1 } ( @shared_setting_keys, qw( ignore_ips internal ) );
@@ -859,7 +891,7 @@ my %watcher_setting_keys = map { $_ => 1 } ( @shared_setting_keys, qw( log journ
 my %watcher_key_ref_types = (
 	( map { $_ => { 'ARRAY' => 1 } } qw( rule log ) ),
 	'journal' => { 'ARRAY' => 1, 'JSON::PP::Boolean' => 1 },
-	( map { $_ => { 'HASH' => 1 } } qw( join country_codes namtar_lists active_time rule_config ) ),
+	( map { $_ => { 'HASH' => 1 } } qw( join country_codes asn_lists namtar_lists active_time rule_config ) ),
 	(
 		map { $_ => { 'JSON::PP::Boolean' => 1 } }
 			qw( allow_per_rule_thresholds eve_only track_only_eve_store observe_ignored )
@@ -1555,6 +1587,12 @@ sub _settings_error {
 			return $codes_error;
 		}
 	}
+	if ( defined( $settings->{asn_lists} ) ) {
+		my $asn_error = _asn_lists_error( $settings->{asn_lists}, 'asn_lists' );
+		if ( defined($asn_error) ) {
+			return $asn_error;
+		}
+	}
 	if ( defined( $settings->{namtar_lists} ) ) {
 		my $namtar_error = _namtar_lists_error( $settings->{namtar_lists}, 'namtar_lists' );
 		if ( defined($namtar_error) ) {
@@ -1654,6 +1692,55 @@ sub _country_codes_error {
 
 	return undef;
 } ## end sub _country_codes_error
+
+=head2 resolve_asn_lists
+
+Resolves the effective named AS number lists for a watcher... the global
+asn_lists overlaid by the kur's, then the watcher's, merged per name so a
+deeper level replaces a same-named list while names it does not mention
+stay inherited. Each number comes back bare, any AS ahead of it off.
+
+    my $lists = resolve_asn_lists( $config, $kur_settings, $watcher );
+
+=cut
+
+sub resolve_asn_lists {
+	my ( $config, $kur_settings, $watcher ) = @_;
+
+	my $resolved = {};
+	foreach my $level ( $config, $kur_settings, $watcher ) {
+		if ( defined($level) && is_plain_hashref( $level->{asn_lists} ) ) {
+			foreach my $name ( keys( %{ $level->{asn_lists} } ) ) {
+				$resolved->{$name} = [ map { ( $_ =~ s/^[Aa][Ss]//r ) + 0 } @{ $level->{asn_lists}{$name} } ];
+			}
+		}
+	}
+
+	return $resolved;
+} ## end sub resolve_asn_lists
+
+# returns a error string if the passed asn_lists is not a hash of non-empty
+# arrays of AS numbers, each bare or written AS64496, undef otherwise...
+# $where leads the message
+sub _asn_lists_error {
+	my ( $lists, $where ) = @_;
+
+	if ( !is_plain_hashref($lists) ) {
+		return $where . ' is not a hash of named AS number lists';
+	}
+	foreach my $name ( keys( %{$lists} ) ) {
+		if ( !is_plain_arrayref( $lists->{$name} ) || !@{ $lists->{$name} } ) {
+			return $where . ' list "' . $name . '" is not a non-empty array';
+		}
+		foreach my $number ( @{ $lists->{$name} } ) {
+			if ( !defined($number) || ref($number) ne '' || $number !~ /^(?:[Aa][Ss])?[0-9]{1,10}$/ ) {
+				return $where . ' list "' . $name . '" has a entry that is not a AS number';
+			}
+		}
+	} ## end foreach my $name ( keys( %{$lists} ) )
+
+	return undef;
+} ## end sub _asn_lists_error
 
 =head2 resolve_namtar_lists
 

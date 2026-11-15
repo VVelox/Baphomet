@@ -6,7 +6,7 @@ use v5.40;
 no feature 'unicode_strings';
 use Exporter              qw( import );
 use Ref::Util             qw( is_plain_arrayref is_plain_hashref );
-use List::Util            qw( all );
+use List::Util            qw( all any );
 use App::Baphomet::Parser ();
 use App::Baphomet::Tracks qw( track_get );
 use App::Baphomet::Gate   qw( bind_rule_gates walk_offense );
@@ -97,6 +97,15 @@ C<%%%country_codes{name}%%%> token resolves against) for the GeoIP
 locator... with one present the reverse_dns or country gate runs exactly
 as in the galla, and absent it the gate is skipped.
 
+The other lookups are fixtured the same way, each gate skipped with out
+its own. The C<dns> fixture's C<dnsbl> map, of a zone to a map of address
+to answer, stands in for the blocklists a dnsbl gate asks. The C<geo>
+fixture's C<asns> map, of a address to a AS number, a C<< {number, org} >>
+hash, or C<unknown>, and its C<asn_lists>, stand in for the ASN database
+and the lists a C<%%%asn_lists{name}%%%> token resolves against. And a
+C<accounts> list names the accounts a account gate finds, every other name
+being nobody's.
+
 =cut
 
 sub run_tests {
@@ -185,7 +194,7 @@ sub run_tests {
 			# a typo'd assertion key would otherwise be a assertion that
 			# never runs... the very silence this machinery exists to end
 			my @unknown_keys = grep {
-				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo)$/
+				!/^(?:message|messages|parser|found|data|undefed|marks_before|marks_expected|tracked_before|tracked_expected|dns|geo|accounts)$/
 			} keys( %{$test} );
 			if (@unknown_keys) {
 				foreach my $test_key (@unknown_keys) {
@@ -222,24 +231,54 @@ sub run_tests {
 			# always, and a fixture where the test has one
 			my %gate_context = ( 'marks' => sub { return \%marks_store; } );
 
-			# the dns fixture... a resolver the reverse_dns gate judges over, so
-			# the gate runs here exactly as it would in the galla
+			# the dns fixture... a resolver the reverse_dns gate judges over and
+			# a asker the dnsbl gate does, so each runs here exactly as it would
+			# in the galla. a fixture of blocklists alone stands in for no
+			# resolver, so a reverse_dns gate beside the dnsbl one is skipped
+			# and not failed on questions the test never meant to answer
 			if ( defined( $test->{dns} ) ) {
 				my $dns_resolver = _test_dns_resolver( $test->{dns}, $where, $results );
 				if ( !defined($dns_resolver) ) {
 					next TEST;
 				}
-				$gate_context{resolver} = sub { return $dns_resolver; };
-			}
+				my $has_dnsbl = defined( $test->{dns}{dnsbl} );
+				if ($has_dnsbl) {
+					$gate_context{dnsbl} = sub { return $dns_resolver->{listed}; };
+				}
+				if ( !$has_dnsbl || defined( $test->{dns}{ptr} ) || defined( $test->{dns}{forward} ) ) {
+					$gate_context{resolver} = sub { return $dns_resolver; };
+				}
+			} ## end if ( defined( $test->{dns} ) )
 
-			# the geo fixture likewise... a locator, and the named code lists a
-			# %%%country_codes{...}%%% token resolves against
+			# the geo fixture likewise... a locator and the named code lists a
+			# %%%country_codes{...}%%% token resolves against, and a asn locator
+			# and the lists a %%%asn_lists{...}%%% token does. a fixture of
+			# networks alone stands in for no country locator, as with dns
 			if ( defined( $test->{geo} ) ) {
-				( $gate_context{locator}, $gate_context{country_codes} )
-					= _test_geo_locator( $test->{geo}, $where, $results );
-				if ( !defined( $gate_context{locator} ) ) {
+				my $geo = _test_geo_locator( $test->{geo}, $where, $results );
+				if ( !defined($geo) ) {
 					next TEST;
 				}
+				my $has_asn = defined( $test->{geo}{asns} ) || defined( $test->{geo}{asn_lists} );
+				if ($has_asn) {
+					$gate_context{asn_locator} = $geo->{asn_locator};
+					$gate_context{asn_lists}   = $geo->{asn_lists};
+				}
+				if ( !$has_asn || defined( $test->{geo}{countries} ) || defined( $test->{geo}{lists} ) ) {
+					$gate_context{locator}       = $geo->{locator};
+					$gate_context{country_codes} = $geo->{country_codes};
+				}
+			} ## end if ( defined( $test->{geo} ) )
+
+			# the accounts fixture... the names a account gate finds
+			if ( defined( $test->{accounts} ) ) {
+				my $accounts = $test->{accounts};
+				if ( !is_plain_arrayref($accounts) || any { !defined($_) || ref($_) ne '' } @{$accounts} ) {
+					push( @{ $results->{failures} }, $where . ' accounts is not a array of names' );
+					next TEST;
+				}
+				my %accounts = map { $_ => 1 } @{$accounts};
+				$gate_context{accounts} = sub { return $accounts{ $_[0] } ? 1 : 0; };
 			}
 
 			# the rule's gates, bound over that and sorted by phase, as the
@@ -336,6 +375,7 @@ sub run_tests {
 					$one->{now}    = $clock;
 					$one->{set}    = [];
 					$one->{lifted} = [];
+					$one->{scope}  = $test_scope;
 					if ( walk_offense( $gates, $one ) ) {
 						push( @found_all, $one );
 					}
@@ -454,12 +494,27 @@ sub run_tests {
 	return $results;
 } ## end sub run_tests
 
-# builds the resolver pair from a test entry's dns fixture... ptr maps a
-# address to its names, forward a name to its addresses, either answer a
-# list, the string nxdomain (authoritative absence), or servfail (a
-# failure). anything unfixtured answers servfail, fail-closed as an
-# unanswerable question is in the galla. returns undef on a malformed
-# fixture, the failure pushed
+# builds the resolver from a test entry's dns fixture, what the reverse_dns
+# and dnsbl gates ask with. anything unfixtured answers servfail, fail-closed
+# as an unanswerable question is in the galla.
+#
+# args:
+#   $fixture :: the dns hash of the test entry... ptr maps a address to its
+#               names, forward a name to its addresses, and dnsbl a zone to
+#               a map of address to the addresses the zone lists it under.
+#               each answer is a list, the string nxdomain (authoritative
+#               absence), or the string servfail (a failure)
+#   $where   :: the lead in for a failure message, naming the test entry
+#   $results :: the results hash of the run, whose failures a malformed
+#               fixture is pushed onto
+#
+# returns a hash ref of reverse and forward, each a sub taking a address or
+# a name, and listed, a sub taking a zone and a address, all three answering
+# a array ref, a empty one for nxdomain, or undef for servfail. undef on a
+# malformed fixture.
+#
+#   my $resolver = _test_dns_resolver( { 'ptr' => { '192.0.2.7' => ['crawl.example.org'] } }, $where, $results );
+#   my $names = $resolver->{reverse}->('192.0.2.7');    # ['crawl.example.org']
 sub _test_dns_resolver {
 	my ( $fixture, $where, $results ) = @_;
 
@@ -467,8 +522,12 @@ sub _test_dns_resolver {
 		push( @{ $results->{failures} }, $where . ' dns is not a hash' );
 		return undef;
 	}
+
+	# every map of subject to answer in the fixture, by what it is called in a
+	# failure message... ptr and forward are one each, and dnsbl one per zone
+	my %answer_maps;
 	foreach my $fixture_key ( keys( %{$fixture} ) ) {
-		if ( $fixture_key !~ /^(?:ptr|forward)$/ ) {
+		if ( $fixture_key !~ /^(?:ptr|forward|dnsbl)$/ ) {
 			push( @{ $results->{failures} }, $where . ' dns has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
@@ -476,19 +535,32 @@ sub _test_dns_resolver {
 			push( @{ $results->{failures} }, $where . ' dns ' . $fixture_key . ' is not a hash' );
 			return undef;
 		}
-		foreach my ( $subject, $answer ) ( %{ $fixture->{$fixture_key} } ) {
+		if ( $fixture_key ne 'dnsbl' ) {
+			$answer_maps{$fixture_key} = $fixture->{$fixture_key};
+			next;
+		}
+		foreach my ( $zone, $zone_map ) ( %{ $fixture->{dnsbl} } ) {
+			if ( !is_plain_hashref($zone_map) ) {
+				push( @{ $results->{failures} }, $where . ' dns dnsbl "' . $zone . '" is not a hash' );
+				return undef;
+			}
+			$answer_maps{ 'dnsbl "' . $zone . '"' } = $zone_map;
+		}
+	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
+	foreach my ( $map_name, $answer_map ) (%answer_maps) {
+		foreach my ( $subject, $answer ) ( %{$answer_map} ) {
 			if ( !is_plain_arrayref($answer) && ( ref($answer) ne '' || $answer !~ /^(?:nxdomain|servfail)$/ ) ) {
 				push(
 					@{ $results->{failures} },
 					$where . ' dns '
-						. $fixture_key . ' "'
+						. $map_name . ' "'
 						. $subject
 						. '" is not a list of names/addresses, nxdomain, or servfail'
 				);
 				return undef;
 			} ## end if ( !is_plain_arrayref($answer) && ( ref(...)))
-		} ## end foreach my ( $subject, $answer ) ( %{ $fixture->...})
-	} ## end foreach my $fixture_key ( keys( %{$fixture} ) )
+		} ## end foreach my ( $subject, $answer ) ( %{$answer_map...})
+	} ## end foreach my ( $map_name, $answer_map ) (%answer_maps)
 
 	my $answer_for = sub {
 		my ( $map, $subject ) = @_;
@@ -503,18 +575,36 @@ sub _test_dns_resolver {
 	}; ## end $answer_for = sub
 
 	return {
-		'reverse' => sub { return $answer_for->( $fixture->{ptr},     $_[0] ); },
-		'forward' => sub { return $answer_for->( $fixture->{forward}, $_[0] ); },
+		'reverse' => sub { return $answer_for->( $fixture->{ptr},            $_[0] ); },
+		'forward' => sub { return $answer_for->( $fixture->{forward},        $_[0] ); },
+		'listed'  => sub { return $answer_for->( $fixture->{dnsbl}{ $_[0] }, $_[1] ); },
 	};
 } ## end sub _test_dns_resolver
 
-# builds the locator and code lists from a test entry's geo fixture...
-# countries maps a address to its ISO code, or the string unknown for a
-# address the database would not place, and lists names the code sets a
-# %%%country_codes{name}%%% token resolves against. anything unfixtured is
-# unknown, fail-closed as an unplaceable address is in the galla. returns
-# (locator, lists), or a lone undef on a malformed fixture, the failure
-# pushed
+# builds the locators and lists from a test entry's geo fixture, what the
+# country and asn gates are judged over. anything unfixtured is unknown,
+# fail-closed as an unplaceable address is in the galla.
+#
+# args:
+#   $fixture :: the geo hash of the test entry... countries maps a address
+#               to its ISO code, asns a address to its AS number, bare or
+#               written AS64496, or to a hash of number and org, either map
+#               taking the string unknown for a address the database would
+#               not place. lists and asn_lists name the sets a
+#               %%%country_codes{name}%%% and a %%%asn_lists{name}%%% token
+#               resolve against
+#   $where   :: the lead in for a failure message, naming the test entry
+#   $results :: the results hash of the run, whose failures a malformed
+#               fixture is pushed onto
+#
+# returns a hash ref of locator, a sub taking a address and returning its
+# code upcased or undef, country_codes, the named code lists, asn_locator, a
+# sub taking a address and returning a hash ref of number and org or undef,
+# and asn_lists, the named number lists with any AS off. undef on a
+# malformed fixture.
+#
+#   my $geo = _test_geo_locator( { 'countries' => { '203.0.113.9' => 'nl' } }, $where, $results );
+#   my $code = $geo->{locator}->('203.0.113.9');    # 'NL'
 sub _test_geo_locator {
 	my ( $fixture, $where, $results ) = @_;
 
@@ -523,7 +613,7 @@ sub _test_geo_locator {
 		return undef;
 	}
 	foreach my $fixture_key ( keys( %{$fixture} ) ) {
-		if ( $fixture_key !~ /^(?:countries|lists)$/ ) {
+		if ( $fixture_key !~ /^(?:countries|lists|asns|asn_lists)$/ ) {
 			push( @{ $results->{failures} }, $where . ' geo has the unknown key "' . $fixture_key . '"' );
 			return undef;
 		}
@@ -542,24 +632,56 @@ sub _test_geo_locator {
 			return undef;
 		}
 	} ## end foreach my $address ( keys( %{ $fixture->{countries...}}))
-	foreach my $list_name ( keys( %{ $fixture->{lists} || {} } ) ) {
-		if ( !is_plain_arrayref( $fixture->{lists}{$list_name} ) ) {
-			push( @{ $results->{failures} }, $where . ' geo lists "' . $list_name . '" is not a array' );
-			return undef;
+	foreach my $list_key ( 'lists', 'asn_lists' ) {
+		foreach my $list_name ( keys( %{ $fixture->{$list_key} || {} } ) ) {
+			if ( !is_plain_arrayref( $fixture->{$list_key}{$list_name} ) ) {
+				push( @{ $results->{failures} },
+					$where . ' geo ' . $list_key . ' "' . $list_name . '" is not a array' );
+				return undef;
+			}
 		}
 	}
 
-	my $countries = $fixture->{countries} || {};
-	my $locator   = sub {
-		my ($address) = @_;
-		my $code = $countries->{$address};
-		if ( !defined($code) || $code eq 'unknown' ) {
+	# the networks, each as the asn locator answers one... a lone number is a
+	# network with no name
+	my %networks;
+	foreach my ( $address, $network ) ( %{ $fixture->{asns} || {} } ) {
+		my $number = is_plain_hashref($network) ? $network->{number} : $network;
+		my $org    = is_plain_hashref($network) ? $network->{org}    : undef;
+		if ( !defined($number) || ref($number) ne '' || $number !~ /^(?:(?:[Aa][Ss])?[0-9]{1,10}|unknown)$/ ) {
+			push(
+				@{ $results->{failures} },
+				$where
+					. ' geo asns "'
+					. $address
+					. '" is not a AS number, a hash with one as its number, or unknown'
+			);
 			return undef;
+		} ## end if ( !defined($number) || ref($number) ne ...)
+		if ( $number ne 'unknown' ) {
+			$networks{$address} = { 'number' => ( $number =~ s/^[Aa][Ss]//r ) + 0, 'org' => $org };
 		}
-		return uc($code);
-	};
+	} ## end foreach my ( $address, $network ) ( %{ $fixture...})
+	my %asn_lists;
+	foreach my ( $list_name, $numbers ) ( %{ $fixture->{asn_lists} || {} } ) {
+		$asn_lists{$list_name} = [ map { ( $_ =~ s/^[Aa][Ss]//r ) + 0 } @{$numbers} ];
+	}
 
-	return ( $locator, $fixture->{lists} || {} );
+	my $countries = $fixture->{countries} || {};
+
+	return {
+		'locator' => sub {
+			my ($address) = @_;
+			my $code = $countries->{$address};
+			if ( !defined($code) || $code eq 'unknown' ) {
+				return undef;
+			}
+			return uc($code);
+		},
+		'country_codes' => $fixture->{lists} || {},
+		'asn_locator'   => sub { return $networks{ $_[0] }; },
+		'asn_lists'     => \%asn_lists,
+	};
 } ## end sub _test_geo_locator
 
 # checks one marks_before, tracked_before, marks_expected/marks_after, or

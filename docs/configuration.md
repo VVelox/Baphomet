@@ -159,6 +159,15 @@ Each setting's default is given in parens after its name.
   `IP::Geolocation::MMDB` module. Unset, or unloadable, and every
   country gate fails closed (banishes nobody), with a loud warning at
   galla start.
+- `geoip_asn_db` (unset) :: Path to a MaxMind GeoLite2 ASN database, for
+  rules with an `asn` gate. Read via the same optional module. Unset, or
+  unloadable, and every asn gate fails closed, with the same loud warning.
+- `enable_dnsbl` (`false`) :: Whether the `dnsbl` rule gate may look
+  things up. A consent of its own and off by default, as every lookup
+  tells whoever runs the blocklist which address this host was talking to.
+  Off, dnsbl gates fail closed and count nothing, loudly. It rides the
+  machinery of the `reverse_dns` gate, `rdns_timeout` included. See
+  [rules](rules.md#dnsbl-what-a-blocklist-says-of-an-address).
 
 ### The manager socket and its gate
 
@@ -182,6 +191,9 @@ Each setting's default is given in parens after its name.
 - `country_codes` (`{}`) :: Named lists of ISO 3166 country codes a
   `country` gate can import. A hash of arrays. Global, per kur, and per
   watcher, merged per name. See [below](#country-code-lists).
+- `asn_lists` (`{}`) :: Named lists of AS numbers an `asn` gate can
+  import. A hash of arrays. Global, per kur, and per watcher, merged per
+  name. See [below](#asn-lists).
 - `namtar_lists` (`{}`) :: Named lists of CIDR files a `namtar_list` gate
   checks against, each a path or array of paths. A hash. Global, per kur,
   and per watcher, merged per name. Reloaded on mtime change. See
@@ -214,6 +226,27 @@ allowed = [ "US" ]
 
 A rule imports a list with the `%%%country_codes{name}%%%` token in its
 `country` gate. See [rules](rules.md).
+
+## ASN lists
+
+`asn_lists` does for networks what `country_codes` does for countries... it
+names reusable lists of AS numbers, so a rule can import "the office" or
+"hosting providers" and the operator owns which networks those are. A hash
+of named arrays, layered and merged the same way. A number may be written
+bare or as `AS64496`.
+
+```toml
+[asn_lists]
+office  = [ "AS64496" ]
+hosting = [ 64500, 64501, 64502 ]
+
+[kur.web.asn_lists]            # this kur has an office of its own
+office = [ "AS64497" ]
+```
+
+A rule imports a list with the `%%%asn_lists{name}%%%` token in its `asn`
+gate, which needs the `geoip_asn_db` to place an address on a network. See
+[rules](rules.md#asn-narrowing-an-offense-by-network).
 
 ## Namtar lists
 

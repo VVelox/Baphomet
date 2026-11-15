@@ -128,6 +128,9 @@ What a gate of the offense phase is handed. A hash of...
     - offenders :: Once named, array ref of the values a banning rule may
           banish. Empty for a detection rule.
 
+    - scope :: What the offense is of, the name of the watcher whose line
+          made it. A gate that keeps state of its own keeps it by this.
+
     - set / lifted :: Array refs of the brands set on and lifted from it,
           each a hash of C<name> and C<key>.
 
@@ -142,15 +145,29 @@ fixtures of a rule's own tests.
     - locator :: A sub taking a address and returning its ISO 3166 country
           code upcased, or undef for one it can not place.
 
+    - asn_locator :: A sub taking a address and returning the network it is
+          on, a hash of C<number>, the AS number, and C<org>, the name of who
+          runs it or undef, or undef for one it can not place.
+
     - resolver :: A sub returning the resolver, or undef when there is none
           to ask. The resolver is a hash of C<reverse> and C<forward>, each a
           sub answering a array ref of names or addresses, a empty one for
           authoritative absence, or undef for a failure.
 
+    - dnsbl :: A sub returning the blocklist asker, or undef when there is
+          none to ask with. The asker is a sub taking a zone and a address
+          and answering a array ref of the addresses the zone lists it
+          under, a empty one when it does not, or undef for a failure.
+
+    - accounts :: A sub taking a name and returning true when it is a
+          account of the host.
+
     - namtar_files :: The loaded lists, a hash of slot key to a hash holding
           that slot's compiled C<set>.
 
     - country_codes :: Hash of the named country code lists.
+
+    - asn_lists :: Hash of the named AS number lists, each number bare.
 
     - namtar_lists :: Hash of the named lists.
 
@@ -164,7 +181,7 @@ fixtures of a rule's own tests.
 
     - on_set / on_unset :: Subs told of each brand set and lifted, or undef.
 
-C<marks> and C<resolver> hand the thing over when asked so a gate judges
+C<marks>, C<resolver>, and C<dnsbl> hand the thing over when asked so a gate judges
 over what is there at the time, not what was there when it was bound.
 
 =head1 WRITING A TYPE

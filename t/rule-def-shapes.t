@@ -605,9 +605,31 @@ my @cases = (
 	],
 	[
 		'syslog',
-		'a country with neither is nor isnot',
+		'a country with nothing to do',
 		{ 'rule_gates' => [ @sshd, $ban_src, { 'country' => { 'vars' => ['SRC'] } } ] },
-		'The country gate of the rule "syslog/x" (rule_gates entry 3) has neither is nor isnot'
+		'The country gate of the rule "syslog/x" (rule_gates entry 3) has none of is, isnot, or into'
+	],
+	[
+		'syslog',
+		'a country into with no var',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'country' => { 'into' => 'COUNTRY' } } ] },
+		'The country gate of the rule "syslog/x" (rule_gates entry 3) has a into, '
+			. 'which needs exactly one var to lift the country of'
+	],
+	[
+		'syslog',
+		'a country into with two vars',
+		{
+			'rule_gates' =>
+				[ @sshd, $ban_src, { 'country' => { 'is' => 'US', 'vars' => [ 'SRC', 'DEST' ], 'into' => 'COUNTRY' } } ]
+		},
+		'The country gate of the rule "syslog/x" (rule_gates entry 3) has a into, '
+			. 'which needs exactly one var to lift the country of'
+	],
+	[
+		'syslog',
+		'a country that only lifts',
+		{ 'rule_gates' => [ @sshd, { 'country' => { 'vars' => 'SRC', 'into' => 'COUNTRY' } }, $ban_src ] }, undef
 	],
 	[
 		'syslog',
@@ -627,6 +649,143 @@ my @cases = (
 		'syslog',
 		'a country naming one code and one var bare',
 		{ 'rule_gates' => [ @sshd, $ban_src, { 'country' => { 'is' => 'US', 'vars' => 'SRC' } } ] }, undef
+	],
+
+	#
+	# asn
+	#
+	[
+		'syslog',
+		'a asn with two modes',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'asn' => { 'is' => 64496, 'org_isnot' => 'hosting' } } ] },
+		'The asn gate of the rule "syslog/x" (rule_gates entry 3) has both is and org_isnot'
+	],
+	[
+		'syslog',
+		'a asn with nothing to do',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'asn' => { 'vars' => 'SRC' } } ] },
+		'The asn gate of the rule "syslog/x" (rule_gates entry 3) has none of '
+			. 'is, isnot, org_is, org_isnot, into, or org_into'
+	],
+	[
+		'syslog',
+		'a asn entry that is no number',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'asn' => { 'is' => ['AS-EXAMPLE'] } } ] },
+		'The asn gate of the rule "syslog/x" (rule_gates entry 3) has a is that is not a AS number or a '
+			. '%%%asn_lists{name}%%% import, or a non-empty array of them'
+	],
+	[
+		'syslog',
+		'a asn org_into with no var',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'asn' => { 'org_into' => 'ORG' } } ] },
+		'The asn gate of the rule "syslog/x" (rule_gates entry 3) has a into or org_into, '
+			. 'which needs exactly one var to lift the network of'
+	],
+	[
+		'syslog',
+		'a asn keyed by the offender with no ban_var above it',
+		{ 'rule_gates' => [ @sshd, { 'asn' => { 'is' => 'AS64496' } }, $ban_src ] },
+		'The asn gate of the rule "syslog/x" (rule_gates entry 2) keys on the offender, '
+			. 'and no ban_var above it names one'
+	],
+	[
+		'syslog',
+		'a asn that judges and lifts',
+		{
+			'rule_gates' => [
+				@sshd,
+				{ 'asn' => { 'isnot' => [ 64496, '%%%asn_lists{office}%%%' ], 'vars' => 'SRC', 'into' => 'ASN' } },
+				$ban_src
+			]
+		},
+		undef
+	],
+
+	#
+	# dnsbl
+	#
+	[
+		'syslog',
+		'a dnsbl with no zones',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'dnsbl' => { 'var' => 'SRC' } } ] },
+		'The dnsbl gate of the rule "syslog/x" (rule_gates entry 3) lacks a zones'
+	],
+	[
+		'syslog',
+		'a dnsbl zone that is no host name',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'dnsbl' => { 'zones' => ['bl example org'] } } ] },
+		'The dnsbl gate of the rule "syslog/x" (rule_gates entry 3) has a zones that is not '
+			. 'a zone name or a non-empty array of them'
+	],
+	[
+		'syslog',
+		'a dnsbl code out of the listing range',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'dnsbl' => { 'zones' => 'bl.example.org', 'codes' => '10.0.0.2' } } ] },
+		'The dnsbl gate of the rule "syslog/x" (rule_gates entry 3) has a codes that is not '
+			. 'a address out of 127.0.0.0/8 or a non-empty array of them'
+	],
+	[
+		'syslog',
+		'a dnsbl on_servfail of compare',
+		{
+			'rule_gates' =>
+				[ @sshd, $ban_src, { 'dnsbl' => { 'zones' => 'bl.example.org', 'on_servfail' => 'compare' } } ]
+		},
+		'The dnsbl gate of the rule "syslog/x" (rule_gates entry 3) has a on_servfail that is not one of pass or fail'
+	],
+	[
+		'syslog',
+		'a dnsbl of one zone and one code',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'dnsbl' => { 'zones' => 'bl.example.org', 'codes' => '127.0.0.2' } } ] },
+		undef
+	],
+
+	#
+	# account
+	#
+	[
+		'syslog',
+		'a account with no var',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'exists' => 0 } }, $ban_src ] },
+		'The account gate of the rule "syslog/x" (rule_gates entry 2) lacks a var'
+	],
+	[
+		'syslog',
+		'a account with a unknown key',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'negate' => 1 } }, $ban_src ] },
+		'The account gate of the rule "syslog/x" (rule_gates entry 2) has the unknown key "negate"'
+	],
+	[
+		'syslog',
+		'a account above the ban_var',
+		{ 'rule_gates' => [ @sshd, { 'account' => { 'var' => 'USER', 'exists' => 0 } }, $ban_src ] }, undef
+	],
+
+	#
+	# limit
+	#
+	[
+		'syslog',
+		'a limit with no by',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'limit' => { 'seconds' => 60 } } ] },
+		'The limit gate of the rule "syslog/x" (rule_gates entry 3) lacks a by'
+	],
+	[
+		'syslog',
+		'a limit with no seconds',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'limit' => { 'by' => 'SRC' } } ] },
+		'The limit gate of the rule "syslog/x" (rule_gates entry 3) lacks a seconds'
+	],
+	[
+		'syslog',
+		'a limit count of zero',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'limit' => { 'by' => 'SRC', 'seconds' => 60, 'count' => 0 } } ] },
+		'The limit gate of the rule "syslog/x" (rule_gates entry 3) has a count that is not a positive int'
+	],
+	[
+		'syslog',
+		'a limit above the ban_var',
+		{ 'rule_gates' => [ @sshd, { 'limit' => { 'by' => [ 'SRC', 'USER' ], 'seconds' => 60 } }, $ban_src ] }, undef
 	],
 	[
 		'syslog',

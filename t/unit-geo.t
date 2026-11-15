@@ -90,4 +90,57 @@ ok( $is->holds( {},  '198.51.100.5' ), 'is US counts a home offender' );
 ok( !$is->holds( {}, '203.0.113.9' ),  'and drops a foreign one' );
 ok( !$is->holds( {}, '192.0.2.66' ),   'a unplaceable offender fails closed under is too' );
 
+#
+# into... the code lifted for what is below the gate to read
+#
+
+my $lift_only = country_gate( { 'vars' => 'src', 'into' => 'COUNTRY' }, \%countries, {} );
+is( $lift_only->{mode}, undef,    'a gate with only a into has no mode' );
+is( $lift_only->pass,   'result', 'and is asked once of the offense' );
+
+my %data = ( 'src' => '203.0.113.9' );
+ok( $lift_only->holds( \%data, undef ), 'a gate that only lifts holds' );
+is_deeply( \%data, { 'src' => '203.0.113.9', 'COUNTRY' => 'NL' }, 'and the code is lifted into its var' );
+
+%data = ( 'src' => '192.0.2.66' );
+ok( $lift_only->holds( \%data, undef ), 'it vetoes nothing on a address it can not place' );
+is_deeply( \%data, { 'src' => '192.0.2.66' }, 'and lifts nothing' );
+
+%data = ();
+ok( $lift_only->holds( \%data, undef ), 'nor on a var the offense lacks' );
+is_deeply( \%data, {}, 'which lifts nothing either' );
+
+%data = ( 'src' => '203.0.113.9', 'COUNTRY' => 'from the line' );
+$lift_only->holds( \%data, undef );
+is( $data{COUNTRY}, 'from the line', 'a value the offense already has is not lifted over' );
+
+my $judging_lift = country_gate( { 'isnot' => 'US', 'vars' => 'src', 'into' => 'COUNTRY' }, \%countries, {} );
+%data = ( 'src' => '198.51.100.5' );
+ok( !$judging_lift->holds( \%data, undef ), 'a gate that judges and lifts still vetoes' );
+ok( !exists( $data{COUNTRY} ),              'and a vetoed offense is lifted nothing' );
+%data = ( 'src' => '203.0.113.9' );
+ok( $judging_lift->holds( \%data, undef ), 'and it lifts into what it holds for' );
+is( $data{COUNTRY}, 'NL', 'the code of the address it judged' );
+%data = ( 'src' => '192.0.2.66' );
+ok( !$judging_lift->holds( \%data, undef ), 'one that judges still fails closed on a address it can not place' );
+
+foreach my $bad ( { 'into' => 'COUNTRY' }, { 'is' => 'US', 'vars' => [ 'src', 'dst' ], 'into' => 'COUNTRY' } ) {
+	ok(
+		!eval {
+			App::Baphomet::Gate::country->new( 'type' => 'country', 'args' => $bad, 'where' => 'the gate' );
+			1;
+		},
+		'a into with ' . scalar( @{ ref( $bad->{vars} ) ? $bad->{vars} : [] } ) . ' vars is refused'
+	);
+	like( $@, qr/^the gate has a into, which needs exactly one var to lift the country of/, 'and says why' );
+}
+ok(
+	!eval {
+		App::Baphomet::Gate::country->new( 'type' => 'country', 'args' => { 'vars' => 'src' }, 'where' => 'the gate' );
+		1;
+	},
+	'a gate with nothing to do is refused'
+);
+like( $@, qr/^the gate has none of is, isnot, or into/, 'and says so' );
+
 done_testing;

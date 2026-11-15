@@ -45,7 +45,9 @@ lib/App/Baphomet/Config.pm
 lib/App/Baphomet/Correlation.pm
 lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/Gate.pm
+lib/App/Baphomet/Gate/account.pm
 lib/App/Baphomet/Gate/active_time.pm
+lib/App/Baphomet/Gate/asn.pm
 lib/App/Baphomet/Gate/ban_not_internal.pm
 lib/App/Baphomet/Gate/ban_var.pm
 lib/App/Baphomet/Gate/capture.pm
@@ -54,12 +56,14 @@ lib/App/Baphomet/Gate/condition.pm
 lib/App/Baphomet/Gate/country.pm
 lib/App/Baphomet/Gate/daemons.pm
 lib/App/Baphomet/Gate/detection_var.pm
+lib/App/Baphomet/Gate/dnsbl.pm
 lib/App/Baphomet/Gate/gate.pm
 lib/App/Baphomet/Gate/ignore.pm
 lib/App/Baphomet/Gate/ignore_regexp.pm
 lib/App/Baphomet/Gate/key.pm
 lib/App/Baphomet/Gate/keywords.pm
 lib/App/Baphomet/Gate/level.pm
+lib/App/Baphomet/Gate/limit.pm
 lib/App/Baphomet/Gate/mark.pm
 lib/App/Baphomet/Gate/marked.pm
 lib/App/Baphomet/Gate/match.pm
@@ -426,6 +430,7 @@ t/claytablet-redis.t
 t/cli.t
 t/commands.t
 t/country.t
+t/lookup-gates.t
 t/detection.t
 t/eve-log.t
 t/eve-only.t
@@ -489,6 +494,7 @@ t/rules-multiline.t
 t/rules-raw.t
 t/rules-shipped.t
 t/rule-tests-geo.t
+t/rule-tests-lookups.t
 t/rule-tests-marks.t
 t/rule-http-path-scan.t
 t/rule-postfix-harvest.t
@@ -511,6 +517,10 @@ t/unit-shape.t
 t/unit-tracks.t
 t/unit-rdns.t
 t/unit-geo.t
+t/unit-asn.t
+t/unit-dnsbl.t
+t/unit-account.t
+t/unit-limit.t
 t/unit-primitives.t
 t/unit-offense.t
 t/unit-rule-index.t

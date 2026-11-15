@@ -37,10 +37,12 @@ A few more are optional, wanted only if the pieces they serve are in use...
 | Redis::Fast                 | p5-Redis-Fast               | libredis-fast-perl               |
 
 `IP::Geolocation::MMDB` reads the `geoip_db` for rules with a `country`
-gate (see [configuration.md](configuration.md)). `Net::DNS` and
+gate and the `geoip_asn_db` for ones with an `asn` gate (see
+[configuration.md](configuration.md)). `Net::DNS` and
 `POE::Component::Client::DNS` together back `usedns` and the `reverse_dns`
-gate (see [usedns.md](usedns.md)). `Redis::Fast` backs the `redis` tablet
-backend (see [tablets.md](tablets.md)). None are needed otherwise.
+and `dnsbl` gates (see [usedns.md](usedns.md)). `Redis::Fast` backs the
+`redis` tablet backend (see [tablets.md](tablets.md)). None are needed
+otherwise.
 
 Package names are current as of writing. Anything marked `(cpanm)`, or
 missing from your release, installs cleanly from CPAN via

@@ -292,10 +292,12 @@ gates in the order a rule usually writes them.
    │  in the order the rule wrote them.
    │
    ├─ 2.1  the gates naming a var
-   │       Any of marked, not_marked, sequence, country, namtar_list,
-   │       and reverse_dns told a `var` or `vars`, which read a field of
-   │       the offense. Every active_time is of these too, as with no
-   │       var it reads the clock and never an offender.
+   │       Any of marked, not_marked, sequence, country, asn,
+   │       namtar_list, reverse_dns, and dnsbl told a `var` or `vars`,
+   │       which read a field of the offense. Every account and limit
+   │       is of these too, each only ever keyed by a field, and so is
+   │       every active_time, as with no var it reads the clock and
+   │       never an offender.
    │       └─▶ any one of them vetoes. The rule did not fire, and the
    │           gates below it are not asked. See "a veto is not a quiet
    │           pass" below.
@@ -793,8 +795,9 @@ forged lines it must still aim right on. Each is a hash...
 | `undefed` | For negative tests, capture names that should not be defined. |
 | `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base. |
 | `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`... what proves a rule's own `mark`/`unmark` did what it claims. |
-| `dns` | A fixture resolver for the [reverse_dns](#reverse_dns-the-client-is-who-its-address-says) gate... `ptr` maps an address to its names, `forward` a name to its addresses, either answer a list, `nxdomain` (authoritative absence), or `servfail` (a failure). Anything unfixtured answers servfail, fail-closed as an unanswerable question is live. With the fixture present the gate runs exactly as in the galla, offender pass and all; without it the gate is skipped, as it always was. |
-| `geo` | A fixture locator for the [country](#country-narrowing-an-offense-by-geography) gate... `countries` maps an address to its ISO code (or `unknown` for one the database would not place), and `lists` names the code sets a `%%%country_codes{name}%%%` token resolves against, standing in for the config. Anything unfixtured is unplaceable, fail-closed as it is live. Present, the gate runs as in the galla; absent, it is skipped. |
+| `dns` | A fixture resolver for the [reverse_dns](#reverse_dns-the-client-is-who-its-address-says) and [dnsbl](#dnsbl-what-a-blocklist-says-of-an-address) gates... `ptr` maps an address to its names, `forward` a name to its addresses, and `dnsbl` a zone to a map of address to what the zone answers, each answer a list, `nxdomain` (authoritative absence), or `servfail` (a failure). Anything unfixtured answers servfail, fail-closed as an unanswerable question is live. With the fixture present the gate runs exactly as in the galla, offender pass and all; without it the gate is skipped, as it always was. |
+| `geo` | A fixture locator for the [country](#country-narrowing-an-offense-by-geography) and [asn](#asn-narrowing-an-offense-by-network) gates... `countries` maps an address to its ISO code and `asns` one to its AS number or a `{number, org}` hash (either `unknown` for one the database would not place), and `lists` and `asn_lists` name the sets a `%%%country_codes{name}%%%` and a `%%%asn_lists{name}%%%` token resolve against, standing in for the config. Anything unfixtured is unplaceable, fail-closed as it is live. Present, the gate runs as in the galla; absent, it is skipped. |
+| `accounts` | A fixture for the [account](#account-a-real-account-or-a-guess) gate... the list of names that are accounts, every other name being nobody's. Present, the gate runs as in the galla; absent, it is skipped. |
 
 A test may use `messages`, an array of lines fed through in order, instead of
 a single `message`, with `found` the expected count across the sequence...
@@ -822,8 +825,10 @@ An unknown key anywhere in a test entry is itself a failure, so a typo'd
 assertion can not silently become one that never runs. One bound: a gate is
 judged here only when the test has what it judges over. The mark gates
 always do, the throwaway store being there for every entry. `reverse_dns`
-does with a `dns` fixture and `country` with a `geo` one, and either is
-skipped with out it. `namtar_list` and `active_time` have no fixture, their
+and `dnsbl` do with a `dns` fixture, `country` and `asn` with a `geo` one,
+and `account` with an `accounts` one, and each is skipped with out it.
+`limit` needs none, its windows being its own, and every entry starts with
+none open. `namtar_list` and `active_time` have no fixture, their
 lists and windows being config a rule file has none of, so those two stay
 proven galla-side only (see each gate below). `ban_not_internal` has none
 either, your own hosts being config as well, so it drops nobody in a test.
@@ -1140,6 +1145,34 @@ tests:
 Prove both the home and the away, and the unplaceable... the last is the
 one that catches a rule mistakenly written to fire on database gaps.
 
+The other lookups are proved the same way. A `dnsbl` gate reads the `dnsbl`
+map of the `dns` fixture, a zone to what it answers about each address. An
+`asn` gate reads the `asns` and `asn_lists` of the `geo` fixture. An
+`account` gate reads an `accounts` list.
+
+```yaml
+tests:
+  positive:
+    # on a blocklist, on a hosting network, and a name that is nobody's
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Failed password for oracle from 203.0.113.9 port 4711 ssh2"
+      dns:
+        dnsbl:
+          bl.example.org:
+            "203.0.113.9": [ "127.0.0.2" ]
+      geo:
+        asns:
+          "203.0.113.9": { number: 64496, org: "Example Hosting" }
+        asn_lists:
+          hosting: [ 64496 ]
+      accounts: [ neti ]
+      found: 1
+```
+
+A fixture only stands in for what it names. A `dns` fixture with only a
+`dnsbl` map leaves a `reverse_dns` gate skipped, and a `geo` fixture with
+only `asns` leaves a `country` gate skipped, so a rule with both proves one
+at a time.
+
 ## Refining a match... the gates
 
 After a rule matches, a set of optional gates can still drop the count. They
@@ -1171,7 +1204,7 @@ accepts a gate or key:
 | `detection_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `gate` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `mark_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `marked` / `not_marked` / `sequence` / `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `marked` / `not_marked` / `sequence` / `country` / `asn` / `namtar_list` / `active_time` / `reverse_dns` / `dnsbl` / `account` / `limit` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` / `src_port_var` / `dest_port_var` / `user_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -1329,11 +1362,12 @@ the two, or one beside a `gate`.
 ### rule_gates... what a match still has to clear
 
 A match says a line looks like an offense. `rule_gates` is the whole list a
-line goes down, and seven of its gate types are what a match still has to
+line goes down, and eleven of its gate types are what a match still has to
 clear to count as one, each asking something the line can not answer for
-itself... if an address is branded, what country it is in, if it is on a
-list, what its reverse DNS says, what time it is. They are of the offense
-phase, and legal on every rule type.
+itself... if an address is branded, what country or network it is in, if it
+is on a list, what DNS says of it, if a name is a real account, what time
+it is, how many like it came before. They are of the offense phase, and
+legal on every rule type.
 
 ```yaml
 rule_gates:
@@ -1345,7 +1379,7 @@ rule_gates:
 ```
 
 Each entry is a hash of one key, the gate's type, over what that gate is
-told. The seven are...
+told. The eleven are...
 
 - [`marked`](#marks-cross-rule-state-keyed-by-anything) :: The key has a
       brand.
@@ -1354,12 +1388,20 @@ told. The seven are...
 - [`sequence`](#sequence-marks-in-order) :: The key was branded in an order.
 - [`country`](#country-narrowing-an-offense-by-geography) :: An address is
       in, or out of, a set of countries.
+- [`asn`](#asn-narrowing-an-offense-by-network) :: An address is on, or
+      off, a set of networks.
 - [`namtar_list`](#namtar_list-only-the-already-condemned) :: A value is on
       a named list.
 - [`active_time`](#active_time-only-in-or-out-of-certain-hours) :: The time
       is in, or out of, named windows.
 - [`reverse_dns`](#reverse_dns-the-client-is-who-its-address-says) :: An
       address reverses to what it should.
+- [`dnsbl`](#dnsbl-what-a-blocklist-says-of-an-address) :: An address is on
+      a DNS blocklist.
+- [`account`](#account-a-real-account-or-a-guess) :: A name is, or is not,
+      an account of the host.
+- [`limit`](#limit-only-so-many-of-a-key) :: Only so many offenses of a key
+      are let by in a window.
 
 **Every entry has to hold.** The first that does not ends the asking, so
 among these gates the order written decides only what a veto spares... put
@@ -1374,7 +1416,8 @@ drops the result. One naming neither keys on the offender and is asked once
 per candidate, filtering which of them count, like `ban_not_internal`, so
 it has to be written below the `ban_var` that names them. `active_time` is
 the exception... with no var it keys on the clock, so it is always asked
-once for the result.
+once for the result. `account` and `limit` only ever key on a found value,
+so they are asked once for the result too.
 
 **A rule that can not have a gate does not load.** An entry naming a type
 there is none of, one telling a gate what it does not know, one keyed by
@@ -1689,7 +1732,7 @@ rule_gates:
 max_score: 1
 ```
 
-`is` or `isnot`, exactly one. Each list entry is either a literal ISO 3166
+`is` or `isnot`, never both. Each list entry is either a literal ISO 3166
 2-letter code or the `%%%country_codes{name}%%%` token, which splices in a
 named list from the config, layered per watcher... so a shipped rule stays
 geography-neutral and the operator owns the policy. A bare string is taken as
@@ -1714,6 +1757,42 @@ rule_gates:
 
 A rule wanting both names the gate twice, an entry on the dest and an entry
 on the offender.
+
+#### into... the country as a found var
+
+`into` lifts the code the gate looked up into a found var, for what is
+below the gate and the counting to read. This is one account seen from two
+countries inside an hour:
+
+```yaml
+max_score: 2
+find_time: 3600
+distinct: { of: COUNTRY, by: USER }
+rule_gates:
+  - daemons: [ sshd, sshd-session ]
+  - message_regexp:
+      - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
+  - country: { vars: [ SRC ], into: COUNTRY }
+  - detection_var: [ SRC ]
+```
+
+It counts countries and not distance, so a VPN or a border town will trip
+it, which is why it only sights. The same lift lets a
+[`mark`](#marks-cross-rule-state-keyed-by-anything) store the code as its
+`value_var` and a `marked` compare against it with `value_not`... a login
+from a country the account did not last use.
+
+- `into` needs exactly one entry in `vars`. An offense may have several
+  offenders, each in a country of its own, and the var holds one value.
+- With an `into`, `is` and `isnot` are both optional. A gate with neither
+  judges nothing and vetoes nothing... an address that does not locate
+  leaves the var unset, and `distinct`, `mark`, and `marked` each fail
+  closed on an unset var for themselves.
+- It never lifts over a value the offense already has.
+- Only what is asked once there is an offense can read it... `distinct`,
+  the mark gates, `namtar_list`, and the EVE event. `gate`, `condition`,
+  `keywords`, and `track` are asked of the line, before any `country` gate
+  is.
 
 The gate always **fails closed**: a value that does not locate, or a missing
 database, blocks the count rather than risking a wrong ban. A galla with
@@ -1881,6 +1960,163 @@ tests exercise this one whole... a `dns` fixture in the test stands in
 for the resolver, PTRs, forwards, absences, and outages alike (see
 [tests](#tests)), which is how `http/fakegooglebot` proves its judgment
 from its own file.
+
+### asn... narrowing an offense by network
+
+An `asn` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+only lets a match count when the offender, or some captured address, is on
+(or off) a set of networks... the autonomous systems the internet is routed
+by, each a number and the name of who runs it. It is `country` asking a
+different question of the same address, and is written the same way. It
+needs MaxMind's ASN database, the `geoip_asn_db` config setting, read
+through the same optional `IP::Geolocation::MMDB` module.
+
+```yaml
+rule_gates:
+  - ban_var: [ SRC ]
+  - asn:
+      isnot:                           # count only if NOT on these
+        - "%%%asn_lists{office}%%%"    # import a named list from the config
+        - AS64496                      # literal numbers compose too
+max_score: 1
+```
+
+- `is` / `isnot` :: By number. Each entry is an AS number, bare or written
+      `AS64496`, or a `%%%asn_lists{name}%%%` token.
+- `org_is` / `org_isnot` :: By name. A regexp, or a list of them, matched
+      against the name the database gives the network. Case-sensitive, so
+      lead one with `(?i)` to fold it.
+- `vars` :: The found vars holding the addresses to check, in place of the
+      offender.
+- `into` / `org_into` :: Lift the number and the name into found vars, under
+      the rules [`country`'s `into`](#into-the-country-as-a-found-var) has.
+
+At most one of the four that judge may be written, and a gate that lifts
+needs none of them.
+
+A number is the stable thing to list. The names are the database's own and
+drift, so they are for the broad sweep, `org_is: '(?i)hosting|cloud|vps'`.
+
+The gate **fails closed** like `country`... an address the database does
+not place, or a missing database, blocks the count, and a network with no
+name can not be cleared by `org_isnot`. It is proved from the rule file
+with the `asns` and `asn_lists` of a [`geo` fixture](#proving-lookups).
+
+### dnsbl... what a blocklist says of an address
+
+A `dnsbl` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+asks one or more DNS blocklists about an address and holds when any of
+them lists it... what a mail server does with `reject_rbl_client`, for any
+rule.
+
+```yaml
+rule_gates:
+  - ban_var: [ SRC ]
+  - dnsbl:
+      zones: [ bl.example.org, dnsbl.example.net ]
+      codes: [ 127.0.0.2, 127.0.0.4 ]    # only these answers count
+max_score: 1
+```
+
+- `zones` :: The zone to ask, or a list of them.
+- `var` :: The found var holding the address to check, in place of the
+      offender.
+- `codes` :: The answers that count as a listing.
+    - default :: any answer a zone lists with
+- `negate` :: Hold when no zone lists the address.
+- `on_servfail` :: What a failed lookup does when no zone lists the
+      address, `pass` or `fail`.
+    - default :: `fail`
+
+**It tells a third party who you were talking to.** Every lookup hands the
+address to whoever runs the zone, so the gate sits behind a consent of its
+own, `enable_dnsbl`, off by default. With out it the gate fails closed,
+loudly. An address on your `internal` list is never asked about. Most
+public blocklists also meter or refuse queries that come by way of a large
+shared resolver, so read a zone's terms before naming it.
+
+**A zone that could not be asked clears nobody.** A listing in any zone
+stands, whatever became of the others. With no listing, a timeout or
+SERVFAIL settles the gate by `on_servfail`, `negate` or not. Two answers
+are read as a failed lookup and never as a listing... one out of
+`127.255.255.0/24`, which is how a zone says it refused the query, and one
+that is not out of `127.0.0.0/8` at all, which is what a parked or hijacked
+zone gives.
+
+The lookups ride the machinery of
+[`reverse_dns`](#reverse_dns-the-client-is-who-its-address-says)... the
+same optional modules, `rdns_timeout`, a one minute cache, and under a
+running galla the background engine, so a cold address fails its first
+line and is answered for the next. Keep it the last of a rule's gates that
+judge. It is proved from the rule file with the `dnsbl` map of a
+[`dns` fixture](#proving-lookups).
+
+### account... a real account or a guess
+
+An `account` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+holds when a found name is, or is not, an account of the host. sshd says
+`invalid user` for itself. Dovecot, postfix's SASL, and most web apps log a
+failed login the same whether or not the name was real, and the difference
+matters... a failure for a name that is nobody's is a guess, and one for a
+real account may be its owner's typo.
+
+```yaml
+rule_gates:
+  - account: { var: USER, exists: false }
+  - ban_var: [ SRC ]
+max_score: 1
+```
+
+- `var` :: The found var holding the name.
+- `exists` :: `false` to hold on a name that is no account.
+    - default :: `true`
+
+Listed ahead of the service's ordinary rule, that banishes on the first
+guess and lets every other failure fall through to be counted as before.
+
+The accounts are those of the host the galla runs on, asked of the
+system's own account database, so LDAP and the like are seen when the host
+is set up to see them. Over logs shipped in from another host the gate
+means nothing. A name the offense lacks fails closed whichever way the gate
+asks. Answers are cached for a minute, and a name no account could have is
+never asked about. It is proved from the rule file with an
+[`accounts` fixture](#proving-lookups).
+
+### limit... only so many of a key
+
+A `limit` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+lets the first few offenses of a key by and vetoes the rest until its
+window runs out. It is for a detection or `eve_only` rule that sights more
+than it needs to say, one noisy source filling the EVE log with the same
+event.
+
+```yaml
+rule_gates:
+  - detection_var: [ SRC ]
+  - limit: { by: [ SRC, USER ], count: 3, seconds: 300 }
+```
+
+- `by` :: The found var, or a list of them, whose values joined are the
+      key.
+- `seconds` :: The length of a window, measured from the first offense it
+      let by.
+- `count` :: How many offenses of a key a window lets by.
+    - default :: 1
+
+A vetoed offense is vetoed as by any gate... it is not counted, and the
+line goes on to the rules after this one. Where the gate sits decides what
+it covers. A `mark` above it brands every offense, and one below it only
+what was let by. On a banning rule it slows the count as well, what it
+vetoes never reaching the threshold.
+
+The windows are kept per watcher, bounded as the mark store is, and
+forgotten at a restart. An offense lacking one of the `by` vars has nothing
+to be held to and is let by. It needs no fixture to prove... a `messages`
+test with an `advance` walks a window open and shut.
 
 ## Enriching a match... mungers
 

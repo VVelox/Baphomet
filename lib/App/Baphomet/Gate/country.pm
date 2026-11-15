@@ -26,6 +26,7 @@ our $VERSION = '0.0.1';
       - country: { is: GB, vars: [ dest ] }
       - ban_var: [ SRC ]
       - country: { isnot: [ US, '%%%country_codes{allies}%%%' ] }
+      - country: { vars: [ SRC ], into: COUNTRY }
 
 =head1 DESCRIPTION
 
@@ -36,12 +37,22 @@ not be cleared.
 
 A entry is told...
 
-    - is / isnot :: Exactly one. A 2-letter ISO 3166 code, a
+    - is / isnot :: Never both. A 2-letter ISO 3166 code, a
           C<%%%country_codes{name}%%%> import of a named list, or a array of
           either.
 
     - vars :: Optional. The found var or vars holding the addresses to
           check. With out it the offender is checked.
+
+    - into :: Optional. The found var the country code of the address is
+          lifted into, for what is below the gate and the counting to read.
+          It needs exactly one var, a offense being able to have several
+          offenders and the var only one value. It is never lifted over a
+          value the offense already has.
+
+One of C<is>, C<isnot>, or C<into> has to be there. A entry with only a
+C<into> judges nothing... a address the locator can not place then lifts
+nothing and vetoes nothing, what reads the var failing closed on its own.
 
 It needs the C<locator> of the L<context|App::Baphomet::Gate/THE CONTEXT>,
 and reads the C<country_codes> of it for what it imports. A import of a list
@@ -59,17 +70,24 @@ my $COUNTRY_ENTRIES = {
 };
 
 my $SHAPE = {
-	'optional' => { 'is' => $COUNTRY_ENTRIES, 'isnot' => $COUNTRY_ENTRIES, 'vars' => 'string_or_strings' },
-	'one_of'   => [ [ 'is', 'isnot' ] ],
+	'optional' => {
+		'is'    => $COUNTRY_ENTRIES,
+		'isnot' => $COUNTRY_ENTRIES,
+		'vars'  => 'string_or_strings',
+		'into'  => 'string',
+	},
+	'not_both' => [ [ 'is', 'isnot' ] ],
 };
 
 =head1 METHODS
 
 =head2 compile
 
-Vets what the gate was told and keeps the mode, the entries as a list
-however they were written, and the vars as a list when there are any. The
-imports are left unexpanded, the lists they name being a watcher's.
+Vets what the gate was told and keeps the mode, undef for a gate that only
+lifts, the entries as a list however they were written, the vars as a list
+when there are any, and the var to lift into. The imports are left
+unexpanded, the lists they name being a watcher's. Dies on a entry with
+nothing to do, and on a C<into> with out exactly one var.
 
     $gate->compile( $args, $where );
 
@@ -80,12 +98,28 @@ sub compile {
 
 	check_hash( $args, $SHAPE, $where );
 
+	if ( defined( $args->{is} ) ) {
+		$self->{mode} = 'is';
+	} elsif ( defined( $args->{isnot} ) ) {
+		$self->{mode} = 'isnot';
+	}
+	$self->{into} = $args->{into};
+	if ( !defined( $self->{mode} ) && !defined( $self->{into} ) ) {
+		die( $where . ' has none of is, isnot, or into' );
+	}
+
 	# a lone entry or var is a list of one, so each lands as a list
-	$self->{mode} = defined( $args->{is} ) ? 'is' : 'isnot';
-	my $entries = $args->{ $self->{mode} };
+	my $entries = defined( $self->{mode} ) ? $args->{ $self->{mode} } : [];
 	$self->{entries} = is_plain_arrayref($entries) ? [ @{$entries} ] : [$entries];
 	if ( defined( $args->{vars} ) ) {
 		$self->{vars} = is_plain_arrayref( $args->{vars} ) ? [ @{ $args->{vars} } ] : [ $args->{vars} ];
+	}
+
+	# a offense may have several offenders and several vars several
+	# addresses, each in a country of its own, and the var lifted into holds
+	# one value
+	if ( defined( $self->{into} ) && scalar( @{ $self->{vars} // [] } ) != 1 ) {
+		die( $where . ' has a into, which needs exactly one var to lift the country of' );
 	}
 
 	return;
@@ -140,7 +174,10 @@ sub bound {
 
 Returns 1 when the country of every address checked satisfies the gate, else
 0. With C<vars> the addresses are the values of those vars, and one the
-result lacks fails. With out, the address is the offender.
+result lacks fails. With out, the address is the offender. A gate with a
+C<into> then writes the country code into that var of the passed data,
+unless the data already has one. One that only lifts returns 1 whatever it
+finds.
 
     if ( $gate->holds( $data, $ip ) ) { ... }
 
@@ -149,22 +186,33 @@ result lacks fails. With out, the address is the offender.
 sub holds {
 	my ( $self, $data, $ip ) = @_;
 
+	my $mode      = $self->{mode};
 	my @addresses = defined( $self->{vars} ) ? ( map { $data->{$_} } @{ $self->{vars} } ) : ($ip);
-
+	my $country;
 	foreach my $address (@addresses) {
-		my $country = defined($address) ? $self->{context}{locator}->($address) : undef;
+		$country = defined($address) ? $self->{context}{locator}->($address) : undef;
 		if ( !defined($country) ) {
-			return 0;
+			# nothing to lift, and with nothing judged nothing to veto
+			return defined($mode) ? 0 : 1;
 		}
+		if ( !defined($mode) ) {
+			next;
+		}
+
 		# is passes only a listed country, isnot only a unlisted one
 		my $listed = $self->{codes}{$country} ? 1 : 0;
-		if ( $self->{mode} eq 'is' && !$listed ) {
+		if ( $mode eq 'is' && !$listed ) {
 			return 0;
 		}
-		if ( $self->{mode} ne 'is' && $listed ) {
+		if ( $mode ne 'is' && $listed ) {
 			return 0;
 		}
 	} ## end foreach my $address (@addresses)
+
+	# a into has exactly one var, so the country left standing is that var's
+	if ( defined( $self->{into} ) && !exists( $data->{ $self->{into} } ) ) {
+		$data->{ $self->{into} } = $country;
+	}
 
 	return 1;
 } ## end sub holds

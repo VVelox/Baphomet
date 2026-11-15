@@ -22,16 +22,17 @@ use Socket                                   qw( AF_INET AF_INET6 inet_pton );
 use Sys::Hostname                            ();
 use Ereshkigal::Client                       ();
 use App::Baphomet::Config
-	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
-use App::Baphomet::Parser     ();
-use App::Baphomet::Primitives ();
-use App::Baphomet::Rules      ();
-use App::Baphomet::Marks      ();
-use App::Baphomet::Tracks     ();
-use App::Baphomet::Gate       ();
-use App::Baphomet::Namtar     ();
-use App::Baphomet::ClayTablet ();
-use App::Baphomet::LogDrek    qw( log_drek );
+	qw( load_config check_kur_def kur_split resolve_settings resolve_country_codes resolve_asn_lists resolve_namtar_lists resolve_active_time resolve_rule_config watcher_rules watcher_logs watcher_journal watcher_is_journal watcher_join compile_ignore_ips ip_ignored ip_network ip_family );
+use App::Baphomet::Parser      ();
+use App::Baphomet::Primitives  ();
+use App::Baphomet::Rules       ();
+use App::Baphomet::Marks       ();
+use App::Baphomet::Tracks      ();
+use App::Baphomet::Gate        ();
+use App::Baphomet::Gate::dnsbl ();
+use App::Baphomet::Namtar      ();
+use App::Baphomet::ClayTablet  ();
+use App::Baphomet::LogDrek     qw( log_drek );
 
 =head1 NAME
 
@@ -174,6 +175,7 @@ sub new {
 			hostname_dropped => 0,
 			dns_failures     => 0,
 			rdns_failures    => 0,
+			dnsbl_failures   => 0,
 			per_watcher      => {},
 			per_rule         => {},
 		},
@@ -204,7 +206,8 @@ sub new {
 	$self->{journalctl_bin}    = $config->{journalctl_bin};
 	$self->{eve_log}           = $config->{eve_log};
 	$self->{eve_enable}        = $config->{eve_enable};
-	$self->_open_geoip( $config->{geoip_db} );
+	$self->_open_geoip( 'geoip',     $config->{geoip_db} );
+	$self->_open_geoip( 'geoip_asn', $config->{geoip_asn_db} );
 	$self->{enable_dns}       = $config->{enable_dns};
 	$self->{usedns_timeout}   = $config->{usedns_timeout};
 	$self->{usedns_max_addrs} = $config->{usedns_max_addrs};
@@ -216,10 +219,14 @@ sub new {
 	}
 	$self->{enable_rdns}        = $config->{enable_rdns};
 	$self->{rdns_timeout}       = $config->{rdns_timeout};
+	$self->{enable_dnsbl}       = $config->{enable_dnsbl};
 	$self->{rdns_cache}         = {};
 	$self->{country_cache}      = {};
+	$self->{asn_cache}          = {};
+	$self->{account_cache}      = {};
 	$self->{dns_reverse}        = undef;
 	$self->{dns_forward}        = undef;
+	$self->{dns_listed}         = undef;
 	$self->{hostname}           = Sys::Hostname::hostname();
 	$self->{last_checkpoint}    = 0;
 	$self->{positions}          = {};
@@ -344,13 +351,17 @@ sub new {
 	# what the gates are judged over that is the same for every watcher... the
 	# mark store and the resolver are handed over when a gate is asked and not
 	# now, so a gate judges over what the galla has at the time, the resolver
-	# only standing up once every rule is bound. the locator answers undef for
-	# a address the GeoIP database can not place, and for any address with no
-	# database up, on which a country gate fails closed
+	# only standing up once every rule is bound, and the blocklist asker is the
+	# same. the two locators answer undef for a address their database can not
+	# place, and for any address with no database up, on which a country or
+	# asn gate fails closed
 	my %gate_services = (
 		'marks'        => sub { return $self->{marks}; },
 		'locator'      => sub { return $self->_country_of( $_[0] ); },
+		'asn_locator'  => sub { return $self->_asn_of( $_[0] ); },
 		'resolver'     => sub { return $self->_rdns_resolver; },
+		'dnsbl'        => sub { return $self->_dnsbl_asker; },
+		'accounts'     => sub { return $self->_account_exists( $_[0] ); },
 		'namtar_files' => $self->{namtar_files},
 		# ip_ignored is a plain set membership test... over the internal set it
 		# says a address is one of ours, and over ignore_ips that it is never
@@ -400,11 +411,12 @@ sub new {
 
 		# what each rule below is bound against, all of it layered for this
 		# watcher... what its gates are judged over, the services joined by the
-		# lists the country, namtar_list, and active_time gates name from, the
-		# operator's per-rule config table, and the settings
+		# lists the country, asn, namtar_list, and active_time gates name from,
+		# the operator's per-rule config table, and the settings
 		my %gate_context = (
 			%gate_services,
 			'country_codes' => resolve_country_codes( $config, $kur_settings, $watcher ),
+			'asn_lists'     => resolve_asn_lists( $config, $kur_settings, $watcher ),
 			'namtar_lists'  => resolve_namtar_lists( $config, $kur_settings, $watcher ),
 			'active_time'   => resolve_active_time( $config, $kur_settings, $watcher ),
 		);
@@ -684,33 +696,43 @@ sub new {
 		);
 	} ## end if (@dns_wanting)
 
-	# a gate that asks the resolver, as reverse_dns does, fails closed with out
-	# the machinery behind it, so those rules count nothing... a silent hole,
-	# so say so loudly. the resolver only stands up at all when some gate
-	# needs it
-	if ( $gate_needs{resolver} ) {
-		if ( !$self->{enable_rdns} ) {
+	# a gate that asks the resolver, as reverse_dns does, or a blocklist, as
+	# dnsbl does, fails closed with out the machinery behind it, so those rules
+	# count nothing... a silent hole, so say so loudly. the two ride the one
+	# machinery, each under a consent of its own, and it only stands up at all
+	# when some gate needs it and has its consent
+	foreach my $asking ( [ 'resolver', 'reverse_dns', 'enable_rdns' ], [ 'dnsbl', 'dnsbl', 'enable_dnsbl' ] ) {
+		my ( $need, $gate_type, $consent ) = @{$asking};
+		if ( !$gate_needs{$need} ) {
+			next;
+		}
+		if ( !$self->{$consent} ) {
 			log_drek(
 				'err',
-				'reverse_dns-gated rules are configured but enable_rdns is off...'
-					. ' those gates fail closed and will count nothing',
+				$gate_type
+					. '-gated rules are configured but '
+					. $consent
+					. ' is off... those gates fail closed and will count nothing',
 				undef,
 				'galla-' . $self->{name}
 			);
-		} else {
+			next;
+		} ## end if ( !$self->{$consent} )
+		if ( !defined( $self->{dns_reverse} ) && !defined( $self->{rdns_error} ) ) {
 			$self->_open_rdns;
-			if ( defined( $self->{rdns_error} ) ) {
-				log_drek(
-					'err',
-					'reverse_dns-gated rules are configured but Net::DNS or POE::Component::Client::DNS is not loadable...'
-						. ' those gates fail closed and will count nothing... '
-						. $self->{rdns_error},
-					undef,
-					'galla-' . $self->{name}
-				);
-			} ## end if ( defined( $self->{rdns_error} ) )
-		} ## end else [ if ( !$self->{enable_rdns} ) ]
-	} ## end if ( $gate_needs{resolver} )
+		}
+		if ( defined( $self->{rdns_error} ) ) {
+			log_drek(
+				'err',
+				$gate_type
+					. '-gated rules are configured but Net::DNS or POE::Component::Client::DNS is not loadable...'
+					. ' those gates fail closed and will count nothing... '
+					. $self->{rdns_error},
+				undef,
+				'galla-' . $self->{name}
+			);
+		} ## end if ( defined( $self->{rdns_error} ) )
+	} ## end foreach my $asking ( [ 'resolver', 'reverse_dns'...])
 
 	# a gate that asks the locator, as country does, fails closed with no GeoIP
 	# database behind it, so those rules banish nobody... that is a silent
@@ -726,6 +748,22 @@ sub new {
 			'galla-' . $self->{name}
 		);
 	} ## end if ( $gate_needs{locator} && !defined( $self...))
+
+	# the same hole for a gate that asks the asn locator
+	if ( $gate_needs{asn_locator} && !defined( $self->{geoip_asn} ) ) {
+		log_drek(
+			'err',
+			'asn-gated rules are configured but no ASN database is loaded'
+				. (
+					defined( $self->{geoip_asn_error} )
+					? '... ' . $self->{geoip_asn_error}
+					: '... geoip_asn_db is unset'
+				)
+				. '... those gates fail closed and will banish nobody',
+			undef,
+			'galla-' . $self->{name}
+		);
+	} ## end if ( $gate_needs{asn_locator} && !defined(...))
 
 	# a rule naming mungers pulls Log-Munger in for enrichment. unlike the
 	# fail-closed gates above, a munger that will not load is fatal... the rule
@@ -2506,6 +2544,7 @@ sub _process_record {
 			$one->{set}    = [];
 			$one->{lifted} = [];
 			$one->{usedns} = $watcher->{usedns_subjects};
+			$one->{scope}  = $watcher_name;
 			my $stands = App::Baphomet::Gate::walk_offense( $binding->{gates}, $one );
 			if ( $one->{named} ) {
 				$self->_tick( 'matched', $watcher_name, $rule_name );
@@ -2989,6 +3028,11 @@ sub _open_rdns {
 			my ($hostname) = @_;
 			return $ask->( $hostname, 'A', 'AAAA' );
 		};
+		# a blocklist answers with A records alone
+		$self->{dns_listed} = sub {
+			my ($query_name) = @_;
+			return $ask->( $query_name, 'A' );
+		};
 	} catch ($caught) {
 		$self->{rdns_error} = $caught;
 	}
@@ -3101,28 +3145,141 @@ sub _poe_dns_answered {
 	return;
 }
 
-# opens the GeoIP database for country gating, if one is configured...
-# stores the reader on success, a error string otherwise, both undef when
-# no path is set. a missing database is not fatal, the gates fail closed
+# opens one of the two MaxMind databases, if it is configured... the country
+# one the country gates are judged over, or the ASN one the asn gates are.
+# a missing database is not fatal, the gates fail closed.
+#
+# args:
+#   $kind :: which database, 'geoip' for the country one or 'geoip_asn' for
+#            the ASN one. the reader is kept under that key of the galla
+#            and a error string under that key with _error on the end, both
+#            undef when no path is set
+#   $path :: the path of the database file, or undef for none configured
+#
+# returns nothing.
+#
+#   $self->_open_geoip( 'geoip_asn', '/var/db/GeoIP/GeoLite2-ASN.mmdb' );
+#   if ( !defined( $self->{geoip_asn} ) ) { ... $self->{geoip_asn_error} ... }
 sub _open_geoip {
-	my ( $self, $path ) = @_;
+	my ( $self, $kind, $path ) = @_;
 
-	$self->{geoip}       = undef;
-	$self->{geoip_error} = undef;
+	$self->{$kind} = undef;
+	$self->{ $kind . '_error' } = undef;
 	if ( !defined($path) ) {
 		return;
 	}
 
 	try {
 		require IP::Geolocation::MMDB;
-		$self->{geoip} = IP::Geolocation::MMDB->new( 'file' => $path );
+		$self->{$kind} = IP::Geolocation::MMDB->new( 'file' => $path );
 	} catch ($caught) {
-		$self->{geoip_error} = $caught;
-		$self->{geoip_error} =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*$//;
+		$self->{ $kind . '_error' } = $caught =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*$//r;
 	}
 
 	return;
 } ## end sub _open_geoip
+
+# the network a IP is on per the ASN database, cached 60 seconds as the
+# country of one is... a lookup dies on a bad address, so it is eval'd.
+#
+# args:
+#   $ip :: the address to place, a IPv4 or IPv6 string
+#
+# returns a hash ref of number, the AS number, and org, the name of who runs
+# it or undef when the database has none. undef when there is no database,
+# the value is not a locatable address, or the database has no AS number for
+# it.
+#
+#   my $network = $self->_asn_of('192.0.2.7');    # { 'number' => 64496, 'org' => 'Example Hosting' }
+sub _asn_of {
+	my ( $self, $ip ) = @_;
+
+	if ( !defined( $self->{geoip_asn} ) || !defined($ip) ) {
+		return undef;
+	}
+
+	my $now    = time;
+	my $cached = $self->{asn_cache}{$ip};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{network};
+	}
+
+	my $record = eval { $self->{geoip_asn}->record_for_address($ip); };
+	my $network;
+	if ( is_plain_hashref($record) && defined( $record->{autonomous_system_number} ) ) {
+		$network = {
+			'number' => $record->{autonomous_system_number} + 0,
+			'org'    => $record->{autonomous_system_organization},
+		};
+	}
+
+	App::Baphomet::Marks::bound_expiring_store( $self->{asn_cache}, $ip, $now );
+	$self->{asn_cache}{$ip} = { 'network' => $network, 'expires' => $now + 60 };
+
+	return $network;
+} ## end sub _asn_of
+
+# whether a name is a account of this host, asked of the system's own
+# account database and cached 60 seconds, as a name out of a log is the
+# attacker's to choose and one behind LDAP or the like is not free to ask
+# about. a name no account could have is never asked about.
+#
+# args:
+#   $name :: the account name to look for
+#
+# returns 1 when there is such a account, else 0.
+#
+#   if ( $self->_account_exists('neti') ) { ... }
+sub _account_exists {
+	my ( $self, $name ) = @_;
+
+	if ( !defined($name) || $name eq '' || length($name) > 256 || $name =~ /[\x00-\x1f\x7f:\/]/ ) {
+		return 0;
+	}
+
+	my $now    = time;
+	my $cached = $self->{account_cache}{$name};
+	if ( defined($cached) && $cached->{expires} > $now ) {
+		return $cached->{exists};
+	}
+
+	# list context, as a account with a uid of 0 is false in scalar context
+	my @account = getpwnam($name);
+	my $exists  = @account ? 1 : 0;
+
+	App::Baphomet::Marks::bound_expiring_store( $self->{account_cache}, $name, $now );
+	$self->{account_cache}{$name} = { 'exists' => $exists, 'expires' => $now + 60 };
+
+	return $exists;
+} ## end sub _account_exists
+
+# what a gate that asks a DNS blocklist asks with... undef with dnsbl off or
+# no transport, on which such a gate fails closed. the lookups ride the
+# cache and the background engine of the reverse_dns gate, under keys of
+# their own.
+#
+# returns a sub taking a zone and a address and answering a array ref of the
+# addresses the zone lists it under, a empty one when it does not list it, or
+# undef for a lookup that failed. undef when there is nothing to ask with.
+#
+#   my $asker = $self->_dnsbl_asker;
+#   my $answers = $asker->( 'bl.example.org', '192.0.2.7' );    # ['127.0.0.2']
+sub _dnsbl_asker {
+	my ($self) = @_;
+
+	if ( !$self->{enable_dnsbl} || !defined( $self->{dns_listed} ) ) {
+		return undef;
+	}
+	$self->{dnsbl_gate_asker} //= sub {
+		my ( $zone, $address ) = @_;
+		my $query_name = App::Baphomet::Gate::dnsbl::dnsbl_query_name( $address, $zone );
+		if ( !defined($query_name) ) {
+			return undef;
+		}
+		return $self->_rdns_cached( 'bl:' . $query_name, sub { $self->{dns_listed}->($query_name); } );
+	};
+	return $self->{dnsbl_gate_asker};
+} ## end sub _dnsbl_asker
 
 # the uppercased ISO country code of a IP per the GeoIP database, or undef
 # when there is no database, the value is not a locatable address, or it
@@ -3180,7 +3337,7 @@ sub _rdns_resolver {
 	return $self->{rdns_gate_resolver};
 } ## end sub _rdns_resolver
 
-# the cached tri-state lookups behind the reverse_dns gate... a array ref
+# the cached tri-state lookups behind the reverse_dns and dnsbl gates... a array ref
 # (possibly empty, authoritative absence) or undef (failure), both
 # remembered, so a hostile flood of matches asks each question once a
 # minute at most. under the background engine a cold key fires its query
@@ -3206,7 +3363,7 @@ sub _rdns_cached {
 		$answer = undef;
 	}
 	if ( !defined($answer) ) {
-		$self->_tick('rdns_failures');
+		$self->_tick( $cache_key =~ /^bl:/ ? 'dnsbl_failures' : 'rdns_failures' );
 	}
 
 	# bound the cache the way the other stores are bounded
@@ -3217,8 +3374,9 @@ sub _rdns_cached {
 } ## end sub _rdns_cached
 
 # fires the background lookup a cold rdns cache key names... ptr: keys ask
-# PTR of the address, fwd: keys ask A and AAAA of the name, either failing
-# whole if a family fails, matching the blocking $ask. a landed PTR answer
+# PTR of the address, bl: keys ask A of the blocklist name, and fwd: keys
+# ask A and AAAA of the name, either failing whole if a family fails,
+# matching the blocking $ask. a landed PTR answer
 # proactively warms the forward confirmations of its names, so the usual
 # cold-name cost is one line, not one per chain hop
 sub _rdns_fire {
@@ -3235,7 +3393,7 @@ sub _rdns_fire {
 	my $settle = sub {
 		my ($answer) = @_;
 		if ( !defined($answer) ) {
-			$self->_tick('rdns_failures');
+			$self->_tick( $kind_prefix eq 'bl' ? 'dnsbl_failures' : 'rdns_failures' );
 		}
 		$self->{rdns_cache}{$cache_key} = { 'answer' => $answer, 'expires' => time + 60 };
 		if ( $kind_prefix eq 'ptr' && defined($answer) ) {
@@ -3257,6 +3415,12 @@ sub _rdns_fire {
 
 	if ( $kind_prefix eq 'ptr' ) {
 		$self->_dns_query_bg( 'rdns', $subject, 'PTR', $settle );
+		return;
+	}
+
+	# bl... a blocklist answers with A records alone
+	if ( $kind_prefix eq 'bl' ) {
+		$self->_dns_query_bg( 'rdns', $subject, 'A', $settle );
 		return;
 	}
 
