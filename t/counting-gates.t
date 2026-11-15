@@ -359,6 +359,39 @@ feed( $many, 'auth', event => 'fail', ip => '198.51.100.4', user => 'neti' );
 is_deeply( \@sent, ['198.51.100.4'], 'the third against the one account banishes the address that made it' );
 
 #
+# who set a brand... a galla hearing of one from the fleet, and remembering
+#
+
+my $fleet = galla_over( 'fleet', '', 'auth' => ['brand'] );
+my $far   = time + 600;
+my $seen  = '198.51.100.90';
+$fleet->_ingest_mark_event( { 'op' => 'set', 'name' => 'branded', 'key' => $seen, 'expires' => $far, 'origin' => 'mail01' }, time );
+is_deeply( $fleet->{marks}{branded}{$seen}{hosts}, { 'mail01' => 1 }, 'a brand heard of from the fleet says which host set it' );
+ok( !$fleet->{marks}{branded}{$seen}{here}, 'and not that this one did' );
+$fleet->_ingest_mark_event( { 'op' => 'set', 'name' => 'branded', 'key' => $seen, 'expires' => $far, 'origin' => 'web01' },  time );
+$fleet->_ingest_mark_event( { 'op' => 'set', 'name' => 'branded', 'key' => $seen, 'expires' => $far, 'origin' => 'mail01' }, time );
+is_deeply( $fleet->{marks}{branded}{$seen}{hosts}, { 'mail01' => 1, 'web01' => 1 }, 'a second host is one more, and a host heard of twice is still one' );
+
+feed( $fleet, 'auth', event => 'brand', ip => $seen );
+ok( $fleet->{marks}{branded}{$seen}{here}, 'the brand set here as well is set here' );
+is_deeply( $fleet->{marks}{branded}{$seen}{hosts}, { 'mail01' => 1, 'web01' => 1 }, 'and keeps the hosts it was heard of from' );
+is( App::Baphomet::Marks::mark_hosts( $fleet->{marks}{branded}{$seen} ), 3, 'which is three hosts' );
+$fleet->_ingest_mark_event( { 'op' => 'set', 'name' => 'branded', 'key' => $seen, 'expires' => $far + 60, 'origin' => 'db01' }, time );
+ok( $fleet->{marks}{branded}{$seen}{here}, 'a later delta from the fleet does not forget that it was set here' );
+is( $fleet->_cmd_marked->{marks}{branded}{$seen}{hosts}, 4, 'the marked command says how many hosts set a brand' );
+
+$fleet->checkpoint;
+my $fleet_reborn = galla_over( 'fleet', '', 'auth' => ['brand'] );
+is_deeply(
+	[ $fleet_reborn->{marks}{branded}{$seen}{here}, [ sort( keys( %{ $fleet_reborn->{marks}{branded}{$seen}{hosts} } ) ) ] ],
+	[ 1, [ 'db01', 'mail01', 'web01' ] ],
+	'who set a brand rides the tablet across a restart'
+);
+
+$fleet->_ingest_mark_event( { 'op' => 'unset', 'name' => 'branded', 'key' => $seen, 'origin' => 'mail01' }, time );
+ok( !exists( $fleet->{marks}{branded} ), 'a brand lifted anywhere is lifted, hosts and all' );
+
+#
 # the config
 #
 

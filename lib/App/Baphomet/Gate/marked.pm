@@ -5,9 +5,8 @@ use v5.40;
 # lc, and /i would read a high byte as a Latin-1 character, so it stays off
 no feature 'unicode_strings';
 use parent 'App::Baphomet::Gate';
-use List::Util           qw( any );
 use App::Baphomet::Shape qw( check_hash );
-use App::Baphomet::Marks qw( mark_key live_mark value_verdict );
+use App::Baphomet::Marks qw( mark_key live_mark mark_hosts value_verdict );
 
 =head1 NAME
 
@@ -47,6 +46,15 @@ A entry is told...
     - value_is / value_not :: Optional, and never both. The found var the
           brand's stored value has to equal, or has to differ from.
 
+    - older_than / newer_than :: Optional. Seconds the brand has to have
+          been set for at least, or for less than. A brand is as old as
+          when it was first set, however often it has been set since. One
+          with no saying when it was set does not hold.
+
+    - hosts :: Optional. How many hosts of the fleet have to have set the
+          brand, this one among them when it has. With out a tablet that
+          shares brands there is only ever this one.
+
 It needs the C<marks> of the L<context|App::Baphomet::Gate/THE CONTEXT>.
 
 =cut
@@ -54,12 +62,15 @@ It needs the C<marks> of the L<context|App::Baphomet::Gate/THE CONTEXT>.
 # a entry may hold on any of a list of names in place of its one
 my $SHAPE = {
 	'optional' => {
-		'name'      => 'name',
-		'names'     => 'names',
-		'var'       => 'string',
-		'vars'      => 'strings',
-		'value_is'  => 'string',
-		'value_not' => 'string',
+		'name'       => 'name',
+		'names'      => 'names',
+		'var'        => 'string',
+		'vars'       => 'strings',
+		'value_is'   => 'string',
+		'value_not'  => 'string',
+		'older_than' => 'seconds',
+		'newer_than' => 'seconds',
+		'hosts'      => 'positive_int',
 	},
 	'one_of'   => [ [ 'name', 'names' ] ],
 	'not_both' => [ [ 'var',  'vars' ], [ 'value_is', 'value_not' ] ],
@@ -117,12 +128,33 @@ sub holds {
 
 	my $store = $self->{context}{marks}->();
 	my @names = defined( $self->{names} ) ? @{ $self->{names} } : ( $self->{name} );
-	my $held  = any {
-		my $mark = live_mark( $store, $_, $key, $now );
-		defined($mark) && value_verdict( $self, $mark, $data ) eq 'holds';
-	} @names;
+	foreach my $name (@names) {
+		my $mark = live_mark( $store, $name, $key, $now );
+		if ( !defined($mark) || value_verdict( $self, $mark, $data ) ne 'holds' ) {
+			next;
+		}
 
-	return $held ? 1 : 0;
+		# how long ago it was first set, which a brand may have no saying of
+		my $asks_age = defined( $self->{older_than} ) || defined( $self->{newer_than} );
+		if ( $asks_age && !defined( $mark->{set} ) ) {
+			next;
+		}
+		my $age = $asks_age ? $now - $mark->{set} : 0;
+		if ( defined( $self->{older_than} ) && $age < $self->{older_than} ) {
+			next;
+		}
+		if ( defined( $self->{newer_than} ) && $age >= $self->{newer_than} ) {
+			next;
+		}
+
+		if ( defined( $self->{hosts} ) && mark_hosts($mark) < $self->{hosts} ) {
+			next;
+		}
+
+		return 1;
+	} ## end foreach my $name (@names)
+
+	return 0;
 } ## end sub holds
 
 1;

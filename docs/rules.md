@@ -301,9 +301,10 @@ gates in the order a rule usually writes them.
    │       Any of marked, not_marked, sequence, country, asn,
    │       namtar_list, reverse_dns, and dnsbl told a `var` or `vars`,
    │       which read a field of the offense. Every account, limit,
-   │       after, and travel is of these too, each only ever keyed by a
-   │       field, and so is every active_time, as with no var it reads
-   │       the clock and never an offender.
+   │       after, sum, travel, and network is of these too, each only
+   │       ever keyed by a field, and so is every active_time, as with
+   │       no var it reads the clock and never an offender. A network
+   │       only lifts, and vetoes nothing.
    │       └─▶ any one of them vetoes. The rule did not fire, and the
    │           gates below it are not asked. See "a veto is not a quiet
    │           pass" below.
@@ -800,7 +801,7 @@ forged lines it must still aim right on. Each is a hash...
 | `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and injection tests, 0 for negative. |
 | `data` | For positive tests, capture names to the values they should have captured. **Required** on a injection test, where it is the assertion. |
 | `undefed` | For negative tests, capture names that should not be defined. |
-| `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base. |
+| `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?, hosts?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base, and `hosts`, how many hosts set the brand, to 1. |
 | `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`... what proves a rule's own `mark`/`unmark` did what it claims. |
 | `dns` | A fixture resolver for the [reverse_dns](#reverse_dns-the-client-is-who-its-address-says) and [dnsbl](#dnsbl-what-a-blocklist-says-of-an-address) gates... `ptr` maps an address to its names, `forward` a name to its addresses, and `dnsbl` a zone to a map of address to what the zone answers, each answer a list, `nxdomain` (authoritative absence), or `servfail` (a failure). Anything unfixtured answers servfail, fail-closed as an unanswerable question is live. With the fixture present the gate runs exactly as in the galla, offender pass and all; without it the gate is skipped, as it always was. |
 | `geo` | A fixture locator for the [country](#country-narrowing-an-offense-by-geography), [asn](#asn-narrowing-an-offense-by-network), and [travel](#travel-further-than-it-could-have-gone) gates... `countries` maps an address to its ISO code, `asns` one to its AS number or a `{number, org}` hash, and `locations` one to a `[ latitude, longitude ]` pair or a `{lat, lon, radius}` hash (each `unknown` for one the database would not place), and `lists` and `asn_lists` name the sets a `%%%country_codes{name}%%%` and a `%%%asn_lists{name}%%%` token resolve against, standing in for the config. Anything unfixtured is unplaceable, fail-closed as it is live. Present, the gate runs as in the galla; absent, it is skipped. |
@@ -1236,7 +1237,7 @@ accepts a gate or key:
 | `gate` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `mark_only` / `forgive` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pressure` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `marked` / `not_marked` / `sequence` / `country` / `asn` / `namtar_list` / `active_time` / `reverse_dns` / `dnsbl` / `account` / `limit` / `after` / `travel` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `marked` / `not_marked` / `sequence` / `country` / `asn` / `namtar_list` / `active_time` / `reverse_dns` / `dnsbl` / `account` / `limit` / `after` / `sum` / `travel` / `network` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` / `src_port_var` / `dest_port_var` / `user_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -1394,7 +1395,7 @@ the two, or one beside a `gate`.
 ### rule_gates... what a match still has to clear
 
 A match says a line looks like an offense. `rule_gates` is the whole list a
-line goes down, and thirteen of its gate types are what a match still has to
+line goes down, and fourteen of its gate types are what a match still has to
 clear to count as one, each asking something the line can not answer for
 itself... if an address is branded, what country or network it is in, if it
 is on a list, what DNS says of it, if a name is a real account, what time
@@ -1411,7 +1412,7 @@ rule_gates:
 ```
 
 Each entry is a hash of one key, the gate's type, over what that gate is
-told. The thirteen are...
+told. The fourteen are...
 
 - [`marked`](#marks-cross-rule-state-keyed-by-anything) :: The key has a
       brand.
@@ -1436,6 +1437,8 @@ told. The thirteen are...
       are let by in a window.
 - [`after`](#after-only-once-a-key-has-been-seen-enough) :: A key has been
       seen often enough in a window.
+- [`sum`](#sum-how-much-not-how-often) :: A number has added up to enough
+      for a key in a window.
 - [`travel`](#travel-further-than-it-could-have-gone) :: A key is seen
       further away than it could have gone.
 
@@ -1452,8 +1455,8 @@ drops the result. One naming neither keys on the offender and is asked once
 per candidate, filtering which of them count, like `ban_not_internal`, so
 it has to be written below the `ban_var` that names them. `active_time` is
 the exception... with no var it keys on the clock, so it is always asked
-once for the result. `account`, `limit`, `after`, and `travel` only ever
-key on a found value, so they are asked once for the result too.
+once for the result. `account`, `limit`, `after`, `sum`, and `travel` only
+ever key on a found value, so they are asked once for the result too.
 
 **A rule that can not have a gate does not load.** An entry naming a type
 there is none of, one telling a gate what it does not know, one keyed by
@@ -1482,9 +1485,37 @@ it".
 | --- | --- |
 | `mark` | A gate, one entry per brand to set on match. Told `{name, ttl, var?, vars?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var`/`vars` the brand is keyed by each offender IP, with `var` by that capture, with `vars` by the named captures joined into one compound key. `value_var` names a capture to store on the brand. |
 | `unmark` | A gate, one entry per brand to lift on match. Told `{name, var?, vars?}`. A successful login lifting a suspicion, say. |
-| `marked` | A gate... the entry holds when the brand is set. Told `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
+| `marked` | A gate... the entry holds when the brand is set. Told `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. `older_than`/`newer_than` and `hosts` ask [more of the brand](#how-old-a-brand-is-and-who-set-it). |
 | `not_marked` | A gate, the inverse... the entry holds when the named brand is not set. Told `{name, var?, vars?, value_is?, value_not?}`, with the same keying and the same value compares... with one, a live brand only vetoes when the compare holds, so `value_is` spares a brand storing a *different* value and `value_not` one storing the *same*. A compare that can not be evaluated still vetoes. |
 | `mark_only` | A key of the rule. When true the rule only brands and gates, never counting toward a ban, and does not consume the line, so matching falls through to the later rules. |
+
+#### How old a brand is, and who set it
+
+A `marked` may ask two things more of a brand than its being there.
+
+```yaml
+rule_gates:
+  - marked: { name: logged-in, var: USER, newer_than: 300 }
+  - ban_var: [ SRC ]
+  - marked: { name: recon, hosts: 3 }
+```
+
+- `older_than` / `newer_than` :: Seconds the brand has to have been set for
+      at least, or for less than. A brand is as old as when it was first
+      set, however often it has been set since, so the first is "still at
+      it a day after being branded" and the second "with in five minutes
+      of the login". Both together are a span of ages.
+- `hosts` :: How many hosts of a fleet have to have set the brand, this one
+      among them when it has. A scan that touches each host once is under
+      every count any one of them keeps, and is three hosts having seen the
+      one address.
+
+A brand says who set it only as far as it has been told. Hosts share brands
+over a [Redis tablet](tablets.md), each delta naming the host it came from,
+so with out one there is only ever this host and `hosts: 2` never holds.
+Who set a brand rides the tablet across a restart, and `baphomet marked`
+shows the count. A test seeds it with a `hosts` count on a `marks_before`
+entry, and the age with its `set`.
 
 A rule whose mark gates veto, like a mark_only rule, does not consume the
 line either, so a branding rule and the rule that reads it can both act on
@@ -1695,7 +1726,9 @@ is for.
       party to. Each names the record (`name`), the found var holding the
       joining id (`key`, or a list of them for a compound key), optionally
       the found vars to contribute (`fields`, defaulting to everything
-      found), and optionally a `ttl` in seconds, default 3600.
+      found), optionally a `ttl` in seconds, default 3600, and optionally a
+      `count`, a field of the record to keep a tally in, one more for each
+      line the rule harvests into it.
 
 - `tracked` :: The gate that reads, one entry per record. Each names a
       record and carries at least one of `where` (predicate entries, the
@@ -2102,6 +2135,38 @@ place badly, so keep it on a `detection_var`, and put an
 carriers you know. It is proved from the rule file with the `locations` of
 a [`geo` fixture](#proving-lookups).
 
+### network... the network as a found var
+
+A `network` gate lifts the network an address is in into a found var, and
+does nothing else. It judges nothing and vetoes nothing. An attack that
+comes from one address after another out of the one provider stays under
+every count kept by address, and is one key once it is counted by network.
+
+```yaml
+rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Failed password for \S+ from %%%%SRC%%%%'
+  - network: { var: SRC, into: NET }
+  - after: { by: NET, count: 30, seconds: 600 }
+  - ban_var: [ SRC ]
+max_score: 1
+```
+
+- `var` :: The found var holding the address.
+- `into` :: The found var the network is lifted into, as a CIDR.
+- `v4` :: The prefix length an IPv4 address is cut to.
+    - default :: 24
+- `v6` :: The prefix length an IPv6 address is cut to.
+    - default :: 64
+
+What can read it is what can read [`country`'s
+`into`](#into-the-country-as-a-found-var)... `after`, `limit`, `sum`,
+`distinct`, and the mark gates. A value that is not an address lifts
+nothing, and each of those fails closed on an unset var for itself. This
+only names the network. Banishing one is the config's
+[subnet banning](configuration.md#subnet-banning).
+
 ### dnsbl... what a blocklist says of an address
 
 A `dnsbl` gate, one of those
@@ -2287,6 +2352,34 @@ before it all landed with in `seconds`, wherever a window might be said to
 start. What is seen of a key is kept per watcher, bounded as the mark
 store is, and forgotten at a restart. An offense lacking one of the `by`
 vars has nothing to be counted under and is vetoed. Like `limit` it needs
+no fixture to prove.
+
+### sum... how much, not how often
+
+A `sum` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+is `after` for a number... it adds a found var to a running total for a
+key and holds while what the key has added up to with in `seconds` is above
+a mark. The bytes sent to one client in an hour, say, off an access log.
+
+```yaml
+rule_gates:
+  - status: [ 200, 206 ]
+  - sum: { by: host, of: bytes, above: 1000000000, seconds: 3600 }
+  - detection_var: [ host ]
+```
+
+- `by` :: The found var, or a list of them, whose values joined are the
+      key.
+- `of` :: The found var holding the number to add.
+- `above` :: What the total has to be more than.
+- `seconds` :: How far back it is added up over.
+
+The total is kept in sixty spans of the `seconds`, so what falls out of it
+does so a span at a time, and it may run up to one span long and never
+short. It is kept per watcher, bounded as the mark store is, and forgotten
+at a restart. An offense lacking one of the `by` vars, or whose `of` is not
+a number of zero or more, adds nothing and is vetoed. Like `after` it needs
 no fixture to prove.
 
 ### forgive... a login that worked clears the failures

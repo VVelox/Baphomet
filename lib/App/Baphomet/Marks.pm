@@ -6,7 +6,7 @@ use v5.40;
 no feature 'unicode_strings';
 use Exporter qw( import );
 
-our @EXPORT_OK = qw( mark_key live_mark value_verdict mark_set mark_unset bound_expiring_store );
+our @EXPORT_OK = qw( mark_key live_mark mark_hosts value_verdict mark_set mark_unset bound_expiring_store );
 
 =head1 NAME
 
@@ -40,7 +40,9 @@ file can prove its own branding and gating cold. Nothing here knows of
 tablets, buses, or wall clocks... state in, verdicts and brands out.
 
 The store shape is per mark name a hash of branded keys, each
-C<< { expires, set?, value? } >>.
+C<< { expires, set?, value?, here?, hosts? } >>... C<here> is true for a
+brand set on this host, and C<hosts> is a hash keyed by the other hosts of
+a fleet that have set it.
 
 =head1 FUNCTIONS
 
@@ -94,6 +96,21 @@ sub live_mark {
 		return undef;
 	}
 	return $mark;
+}
+
+=head2 mark_hosts
+
+Returns how many hosts have set a brand, this one when it has and each
+other host of the fleet the brand says did.
+
+    if ( mark_hosts($mark) >= 3 ) { ... }
+
+=cut
+
+sub mark_hosts {
+	my ($mark) = @_;
+
+	return ( $mark->{here} ? 1 : 0 ) + scalar( keys( %{ $mark->{hosts} // {} } ) );
 }
 
 =head2 value_verdict
@@ -196,7 +213,15 @@ sub mark_set {
 	if ( defined($held) && defined( $held->{set} ) && $held->{expires} > $now ) {
 		$set = $held->{set};
 	}
-	$store->{$key} = { 'expires' => $now + $ttl, 'set' => $set, defined($value) ? ( 'value' => $value ) : () };
+	# set here, and still set by whichever other hosts a live brand says
+	my $hosts = ( defined($held) && $held->{expires} > $now ) ? $held->{hosts} : undef;
+	$store->{$key} = {
+		'expires' => $now + $ttl,
+		'set'     => $set,
+		'here'    => 1,
+		defined($value) ? ( 'value' => $value ) : (),
+		defined($hosts) ? ( 'hosts' => $hosts ) : (),
+	};
 
 	if ( defined($on_set) ) {
 		$on_set->( $name, $key, $value, $now + $ttl, $set );

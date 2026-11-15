@@ -1078,6 +1078,11 @@ sub checkpoint {
 						'expires' => $store->{$key}{expires},
 						defined( $store->{$key}{set} )  ? ( 'set'   => $store->{$key}{set} )   : (),
 						exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
+						# who set it, for a marked gate that asks how many did
+						$store->{$key}{here} ? ( 'here' => 1 ) : (),
+						%{ $store->{$key}{hosts} // {} }
+						? ( 'hosts' => [ sort( keys( %{ $store->{$key}{hosts} } ) ) ] )
+						: (),
 					}
 				);
 			};
@@ -1512,10 +1517,16 @@ sub _load_marks {
 		{
 			next;
 		}
+		my @hosts
+			= is_plain_arrayref( $decoded->{hosts} )
+			? grep { defined($_) && ref($_) eq '' } @{ $decoded->{hosts} }
+			: ();
 		$self->{marks}{ $decoded->{name} }{ $decoded->{key} } = {
 			'expires' => $decoded->{expires} + 0,
 			( defined( $decoded->{set} ) && $decoded->{set} =~ /^[0-9]+$/ ) ? ( 'set'   => $decoded->{set} + 0 ) : (),
-			exists( $decoded->{value} )                                     ? ( 'value' => $decoded->{value} )   : ()
+			exists( $decoded->{value} )                                     ? ( 'value' => $decoded->{value} )   : (),
+			$decoded->{here}                                                ? ( 'here'  => 1 )                   : (),
+			@hosts ? ( 'hosts' => { map { $_ => 1 } @hosts } )                                                   : (),
 		};
 	} ## end foreach my $line ( $self->{tablet}->read('marks'...))
 
@@ -3853,10 +3864,20 @@ sub _ingest_mark_event {
 				}
 			}
 		} ## end if ( defined($held) )
+		# who has set it... the host the delta came from joins whoever a live
+		# brand already says did, this host among them. the set is bounded, a
+		# fleet being a known size and a origin a string off the wire
+		my $live  = defined($held) && $held->{expires} > $now;
+		my %hosts = $live ? %{ $held->{hosts} // {} } : ();
+		if ( defined( $event->{origin} ) && ( exists( $hosts{ $event->{origin} } ) || keys(%hosts) < 256 ) ) {
+			$hosts{ $event->{origin} } = 1;
+		}
 		$self->{marks}{$name}{$key} = {
 			'expires' => $expires,
 			defined($set)                    ? ( 'set'   => $set )                   : (),
-			exists( $value_source->{value} ) ? ( 'value' => $value_source->{value} ) : ()
+			exists( $value_source->{value} ) ? ( 'value' => $value_source->{value} ) : (),
+			( $live && $held->{here} )       ? ( 'here'  => 1 )                      : (),
+			%hosts                           ? ( 'hosts' => \%hosts )                : (),
 		};
 	} ## end if ( $op eq 'set' )
 
@@ -5640,9 +5661,10 @@ sub _cmd_marked {
 			}
 			$marks->{$mark_name}{$key} = {
 				'expires' => $store->{$key}{expires},
+				'hosts'   => App::Baphomet::Marks::mark_hosts( $store->{$key} ),
 				exists( $store->{$key}{value} ) ? ( 'value' => $store->{$key}{value} ) : (),
 			};
-		}
+		} ## end foreach my $key ( keys( %{$store} ) )
 	} ## end foreach my ( $mark_name, $store ) ( %{ $self->{...}})
 
 	return {

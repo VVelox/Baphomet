@@ -75,6 +75,7 @@ lib/App/Baphomet/Gate/method.pm
 lib/App/Baphomet/Gate/module.pm
 lib/App/Baphomet/Gate/mungers.pm
 lib/App/Baphomet/Gate/namtar_list.pm
+lib/App/Baphomet/Gate/network.pm
 lib/App/Baphomet/Gate/not_marked.pm
 lib/App/Baphomet/Gate/not_tracked.pm
 lib/App/Baphomet/Gate/pressure.pm
@@ -82,6 +83,7 @@ lib/App/Baphomet/Gate/reverse_dns.pm
 lib/App/Baphomet/Gate/sequence.pm
 lib/App/Baphomet/Gate/stages.pm
 lib/App/Baphomet/Gate/status.pm
+lib/App/Baphomet/Gate/sum.pm
 lib/App/Baphomet/Gate/track.pm
 lib/App/Baphomet/Gate/tracked.pm
 lib/App/Baphomet/Gate/travel.pm
@@ -530,6 +532,9 @@ t/unit-after.t
 t/unit-travel.t
 t/unit-forgive.t
 t/unit-pressure.t
+t/unit-network.t
+t/unit-sum.t
+t/unit-marked.t
 t/unit-primitives.t
 t/unit-offense.t
 t/unit-rule-index.t

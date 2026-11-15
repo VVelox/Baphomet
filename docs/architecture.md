@@ -252,6 +252,7 @@ For `marked` it is `marks`, keyed by mark name, each branded key under
 it carrying...
 
 - `expires` :: when the brand fades, epoch
+- `hosts` :: how many hosts of the fleet set the brand
 - `value` :: the harvested value, where the mark carries one
 
 For `tracked` it is `tracked`, keyed by track name, each live record
@@ -342,7 +343,8 @@ Tablet by tablet, what the rows hold...
   gets handed back on restore.
 - `marks.jsonl` :: one JSON line per branded key... `name` the mark, `key`
   the branded subject, `expires` the epoch the brand lifts, plus `set`
-  and `value` when the brand stored them.
+  and `value` when the brand stored them, `here` when it was set on this
+  host, and `hosts`, the other hosts of the fleet that set it.
 - `tracked.jsonl` :: one JSON line per tracked record... `name` the track,
   `key` the subject, `expires`, and the accumulated `fields`.
 - `mark_stream.csv` :: a single line, the stream ID the fleet mark bus was

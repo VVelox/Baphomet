@@ -1051,7 +1051,7 @@ sub _test_marks_seed {
 			_test_store_entry_malformed(
 				$seed,
 				'marks_before entry',
-				[ 'name', 'key', 'value', 'set', 'ttl' ],
+				[ 'name', 'key', 'value', 'set', 'ttl', 'hosts' ],
 				0, $where, $results
 			)
 			)
@@ -1060,9 +1060,17 @@ sub _test_marks_seed {
 		} ## end if ( _test_store_entry_malformed( $seed, 'marks_before entry'...))
 		my ($key) = _test_store_key( $seed->{key} );
 		my $ttl = $seed->{ttl} // 3600;
+
+		# hosts is how many hosts of a fleet set the brand, one unless said
+		my $host_count = $seed->{hosts} // 1;
+		if ( ref($host_count) ne '' || $host_count !~ /^[0-9]+$/ ) {
+			push( @{ $results->{failures} }, $where . ' has a marks_before entry whose hosts is not a count' );
+			return 1;
+		}
 		$store->{ $seed->{name} }{$key} = {
 			'expires' => $clock + $ttl,
 			'set'     => $seed->{set} // $clock,
+			'hosts'   => { map { 'host' . $_ => 1 } 1 .. $host_count },
 			defined( $seed->{value} ) ? ( 'value' => $seed->{value} ) : (),
 		};
 	} ## end foreach my $seed ( @{$seeds} )

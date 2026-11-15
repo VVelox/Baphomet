@@ -53,6 +53,10 @@ A entry is told...
     - ttl :: Optional. How long the record lives with out a line, 3600
           seconds by default.
 
+    - count :: Optional. A field of the record to keep a tally in, one more
+          for each line the rule harvests into it, for a C<tracked> gate to
+          read as a number.
+
 It harvests into the C<tracked> store of the passage's line context, and
 does nothing when the line has none.
 
@@ -61,8 +65,8 @@ does nothing when the line has none.
 # fields absent means everything found is contributed, which is not the same
 # as a empty list, which means nothing is
 my $SHAPE = {
-	'required' => { 'name'   => 'name',        'key' => 'string_or_strings' },
-	'optional' => { 'fields' => 'string_list', 'ttl' => 'seconds' },
+	'required' => { 'name'   => 'name', 'key' => 'string_or_strings' },
+	'optional' => { 'fields' => 'string_list', 'ttl' => 'seconds', 'count' => 'string' },
 };
 
 =head1 METHODS
@@ -87,6 +91,7 @@ sub compile {
 	$self->{key}    = is_plain_arrayref( $args->{key} ) ? [ @{ $args->{key} } ]    : [ $args->{key} ];
 	$self->{fields} = defined( $args->{fields} )        ? [ @{ $args->{fields} } ] : undef;
 	$self->{ttl}    = $args->{ttl} // 3600;
+	$self->{count}  = $args->{count};
 
 	return;
 } ## end sub compile
@@ -181,6 +186,19 @@ sub ask {
 		}
 
 		track_put( $store, $self->{name}, $key, \%fields, $self->{ttl}, $passage->{now} );
+
+		# the tally, one more for the line... kept out of a record already
+		# at the cap of fields that has no such field yet, as any other is
+		if ( defined( $self->{count} ) ) {
+			my $held   = $store->{ $self->{name} }{$key}{fields};
+			my $at_cap = keys( %{$held} ) >= App::Baphomet::Tracks::TRACK_FIELD_CAP();
+			if ( exists( $held->{ $self->{count} } ) || !$at_cap ) {
+				# a field of the name that some line gave as no number starts
+				# the tally over
+				my $tally = $held->{ $self->{count} } // 0;
+				$held->{ $self->{count} } = ( $tally =~ /^[0-9]+$/ ? $tally : 0 ) + 1;
+			}
+		} ## end if ( defined( $self->{count} ) )
 	} ## end foreach my $data ( @{$sources} )
 
 	return 1;

@@ -381,6 +381,160 @@ proves(
 );
 
 #
+# network, lifting what after then counts by
+#
+
+proves(
+	results_for(
+		rule_gates => [
+			{ network => { var => 'ip', into => 'NET' } },
+			{ after   => { by  => 'NET', count => 3, seconds => 60 } },
+			{ ban_var => ['ip'] },
+		],
+		tests => {
+			positive => [
+				# three addresses out of the one /24 are the one key
+				{
+					messages => [ map { line( event => 'fail', ip => '203.0.113.' . $_ ) } ( 9, 10, 11 ) ],
+					found    => 1,
+					data     => { NET => '203.0.113.0/24' },
+				},
+			],
+			negative => [
+				# three out of three networks are three
+				{ messages => [ map { line( event => 'fail', ip => '203.0.' . $_ . '.9' ) } ( 113, 114, 115 ) ] },
+				# a value that is no address lifts nothing, and after vetoes what has no key
+				{ messages => [ ( line( event => 'fail', ip => 'crawl.example.org' ) ) x 3 ] },
+			],
+		},
+	),
+	3,
+	'a network gate proves its lift by what a after gate below it counts'
+);
+
+#
+# sum
+#
+
+proves(
+	results_for(
+		rule_gates => [ { sum => { by => 'ip', of => 'bytes', above => 1000, seconds => 600 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9', bytes => 600 ),
+						line( event => 'fail', ip => '203.0.113.9', bytes => 600 ),
+					],
+					found => 1,
+				},
+			],
+			negative => [
+				# the first has fallen out by the time the second lands
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9', bytes => 600 ),
+						{ message => line( event => 'fail', ip => '203.0.113.9', bytes => 600 ), advance => 620 },
+					],
+				},
+				# and a line with no number adds nothing
+				{ messages => [ ( line( event => 'fail', ip => '203.0.113.9' ) ) x 3 ] },
+			],
+		},
+	),
+	3,
+	'a sum gate proves its total over the virtual clock'
+);
+
+#
+# marked, by how old the brand is and by how many hosts set it
+#
+
+proves(
+	results_for(
+		rule_gates => [ { marked => { name => 'logged-in', var => 'user', newer_than => 300 } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{
+					message      => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),
+					marks_before => [ { name => 'logged-in', key => 'neti', set => 1_000_000_000 - 60 } ],
+				},
+			],
+			negative => [
+				{
+					message      => line( event => 'fail', ip => '203.0.113.9', user => 'neti' ),
+					marks_before => [ { name => 'logged-in', key => 'neti', set => 1_000_000_000 - 600 } ],
+				},
+			],
+		},
+	),
+	2,
+	'a marked gate asking the age proves itself from a seeded set time'
+);
+proves(
+	results_for(
+		rule_gates => [ { ban_var => ['ip'] }, { marked => { name => 'recon', hosts => 3 } } ],
+		tests      => {
+			positive => [ { message => $fail_line, marks_before => [ { name => 'recon', key => '203.0.113.9', hosts => 3 } ] } ],
+			negative => [
+				{ message => $fail_line, marks_before => [ { name => 'recon', key => '203.0.113.9', hosts => 2 } ] },
+				# a seed that does not say is one host's
+				{ message => $fail_line, marks_before => [ { name => 'recon', key => '203.0.113.9' } ] },
+			],
+		},
+	),
+	3,
+	'and one asking how many hosts from a seeded count of them'
+);
+
+#
+# track, tallying the lines of a record
+#
+
+proves(
+	results_for(
+		track_only => 1,
+		rule_gates => [ { track => { name => 'client', key => 'ip', fields => [], count => 'requests' } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{
+					messages         => [ ($fail_line) x 3, line( event => 'fail', ip => '203.0.113.10' ) ],
+					found            => 4,
+					tracked_expected => [
+						{ name => 'client', key => '203.0.113.9',  fields => { requests => 3 } },
+						{ name => 'client', key => '203.0.113.10', fields => { requests => 1 } },
+					],
+				},
+				# a tally a line before the test left is added to
+				{
+					message          => $fail_line,
+					tracked_before   => [ { name => 'client', key => '203.0.113.9', fields => { requests => 41 } } ],
+					tracked_expected => [ { name => 'client', key => '203.0.113.9', fields => { requests => 42 } } ],
+				},
+			],
+		},
+	),
+	2,
+	'a track gate with a count tallies the lines of each record'
+);
+proves(
+	results_for(
+		rule_gates => [
+			{ tracked => { name => 'client', where => [ { field => 'requests', op => 'gt', value => 2 } ] } },
+			{ track   => { name => 'client', key   => 'ip', fields => [], count => 'requests' } },
+			{ ban_var => ['ip'] },
+		],
+		tests => {
+			# the read is above the write, so the fourth line is the first to find three before it
+			positive => [ { messages => [ ($fail_line) x 4 ], found => 1 } ],
+			negative => [ { messages => [ ($fail_line) x 3 ] } ],
+		},
+	),
+	2,
+	'and a tracked gate below reads the tally as a number'
+);
+
+#
 # pressure
 #
 
@@ -497,6 +651,10 @@ my %malformed = (
 		qr/geo locations "203\.0\.113\.9" is not a \[ latitude, longitude \] pair/
 	],
 	'a pressure that is no count' => [ { pressure => 'high' }, qr/pressure is not a count of matched lines/ ],
+	'a seeded brand whose hosts is no count' => [
+		{ marks_before => [ { name => 'recon', key => '203.0.113.9', hosts => 'many' } ] },
+		qr/has a marks_before entry whose hosts is not a count/
+	],
 );
 foreach my $description ( sort( keys(%malformed) ) ) {
 	my ( $fixture, $message ) = @{ $malformed{$description} };

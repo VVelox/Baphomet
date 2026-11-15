@@ -840,6 +840,92 @@ my @cases = (
 	],
 
 	#
+	# network and sum
+	#
+	[
+		'syslog',
+		'a network with no into',
+		{ 'rule_gates' => [ @sshd, { 'network' => { 'var' => 'SRC' } }, $ban_src ] },
+		'The network gate of the rule "syslog/x" (rule_gates entry 2) lacks a into'
+	],
+	[
+		'syslog',
+		'a network v4 past what a IPv4 address has bits for',
+		{ 'rule_gates' => [ @sshd, { 'network' => { 'var' => 'SRC', 'into' => 'NET', 'v4' => 48 } }, $ban_src ] },
+		'The network gate of the rule "syslog/x" (rule_gates entry 2) has a v4 that is not a prefix length of 1 to 32'
+	],
+	[
+		'syslog',
+		'a network above a after that counts by it',
+		{
+			'rule_gates' => [
+				@sshd,
+				{ 'network' => { 'var' => 'SRC', 'into'  => 'NET', 'v4' => 16, 'v6' => 48 } },
+				{ 'after'   => { 'by'  => 'NET', 'count' => 30,    'seconds' => 600 } },
+				$ban_src
+			]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a sum with no of',
+		{ 'rule_gates' => [ @sshd, { 'sum' => { 'by' => 'SRC', 'above' => 1000, 'seconds' => 60 } }, $ban_src ] },
+		'The sum gate of the rule "syslog/x" (rule_gates entry 2) lacks a of'
+	],
+	[
+		'syslog',
+		'a sum above of nothing',
+		{
+			'rule_gates' =>
+				[ @sshd, { 'sum' => { 'by' => 'SRC', 'of' => 'bytes', 'above' => 0, 'seconds' => 60 } }, $ban_src ]
+		},
+		'The sum gate of the rule "syslog/x" (rule_gates entry 2) has a above that is not a positive number'
+	],
+	[
+		'syslog',
+		'a sum above the ban_var',
+		{
+			'rule_gates' =>
+				[ @sshd, { 'sum' => { 'by' => 'SRC', 'of' => 'bytes', 'above' => 1000.5, 'seconds' => 60 } }, $ban_src ]
+		},
+		undef
+	],
+
+	#
+	# what more a marked may ask, and a track's tally
+	#
+	[
+		'syslog',
+		'a marked hosts of nothing',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'marked' => { 'name' => 'recon', 'hosts' => 0 } } ] },
+		'The marked gate of the rule "syslog/x" (rule_gates entry 3) has a hosts that is not a positive int'
+	],
+	[
+		'syslog',
+		'a marked newer_than that is no number',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'marked' => { 'name' => 'recon', 'newer_than' => 'soon' } } ] },
+		'The marked gate of the rule "syslog/x" (rule_gates entry 3) has a newer_than that is not a positive int of seconds'
+	],
+	[
+		'syslog',
+		'a marked asking the age and the hosts',
+		{
+			'rule_gates' => [
+				@sshd, $ban_src,
+				{ 'marked' => { 'name' => 'recon', 'older_than' => 60, 'newer_than' => 3600, 'hosts' => 3 } }
+			]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a track count that is no name',
+		{ 'rule_gates' => [ @sshd, { 'track' => { 'name' => 'client', 'key' => 'SRC', 'count' => [] } }, $ban_src ] },
+		'The track gate of the rule "syslog/x" (rule_gates entry 2) has a count that is not a non-empty string'
+	],
+
+	#
 	# travel
 	#
 	[
