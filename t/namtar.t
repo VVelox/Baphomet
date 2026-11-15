@@ -17,6 +17,7 @@ BEGIN {
 use App::Baphomet::Galla ();
 use App::Baphomet::Rules::JSON ();
 use App::Baphomet::Config qw( kur_split resolve_namtar_lists );
+use App::Baphomet::Namtar ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -339,18 +340,19 @@ my $ref_rule = App::Baphomet::Rules::JSON->new(
 	def  => { %{$base}, namtar_list => [ { list => 'nope' } ] }
 );
 eval {
-	$galla->_resolve_namtar_gate( $ref_rule, { bad => { type => 'cidr', nocase => 0, paths => ['/x'] } }, 'where' );
+	App::Baphomet::Namtar::resolve_namtar_gate( $ref_rule->namtar_list,
+		{ bad => { type => 'cidr', nocase => 0, paths => ['/x'] } }, 'where' );
 };
 like( $@, qr/nope.*not a defined list/, 'referencing a undefined namtar list dies' );
-my $ok = $galla->_resolve_namtar_gate(
-	$ref_rule,
+my $ok = App::Baphomet::Namtar::resolve_namtar_gate(
+	$ref_rule->namtar_list,
 	{ nope => { type => 'string', nocase => 1, paths => [ '/a', '/b' ] } }, 'where'
 );
 is_deeply(
 	$ok->[0]{slots},
 	[
-		{ type => 'string', nocase => 1, path => '/a' },
-		{ type => 'string', nocase => 1, path => '/b' },
+		{ key => slotkey( 'string', 1, '/a' ), type => 'string', nocase => 1, path => '/a' },
+		{ key => slotkey( 'string', 1, '/b' ), type => 'string', nocase => 1, path => '/b' },
 	],
 	'a defined reference resolves to its typed slots'
 );

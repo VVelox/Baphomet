@@ -6,7 +6,6 @@ use v5.40;
 no feature 'unicode_strings';
 use Exporter               qw( import );
 use Ref::Util              qw( is_plain_arrayref is_plain_hashref );
-use List::Util             qw( any );
 use App::Baphomet::Parser  ();
 use App::Baphomet::Marks   ();
 use App::Baphomet::Tracks  qw( track_get );
@@ -246,19 +245,30 @@ sub run_tests {
 				}
 			} ## end if ( defined( $test->{geo} ) )
 
-			my $gates        = $self->mark_gates;
+			my $mark_gates   = $self->mark_gates;
 			my $marks        = $self->marks;
 			my $unmarks      = $self->unmarks;
 			my $is_detection = $self->is_detection;
 			my $rdns_gate    = defined($dns_resolver) ? $self->reverse_dns : undef;
 
-			# whether a fixtured gate is var-less, which makes it a per-offender
-			# gate, judged for each offender of a result rather than once for the
-			# result. a var-less mark gate is offender-time too, but is not
-			# provable here, as the tests section documents, so it is not among
-			# them
-			my $rdns_has_varless = defined($rdns_gate) && any { !defined( $_->{var} ) } @{$rdns_gate};
-			my $geo_varless      = defined($geo_gate)  && !defined( $geo_gate->{vars} );
+			# the gates this entry can judge, in the galla's order and its two
+			# passes, over the throwaway store, the virtual clock, and the
+			# fixtures, each read as it stands when judged... a undef $ip vets a
+			# result as a whole and a offender vets that offender, a gate with
+			# nothing to judge in a pass holding. one with no fixture standing in
+			# for what it looks up was left undef above, and a undef gate holds.
+			# namtar_list and active_time resolve against a watcher's lists and
+			# windows, which a rule file does not have, so they are not judged
+			# here. neither is a var-less mark gate, documented as ran only in
+			# the galla's ban path, so the mark gates are asked only of the
+			# result
+			my $gates_pass = sub {
+				my ( $data, $ip ) = @_;
+				return ( defined($ip)
+						|| App::Baphomet::Marks::mark_gates_pass( \%marks_store, $mark_gates, $data, undef, $clock ) )
+					&& App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip )
+					&& App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip );
+			};
 
 			my @found_all;
 			my $message_index = -1;
@@ -334,23 +344,12 @@ sub run_tests {
 				foreach my $one (@results_of_line) {
 					my $data = $one->{data};
 
-					# the data-level gates vet the result once, in the galla's
-					# order... the mark gates always, the reverse_dns and vars
-					# country gates when a fixture stands in. namtar and
-					# active_time are galla-only, not fixtured here. the first
-					# veto ends it, as it does in the galla, where it spares the
-					# lookups a later gate would make, and a vetoed result did
-					# not fire, so it is neither branded nor counted as found
-					if (
-						!App::Baphomet::Marks::mark_gates_pass( \%marks_store, $gates, $data, undef, $clock )
-						|| ( defined($rdns_gate)
-							&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, undef ) )
-						|| ( defined($geo_gate)
-							&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, undef ) )
-						)
-					{
+					# the gates vet the result once, the pass with no offender... a
+					# vetoed result did not fire, so it is neither branded nor
+					# counted as found
+					if ( !$gates_pass->( $data, undef ) ) {
 						next;
-					} ## end if ( !App::Baphomet::Marks::mark_gates_pass...)
+					}
 
 					# offenders as the galla resolves them, sans the
 					# usedns/internal filtering no test needs... a detection
@@ -363,24 +362,7 @@ sub run_tests {
 					# the survivor filter and the branding of survivors run
 					# through the shared App::Baphomet::Offense core, the same
 					# the galla uses, so the self-test can not drift from the
-					# engine
-					my $offender_gate;
-					if ( $rdns_has_varless || $geo_varless ) {
-						$offender_gate = sub {
-							my ($ip) = @_;
-							if ( $rdns_has_varless
-								&& !App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip ) )
-							{
-								return 0;
-							}
-							if ( $geo_varless
-								&& !App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip ) )
-							{
-								return 0;
-							}
-							return 1;
-						}; ## end $offender_gate = sub
-					} ## end if ( $rdns_has_varless || $geo_varless )
+					# engine... the gates vet each offender, the pass with one
 					my $offense = App::Baphomet::Offense::resolve_offense(
 						'store'     => \%marks_store,
 						'marks'     => $marks,
@@ -388,7 +370,7 @@ sub run_tests {
 						'data'      => $data,
 						'offenders' => \@offenders,
 						'now'       => $clock,
-						'gate'      => $offender_gate,
+						'gate'      => sub { my ($ip) = @_; return $gates_pass->( $data, $ip ); },
 					);
 					if ( $offense->{fired} ) {
 						push( @found_all, $one );

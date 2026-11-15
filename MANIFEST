@@ -38,6 +38,7 @@ lib/App/Baphomet/App/Command/stop.pm
 lib/App/Baphomet/App/Command/test_line.pm
 lib/App/Baphomet/App/Command/tracked.pm
 lib/App/Baphomet/App/Command/watching.pm
+lib/App/Baphomet/ActiveTime.pm
 lib/App/Baphomet/ClayTablet.pm
 lib/App/Baphomet/ClayTablet/File.pm
 lib/App/Baphomet/ClayTablet/Redis.pm
@@ -47,6 +48,7 @@ lib/App/Baphomet/Geo.pm
 lib/App/Baphomet/Galla.pm
 lib/App/Baphomet/LogDrek.pm
 lib/App/Baphomet/Marks.pm
+lib/App/Baphomet/Namtar.pm
 lib/App/Baphomet/Tracks.pm
 lib/App/Baphomet/Offense.pm
 lib/App/Baphomet/Primitives.pm
@@ -478,6 +480,7 @@ t/subnet-bans.t
 t/tracked.t
 t/unit-correlation.t
 t/unit-marks.t
+t/unit-namtar.t
 t/unit-shape.t
 t/unit-tracks.t
 t/unit-rdns.t

@@ -78,13 +78,13 @@ sub mark_key {
 
 =head2 entry_in_pass
 
-Whether a gate entry belongs to the pass being run. Every gate kind, the mark,
-reverse_dns, and country gates alike, is judged in two passes... once per
-found result with a undef C<$ip>, the data pass, and once per candidate
-offender with that C<$ip>, the offender pass. A data-keyed entry, one naming a
-C<var> or C<vars>, belongs to the data pass, and a var-less one, keyed by the
-offender, to the offender pass. Returns 1 when the entry is judged in this
-pass, else 0.
+Whether a gate entry belongs to the pass being run. Every gate keyed by a var
+or the offender, the mark, country, namtar_list, and reverse_dns gates alike,
+is judged in two passes... once per found result with a undef C<$ip>, the data
+pass, and once per candidate offender with that C<$ip>, the offender pass. A
+data-keyed entry, one naming a C<var> or C<vars>, belongs to the data pass,
+and a var-less one, keyed by the offender, to the offender pass. Returns 1
+when the entry is judged in this pass, else 0.
 
     foreach my $entry ( grep { entry_in_pass( $_, $ip ) } @{$gate} ) { ... }
 

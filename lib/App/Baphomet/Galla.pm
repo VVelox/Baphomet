@@ -11,7 +11,7 @@ use POE::Component::Server::JSONUnix         ();
 use POE::Component::Server::JSONUnix::Client ();
 use File::Glob                               qw( bsd_glob );
 use File::Spec                               ();
-use List::Util                               qw( any max min sum0 uniqstr );
+use List::Util                               qw( all any max min sum0 uniqstr );
 use Path::Tiny                               qw( path );
 use Text::CSV_XS                             ();
 use JSON::MaybeXS                            qw( encode_json decode_json );
@@ -29,6 +29,8 @@ use App::Baphomet::Marks      ();
 use App::Baphomet::Tracks     ();
 use App::Baphomet::RDNS       ();
 use App::Baphomet::Geo        ();
+use App::Baphomet::Namtar     ();
+use App::Baphomet::ActiveTime ();
 use App::Baphomet::Offense    ();
 use App::Baphomet::ClayTablet ();
 use App::Baphomet::LogDrek    qw( log_drek );
@@ -341,6 +343,10 @@ sub new {
 		$self->warn;
 	}
 
+	# every list file a namtar_list gate bound below reads, each loaded once all
+	# of the watchers are bound
+	my %namtar_slots;
+
 	foreach my $watcher_name ( sort( keys( %{$watchers} ) ) ) {
 		my $watcher = $watchers->{$watcher_name};
 
@@ -380,10 +386,9 @@ sub new {
 		#    - name :: The rule's name, type and all.
 		#    - rule :: The compiled rule object.
 		#    - watcher :: The watcher's name.
-		#    - country_gate :: The rule's country gate resolved against the
-		#          watcher's lists, undef for a rule with out one.
-		#    - namtar_gate :: The same for its namtar_list gate.
-		#    - active_gate :: The same for its active_time gate.
+		#    - gates :: Array ref of the gates a found result has to clear, each
+		#          a closure of ( $data, $ip, $now ) that is true when it
+		#          holds. Empty for a rule with out a gate.
 		#    - eve_only :: 1 if the rule only observes on this watcher, 0 if not.
 		#    - max_score :: The score a subject has to reach to be banished.
 		#    - find_time :: The seconds its hits have to land with in to count.
@@ -439,14 +444,84 @@ sub new {
 			my $where = 'The rule "' . $rule_name . '" of the watcher "' . $watcher_name . '"';
 			my ( $country_gate, $namtar_gate, $active_gate );
 			try {
-				$country_gate = $self->_resolve_country_gate( $rule, $watcher_country_codes, $where );
-				$namtar_gate  = $self->_resolve_namtar_gate( $rule, $watcher_namtar_lists, $where );
-				$active_gate  = $self->_resolve_active_time_gate( $rule, $watcher_active_time, $where );
+				$country_gate
+					= App::Baphomet::Geo::resolve_country_gate( $rule->country, $watcher_country_codes, $where );
+				$namtar_gate
+					= App::Baphomet::Namtar::resolve_namtar_gate( $rule->namtar_list, $watcher_namtar_lists, $where );
+				$active_gate = App::Baphomet::ActiveTime::resolve_active_time_gate( $rule->active_time,
+					$watcher_active_time, $where );
 			} catch ($caught) {
 				$self->{perror}      = 1;
 				$self->{error}       = 6;
 				$self->{errorString} = $caught;
 				$self->warn;
+			}
+
+			# the gates a found result of the rule has to clear on this watcher,
+			# in the order they are judged... the first veto ends it, sparing the
+			# GeoIP and DNS lookups of the gates after it. each is judged in two
+			# passes... with a undef $ip, once for the result, on its var-keyed
+			# entries and active_time, and with each candidate offender, on its
+			# var-less ones. a gate with nothing to judge in a pass holds. the
+			# galla's store, locator, and resolver are read when a gate is judged
+			# and not here, as the resolver only stands up once every rule is
+			# bound. a rule gets a closure only for a gate it has, so most rules,
+			# having none, are judged by a empty list
+			my $mark_gates = $rule->mark_gates;
+			my $rdns_gate  = $rule->reverse_dns;
+			my @gates;
+			if ( any { @{$_} } values( %{$mark_gates} ) ) {
+				push(
+					@gates,
+					sub {
+						my ( $data, $ip, $now ) = @_;
+						return App::Baphomet::Marks::mark_gates_pass( $self->{marks}, $mark_gates, $data, $ip,
+							$now );
+					}
+				);
+			} ## end if ( any { @{$_} } values( %{$mark_gates} ...))
+			if ( defined($country_gate) ) {
+				push(
+					@gates,
+					sub {
+						my ( $data, $ip ) = @_;
+						return App::Baphomet::Geo::country_gate_pass( $self->_country_locator, $country_gate,
+							$data, $ip );
+					}
+				);
+			} ## end if ( defined($country_gate) )
+			if ( defined($namtar_gate) ) {
+				foreach my $entry ( @{$namtar_gate} ) {
+					foreach my $slot ( @{ $entry->{slots} } ) {
+						$namtar_slots{ $slot->{key} } = $slot;
+					}
+				}
+				push(
+					@gates,
+					sub {
+						my ( $data, $ip ) = @_;
+						return App::Baphomet::Namtar::namtar_gate_pass( $self->{namtar_files}, $namtar_gate, $data,
+							$ip );
+					}
+				);
+			} ## end if ( defined($namtar_gate) )
+			if ( defined($rdns_gate) ) {
+				push(
+					@gates,
+					sub {
+						my ( $data, $ip ) = @_;
+						return App::Baphomet::RDNS::rdns_gate_pass( $self->_rdns_resolver, $rdns_gate, $data, $ip );
+					}
+				);
+			}
+			if ( defined($active_gate) ) {
+				push(
+					@gates,
+					sub {
+						my ( $data, $ip, $now ) = @_;
+						return App::Baphomet::ActiveTime::active_time_pass( $active_gate, $data, $ip, $now );
+					}
+				);
 			}
 
 			# the operator's per-rule config table for this rule, if any... it
@@ -519,19 +594,17 @@ sub new {
 			push(
 				@bindings,
 				{
-					'name'         => $rule_name,
-					'rule'         => $rule,
-					'watcher'      => $watcher_name,
-					'country_gate' => $country_gate,
-					'namtar_gate'  => $namtar_gate,
-					'active_gate'  => $active_gate,
-					'eve_only'     => $eve_only,
-					'max_score'    => ( $overrides{max_score} // $settings->{max_score} ) + 0,
-					'find_time'    => $overrides{find_time} // $settings->{find_time},
-					'ban_time'     => $overrides{ban_time}  // $settings->{ban_time},
-					'weight'       => $weight,
-					'own_bucket'   => $own_bucket,
-					'eve'          => \%eve,
+					'name'       => $rule_name,
+					'rule'       => $rule,
+					'watcher'    => $watcher_name,
+					'gates'      => \@gates,
+					'eve_only'   => $eve_only,
+					'max_score'  => ( $overrides{max_score} // $settings->{max_score} ) + 0,
+					'find_time'  => $overrides{find_time} // $settings->{find_time},
+					'ban_time'   => $overrides{ban_time}  // $settings->{ban_time},
+					'weight'     => $weight,
+					'own_bucket' => $own_bucket,
+					'eve'        => \%eve,
 				}
 			);
 		} ## end foreach my $rule_name (@rule_names)
@@ -576,7 +649,6 @@ sub new {
 	my $country_gated = 0;
 	my @dns_wanting;
 	my %munge_reps;
-	my %namtar_slots;
 	foreach my $watcher_name ( sort( keys( %{ $self->{watchers} } ) ) ) {
 		my $built = $self->{watchers}{$watcher_name};
 
@@ -596,13 +668,8 @@ sub new {
 					$munge_reps{ join( ', ', @mungers ) } = $rule_obj;
 				}
 			}
-			if ( defined( $binding->{country_gate} ) ) {
+			if ( defined( $rule_obj->country ) ) {
 				$country_gated = 1;
-			}
-			foreach my $entry ( @{ $binding->{namtar_gate} // [] } ) {
-				foreach my $slot ( @{ $entry->{slots} } ) {
-					$namtar_slots{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) } = $slot;
-				}
 			}
 		} ## end foreach my $binding ( @{ $built->{bindings} } )
 
@@ -705,13 +772,9 @@ sub new {
 	# empty or unreadable matches nobody, so those gates banish nobody from
 	# it... a silent hole, so name them loudly
 	foreach my $key ( sort( keys(%namtar_slots) ) ) {
-		my $slot = $namtar_slots{$key};
-		$self->_load_namtar_file( $slot->{type}, $slot->{nocase}, $slot->{path} );
+		$self->_load_namtar_file( $namtar_slots{$key} );
 	}
-	my @empty = grep {
-		my $set = $self->{namtar_files}{$_}{set};
-		is_plain_hashref($set) ? !%{$set} : !@{$set};
-	} sort( keys(%namtar_slots) );
+	my @empty = grep { !%{ $self->{namtar_files}{$_}{set} } } sort( keys(%namtar_slots) );
 	if (@empty) {
 		my @paths = map { $self->{namtar_files}{$_}{path} } @empty;
 		log_drek(
@@ -2434,7 +2497,6 @@ sub _process_record {
 			next;
 		}
 
-		my $gates = $rule_obj->mark_gates;
 		# a track_only rule is mark_only's sibling... it harvests, never
 		# counts, and does not consume the line. one flag drives both, a rule
 		# declaring either being a harvest rule as far as counting goes
@@ -2464,18 +2526,11 @@ sub _process_record {
 
 		my $consumed = 0;
 		foreach my $one (@all_found) {
-			# the data-level gates vet the whole result once... the var-keyed
-			# mark and country gates, the namtar and reverse_dns gates, and
-			# active_time. a veto means the rule did not really fire, so it
-			# neither counts nor consumes the line. judged in this order with
-			# the first veto ending it, as the country and reverse_dns gates do
-			# GeoIP and DNS lookups a earlier veto should spare
-			if (   !$self->_mark_gates_pass( $gates, $one->{data}, undef, $now )
-				|| !$self->_country_gate_pass( $binding->{country_gate}, $one->{data}, undef )
-				|| !$self->_namtar_gate_pass( $binding->{namtar_gate}, $one->{data}, undef )
-				|| !$self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, undef )
-				|| !$self->_active_time_pass( $binding->{active_gate}, $one->{data}, $now ) )
-			{
+			# the gates vet the whole result once, the pass with no offender...
+			# the var-keyed entries of the mark, country, namtar_list, and
+			# reverse_dns gates, and active_time. a veto means the rule did not
+			# really fire, so it neither counts nor consumes the line
+			if ( !all { $_->( $one->{data}, undef, $now ) } @{ $binding->{gates} } ) {
 				next;
 			}
 
@@ -2565,27 +2620,22 @@ sub _process_record {
 				@to_count = @offenders;
 				$consumed = 1;
 			} else {
-				# the per-offender gates (the var-less mark, country, namtar,
-				# and reverse_dns gates) filter the candidates, a offender any
-				# gate vetoes is neither branded nor counted, and a result whose
-				# every offender is gated out did not fire: it brands nobody,
-				# emits nothing, and does not consume, falling through to the
-				# later rules... the legit crawler the reverse_dns gate cleared,
-				# say
-				$outcome = $self->_resolve_offense(
-					$rule_obj,
-					$one->{data},
-					\@offenders,
-					$now,
-					sub {
+				# the gates vet each candidate, the pass with a offender... the
+				# var-less entries of the mark, country, namtar_list, and
+				# reverse_dns gates. a offender any gate vetoes is neither
+				# branded nor counted, and a result whose every offender is gated
+				# out did not fire: it brands nobody, emits nothing, and does not
+				# consume, falling through to the later rules... the legit
+				# crawler the reverse_dns gate cleared, say. a rule with out a
+				# gate has nothing to ask, so every candidate survives
+				my $offender_gate;
+				if ( @{ $binding->{gates} } ) {
+					$offender_gate = sub {
 						my ($ip) = @_;
-						return
-							   $self->_mark_gates_pass( $gates, $one->{data}, $ip, $now )
-							&& $self->_country_gate_pass( $binding->{country_gate}, $one->{data}, $ip )
-							&& $self->_namtar_gate_pass( $binding->{namtar_gate}, $one->{data}, $ip )
-							&& $self->_reverse_dns_gate_pass( $rule_obj->reverse_dns, $one->{data}, $ip );
-					}
-				);
+						return all { $_->( $one->{data}, $ip, $now ) } @{ $binding->{gates} };
+					};
+				}
+				$outcome = $self->_resolve_offense( $rule_obj, $one->{data}, \@offenders, $now, $offender_gate );
 				if ( !$outcome->{fired} ) {
 					next;
 				}
@@ -3185,44 +3235,14 @@ sub _country_of {
 	return $iso;
 } ## end sub _country_of
 
-# resolves a rule\x27s country gate against a watcher\x27s country code lists into
-# a concrete gate via the core... a %%%country_codes{name}%%% import of a
-# list this watcher does not define is fatal
-sub _resolve_country_gate {
-	my ( $self, $rule_obj, $codes, $where ) = @_;
-
-	return App::Baphomet::Geo::resolve_country_gate( $rule_obj->country, $codes, $where );
-}
-
-# the country gate\x27s judgment lives in App::Baphomet::Geo, over an
-# injectable locator, so run_tests can drive it from a rule file\x27s geo
-# fixtures... the galla passes a closure over its cached GeoIP lookups, or
-# none at all with no database up, which fails closed
-sub _country_gate_pass {
-	my ( $self, $gate, $data, $ip ) = @_;
-
-	return App::Baphomet::Geo::country_gate_pass( $self->_country_locator, $gate, $data, $ip );
-}
-
-# the locator the core judges over... a closure on the cached lookups
+# the locator App::Baphomet::Geo judges a country gate over... a closure on
+# the cached GeoIP lookups, which answer undef with no database up, so the
+# gate fails closed
 sub _country_locator {
 	my ($self) = @_;
 
 	$self->{country_locator} //= sub { return $self->_country_of( $_[0] ); };
 	return $self->{country_locator};
-}
-
-# the reverse_dns gate... a var entry is data-driven and ran once per found
-# result (ip undef), a var-less one is offender-keyed and ran per candidate
-# (ip set). every entry checked must hold
-# the reverse_dns gate's judgment lives in App::Baphomet::RDNS, over an
-# injectable resolver, so run_tests can drive it from a rule file's dns
-# fixtures... the galla passes closures over its cached background
-# lookups, or no resolver at all when rdns is off, which fails closed
-sub _reverse_dns_gate_pass {
-	my ( $self, $gate, $data, $ip ) = @_;
-
-	return App::Baphomet::RDNS::rdns_gate_pass( $self->_rdns_resolver, $gate, $data, $ip );
 }
 
 # the resolver pair the core judges over... undef with rdns off or no
@@ -3249,15 +3269,6 @@ sub _rdns_resolver {
 	} ## end if ( !defined( $self->{rdns_gate_resolver}...))
 	return $self->{rdns_gate_resolver};
 } ## end sub _rdns_resolver
-
-# one reverse_dns entry against one address, the core judging over the
-# galla's cached lookups... kept as a method so the engine tests can
-# drive the async machinery through the judgment
-sub _rdns_entry_pass {
-	my ( $self, $entry, $address, $data ) = @_;
-
-	return App::Baphomet::RDNS::rdns_entry_pass( $self->_rdns_resolver, $entry, $address, $data );
-}
 
 # the cached tri-state lookups behind the reverse_dns gate... a array ref
 # (possibly empty, authoritative absence) or undef (failure), both
@@ -3364,17 +3375,26 @@ sub _rdns_fire {
 	return;
 } ## end sub _rdns_fire
 
-# loads one namtar list slot into the galla's cache, keyed by (type, nocase,
-# path) so a file read as cidr and as strings stay independent... one entry
-# per line, # comments and blanks skipped. a cidr slot compiles to a bitmask
-# set matched by ip_ignored, a string slot to a hash set matched by lookup,
-# nocase folding its keys to lower. a unreadable file or a bad cidr entry
-# becomes a empty set matching nobody, rather than taking the galla down... a
-# feed is not config
+# loads one namtar list slot's file into the galla's cache of them, under the
+# slot's key, for the namtar_list gates to be judged over and the sweeper to
+# refresh. how the lines become a set is App::Baphomet::Namtar's to say... a
+# unreadable file, or one with a entry the slot's type can not take, becomes a
+# empty set matching nobody, and does not take the galla down, a feed not
+# being config.
+#
+# args:
+#   $slot :: the slot to load, a hash of key, type, nocase, and path as
+#            App::Baphomet::Namtar resolves one. a record out of the cache
+#            serves as well, being a slot with more beside it
+#
+# returns nothing. the cache holds the slot's four fields with the file's
+# mtime, undef for one that could not be read, and its compiled set.
+#
+#   $self->_load_namtar_file($slot);
 sub _load_namtar_file {
-	my ( $self, $type, $nocase, $path ) = @_;
+	my ( $self, $slot ) = @_;
 
-	my $key   = join( "\0", $type, $nocase, $path );
+	my $path  = $slot->{path};
 	my $mtime = ( stat($path) )[9];
 
 	# a unreadable file reads as no lines
@@ -3382,290 +3402,33 @@ sub _load_namtar_file {
 	if ( defined($mtime) ) {
 		@lines = eval { path($path)->lines( { 'chomp' => 1 } ); };
 	}
-	foreach my $line (@lines) {
-		$line =~ s/#.*$//;
-		$line =~ s/^\s+|\s+$//g;
-	}
-	@lines = grep { $_ ne '' } @lines;
 
 	my $set;
-	if ( $type eq 'string' ) {
+	try {
+		$set = App::Baphomet::Namtar::namtar_set( $slot, \@lines );
+	} catch ($caught) {
+		log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $caught,
+			undef, 'galla-' . $self->{name} );
+		# a empty set of either type is a empty hash
 		$set = {};
-		foreach my $line (@lines) {
-			$set->{ $nocase ? lc($line) : $line } = 1;
-		}
-	} else {
-		try {
-			$set = compile_ignore_ips( \@lines, 'namtar list "' . $path . '"' );
-		} catch ($caught) {
-			log_drek( 'err', 'the namtar list "' . $path . '" has a bad entry, treating it as empty... ' . $caught,
-				undef, 'galla-' . $self->{name} );
-			$set = compile_ignore_ips( [] );
-		}
 	}
 
-	$self->{namtar_files}{$key} = {
+	$self->{namtar_files}{ $slot->{key} } = {
+		'key'    => $slot->{key},
+		'type'   => $slot->{type},
+		'nocase' => $slot->{nocase},
+		'path'   => $path,
 		'mtime'  => $mtime,
 		'set'    => $set,
-		'type'   => $type,
-		'nocase' => $nocase,
-		'path'   => $path,
 	};
 
 	return;
 } ## end sub _load_namtar_file
 
-# resolves a rule's namtar_list gate against a watcher's named lists into a
-# array of entries, each a set of slots and a var... or undef when the rule
-# has no gate. a slot is a {type, nocase, path}, so one entry may union lists
-# of different flavors, each matched its own way. a reference to a list this
-# watcher does not define is fatal, like a country import
-sub _resolve_namtar_gate {
-	my ( $self, $rule_obj, $lists, $where ) = @_;
-
-	my $gate = $rule_obj->namtar_list;
-	if ( !defined($gate) ) {
-		return undef;
-	}
-
-	my @entries;
-	foreach my $entry ( @{$gate} ) {
-		my %slots;
-		foreach my $name ( @{ $entry->{lists} } ) {
-			my $list = $lists->{$name};
-			if ( !is_plain_hashref($list) ) {
-				die( $where . ' references namtar_lists{' . $name . '}, which is not a defined list for it' );
-			}
-			foreach my $path ( @{ $list->{paths} } ) {
-				my $key = join( "\0", $list->{type}, $list->{nocase}, $path );
-				$slots{$key} = { 'type' => $list->{type}, 'nocase' => $list->{nocase}, 'path' => $path };
-			}
-		} ## end foreach my $name ( @{ $entry->{lists} } )
-		push( @entries, { 'slots' => [ map { $slots{$_} } sort( keys(%slots) ) ], 'var' => $entry->{var} } );
-	} ## end foreach my $entry ( @{$gate} )
-
-	return \@entries;
-} ## end sub _resolve_namtar_gate
-
-# true if the value is on any of the passed slots' sets... a undef value is
-# on none, so the gate fails closed. each slot dispatches on its type, a cidr
-# set walked by ip_ignored, a string set by a lookup with the slot's fold
-sub _namtar_on_any {
-	my ( $self, $slots, $value ) = @_;
-
-	if ( !defined($value) ) {
-		return 0;
-	}
-	foreach my $slot ( @{$slots} ) {
-		my $file = $self->{namtar_files}{ join( "\0", $slot->{type}, $slot->{nocase}, $slot->{path} ) };
-		if ( !defined($file) ) {
-			next;
-		}
-		if ( $slot->{type} eq 'string' ) {
-			if ( exists( $file->{set}{ $slot->{nocase} ? lc($value) : $value } ) ) {
-				return 1;
-			}
-		} elsif ( ip_ignored( $file->{set}, $value ) ) {
-			return 1;
-		}
-	} ## end foreach my $slot ( @{$slots} )
-
-	return 0;
-} ## end sub _namtar_on_any
-
-# evaluates a rule's namtar_list gate in one of two modes, mirroring the
-# country gate... a var entry is data-driven and ran once per result (ip
-# undef), a var-less one is offender-keyed and ran per candidate (ip set).
-# a entry holds when its value is on any of the entry's lists, and every
-# entry must hold... a value on no list fails closed
-sub _namtar_gate_pass {
-	my ( $self, $gate, $data, $ip ) = @_;
-
-	if ( !defined($gate) ) {
-		return 1;
-	}
-
-	foreach my $entry ( @{$gate} ) {
-		if ( defined( $entry->{var} ) ) {
-			# a var entry belongs to the data pass... let the offender pass by
-			if ( defined($ip) ) {
-				next;
-			}
-			if ( !$self->_namtar_on_any( $entry->{slots}, $data->{ $entry->{var} } ) ) {
-				return 0;
-			}
-		} else {
-			# a var-less entry belongs to the offender pass
-			if ( !defined($ip) ) {
-				next;
-			}
-			if ( !$self->_namtar_on_any( $entry->{slots}, $ip ) ) {
-				return 0;
-			}
-		}
-	} ## end foreach my $entry ( @{$gate} )
-
-	return 1;
-} ## end sub _namtar_gate_pass
-
-# resolves a rule's active_time gate against a watcher's named windows into
-# a mode, a set of compiled specs, and the vars... or undef when the rule
-# has no gate. a reference to a window this watcher does not define is
-# fatal, like a country import. windows are pure config, so this is frozen,
-# nothing reloads it
-sub _resolve_active_time_gate {
-	my ( $self, $rule_obj, $windows, $where ) = @_;
-
-	my $active = $rule_obj->active_time;
-	if ( !defined($active) ) {
-		return undef;
-	}
-
-	my @specs;
-	foreach my $name ( @{ $active->{windows} } ) {
-		my $window = $windows->{$name};
-		if ( !is_plain_arrayref($window) ) {
-			die( $where . ' references active_time{' . $name . '}, which is not a defined window for it' );
-		}
-		foreach my $spec ( @{$window} ) {
-			my $days;
-			if ( defined( $spec->{days} ) ) {
-				$days = {};
-				foreach my $day ( @{ $spec->{days} } ) {
-					$days->{$day} = 1;
-				}
-			}
-			my $ranges;
-			if ( defined( $spec->{hours} ) ) {
-				$ranges = [];
-				my @hours = is_plain_arrayref( $spec->{hours} ) ? @{ $spec->{hours} } : ( $spec->{hours} );
-				foreach my $range (@hours) {
-					my ( $start, $end ) = split( /-/, $range );
-					push( @{$ranges}, [ $start + 0, $end + 0 ] );
-				}
-			}
-			push( @specs, { 'days' => $days, 'ranges' => $ranges } );
-		} ## end foreach my $spec ( @{$window} )
-	} ## end foreach my $name ( @{ $active->{windows} } )
-
-	return { 'mode' => $active->{mode}, 'specs' => \@specs, 'vars' => $active->{vars} };
-} ## end sub _resolve_active_time_gate
-
-# turns a time value into the (wday, hhmm) pair the windows are checked
-# against, or a empty list when it does not parse... a all-digits epoch
-# (journal micro or millis scaled down) read in local time, or a ISO 8601
-# datetime taken at its face-value components. hhmm is hour*100 + minute
-sub _time_fields {
-	my ( $self, $value ) = @_;
-
-	if ( $value =~ /^[0-9]+$/ ) {
-		my $epoch = $value + 0;
-		while ( $epoch > 99_999_999_999 ) {
-			$epoch = int( $epoch / 1000 );
-		}
-		my @lt = localtime($epoch);
-		return ( $lt[6], $lt[2] * 100 + $lt[1] );
-	}
-
-	my $tp;
-	eval {
-		require Time::Piece;
-		my $iso = $value;
-		$iso =~ s/[.,][0-9]+//;
-		$iso =~ s/(?:Z|[+-][0-9]{2}:?[0-9]{2})$//;
-		$iso =~ s/T/ /;
-		$tp = Time::Piece->strptime( $iso, '%Y-%m-%d %H:%M:%S' );
-	};
-	if ( !$@ && defined($tp) ) {
-		return ( $tp->day_of_week, $tp->hour * 100 + $tp->minute );
-	}
-
-	return ();
-} ## end sub _time_fields
-
-# true if the passed (wday, hhmm) falls in any of the compiled specs... a
-# spec holds when the day is in its days set (if it has one) and the time
-# is in one of its ranges (if it has any), a range with start > end
-# wrapping midnight
-sub _in_active_windows {
-	my ( $self, $specs, $wday, $hhmm ) = @_;
-
-	foreach my $spec ( @{$specs} ) {
-		if ( defined( $spec->{days} ) && !$spec->{days}{$wday} ) {
-			next;
-		}
-		if ( defined( $spec->{ranges} ) ) {
-			my $hit = 0;
-			foreach my $range ( @{ $spec->{ranges} } ) {
-				my ( $start, $end ) = @{$range};
-				# a range whose start is after its end wraps midnight, holding
-				# from start to the end of the day and from midnight to end
-				my $in_range;
-				if ( $start <= $end ) {
-					$in_range = $hhmm >= $start && $hhmm <= $end;
-				} else {
-					$in_range = $hhmm >= $start || $hhmm <= $end;
-				}
-				if ($in_range) {
-					$hit = 1;
-					last;
-				}
-			} ## end foreach my $range ( @{ $spec->{ranges} } )
-			if ( !$hit ) {
-				next;
-			}
-		} ## end if ( defined( $spec->{ranges} ) )
-		return 1;
-	} ## end foreach my $spec ( @{$specs} )
-
-	return 0;
-} ## end sub _in_active_windows
-
-# evaluates a rule's active_time gate against the passed current epoch, or
-# the found vars when it names them... a whole-result gate, time being a
-# property of the line not the offender, so ran once per result in the data
-# pass. every checked time must satisfy, and a value that does not parse
-# fails closed
-sub _active_time_pass {
-	my ( $self, $gate, $data, $now ) = @_;
-
-	if ( !defined($gate) ) {
-		return 1;
-	}
-
-	my @sources;
-	if ( defined( $gate->{vars} ) ) {
-		foreach my $var ( @{ $gate->{vars} } ) {
-			push( @sources, $data->{$var} );
-		}
-	} else {
-		@sources = ($now);
-	}
-
-	foreach my $value (@sources) {
-		my @fields = defined($value) ? $self->_time_fields($value) : ();
-		if ( !@fields ) {
-			return 0;
-		}
-		my $in = $self->_in_active_windows( $gate->{specs}, $fields[0], $fields[1] );
-		if ( $gate->{mode} eq 'is' ? !$in : $in ) {
-			return 0;
-		}
-	} ## end foreach my $value (@sources)
-
-	return 1;
-} ## end sub _active_time_pass
-
 # the mark machinery's pure core lives in App::Baphomet::Marks, over an
 # explicit store, so run_tests can drive it against a throwaway store and
 # a virtual clock... the galla passes its live store and layers on what is
 # not the store: the fleet gossip, the tablet, and the ignore pre-filter
-
-sub _mark_gates_pass {
-	my ( $self, $gates, $data, $ip, $now ) = @_;
-
-	return App::Baphomet::Marks::mark_gates_pass( $self->{marks}, $gates, $data, $ip, $now );
-}
 
 # the on_set callback the core calls per landed brand... undef with no bus
 sub _mark_publish_set {
@@ -5426,7 +5189,7 @@ sub _sweep {
 		my $mtime  = ( stat( $rec->{path} ) )[9];
 		my $cached = $rec->{mtime};
 		if ( ( $mtime // -1 ) != ( $cached // -1 ) ) {
-			$self->_load_namtar_file( $rec->{type}, $rec->{nocase}, $rec->{path} );
+			$self->_load_namtar_file($rec);
 		}
 	}
 

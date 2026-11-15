@@ -18,6 +18,7 @@ BEGIN {
 use App::Baphomet::Galla ();
 use App::Baphomet::Rules::JSON ();
 use App::Baphomet::Config qw( kur_split resolve_country_codes );
+use App::Baphomet::Geo ();
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -258,9 +259,9 @@ my $import_rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/z',
 	def  => { %{$base}, country => { isnot => ['%%%country_codes{nope}%%%'] } }
 );
-eval { $galla->_resolve_country_gate( $import_rule, { allowed => ['US'] }, 'where' ); };
+eval { App::Baphomet::Geo::resolve_country_gate( $import_rule->country, { allowed => ['US'] }, 'where' ); };
 like( $@, qr/nope.*not a defined list/, 'importing a undefined country_codes list dies' );
-my $ok = $galla->_resolve_country_gate( $import_rule, { nope => [ 'cn', 'ru' ] }, 'where' );
+my $ok = App::Baphomet::Geo::resolve_country_gate( $import_rule->country, { nope => [ 'cn', 'ru' ] }, 'where' );
 is_deeply( $ok->{codes}, { CN => 1, RU => 1 }, 'a defined import resolves and uppercases into a set' );
 
 done_testing;
