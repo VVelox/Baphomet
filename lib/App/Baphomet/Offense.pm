@@ -42,14 +42,15 @@ our $VERSION = '0.0.1';
 
 One matched result, resolved to the offenders it truly fires against, in
 the single order the live galla and the rule self-tester must share. The
-per-offender gates (the var-less mark, country, namtar, and reverse_dns
-gates) filter the candidate offenders to the survivors; a offender a gate
-vetoes is not an offense, so it is neither branded nor counted; and a
+gates of the offender pass, the entries of the rule's C<rule_gates> keyed by
+the offender, filter the candidate offenders to the survivors; a offender a
+gate vetoes is not an offense, so it is neither branded nor counted; and a
 result whose every offender is gated out did not fire at all... it brands
 nobody and the caller emits nothing for it.
 
-The gate evaluations differ between the callers... the galla runs live
-resolvers, C<run_tests> runs the rule file's fixtures... so the gate is
+What the gates are judged over differs between the callers... the galla
+binds them over its live stores and lookups, C<run_tests> over the rule
+file's fixtures, both through L<App::Baphomet::Gate>... so the gate is
 injected as one predicate over an offender. Everything downstream of the
 gate, the part that drifted and let a legit crawler be branded, lives here
 once: the survivor filter, the gated-out verdict, and the branding of the

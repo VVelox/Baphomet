@@ -26,11 +26,12 @@ message_regexp:
   - '^login: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] (?<USER>\S+) \S+ User logged in'
   # and the failure syslog/cyrus-imap counts, verbatim
   - '^badlogin: [^\[]*\[(?:::ffff:)?%%%%SRC%%%%\] \S+ .*?\[?SASL\(-13\): (?:authentication failure|user not found): .*\]?$'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: cyrus_user
 ban_var:

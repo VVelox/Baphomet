@@ -23,11 +23,12 @@ message_regexp:
   - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+USER (?:\S+|.*?)(?: \(Login failed\))?: (?:[uU]ser not authorized for login|[nN]o such user found|[iI]ncorrect password|[pP]assword expired|[aA]ccount disabled|[iI]nvalid shell: ''\S+''|[uU]ser in \S+|[lL]imit (?:access|configuration) denies login|[nN]ot a UserAlias|[mM]aximum login length exceeded)'
   - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+SECURITY VIOLATION: (?:\S+|.*?) login attempted'
   - '^\S+ \(\S+\[(?:::ffff:)?%%%%SRC%%%%\]\)[-: ]+Maximum login attempts \(\d+\) exceeded'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: USER
 ban_var:

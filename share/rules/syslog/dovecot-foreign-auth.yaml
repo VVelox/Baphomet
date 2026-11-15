@@ -54,11 +54,12 @@ message_regexp:
   # driver after... "auth-worker(user,ip)<pid><session>: request [N]: pam:" and
   # the Dovecot 2.4 "auth(user,ip,mech)<session>: Info: sql:"
   - '^(?:dovecot: )?auth(?:-worker)?\(\S*,%%%%SRC%%%%(?:,\S*)?\)(?:<[^>]+>){0,2}: (?:request \[\d+\]: )?(?:Info: )?(?:[a-z\-]+: )?(?:\w+_authenticate\(\) failed: (?:User not known to the underlying authentication module: \d+ Time\(s\)|Authentication failure \([Pp]assword mismatch\?\)|Permission denied)|[Uu]nknown user|[Ii]nvalid credentials|[Pp]assword mismatch)'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 dest_ip_var: dovecot_lip
 user_var: USER

@@ -1,16 +1,16 @@
 #!perl
-# direct unit tests for App::Baphomet::RDNS, the reverse_dns gate's pure
-# judgment... a mock resolver pair stands in for the cached lookups, so
-# the whole (outcome x knob x negate) decision tree is walked without a
-# galla or a live nameserver
+# direct unit tests for App::Baphomet::Gate::ReverseDns, the reverse_dns
+# gate... a mock resolver pair stands in for the cached lookups, so the whole
+# (outcome x knob x negate) decision tree is walked with out a galla or a
+# live nameserver
 use 5.006;
 use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::RDNS qw( rdns_gate_pass rdns_entry_pass rdns_addr_eq );
+use App::Baphomet::Gate::ReverseDns qw( rdns_addr_eq );
 
-# a resolver over fixture maps... an arrayref of names/addresses, the empty
+# a resolver over fixture maps... a arrayref of names/addresses, the empty
 # arrayref for authoritative absence (nxdomain), or undef for a failure
 # (servfail)... the tri-state the gate leans on
 sub resolver {
@@ -21,37 +21,71 @@ sub resolver {
 	};
 }
 
+# a reverse_dns gate told what a rule entry would tell it, and bound over
+# the passed resolver, or over none to ask when it is undef
+sub rdns_gate {
+	my ( $args, $resolver ) = @_;
+
+	my $gate = App::Baphomet::Gate::ReverseDns->new( 'type' => 'reverse_dns', 'args' => $args, 'where' => 'the gate' );
+	return $gate->bound( { 'resolver' => sub { return $resolver; } }, 'the rule "x"' );
+}
+
 #
 # rdns_addr_eq... packed compare within a family, spellings and case can
 # not dodge it
 #
 
-ok( rdns_addr_eq( '1.2.3.4',         '1.2.3.4' ),         'identical v4 addresses are equal' );
-ok( !rdns_addr_eq( '1.2.3.4',        '1.2.3.5' ),         'differing v4 are not' );
-ok( rdns_addr_eq( '2001:db8::1',     '2001:DB8:0:0::1' ), 'v6 equal by packed value across spellings' );
-ok( !rdns_addr_eq( '1.2.3.4',        '::1' ),             'no common family is not equal' );
+ok( rdns_addr_eq( '1.2.3.4',     '1.2.3.4' ),         'identical v4 addresses are equal' );
+ok( !rdns_addr_eq( '1.2.3.4',    '1.2.3.5' ),         'differing v4 are not' );
+ok( rdns_addr_eq( '2001:db8::1', '2001:DB8:0:0::1' ), 'v6 equal by packed value across spellings' );
+ok( !rdns_addr_eq( '1.2.3.4',    '::1' ),             'no common family is not equal' );
 
 #
-# rdns_entry_pass... fail closed with no resolver or on a non-address
+# compile... the defaults, the pass, and a matches that does not compile
 #
 
+my $compiled = App::Baphomet::Gate::ReverseDns->new(
+	'type'  => 'reverse_dns',
+	'args'  => { 'matches' => '\.crawler\.example$' },
+	'where' => 'the gate'
+);
+is( $compiled->{negate},          0,          'negate is off unless asked for' );
+is( $compiled->{forward_confirm}, 1,          'forward confirmation is on unless refused' );
+is( $compiled->{on_nxdomain},     'compare',  'on_nxdomain is compare by default' );
+is( $compiled->{on_servfail},     'fail',     'on_servfail is fail by default' );
+is( $compiled->pass,              'offender', 'a gate naming no var is of the offender pass' );
+is_deeply( [ $compiled->needs ], ['resolver'], 'it needs the resolver' );
+
+ok(
+	!eval {
+		App::Baphomet::Gate::ReverseDns->new(
+			'type'  => 'reverse_dns',
+			'args'  => { 'matches' => '(' },
+			'where' => 'the gate'
+		);
+		1;
+	},
+	'a matches that is not a regexp dies'
+);
+like( $@, qr/^the gate matches does not compile/, 'and the die leads with the where it was passed' );
+
+#
+# holds... fail closed with no resolver or on a non-address
+#
+
+my %crawler = ( 'matches' => '\.crawler\.example$' );
 my $confirm = resolver( { '1.2.3.4' => ['bot.crawler.example'] }, { 'bot.crawler.example' => ['1.2.3.4'] } );
-my $entry = { 'regexp' => qr/\.crawler\.example$/, 'negate' => 0, 'forward_confirm' => 1,
-	'on_nxdomain' => 'compare', 'on_servfail' => 'fail' };
 
-ok( !rdns_entry_pass( undef, $entry, '1.2.3.4', {} ), 'a undef resolver fails closed' );
-ok( !rdns_entry_pass( $confirm, $entry, 'not-an-ip', {} ), 'a non-address value fails closed' );
+ok( !rdns_gate( \%crawler, undef )->holds( {}, '1.2.3.4' ),      'no resolver to ask fails closed' );
+ok( !rdns_gate( \%crawler, $confirm )->holds( {}, 'not-an-ip' ), 'a non-address value fails closed' );
 
 #
 # the confirmed match, and negate flipping it
 #
 
-ok( rdns_entry_pass( $confirm, $entry, '1.2.3.4', {} ), 'a confirmed PTR matching the regexp counts' );
+ok( rdns_gate( \%crawler, $confirm )->holds( {}, '1.2.3.4' ), 'a confirmed PTR matching the regexp counts' );
 ok(
-	!rdns_entry_pass(
-		$confirm, { %{$entry}, 'negate' => 1 },
-		'1.2.3.4', {}
-	),
+	!rdns_gate( { %crawler, 'negate' => 1 }, $confirm )->holds( {}, '1.2.3.4' ),
 	'negate flips a match to a veto... the real crawler spared'
 );
 
@@ -60,17 +94,14 @@ ok(
 #
 
 my $none = resolver( { '1.2.3.4' => [] }, {} );
-ok( !rdns_entry_pass( $none, $entry, '1.2.3.4', {} ), 'no PTR at all does not match the regexp' );
+ok( !rdns_gate( \%crawler, $none )->holds( {}, '1.2.3.4' ), 'no PTR at all does not match the regexp' );
 ok(
-	rdns_entry_pass(
-		$none, { %{$entry}, 'negate' => 1 },
-		'1.2.3.4', {}
-	),
+	rdns_gate( { %crawler, 'negate' => 1 }, $none )->holds( {}, '1.2.3.4' ),
 	'and negated, no PTR counts... the pretender with no reverse DNS'
 );
-ok( rdns_entry_pass( $none, { %{$entry}, 'on_nxdomain' => 'pass' }, '1.2.3.4', {} ),
+ok( rdns_gate( { %crawler, 'on_nxdomain' => 'pass' }, $none )->holds( {}, '1.2.3.4' ),
 	'on_nxdomain pass is terminal, satisfying outright' );
-ok( !rdns_entry_pass( $none, { %{$entry}, 'on_nxdomain' => 'fail', 'negate' => 1 }, '1.2.3.4', {} ),
+ok( !rdns_gate( { %crawler, 'on_nxdomain' => 'fail', 'negate' => 1 }, $none )->holds( {}, '1.2.3.4' ),
 	'on_nxdomain fail is terminal, never inverted by negate' );
 
 #
@@ -78,12 +109,15 @@ ok( !rdns_entry_pass( $none, { %{$entry}, 'on_nxdomain' => 'fail', 'negate' => 1
 #
 
 my $down = resolver( {}, {} );    # unfixtured PTR answers undef -> servfail
-ok( !rdns_entry_pass( $down, { %{$entry}, 'negate' => 1 }, '1.2.3.4', {} ),
-	'a servfail vetoes even a negated gate... an outage never counts anyone' );
-ok( rdns_entry_pass( $down, { %{$entry}, 'on_servfail' => 'pass' }, '1.2.3.4', {} ),
-	'on_servfail pass is terminal' );
-ok( rdns_entry_pass( $down, { %{$entry}, 'on_servfail' => 'compare', 'negate' => 1 }, '1.2.3.4', {} ),
-	'on_servfail compare treats the failure as no names, so negated it counts... the opt-in stance' );
+ok(
+	!rdns_gate( { %crawler, 'negate' => 1 }, $down )->holds( {}, '1.2.3.4' ),
+	'a servfail vetoes even a negated gate... a outage never counts anyone'
+);
+ok( rdns_gate( { %crawler, 'on_servfail' => 'pass' }, $down )->holds( {}, '1.2.3.4' ), 'on_servfail pass is terminal' );
+ok(
+	rdns_gate( { %crawler, 'on_servfail' => 'compare', 'negate' => 1 }, $down )->holds( {}, '1.2.3.4' ),
+	'on_servfail compare treats the failure as no names, so negated it counts... the opt-in stance'
+);
 
 #
 # forward confirmation... a PTR that does not resolve back is as good as
@@ -91,62 +125,48 @@ ok( rdns_entry_pass( $down, { %{$entry}, 'on_servfail' => 'compare', 'negate' =>
 #
 
 my $spoof = resolver( { '1.2.3.4' => ['bot.crawler.example'] }, { 'bot.crawler.example' => ['9.9.9.9'] } );
-ok( !rdns_entry_pass( $spoof, $entry, '1.2.3.4', {} ),
+ok( !rdns_gate( \%crawler, $spoof )->holds( {}, '1.2.3.4' ),
 	'a PTR that forward-resolves elsewhere fails confirmation, so no match' );
-ok(
-	rdns_entry_pass(
-		$spoof, { %{$entry}, 'negate' => 1 },
-		'1.2.3.4', {}
-	),
-	'and negated, the spoof counts like the pretender it is'
-);
+ok( rdns_gate( { %crawler, 'negate' => 1 }, $spoof )->holds( {}, '1.2.3.4' ),
+	'and negated, the spoof counts like the pretender it is' );
 # confirmation refused takes the PTR at its word
-ok( rdns_entry_pass( $spoof, { %{$entry}, 'forward_confirm' => 0 }, '1.2.3.4', {} ),
-	'with forward_confirm off the spoofed PTR is trusted and matches' );
+ok(
+	rdns_gate( { %crawler, 'forward_confirm' => 0 }, $spoof )->holds( {}, '1.2.3.4' ),
+	'with forward_confirm off the spoofed PTR is trusted and matches'
+);
 # a forward lookup that itself servfails, under compare, leaves the name unconfirmed
 my $fwddown = resolver( { '1.2.3.4' => ['bot.crawler.example'] }, {} );
-ok( !rdns_entry_pass( $fwddown, $entry, '1.2.3.4', {} ),
-	'a forward servfail under compare leaves the name unconfirmed, so no match' );
+ok(
+	!rdns_gate( { %crawler, 'on_servfail' => 'compare' }, $fwddown )->holds( {}, '1.2.3.4' ),
+	'a forward servfail under compare leaves the name unconfirmed, so no match'
+);
+ok( !rdns_gate( \%crawler, $fwddown )->holds( {}, '1.2.3.4' ), 'and under the default it fails the gate outright' );
 
 #
 # the matches_var form... the PTR must equal the named capture
 #
 
-my $mv = { 'matches_var' => 'claim', 'negate' => 0, 'forward_confirm' => 1,
-	'on_nxdomain' => 'compare', 'on_servfail' => 'fail' };
 my $mailish = resolver( { '1.2.3.4' => ['mail.example'] }, { 'mail.example' => ['1.2.3.4'] } );
-ok( rdns_entry_pass( $mailish, $mv, '1.2.3.4', { 'claim' => 'mail.example' } ),
-	'matches_var holds when the confirmed PTR equals the claim' );
-ok( !rdns_entry_pass( $mailish, $mv, '1.2.3.4', { 'claim' => 'other.example' } ),
-	'and fails when it differs' );
-ok( !rdns_entry_pass( $mailish, $mv, '1.2.3.4', {} ),
-	'a missing matches_var capture fails closed' );
+my $claimed = rdns_gate( { 'matches_var' => 'claim' }, $mailish );
+ok(
+	$claimed->holds( { 'claim' => 'mail.example' }, '1.2.3.4' ),
+	'matches_var holds when the confirmed PTR equals the claim'
+);
+ok( !$claimed->holds( { 'claim' => 'other.example' }, '1.2.3.4' ), 'and fails when it differs' );
+ok( !$claimed->holds( {},                             '1.2.3.4' ), 'a missing matches_var capture fails closed' );
 # case and a trailing dot on the PTR do not dodge the compare
 my $dotted = resolver( { '1.2.3.4' => ['Mail.Example.'] }, { 'Mail.Example.' => ['1.2.3.4'] } );
-ok( rdns_entry_pass( $dotted, $mv, '1.2.3.4', { 'claim' => 'mail.example' } ),
+ok( rdns_gate( { 'matches_var' => 'claim' }, $dotted )->holds( { 'claim' => 'mail.example' }, '1.2.3.4' ),
 	'the compare folds case and a trailing dot' );
 
 #
-# rdns_gate_pass... the two-mode dispatch over the entries
+# a gate naming a var reads the found data, with no offender
 #
 
-# a var entry runs the data pass (ip undef), skipped in the offender pass.
-# the core wants the compiled regexp the galla builds from matches at load
-my $vgate = [ { 'var' => 'src', 'regexp' => qr/\.crawler\.example$/, 'negate' => 1, 'forward_confirm' => 1,
-		'on_nxdomain' => 'compare', 'on_servfail' => 'fail' } ];
-ok( rdns_gate_pass( $none, $vgate, { 'src' => '1.2.3.4' }, undef ),
-	'a var entry, data pass... no crawler PTR, negated, counts' );
-ok( rdns_gate_pass( $none, $vgate, { 'src' => '1.2.3.4' }, '1.2.3.4' ),
-	'the same var entry is skipped in the offender pass, holding vacuously' );
-
-# a var-less entry runs the offender pass, skipped in the data pass
-my $ogate = [ { 'regexp' => qr/\.crawler\.example$/, 'negate' => 1, 'forward_confirm' => 1,
-		'on_nxdomain' => 'compare', 'on_servfail' => 'fail' } ];
-ok( rdns_gate_pass( $confirm, $ogate, {}, undef ), 'a var-less entry is skipped in the data pass' );
-ok( !rdns_gate_pass( $confirm, $ogate, {}, '1.2.3.4' ),
-	'and runs in the offender pass... the confirmed crawler is vetoed by the negate' );
-
-# a undef gate always passes
-ok( rdns_gate_pass( undef, undef, {}, '1.2.3.4' ), 'a undef gate passes' );
+my $var_gate = rdns_gate( { %crawler, 'var' => 'src', 'negate' => 1 }, $none );
+is( $var_gate->pass, 'result', 'a gate naming a var is of the result pass' );
+ok( $var_gate->holds( { 'src' => '1.2.3.4' }, undef ),
+	'the address is the value of its var... no crawler PTR, negated, counts' );
+ok( !$var_gate->holds( {}, undef ), 'and a var the result lacks fails closed' );
 
 done_testing;

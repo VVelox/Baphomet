@@ -36,7 +36,7 @@ sub line {
 #
 
 my $foreign = results_for(
-	country       => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] },
+	rule_gates    => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } } ],
 	ban_var       => undef,
 	detection_var => ['ip'],
 	tests         => {
@@ -85,8 +85,8 @@ is( $foreign->{pass}, 4, 'all four counted' );
 #
 
 my $is_form = results_for(
-	country => { is => [ 'US', 'CA' ] },
-	tests   => {
+	rule_gates => [ { country => { is => [ 'US', 'CA' ] } } ],
+	tests      => {
 		positive => [
 			{
 				message => line( event => 'fail', ip => '198.51.100.5' ),
@@ -105,25 +105,24 @@ is( $is_form->{fail}, 0, 'a var-less is gate proves both ways in the offender pa
 	|| diag( join( "\n", @{ $is_form->{failures} } ) );
 
 #
-# galla parity... a var-less gate on a detection rule is inert there, so
-# it is inert here, fixture or no
+# a gate keyed by the offender on a detection rule, which has no offender for
+# it to key on... it would never be asked, so the rule is refused at load
 #
 
-my $detection = results_for(
-	country       => { isnot => ['US'] },
-	ban_var       => undef,
-	detection_var => ['ip'],
-	tests         => {
-		positive => [
-			{
-				message => line( event => 'fail', ip => '198.51.100.5' ),
-				geo     => { countries => { '198.51.100.5' => 'US' } },
-			},
-		],
+ok(
+	!eval {
+		results_for(
+			rule_gates    => [ { country => { isnot => ['US'] } } ],
+			ban_var       => undef,
+			detection_var => ['ip'],
+			tests         => { positive => [ { message => line( event => 'fail', ip => '198.51.100.5' ) } ] },
+		);
+		1;
 	},
+	'a gate keyed by the offender on a detection rule refuses to load'
 );
-is( $detection->{fail}, 0, 'a var-less gate on a detection rule stays inert, as in the galla' )
-	|| diag( join( "\n", @{ $detection->{failures} } ) );
+like( $@, qr/^The country gate of the rule "json\/x" \(rule_gates entry 0\) keys on the offender/,
+	'and the die names the gate and why' );
 
 #
 # no fixture, no gate... the old behavior holds for a gated rule whose
@@ -131,8 +130,8 @@ is( $detection->{fail}, 0, 'a var-less gate on a detection rule stays inert, as 
 #
 
 my $unfixtured = results_for(
-	country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] },
-	tests   => { positive => [ { message => line( event => 'fail', ip => '203.0.113.9' ) } ] },
+	rule_gates => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } } ],
+	tests      => { positive => [ { message => line( event => 'fail', ip => '203.0.113.9' ) } ] },
 );
 is( $unfixtured->{fail}, 0, 'a gated rule with no geo fixture skips the gate as before' )
 	|| diag( join( "\n", @{ $unfixtured->{failures} } ) );
@@ -152,8 +151,8 @@ foreach my $broken (
 	)
 {
 	my $broken_results = results_for(
-		country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] },
-		tests   => {
+		rule_gates => [ { country => { isnot => ['%%%country_codes{home}%%%'], vars => ['ip'] } } ],
+		tests      => {
 			positive => [ { message => line( event => 'fail', ip => '203.0.113.9' ), geo => $broken->{geo} } ]
 		},
 	);

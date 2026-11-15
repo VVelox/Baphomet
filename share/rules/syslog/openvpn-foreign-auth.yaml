@@ -29,11 +29,12 @@ message_regexp:
   # and everything syslog/openvpn counts, verbatim
   - '^(?:[^/:]+/)?%%%%SRC%%%%:\d+ (?:TLS Auth Error:|VERIFY ERROR:|TLS Error: TLS handshake failed\b|SIGUSR1\[soft,connection-reset\] received\b|Decrypt packet error)'
   - 'TLS Error: (?:incoming packet authentication failed|cannot locate HMAC in incoming packet|tls-crypt unwrapping failed) from \[AF_INET6?\]\s*%%%%SRC%%%%:\d+'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: USER
 ban_var:

@@ -40,9 +40,10 @@ message_regexp:
   # inside quotes... so a run that can not cross a double quote ends at the
   # real pair and never sees what the client sent.
   - ' SSLVPN LOGIN \d+ \d+ :[^"]*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
-marked:
-  - names: [ brute_force, recon, exploit_attempt, honeypot ]
-    var: SRC
+rule_gates:
+  - marked:
+      names: [ brute_force, recon, exploit_attempt, honeypot ]
+      var: SRC
 src_ip_var: SRC
 user_var: USER
 detection_var:

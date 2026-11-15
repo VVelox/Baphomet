@@ -64,11 +64,12 @@ message_regexp:
   - '^Did not receive identification string from %%%%SRC%%%%'
   - '^Bad protocol version identification .* from %%%%SRC%%%%(?: port \d+)?\s*$'
   - '^banner exchange: Connection from %%%%SRC%%%%(?: port \d+)?: invalid format'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: USER

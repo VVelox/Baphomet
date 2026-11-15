@@ -36,7 +36,7 @@ write_rule( 'json/s1', "---\ngate:\n  - { field: event, op: eq, value: a }\nmark
 write_rule( 'json/s2', "---\ngate:\n  - { field: event, op: eq, value: b }\nmark:\n  - { name: stage2, ttl: 600, var: key }\nmark_only: true\nban_var: [ key ]\n" );
 # the correlation... stage1 then stage2 for the key, then ban the source
 write_rule( 'json/seq',
-	"---\ngate:\n  - { field: event, op: eq, value: go }\nsequence:\n  - { marks: [ stage1, stage2 ], var: key }\nban_var: [ src ]\n" );
+	"---\ngate:\n  - { field: event, op: eq, value: go }\nrule_gates:\n  - sequence: { marks: [ stage1, stage2 ], var: key }\nban_var: [ src ]\n" );
 
 open( my $cfg, '>', $dir . '/config.toml' ) || die($!);
 print $cfg <<"EOC";

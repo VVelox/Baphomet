@@ -17,7 +17,7 @@ BEGIN {
 use App::Baphomet::Galla ();
 use App::Baphomet::Rules::JSON ();
 use App::Baphomet::Config qw( kur_split resolve_namtar_lists );
-use App::Baphomet::Namtar ();
+use App::Baphomet::Gate qw( bind_rule_gates );
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -83,26 +83,35 @@ my $base = {
 	ban_var => ['ip'],
 };
 my %bad = (
-	'not an array'          => { namtar_list => { list => 'bad' } },
-	'a entry without lists' => { namtar_list => [ { var => 'ip' } ] },
-	'both list and lists'   => { namtar_list => [ { list => 'bad', lists => ['tor'] } ] },
-	'a bad list name'       => { namtar_list => [ { list => 'bad name' } ] },
-	'a unknown key'         => { namtar_list => [ { list => 'bad', nope => 1 } ] },
-	'an empty var'          => { namtar_list => [ { list => 'bad', var => '' } ] },
+	'not a hash'            => ['bad'],
+	'a entry without lists' => { var => 'ip' },
+	'both list and lists'   => { list => 'bad', lists => ['tor'] },
+	'a bad list name'       => { list => 'bad name' },
+	'a unknown key'         => { list => 'bad', nope => 1 },
+	'an empty var'          => { list => 'bad', var => '' },
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base}, %{ $bad{$desc} } } ); };
-	ok( $@, 'a namtar_list gate with ' . $desc . ' refuses to load' );
+	eval {
+		App::Baphomet::Rules::JSON->new(
+			name => 'json/x',
+			def  => { %{$base}, rule_gates => [ { namtar_list => $bad{$desc} } ] }
+		);
+	};
+	like( $@, qr/^The namtar_list gate of the rule "json\/x"/, 'a namtar_list gate with ' . $desc . ' refuses to load' );
 }
 
-# a good gate loads and the accessor normalizes list/lists and the var
+# good gates load and compile list/lists and the var normalized
 my $rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/x',
-	def  => { %{$base}, namtar_list => [ { list => 'bad', var => 'peer' }, { lists => [ 'tor', 'vpn' ] } ] }
+	def  => {
+		%{$base},
+		rule_gates => [ { namtar_list => { list => 'bad', var => 'peer' } }, { namtar_list => { lists => [ 'tor', 'vpn' ] } } ]
+	}
 );
-is_deeply( $rule->namtar_list->[0]{lists}, ['bad'],        'a scalar list normalizes to a array' );
-is( $rule->namtar_list->[0]{var}, 'peer', 'the var is carried' );
-is_deeply( $rule->namtar_list->[1]{lists}, [ 'tor', 'vpn' ], 'a lists array is kept' );
+my @compiled = @{ $rule->rule_gates };
+is_deeply( $compiled[0]{lists}, ['bad'],        'a scalar list normalizes to a array' );
+is( $compiled[0]{var}, 'peer', 'the var is kept' );
+is_deeply( $compiled[1]{lists}, [ 'tor', 'vpn' ], 'a lists array is kept' );
 
 #
 # galla behavior over real CIDR files
@@ -130,13 +139,13 @@ close($fh);
 sub slotkey { return join( "\0", @_ ); }
 
 my %rules = (
-	'block'       => "namtar_list:\n  - list: bad\nmax_score: 1\n",
-	'block-union' => "namtar_list:\n  - lists: [ bad, tor ]\nmax_score: 1\n",
-	'guard'       => "namtar_list:\n  - list: bad\n    var: peer\nmax_score: 1\n",
-	'empty'       => "namtar_list:\n  - list: missing\nmax_score: 1\n",
-	'bait'        => "namtar_list:\n  - list: users\n    var: user\nmax_score: 1\n",
-	'bait-ci'     => "namtar_list:\n  - list: bots\n    var: agent\nmax_score: 1\n",
-	'mixed'       => "namtar_list:\n  - lists: [ tor, users ]\n    var: token\nmax_score: 1\n",
+	'block'       => "rule_gates:\n  - namtar_list: { list: bad }\nmax_score: 1\n",
+	'block-union' => "rule_gates:\n  - namtar_list: { lists: [ bad, tor ] }\nmax_score: 1\n",
+	'guard'       => "rule_gates:\n  - namtar_list: { list: bad, var: peer }\nmax_score: 1\n",
+	'empty'       => "rule_gates:\n  - namtar_list: { list: missing }\nmax_score: 1\n",
+	'bait'        => "rule_gates:\n  - namtar_list: { list: users, var: user }\nmax_score: 1\n",
+	'bait-ci'     => "rule_gates:\n  - namtar_list: { list: bots, var: agent }\nmax_score: 1\n",
+	'mixed'       => "rule_gates:\n  - namtar_list: { lists: [ tor, users ], var: token }\nmax_score: 1\n",
 );
 my %ban_var = ( 'guard' => 'src_ip', 'bait' => 'src_ip', 'bait-ci' => 'src_ip', 'mixed' => 'src_ip' );
 foreach my $name ( keys(%rules) ) {
@@ -337,19 +346,19 @@ is_deeply( \@sent, ['8.8.8.8'], 'a reloaded feed matches its new entry' );
 
 my $ref_rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/z',
-	def  => { %{$base}, namtar_list => [ { list => 'nope' } ] }
+	def  => { %{$base}, rule_gates => [ { namtar_list => { list => 'nope' } } ] }
 );
 eval {
-	App::Baphomet::Namtar::resolve_namtar_gate( $ref_rule->namtar_list,
-		{ bad => { type => 'cidr', nocase => 0, paths => ['/x'] } }, 'where' );
+	bind_rule_gates( $ref_rule->rule_gates,
+		{ namtar_files => {}, namtar_lists => { bad => { type => 'cidr', nocase => 0, paths => ['/x'] } } }, 'where' );
 };
 like( $@, qr/nope.*not a defined list/, 'referencing a undefined namtar list dies' );
-my $ok = App::Baphomet::Namtar::resolve_namtar_gate(
-	$ref_rule->namtar_list,
-	{ nope => { type => 'string', nocase => 1, paths => [ '/a', '/b' ] } }, 'where'
+my $ok = bind_rule_gates(
+	$ref_rule->rule_gates,
+	{ namtar_files => {}, namtar_lists => { nope => { type => 'string', nocase => 1, paths => [ '/a', '/b' ] } } }, 'where'
 );
 is_deeply(
-	$ok->[0]{slots},
+	$ok->{offender}[0]{slots},
 	[
 		{ key => slotkey( 'string', 1, '/a' ), type => 'string', nocase => 1, path => '/a' },
 		{ key => slotkey( 'string', 1, '/b' ), type => 'string', nocase => 1, path => '/b' },

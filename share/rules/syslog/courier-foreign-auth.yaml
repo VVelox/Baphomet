@@ -21,11 +21,12 @@ daemons:
 message_regexp:
   # success and failure in one shape... the FAILED is the only difference
   - '^LOGIN(?: FAILED)?, (?:(?!ip=)\w+=[^,]*, )*ip=\[(?:::ffff:)?%%%%SRC%%%%\]'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 ban_var:
   - SRC

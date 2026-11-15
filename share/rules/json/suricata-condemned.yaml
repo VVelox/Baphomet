@@ -20,9 +20,10 @@ classtype: misc-attack
 gate:
   - field: event_type
     values: [ alert ]
-marked:
-  - name: brute_force
-    var: src_ip
+rule_gates:
+  - marked:
+      name: brute_force
+      var: src_ip
 ban_var:
   - src_ip
   - dest_ip

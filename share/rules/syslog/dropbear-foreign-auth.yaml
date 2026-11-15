@@ -30,11 +30,12 @@ message_regexp:
   - '^[Ll]ogin attempt for nonexistent user (?:''.*'' )?from (?:::ffff:)?%%%%SRC%%%%:\d+$'
   - '^[Bb]ad (?:PAM )?password attempt for .+ from (?:::ffff:)?%%%%SRC%%%%(?::\d+)?$'
   - '^[Ee]xit before auth \(user ''.+'', \d+ fails\): Max auth tries reached - user ''.+'' from (?:::ffff:)?%%%%SRC%%%%:\d+\s*$'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 src_port_var: dropbear_src_port
 user_var: USER

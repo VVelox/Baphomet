@@ -35,7 +35,7 @@ sub line {
 #
 
 my $gated = results_for(
-	marked => [ { name => 'known', var => 'ip' } ],
+	rule_gates => [ { marked => { name => 'known', var => 'ip' } } ],
 	tests  => {
 		positive => [
 			{
@@ -62,7 +62,7 @@ is( $gated->{pass}, 3, 'all three gate tests counted' );
 #
 
 my $valued = results_for(
-	marked => [ { name => 'acct', var => 'user', value_not => 'ip' } ],
+	rule_gates => [ { marked => { name => 'acct', var => 'user', value_not => 'ip' } } ],
 	tests  => {
 		positive => [
 			{
@@ -109,7 +109,7 @@ is( $branded->{fail}, 0, 'marks_expected proves the vars brand, its value, and t
 #
 
 my $expired = results_for(
-	marked => [ { name => 'known', var => 'ip' } ],
+	rule_gates => [ { marked => { name => 'known', var => 'ip' } } ],
 	tests  => {
 		negative => [
 			{
@@ -129,7 +129,7 @@ is( $expired->{fail}, 0, 'the clock expires a seeded brand past its ttl' )
 	|| diag( join( "\n", @{ $expired->{failures} } ) );
 
 my $sequenced = results_for(
-	sequence => [ { marks => [ 'stage1', 'stage2' ], var => 'ip' } ],
+	rule_gates => [ { sequence => { marks => [ 'stage1', 'stage2' ], var => 'ip' } } ],
 	tests    => {
 		positive => [
 			{
@@ -154,6 +154,78 @@ my $sequenced = results_for(
 );
 is( $sequenced->{fail}, 0, 'the sequence gate proves ordering from seeded set times' )
 	|| diag( join( "\n", @{ $sequenced->{failures} } ) );
+
+#
+# a gate naming no var keys on the offender, and is judged per offender as
+# the galla judges it... seeded on the offender it holds, unseeded it vetoes,
+# and not_marked the other way round
+#
+
+my $by_offender = results_for(
+	rule_gates => [ { marked => { name => 'known' } } ],
+	tests      => {
+		positive => [
+			{
+				message      => line( event => 'fail', ip => '1.2.3.4' ),
+				marks_before => [ { name => 'known', key => '1.2.3.4' } ],
+			},
+		],
+		negative => [
+			# unbranded, so spared
+			{ message => line( event => 'fail', ip => '1.2.3.4' ) },
+			# the brand is on some other address
+			{
+				message      => line( event => 'fail', ip => '1.2.3.4' ),
+				marks_before => [ { name => 'known', key => '5.6.7.8' } ],
+			},
+		],
+	},
+);
+is( $by_offender->{fail}, 0, 'a marked gate keyed by the offender holds on a branded one and vetoes a unbranded one' )
+	|| diag( join( "\n", @{ $by_offender->{failures} } ) );
+is( $by_offender->{pass}, 3, 'all three offender tests counted' );
+
+# what the galla would not count, a rule's own tests may not claim
+my $claimed = results_for(
+	rule_gates => [ { marked => { name => 'known' } } ],
+	tests      => { positive => [ { message => line( event => 'fail', ip => '1.2.3.4' ) } ] },
+);
+is( $claimed->{fail}, 1, 'a test expecting a unbranded offender to count fails' );
+
+my $spared = results_for(
+	rule_gates => [ { not_marked => { name => 'known' } } ],
+	tests      => {
+		positive => [ { message => line( event => 'fail', ip => '1.2.3.4' ) } ],
+		negative => [
+			{
+				message      => line( event => 'fail', ip => '1.2.3.4' ),
+				marks_before => [ { name => 'known', key => '1.2.3.4' } ],
+			},
+		],
+	},
+);
+is( $spared->{fail}, 0, 'a not_marked gate keyed by the offender counts a unbranded one and spares a branded one' )
+	|| diag( join( "\n", @{ $spared->{failures} } ) );
+
+# a rule gated on the brand it sets... the first line counts and brands the
+# offender, and the second is vetoed for it
+my $once = results_for(
+	mark       => [ { name => 'counted', ttl => 3600 } ],
+	rule_gates => [ { not_marked => { name => 'counted' } } ],
+	tests      => {
+		positive => [
+			{
+				found    => 1,
+				messages => [
+					{ message => line( event => 'fail', ip => '6.6.6.6' ), found_after => 1 },
+					{ message => line( event => 'fail', ip => '6.6.6.6' ), found_after => 1 },
+				],
+			},
+		],
+	},
+);
+is( $once->{fail}, 0, 'a brand one line sets on the offender vetoes the next' )
+	|| diag( join( "\n", @{ $once->{failures} } ) );
 
 #
 # found_after and marks_after assert mid-run, and a brand set by one

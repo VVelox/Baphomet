@@ -35,20 +35,20 @@ my %bad = (
 	'a mark entry with a unknown key' => { mark => [ { name => 'x', ttl => 60, nope => 1 } ] },
 	'a mark that is not an array'     => { mark => { name => 'x', ttl => 60 } },
 	'a marked with both value_is and value_not' =>
-		{ marked => [ { name => 'x', value_is => 'ip', value_not => 'ip' } ] },
-	'a marked entry with a bad name' => { marked => [ { name => 'bad name' } ] },
+		{ rule_gates => [ { marked => { name => 'x', value_is => 'ip', value_not => 'ip' } } ] },
+	'a marked entry with a bad name' => { rule_gates => [ { marked => { name => 'bad name' } } ] },
 	'a unmark with an empty var'     => { unmark => [ { name => 'x', var => '' } ] },
 	'a mark with both var and vars'  => { mark => [ { name => 'x', ttl => 60, var => 'a', vars => [ 'a', 'b' ] } ] },
 	'a mark with an empty vars'      => { mark => [ { name => 'x', ttl => 60, vars => [] } ] },
 	'a mark with an empty vars entry' => { mark   => [ { name => 'x', ttl => 60, vars => [ 'a', '' ] } ] },
-	'a marked with both name and names' => { marked => [ { name => 'x', names => ['y'] } ] },
-	'a marked with an empty names'      => { marked => [ { names => [] } ] },
-	'a marked with a bad names entry'   => { marked => [ { names => ['bad name'] } ] },
-	'a names on a not_marked'           => { not_marked => [ { names => ['x'] } ] },
+	'a marked with both name and names' => { rule_gates => [ { marked => { name => 'x', names => ['y'] } } ] },
+	'a marked with an empty names'      => { rule_gates => [ { marked => { names => [] } } ] },
+	'a marked with a bad names entry'   => { rule_gates => [ { marked => { names => ['bad name'] } } ] },
+	'a names on a not_marked'           => { rule_gates => [ { not_marked => { names => ['x'] } } ] },
 	'a not_marked with both value_is and value_not' =>
-		{ not_marked => [ { name => 'x', value_is => 'ip', value_not => 'ip' } ] },
+		{ rule_gates => [ { not_marked => { name => 'x', value_is => 'ip', value_not => 'ip' } } ] },
 	'a sequence entry with both var and vars' =>
-		{ sequence => [ { marks => [ 'a', 'b' ], var => 'user', vars => [ 'ip', 'user' ] } ] },
+		{ rule_gates => [ { sequence => { marks => [ 'a', 'b' ], var => 'user', vars => [ 'ip', 'user' ] } } ] },
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
 	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base}, %{ $bad{$desc} } } ); };
@@ -62,14 +62,14 @@ my $rule = App::Baphomet::Rules::JSON->new(
 		%{$base},
 		mark   => [ { name => 'acct', ttl => 60, var => 'user', value_var => 'ip' } ],
 		unmark => [ { name => 'acct', var => 'user' } ],
-		marked => [ { name => 'acct', var => 'user', value_not => 'ip' } ],
+		rule_gates => [ { marked => { name => 'acct', var => 'user', value_not => 'ip' } } ],
 		mark_only => 1,
 	}
 );
 is( $rule->mark_only,               1,      'mark_only reported' );
 is( $rule->marks->[0]{name},        'acct', 'marks accessor' );
 is( $rule->unmarks->[0]{var},       'user', 'unmarks accessor' );
-is( $rule->mark_gates->{marked}[0]{value_not}, 'ip', 'mark_gates accessor' );
+is( $rule->rule_gates->[0]{value_not}, 'ip',   'rule_gates accessor' );
 
 # the expanded shapes load too... a vars compound key, a names any-of, and
 # a value compare on a not_marked
@@ -78,13 +78,15 @@ my $wide = App::Baphomet::Rules::JSON->new(
 	def  => {
 		%{$base},
 		mark       => [ { name => 'pair', ttl => 60, vars => [ 'ip', 'user' ] } ],
-		marked     => [ { names => [ 'pair', 'other' ] } ],
-		not_marked => [ { name => 'pair', vars => [ 'ip', 'user' ], value_is => 'ip' } ],
+		rule_gates => [
+			{ marked     => { names => [ 'pair', 'other' ] } },
+			{ not_marked => { name  => 'pair', vars => [ 'ip', 'user' ], value_is => 'ip' } },
+		],
 	}
 );
 is_deeply( $wide->marks->[0]{vars}, [ 'ip', 'user' ], 'a vars mark loads' );
-is_deeply( $wide->mark_gates->{marked}[0]{names}, [ 'pair', 'other' ], 'a names marked gate loads' );
-is( $wide->mark_gates->{not_marked}[0]{value_is}, 'ip', 'a not_marked value compare loads' );
+is_deeply( $wide->rule_gates->[0]{names}, [ 'pair', 'other' ], 'a names marked gate loads' );
+is( $wide->rule_gates->[1]{value_is}, 'ip', 'a not_marked value compare loads' );
 
 #
 # galla behavior
@@ -93,21 +95,21 @@ is( $wide->mark_gates->{not_marked}[0]{value_is}, 'ip', 'a not_marked value comp
 my %rules = (
 	'mark' => "mark_only: true\nmark:\n  - name: acct\n    ttl: 3600\n    var: user\n    value_var: ip\n",
 	'spray' =>
-		"marked:\n  - name: acct\n    var: user\n    value_not: ip\nmax_score: 1\n",
+		"rule_gates:\n  - marked: { name: acct, var: user, value_not: ip }\nmax_score: 1\n",
 	'count'     => '',
 	'markgood'  => "gate2: login\nmark_only: true\nmark:\n  - name: known\n    ttl: 3600\n",
-	'blockbad'  => "not_marked:\n  - name: known\nmax_score: 1\n",
+	'blockbad'  => "rule_gates:\n  - not_marked: { name: known }\nmax_score: 1\n",
 	'mark2'     => "gate2: bad\nmark_only: true\nmark:\n  - name: flag\n    ttl: 3600\n",
 	'clear'     => "gate2: good\nmark_only: true\nunmark:\n  - name: flag\n",
 	'ipmark'    => "gate2: hit\nmark_only: true\nmark:\n  - name: seen\n    ttl: 3600\n",
 	'pairclear' => "gate2: clear\nmark_only: true\nmark:\n  - name: cleared\n    ttl: 3600\n    vars: [ ip, user ]\n",
 	'pairlift'  => "gate2: lift\nmark_only: true\nunmark:\n  - name: cleared\n    vars: [ ip, user ]\n",
-	'pairfire'  => "not_marked:\n  - name: cleared\n    vars: [ ip, user ]\nmax_score: 1\n",
+	'pairfire'  => "rule_gates:\n  - not_marked: { name: cleared, vars: [ ip, user ] }\nmax_score: 1\n",
 	'seta'      => "gate2: a\nmark_only: true\nmark:\n  - name: brand-a\n    ttl: 3600\n",
 	'setb'      => "gate2: b\nmark_only: true\nmark:\n  - name: brand-b\n    ttl: 3600\n",
-	'anyfire'   => "marked:\n  - names: [ brand-a, brand-b ]\nmax_score: 1\n",
+	'anyfire'   => "rule_gates:\n  - marked: { names: [ brand-a, brand-b ] }\nmax_score: 1\n",
 	'brandsrc'  => "gate2: login\nmark_only: true\nmark:\n  - name: sess\n    ttl: 3600\n    var: user\n    value_var: ip\n",
-	'newsrc'    => "gate2: use\nnot_marked:\n  - name: sess\n    var: user\n    value_is: ip\nmax_score: 1\n",
+	'newsrc'    => "gate2: use\nrule_gates:\n  - not_marked: { name: sess, var: user, value_is: ip }\nmax_score: 1\n",
 );
 foreach my $name ( keys(%rules) ) {
 	my $body  = $rules{$name};

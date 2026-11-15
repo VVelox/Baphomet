@@ -38,8 +38,8 @@ sub line {
 #
 
 my $negated = results_for(
-	reverse_dns => [ { matches => '\.crawler\.example$', negate => 1 } ],
-	tests       => {
+	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+	tests      => {
 		positive => [
 			# a confirmed PTR that is not the crawler's... counted
 			{
@@ -95,8 +95,8 @@ is( $negated->{pass}, 6, 'all six counted' );
 #
 
 my $unfixtured = results_for(
-	reverse_dns => [ { matches => '\.crawler\.example$', negate => 1 } ],
-	tests       => { positive => [ { message => line( event => 'fail', ip => '192.0.2.10' ) } ] },
+	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+	tests      => { positive => [ { message => line( event => 'fail', ip => '192.0.2.10' ) } ] },
 );
 is( $unfixtured->{fail}, 0, 'a gated rule with no dns fixture skips the gate as before' )
 	|| diag( join( "\n", @{ $unfixtured->{failures} } ) );
@@ -107,8 +107,8 @@ is( $unfixtured->{fail}, 0, 'a gated rule with no dns fixture skips the gate as 
 #
 
 my $claimed = results_for(
-	reverse_dns => [ { matches_var => 'claim', var => 'ip' } ],
-	tests       => {
+	rule_gates => [ { reverse_dns => { matches_var => 'claim', var => 'ip' } } ],
+	tests      => {
 		positive => [
 			{
 				message => line( event => 'fail', ip => '192.0.2.20', claim => 'mail.example' ),
@@ -139,8 +139,8 @@ is( $claimed->{fail}, 0, 'a var-keyed matches_var entry proves both ways in the 
 #
 
 my $knobs = results_for(
-	reverse_dns => [ { matches => '\.crawler\.example$', negate => 1, forward_confirm => 0 } ],
-	tests       => {
+	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1, forward_confirm => 0 } } ],
+	tests      => {
 		negative => [
 			# with confirmation refused the spoofed PTR is taken at its word
 			{
@@ -154,8 +154,8 @@ is( $knobs->{fail}, 0, 'forward_confirm refused takes the PTR at its word' )
 	|| diag( join( "\n", @{ $knobs->{failures} } ) );
 
 my $sfcompare = results_for(
-	reverse_dns => [ { matches => '\.crawler\.example$', negate => 1, on_servfail => 'compare' } ],
-	tests       => {
+	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1, on_servfail => 'compare' } } ],
+	tests      => {
 		positive => [
 			{
 				message => line( event => 'fail', ip => '192.0.2.31' ),
@@ -168,8 +168,8 @@ is( $sfcompare->{fail}, 0, 'on_servfail compare counts through the outage, knowi
 	|| diag( join( "\n", @{ $sfcompare->{failures} } ) );
 
 my $sfpass = results_for(
-	reverse_dns => [ { matches => '\.crawler\.example$', on_servfail => 'pass' } ],
-	tests       => {
+	rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', on_servfail => 'pass' } } ],
+	tests      => {
 		positive => [
 			{
 				message => line( event => 'fail', ip => '192.0.2.32' ),
@@ -182,25 +182,24 @@ is( $sfpass->{fail}, 0, 'on_servfail pass is a terminal verdict' )
 	|| diag( join( "\n", @{ $sfpass->{failures} } ) );
 
 #
-# galla parity... a var-less gate on a detection rule is inert there, so
-# it is inert here, fixture or no
+# a gate keyed by the offender on a detection rule, which has no offender for
+# it to key on... it would never be asked, so the rule is refused at load
 #
 
-my $detection = results_for(
-	ban_var       => undef,
-	detection_var => ['ip'],
-	reverse_dns   => [ { matches => '\.crawler\.example$', negate => 1 } ],
-	tests         => {
-		positive => [
-			{
-				message => line( event => 'fail', ip => '192.0.2.40' ),
-				dns     => { ptr => { '192.0.2.40' => 'servfail' } },
-			},
-		],
+ok(
+	!eval {
+		results_for(
+			ban_var       => undef,
+			detection_var => ['ip'],
+			rule_gates    => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+			tests         => { positive => [ { message => line( event => 'fail', ip => '192.0.2.40' ) } ] },
+		);
+		1;
 	},
+	'a gate keyed by the offender on a detection rule refuses to load'
 );
-is( $detection->{fail}, 0, 'a var-less gate on a detection rule stays inert, as in the galla' )
-	|| diag( join( "\n", @{ $detection->{failures} } ) );
+like( $@, qr/^The reverse_dns gate of the rule "json\/x" \(rule_gates entry 0\) keys on the offender/,
+	'and the die names the gate and why' );
 
 #
 # the typo guard... a malformed fixture is a failure, not silence
@@ -213,8 +212,8 @@ foreach my $broken (
 	)
 {
 	my $broken_results = results_for(
-		reverse_dns => [ { matches => '\.crawler\.example$', negate => 1 } ],
-		tests       => {
+		rule_gates => [ { reverse_dns => { matches => '\.crawler\.example$', negate => 1 } } ],
+		tests      => {
 			positive => [ { message => line( event => 'fail', ip => '192.0.2.50' ), dns => $broken->{dns} } ]
 		},
 	);

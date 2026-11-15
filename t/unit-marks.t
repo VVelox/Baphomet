@@ -1,16 +1,37 @@
 #!perl
-# direct unit tests for App::Baphomet::Marks, the mark store's pure core...
-# no galla, no store on an object, just the functions over a hashref. pins
-# the conservative value-compare rules and the store bound that the galla
-# and run_tests both lean on but neither exercises exhaustively
+# direct unit tests for App::Baphomet::Marks, the mark store's pure core, and
+# the three gates that read it, marked, not_marked, and sequence... no galla,
+# no store on an object, just the functions and gates over a hashref. pins the
+# conservative value-compare rules and the store bound that the galla and
+# run_tests both lean on but neither exercises exhaustively
 use 5.006;
 use strict;
 use warnings;
 use Test::More;
+use List::Util qw( all );
 
-use App::Baphomet::Marks qw( mark_key mark_gates_pass mark_set apply_marks bound_expiring_store );
+use App::Baphomet::Marks qw( mark_key mark_set apply_marks bound_expiring_store );
+use App::Baphomet::Gate  qw( gate_class bind_rule_gates );
 
 my $now = 1_000_000_000;
+
+# whether the mark gates the passed entries make all hold over a store, asked
+# as the galla asks them... a hash of gate type to the list of what each gate
+# of the type is told, bound and sorted by pass, then the result pass asked
+# with a undef $ip and the offender pass with one
+sub gates_hold {
+	my ( $store, $entries_of, $data, $ip, $now_is ) = @_;
+
+	my @gates;
+	foreach my $type ( sort( keys( %{$entries_of} ) ) ) {
+		foreach my $args ( @{ $entries_of->{$type} } ) {
+			push( @gates, gate_class( $type, 'the test' )->new( 'type' => $type, 'args' => $args, 'where' => 'the gate' ) );
+		}
+	}
+	my $bound = bind_rule_gates( \@gates, { 'marks' => sub { return $store; } }, 'the rule "x"' );
+
+	return ( all { $_->holds( $data, $ip, $now_is ) } @{ $bound->{ defined($ip) ? 'offender' : 'result' } } ) ? 1 : 0;
+}
 
 #
 # mark_key... the compound join, the single var, the var-less offender
@@ -24,29 +45,29 @@ is( mark_key( { 'vars' => [ 'ip', 'user' ] }, { 'ip' => '1.2.3.4' }, undef ),
 	undef, 'a vars key with any capture missing is undef, never a partial join' );
 
 #
-# mark_gates_pass, marked... the two modes, expiry, any-of, value compares
+# the marked gate... the two passes, expiry, any-of, value compares
 #
 
 my %store = ( 'known' => { '1.2.3.4' => { 'expires' => $now + 100 } } );
 
-ok( mark_gates_pass( \%store, { 'marked' => [ { 'name' => 'known', 'var' => 'ip' } ] }, { 'ip' => '1.2.3.4' },
+ok( gates_hold( \%store, { 'marked' => [ { 'name' => 'known', 'var' => 'ip' } ] }, { 'ip' => '1.2.3.4' },
 	undef, $now ), 'a marked gate holds when the branded key is live' );
-ok( !mark_gates_pass( \%store, { 'marked' => [ { 'name' => 'known', 'var' => 'ip' } ] }, { 'ip' => '5.6.7.8' },
+ok( !gates_hold( \%store, { 'marked' => [ { 'name' => 'known', 'var' => 'ip' } ] }, { 'ip' => '5.6.7.8' },
 	undef, $now ), 'and fails on a unbranded key' );
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%store,
 		{ 'marked' => [ { 'name' => 'known', 'var' => 'ip' } ] },
 		{ 'ip' => '1.2.3.4' },
 		'9.9.9.9', $now
 	),
-	'a var entry is skipped in the offender pass, so a var-only marked gate holds vacuously there'
+	'a gate naming a var is not of the offender pass, so there is nothing to veto there'
 );
 
 # expiry... a brand at or before now is dead
 my %expired = ( 'known' => { '1.2.3.4' => { 'expires' => $now } } );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%expired, { 'marked' => [ { 'name' => 'known', 'var' => 'ip' } ] },
 		{ 'ip' => '1.2.3.4' }, undef, $now
 	),
@@ -56,7 +77,7 @@ ok(
 # names, the any-of... any listed live brand satisfies it
 my %anyof = ( 'brand_b' => { '1.2.3.4' => { 'expires' => $now + 100 } } );
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%anyof,
 		{ 'marked' => [ { 'names' => [ 'brand_a', 'brand_b' ], 'var' => 'ip' } ] },
 		{ 'ip' => '1.2.3.4' },
@@ -68,7 +89,7 @@ ok(
 # value_is / value_not against the stored value
 my %valued = ( 'acct' => { 'bob' => { 'expires' => $now + 100, 'value' => '1.1.1.1' } } );
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%valued,
 		{ 'marked' => [ { 'name' => 'acct', 'var' => 'user', 'value_is' => 'ip' } ] },
 		{ 'user' => 'bob', 'ip' => '1.1.1.1' },
@@ -77,7 +98,7 @@ ok(
 	'value_is holds when the stored value equals the named capture'
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%valued,
 		{ 'marked' => [ { 'name' => 'acct', 'var' => 'user', 'value_is' => 'ip' } ] },
 		{ 'user' => 'bob', 'ip' => '2.2.2.2' },
@@ -86,7 +107,7 @@ ok(
 	'and fails when it differs'
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%valued,
 		{ 'marked' => [ { 'name' => 'acct', 'var' => 'user', 'value_is' => 'ip' } ] },
 		{ 'user' => 'bob' },
@@ -102,7 +123,7 @@ my %anyval = (
 	'brand_b' => { 'bob' => { 'expires' => $now + 100, 'value' => 'right' } },
 );
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%anyval,
 		{ 'marked' => [ { 'names' => [ 'brand_a', 'brand_b' ], 'var' => 'user', 'value_is' => 'want' } ] },
 		{ 'user' => 'bob', 'want' => 'right' },
@@ -112,25 +133,25 @@ ok(
 );
 
 #
-# mark_gates_pass, not_marked... the inverse, and the value-compare spare
+# the not_marked gate... the inverse, and the value-compare spare
 #
 
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%store, { 'not_marked' => [ { 'name' => 'known', 'var' => 'ip' } ] },
 		{ 'ip' => '5.6.7.8' }, undef, $now
 	),
 	'not_marked holds when the key carries no brand'
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%store, { 'not_marked' => [ { 'name' => 'known', 'var' => 'ip' } ] },
 		{ 'ip' => '1.2.3.4' }, undef, $now
 	),
 	'and vetoes when it does'
 );
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%valued,
 		{ 'not_marked' => [ { 'name' => 'acct', 'var' => 'user', 'value_is' => 'ip' } ] },
 		{ 'user' => 'bob', 'ip' => '2.2.2.2' },
@@ -139,7 +160,7 @@ ok(
 	'not_marked value_is spares a live brand storing a different value... not marked WITH this value'
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%valued,
 		{ 'not_marked' => [ { 'name' => 'acct', 'var' => 'user', 'value_is' => 'ip' } ] },
 		{ 'user' => 'bob', 'ip' => '1.1.1.1' },
@@ -148,7 +169,7 @@ ok(
 	'and vetoes a live brand storing the same value'
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%valued,
 		{ 'not_marked' => [ { 'name' => 'acct', 'var' => 'user', 'value_is' => 'ip' } ] },
 		{ 'user' => 'bob' },
@@ -158,7 +179,7 @@ ok(
 );
 
 #
-# mark_gates_pass, sequence... ordered by first-seen set time
+# the sequence gate... ordered by first-seen set time
 #
 
 my %seq = (
@@ -166,7 +187,7 @@ my %seq = (
 	'stage2' => { 'k' => { 'expires' => $now + 100, 'set' => $now + 50 } },
 );
 ok(
-	mark_gates_pass(
+	gates_hold(
 		\%seq,
 		{ 'sequence' => [ { 'marks' => [ 'stage1', 'stage2' ], 'var' => 'ip' } ] },
 		{ 'ip' => 'k' },
@@ -179,7 +200,7 @@ my %seqrev = (
 	'stage2' => { 'k' => { 'expires' => $now + 100, 'set' => $now } },
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%seqrev,
 		{ 'sequence' => [ { 'marks' => [ 'stage1', 'stage2' ], 'var' => 'ip' } ] },
 		{ 'ip' => 'k' },
@@ -188,7 +209,7 @@ ok(
 	'and fails when they are out of order'
 );
 ok(
-	!mark_gates_pass(
+	!gates_hold(
 		\%seq,
 		{ 'sequence' => [ { 'marks' => [ 'stage1', 'missing' ], 'var' => 'ip' } ] },
 		{ 'ip' => 'k' },
@@ -198,7 +219,7 @@ ok(
 );
 
 # a empty gate set passes vacuously
-ok( mark_gates_pass( \%store, {}, {}, undef, $now ), 'no gates is a pass' );
+ok( gates_hold( \%store, {}, {}, undef, $now ), 'no gates is a pass' );
 
 #
 # mark_set... first-seen set time preserved across a re-brand, on_set fires

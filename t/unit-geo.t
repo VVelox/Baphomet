@@ -1,87 +1,93 @@
 #!perl
-# direct unit tests for App::Baphomet::Geo, the country gate's pure
-# judgment... a mock locator stands in for the GeoIP lookups, so the
-# fail-closed rules and the token resolution are pinned without a database
+# direct unit tests for App::Baphomet::Gate::Country, the country gate... a
+# fixture map stands in for the GeoIP lookups, so the fail-closed rules and
+# the token resolution are pinned with out a database
 use 5.006;
 use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Geo qw( resolve_country_gate country_gate_pass );
+use App::Baphomet::Gate::Country ();
 
-# a locator over a fixture map... an upcased ISO code, or undef for a
-# address it can not place
-sub locator {
-	my ($map) = @_;
-	return sub { return $map->{ $_[0] }; };
+# a country gate told what a rule entry would tell it, and bound over a
+# locator of the passed address to code map and the passed named lists
+sub country_gate {
+	my ( $args, $countries, $lists ) = @_;
+
+	my $gate = App::Baphomet::Gate::Country->new( 'type' => 'country', 'args' => $args, 'where' => 'the gate' );
+	return $gate->bound( { 'locator' => sub { return $countries->{ $_[0] }; }, 'country_codes' => $lists },
+		'the rule "x"' );
 }
 
+my %countries = ( '203.0.113.9' => 'NL', '198.51.100.5' => 'US' );
+
 #
-# resolve_country_gate... token expansion, upcasing, and the loud die on a
-# undefined list
+# compile... the mode, lone values as lists, and the pass
 #
 
-my $gate = resolve_country_gate(
-	{ 'mode' => 'isnot', 'entries' => [ '%%%country_codes{home}%%%', 'mx' ], 'vars' => ['src'] },
-	{ 'home' => [ 'us', 'ca' ] },
-	'the rule "x"'
+my $compiled = App::Baphomet::Gate::Country->new(
+	'type'  => 'country',
+	'args'  => { 'isnot' => 'mx', 'vars' => 'src' },
+	'where' => 'the gate'
 );
-is( $gate->{mode}, 'isnot', 'the mode carries through' );
-is_deeply( $gate->{vars}, ['src'], 'the vars carry through' );
+is( $compiled->{mode}, 'isnot', 'the mode is the key that was written' );
+is_deeply( $compiled->{entries}, ['mx'],  'a lone entry is a list of one' );
+is_deeply( $compiled->{vars},    ['src'], 'and so is a lone var' );
+is( $compiled->pass, 'result', 'a gate naming vars is of the result pass' );
+is_deeply( [ $compiled->needs ], ['locator'], 'it needs the locator' );
+
+my $offender_keyed
+	= App::Baphomet::Gate::Country->new( 'type' => 'country', 'args' => { 'is' => ['US'] }, 'where' => 'the gate' );
+is( $offender_keyed->pass, 'offender', 'a gate naming no vars is of the offender pass' );
+
+ok(
+	!eval {
+		App::Baphomet::Gate::Country->new(
+			'type'  => 'country',
+			'args'  => { 'is' => 'USA' },
+			'where' => 'the gate'
+		);
+		1;
+	},
+	'a entry that is neither a 2-letter code nor a import dies'
+);
+like( $@, qr/^the gate has a is that is not a 2-letter code/, 'and the die leads with the where it was passed' );
+
+#
+# bound... token expansion, upcasing, and the loud die on a undefined list
+#
+
+my $isnot = country_gate( { 'isnot' => [ '%%%country_codes{home}%%%', 'mx' ], 'vars' => ['src'] },
+	\%countries, { 'home' => [ 'us', 'ca' ] } );
 is_deeply(
-	[ sort keys %{ $gate->{codes} } ],
+	[ sort( keys( %{ $isnot->{codes} } ) ) ],
 	[ 'CA', 'MX', 'US' ],
 	'the token expands and every code is upcased into the set'
 );
 
-is( resolve_country_gate( undef, {}, 'x' ), undef, 'no country key resolves to undef' );
-
-ok(
-	!eval {
-		resolve_country_gate( { 'mode' => 'is', 'entries' => ['%%%country_codes{nope}%%%'], 'vars' => undef },
-			{ 'home' => ['US'] }, 'the rule "x"' );
-		1;
-	},
-	'importing a list the config does not define dies'
-);
-like( $@, qr/country_codes\{nope\}/, 'and the die names the missing list' );
+ok( !eval { country_gate( { 'is' => ['%%%country_codes{nope}%%%'] }, \%countries, { 'home' => ['US'] } ); 1; },
+	'importing a list the context does not define dies' );
+like( $@, qr/^the rule "x" imports country_codes\{nope\}/, 'and the die names the rule and the missing list' );
 
 #
-# country_gate_pass... fail closed with no locator or on a unplaceable
-# value, and the two modes
+# holds... the two modes, and fail closed on what can not be placed
 #
 
-my $loc = locator( { '203.0.113.9' => 'NL', '198.51.100.5' => 'US' } );
+# a vars gate reads the found data
+ok( $isnot->holds( { 'src'  => '203.0.113.9' },  undef ), 'isnot US counts a address abroad' );
+ok( !$isnot->holds( { 'src' => '198.51.100.5' }, undef ), 'and spares one at home' );
+ok( !$isnot->holds( { 'src' => '192.0.2.66' }, undef ), 'a unplaceable address fails closed, isnot never clearing it' );
+ok( !$isnot->holds( {}, undef ), 'and so does a var the result lacks' );
 
-# a vars gate is data-driven, ran in the data pass (ip undef)
-my $isnot = { 'mode' => 'isnot', 'codes' => { 'US' => 1 }, 'vars' => ['src'] };
-ok( country_gate_pass( $loc, $isnot, { 'src' => '203.0.113.9' }, undef ),
-	'isnot US counts an address abroad' );
-ok( !country_gate_pass( $loc, $isnot, { 'src' => '198.51.100.5' }, undef ),
-	'and spares one at home' );
+my $both_vars = country_gate( { 'is' => ['NL'], 'vars' => [ 'src', 'dst' ] }, \%countries, {} );
+ok( $both_vars->holds( { 'src' => '203.0.113.9', 'dst' => '203.0.113.9' }, undef ),
+	'every var named has to satisfy the gate' );
+ok( !$both_vars->holds( { 'src' => '203.0.113.9', 'dst' => '198.51.100.5' }, undef ), 'and one that does not vetoes' );
 
-# a value it can not place fails closed... an unknown country is unclearable
-ok( !country_gate_pass( $loc, $isnot, { 'src' => '192.0.2.66' }, undef ),
-	'an unplaceable address fails closed, isnot never clearing it' );
-
-# a undef locator fails closed even when the gate would otherwise hold
-ok( !country_gate_pass( undef, $isnot, { 'src' => '203.0.113.9' }, undef ),
-	'a undef locator fails closed' );
-
-# the is form, var-less, ran in the offender pass (ip set)
-my $is = { 'mode' => 'is', 'codes' => { 'US' => 1, 'CA' => 1 }, 'vars' => undef };
-ok( country_gate_pass( $loc, $is, {}, '198.51.100.5' ), 'is US counts a home offender' );
-ok( !country_gate_pass( $loc, $is, {}, '203.0.113.9' ), 'and drops a foreign one' );
-ok( !country_gate_pass( $loc, $is, {}, '192.0.2.66' ), 'a unplaceable offender fails closed under is too' );
-
-# the mode/pass split... a vars gate is skipped in the offender pass, a
-# var-less one in the data pass
-ok( country_gate_pass( $loc, $isnot, { 'src' => '198.51.100.5' }, '198.51.100.5' ),
-	'a vars gate is skipped in the offender pass, holding vacuously' );
-ok( country_gate_pass( $loc, $is, {}, undef ),
-	'a var-less gate is skipped in the data pass, holding vacuously' );
-
-# a undef gate always passes
-ok( country_gate_pass( $loc, undef, {}, '203.0.113.9' ), 'a undef gate passes' );
+# a gate naming no vars reads the offender
+my $is = country_gate( { 'is' => [ 'US', 'CA' ] }, \%countries, {} );
+ok( $is->holds( {},  '198.51.100.5' ), 'is US counts a home offender' );
+ok( !$is->holds( {}, '203.0.113.9' ),  'and drops a foreign one' );
+ok( !$is->holds( {}, '192.0.2.66' ),   'a unplaceable offender fails closed under is too' );
 
 done_testing;

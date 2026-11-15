@@ -22,7 +22,7 @@ BEGIN {
 use App::Baphomet::Galla ();
 use App::Baphomet::Rules::JSON ();
 use App::Baphomet::Config qw( kur_split resolve_active_time );
-use App::Baphomet::ActiveTime qw( resolve_active_time_gate active_time_pass );
+use App::Baphomet::Gate qw( bind_rule_gates );
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -70,17 +70,23 @@ my %bad = (
 	'an empty var'         => { is => ['business'], vars => [''] },
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base}, active_time => $bad{$desc} } ); };
-	ok( $@, 'a active_time gate with ' . $desc . ' refuses to load' );
+	eval {
+		App::Baphomet::Rules::JSON->new(
+			name => 'json/x',
+			def  => { %{$base}, rule_gates => [ { active_time => $bad{$desc} } ] }
+		);
+	};
+	like( $@, qr/^The active_time gate of the rule "json\/x"/, 'a active_time gate with ' . $desc . ' refuses to load' );
 }
 
 my $rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/x',
-	def  => { %{$base}, active_time => { is => 'business', vars => 'ts' } }
+	def  => { %{$base}, rule_gates => [ { active_time => { is => 'business', vars => 'ts' } } ] }
 );
-is( $rule->active_time->{mode}, 'is', 'the accessor reports the mode' );
-is_deeply( $rule->active_time->{windows}, ['business'], 'a scalar is normalizes to a list' );
-is_deeply( $rule->active_time->{vars},    ['ts'],       'a scalar vars normalizes to a list' );
+my ($compiled) = @{ $rule->rule_gates };
+is( $compiled->{mode}, 'is', 'the compiled gate has the mode' );
+is_deeply( $compiled->{windows}, ['business'], 'a scalar is normalizes to a list' );
+is_deeply( $compiled->{vars},    ['ts'],       'a scalar vars normalizes to a list' );
 
 #
 # the gate helpers over fixed epochs, no wall clock involved
@@ -92,52 +98,54 @@ my %WIN = (
 	weekend   => [ { days => [ 0, 6 ] } ],
 );
 
-sub arule {
+# the active_time gate of a rule told the passed, bound over the windows above
+sub bound_gate {
 	my ($active) = @_;
-	return App::Baphomet::Rules::JSON->new(
+	my $gated = App::Baphomet::Rules::JSON->new(
 		name => 'json/a',
-		def  => { %{$base}, active_time => $active }
+		def  => { %{$base}, rule_gates => [ { active_time => $active } ] }
 	);
+	return bind_rule_gates( $gated->rule_gates, { active_time => \%WIN }, 'w' )->{result}[0];
 }
 
-my $is_biz = resolve_active_time_gate( arule( { is => ['business'] } )->active_time, \%WIN, 'w' );
-is( active_time_pass( $is_biz, {}, undef, $mon_1030 ), 1, 'is business, Mon 10:30, counts' );
-is( active_time_pass( $is_biz, {}, undef, $mon_0300 ), 0, 'is business, Mon 03:00, does not count (outside hours)' );
-is( active_time_pass( $is_biz, {}, undef, $sun_1030 ), 0, 'is business, Sun 10:30, does not count (outside days)' );
+my $is_biz = bound_gate( { is => ['business'] } );
+is( $is_biz->holds( {}, undef, $mon_1030 ), 1, 'is business, Mon 10:30, counts' );
+is( $is_biz->holds( {}, undef, $mon_0300 ), 0, 'is business, Mon 03:00, does not count (outside hours)' );
+is( $is_biz->holds( {}, undef, $sun_1030 ), 0, 'is business, Sun 10:30, does not count (outside days)' );
 
-my $not_biz = resolve_active_time_gate( arule( { isnot => ['business'] } )->active_time, \%WIN, 'w' );
-is( active_time_pass( $not_biz, {}, undef, $mon_1030 ), 0, 'isnot business, Mon 10:30, does not count' );
-is( active_time_pass( $not_biz, {}, undef, $mon_0300 ), 1, 'isnot business, Mon 03:00, counts' );
+my $not_biz = bound_gate( { isnot => ['business'] } );
+is( $not_biz->holds( {}, undef, $mon_1030 ), 0, 'isnot business, Mon 10:30, does not count' );
+is( $not_biz->holds( {}, undef, $mon_0300 ), 1, 'isnot business, Mon 03:00, counts' );
 
-my $is_night = resolve_active_time_gate( arule( { is => ['overnight'] } )->active_time, \%WIN, 'w' );
-is( active_time_pass( $is_night, {}, undef, $sat_2330 ), 1, 'is overnight, 23:30, counts across the midnight wrap' );
-is( active_time_pass( $is_night, {}, undef, $mon_1030 ), 0, 'is overnight, 10:30, does not count' );
+my $is_night = bound_gate( { is => ['overnight'] } );
+is( $is_night->holds( {}, undef, $sat_2330 ), 1, 'is overnight, 23:30, counts across the midnight wrap' );
+is( $is_night->holds( {}, undef, $mon_1030 ), 0, 'is overnight, 10:30, does not count' );
 
-my $is_union = resolve_active_time_gate( arule( { is => [ 'business', 'weekend' ] } )->active_time, \%WIN, 'w' );
-is( active_time_pass( $is_union, {}, undef, $sun_1030 ), 1, 'is [business, weekend], Sunday, counts via the union' );
-is( active_time_pass( $is_union, {}, undef, $mon_0300 ), 0, 'is [business, weekend], Mon 03:00, in neither' );
+my $is_union = bound_gate( { is => [ 'business', 'weekend' ] } );
+is( $is_union->holds( {}, undef, $sun_1030 ), 1, 'is [business, weekend], Sunday, counts via the union' );
+is( $is_union->holds( {}, undef, $mon_0300 ), 0, 'is [business, weekend], Mon 03:00, in neither' );
 
-# time is the line's and not a offender's, so the pass over the offenders lets
-# every one of them by, in the window or out
-is( active_time_pass( $is_biz, {}, '192.0.2.7', $mon_0300 ), 1, 'a offender is let by, whatever the time' );
+# time is the line's and not a offender's, so the gate is of the result pass
+# though it names no var, and is never asked of a offender
+is( $is_biz->pass, 'result', 'a gate naming no vars is still of the result pass' );
 
 #
 # vars... the time comes from a found value, epoch or ISO, else fails closed
 #
 
-my $var_biz = resolve_active_time_gate( arule( { is => ['business'], vars => ['ts'] } )->active_time, \%WIN, 'w' );
-is( active_time_pass( $var_biz, { ts => $mon_1030 },              undef, 0 ), 1, 'a epoch var inside the window counts' );
-is( active_time_pass( $var_biz, { ts => $mon_1030 * 1_000_000 }, undef, 0 ), 1, 'a journal microsecond epoch is scaled and counts' );
-is( active_time_pass( $var_biz, { ts => '2021-01-04T10:30:00Z' }, undef, 0 ), 1, 'a ISO 8601 var inside the window counts' );
-is( active_time_pass( $var_biz, { ts => '2021-01-04 03:00:00' },  undef, 0 ), 0, 'a ISO var outside the hours does not count' );
-is( active_time_pass( $var_biz, { ts => 'not-a-time' },           undef, 0 ), 0, 'a unparseable var fails closed' );
-is( active_time_pass( $var_biz, {},                               undef, 0 ), 0, 'a missing var fails closed' );
+my $var_biz = bound_gate( { is => ['business'], vars => ['ts'] } );
+is( $var_biz->holds( { ts => $mon_1030 },              undef, 0 ), 1, 'a epoch var inside the window counts' );
+is( $var_biz->holds( { ts => $mon_1030 * 1_000_000 }, undef, 0 ), 1, 'a journal microsecond epoch is scaled and counts' );
+is( $var_biz->holds( { ts => '2021-01-04T10:30:00Z' }, undef, 0 ), 1, 'a ISO 8601 var inside the window counts' );
+is( $var_biz->holds( { ts => '2021-01-04 03:00:00' },  undef, 0 ), 0, 'a ISO var outside the hours does not count' );
+is( $var_biz->holds( { ts => 'not-a-time' },           undef, 0 ), 0, 'a unparseable var fails closed' );
+is( $var_biz->holds( {},                               undef, 0 ), 0, 'a missing var fails closed' );
 
 #
 # a reference to a window the watcher does not define is fatal at bind
 #
 
-eval { resolve_active_time_gate( arule( { is => ['nope'] } )->active_time, \%WIN, 'where' ); };
+eval { bound_gate( { is => ['nope'] } ); };
 like( $@, qr/nope.*not a defined window/, 'referencing a undefined window dies' );
 
 #
@@ -152,9 +160,8 @@ gate:
     values: [ fail ]
 ban_var:
   - ip
-active_time:
-  is: [ business ]
-  vars: [ ts ]
+rule_gates:
+  - active_time: { is: [ business ], vars: [ ts ] }
 max_score: 1
 EOR
 close($rf);

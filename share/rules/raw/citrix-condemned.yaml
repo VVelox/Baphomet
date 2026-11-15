@@ -25,9 +25,10 @@ references:
   - https://support.citrix.com/article/CTX123875
 message_regexp:
   - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
-marked:
-  - names: [ recon, exploit_attempt, honeypot ]
-    var: SRC
+rule_gates:
+  - marked:
+      names: [ recon, exploit_attempt, honeypot ]
+      var: SRC
 src_ip_var: SRC
 user_var: USER
 detection_var:

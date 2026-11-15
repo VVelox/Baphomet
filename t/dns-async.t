@@ -14,7 +14,7 @@ BEGIN {
 }
 
 use App::Baphomet::Galla ();
-use App::Baphomet::RDNS qw( rdns_entry_pass );
+use App::Baphomet::Gate::ReverseDns ();
 
 # the async DNS behavior, driven wholly through the dns_bg seam... the
 # engine is stood in for by a recorder whose completions fire by hand, so
@@ -175,22 +175,25 @@ $galla->{dns_reverse} = sub { die('the blocking closure must not be asked on the
 $galla->{dns_forward} = sub { die('the blocking closure must not be asked on the async path'); };
 $galla->{rdns_resolver} = undef;    # the seam carries the engine
 
-my $entry = {
-	'forward_confirm' => 1,
-	'regexp'          => qr/\.crawler\.example\.com$/,
-	'negate'          => 0,
-	'on_nxdomain'     => 'compare',
-	'on_servfail'     => 'fail',
-};
+# a reverse_dns gate told what a rule entry would tell it, bound over the
+# galla's own pair of cached lookups... asking it of a address is what drives
+# the async machinery through the judgment
+sub crawler_gate {
+	my (%args) = @_;
 
-# the pair of cached lookups the gate is judged over... one entry judged
-# against one address over it is what drives the async machinery through the
-# judgment
-my $gate_resolver = $galla->_rdns_resolver;
+	my $gate = App::Baphomet::Gate::ReverseDns->new(
+		'type'  => 'reverse_dns',
+		'args'  => { 'matches' => '\.crawler\.example\.com$', %args },
+		'where' => 'the gate'
+	);
+	return $gate->bound( { 'resolver' => sub { return $galla->_rdns_resolver; } }, 'the test' );
+}
 
-is( rdns_entry_pass( $gate_resolver, $entry, '198.51.100.9', {} ), 0, 'a cold address fails closed this line' );
+my $crawler = crawler_gate();
+
+is( $crawler->holds( {}, '198.51.100.9' ), 0, 'a cold address fails closed this line' );
 is( query_count('198.51.100.9'), 1, 'and fired one PTR' );
-is( rdns_entry_pass( $gate_resolver, $entry, '198.51.100.9', {} ), 0, 'in flight still fails closed' );
+is( $crawler->holds( {}, '198.51.100.9' ), 0, 'in flight still fails closed' );
 is( query_count('198.51.100.9'), 1, 'without re-asking' );
 
 ok( fire( '198.51.100.9', 'PTR', ['bot.crawler.example.com'] ), 'PTR answered' );
@@ -198,26 +201,19 @@ is( query_count('bot.crawler.example.com'), 2, 'the forward confirmation was war
 fire( 'bot.crawler.example.com', 'A',    ['198.51.100.9'] );
 fire( 'bot.crawler.example.com', 'AAAA', [] );
 
-is( rdns_entry_pass( $gate_resolver, $entry, '198.51.100.9', {} ), 1, 'the warm chain passes the gate next line' );
+is( $crawler->holds( {}, '198.51.100.9' ), 1, 'the warm chain passes the gate next line' );
 
 # a PTR failure ticks rdns_failures and honors on_servfail
 my $rdns_failures_before = $galla->{stats}{rdns_failures};
-rdns_entry_pass( $gate_resolver, $entry, '198.51.100.10', {} );
+$crawler->holds( {}, '198.51.100.10' );
 fire( '198.51.100.10', 'PTR', undef );
 is( $galla->{stats}{rdns_failures}, $rdns_failures_before + 1, 'a failed PTR ticked rdns_failures' );
-is( rdns_entry_pass( $gate_resolver, $entry, '198.51.100.10', {} ), 0,
-	'and the cached failure keeps failing the gate' );
+is( $crawler->holds( {}, '198.51.100.10' ), 0, 'and the cached failure keeps failing the gate' );
 
 # authoritative absence is data... an empty PTR set with negate counts
-my $absent = {
-	'forward_confirm' => 1,
-	'regexp'          => qr/\.crawler\.example\.com$/,
-	'negate'          => 1,
-	'on_nxdomain'     => 'compare',
-	'on_servfail'     => 'fail',
-};
-rdns_entry_pass( $gate_resolver, $absent, '198.51.100.11', {} );
+my $absent = crawler_gate( 'negate' => 1 );
+$absent->holds( {}, '198.51.100.11' );
 fire( '198.51.100.11', 'PTR', [] );
-is( rdns_entry_pass( $gate_resolver, $absent, '198.51.100.11', {} ), 1, 'no reverse DNS at all, negated, counts' );
+is( $absent->holds( {}, '198.51.100.11' ), 1, 'no reverse DNS at all, negated, counts' );
 
 done_testing;

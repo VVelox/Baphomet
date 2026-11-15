@@ -29,11 +29,12 @@ mungers:
   - sshd
 message_regexp:
   - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: USER

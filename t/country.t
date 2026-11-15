@@ -18,7 +18,7 @@ BEGIN {
 use App::Baphomet::Galla ();
 use App::Baphomet::Rules::JSON ();
 use App::Baphomet::Config qw( kur_split resolve_country_codes );
-use App::Baphomet::Geo ();
+use App::Baphomet::Gate qw( bind_rule_gates );
 
 my $dir = tempdir( CLEANUP => 1 );
 make_path( $dir . '/rules/json', $dir . '/run', $dir . '/cache' );
@@ -63,30 +63,40 @@ my %bad = (
 	'an empty vars entry'  => { is => ['US'], vars => [''] },
 );
 foreach my $desc ( sort( keys(%bad) ) ) {
-	eval { App::Baphomet::Rules::JSON->new( name => 'json/x', def => { %{$base}, country => $bad{$desc} } ); };
-	ok( $@, 'a country gate with ' . $desc . ' refuses to load' );
+	eval {
+		App::Baphomet::Rules::JSON->new(
+			name => 'json/x',
+			def  => { %{$base}, rule_gates => [ { country => $bad{$desc} } ] }
+		);
+	};
+	like( $@, qr/^The country gate of the rule "json\/x"/, 'a country gate with ' . $desc . ' refuses to load' );
 }
 
-# a good gate loads and the accessor normalizes it
+# a good gate loads and compiles normalized
 my $rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/x',
-	def  => { %{$base}, country => { is => 'US', vars => 'dest_ip' } }
+	def  => { %{$base}, rule_gates => [ { country => { is => 'US', vars => 'dest_ip' } } ] }
 );
-is( $rule->country->{mode}, 'is', 'country accessor reports the mode' );
-is_deeply( $rule->country->{entries}, ['US'],      'a scalar is normalizes to a list' );
-is_deeply( $rule->country->{vars},    ['dest_ip'], 'a scalar vars normalizes to a list' );
+my ($compiled) = @{ $rule->rule_gates };
+is( $compiled->{mode}, 'is', 'the compiled gate has the mode' );
+is_deeply( $compiled->{entries}, ['US'],      'a scalar is normalizes to a list' );
+is_deeply( $compiled->{vars},    ['dest_ip'], 'a scalar vars normalizes to a list' );
 
 #
 # the rule files the galla tests share
 #
 
 my %rules = (
-	'iso-block'  => "country:\n  isnot:\n    - \"%%%country_codes{allowed}%%%\"\nmax_score: 1\n",
-	'iso-hunt'   => "country:\n  is: [ CN, RU ]\nmax_score: 1\n",
-	'dest-guard' => "country:\n  is: [ US ]\n  vars: [ dest_ip ]\nmax_score: 1\n",
+	'iso-block'  => "rule_gates:\n  - country:\n      isnot:\n        - \"%%%country_codes{allowed}%%%\"\nmax_score: 1\n",
+	'iso-hunt'   => "rule_gates:\n  - country: { is: [ CN, RU ] }\nmax_score: 1\n",
+	'dest-guard' => "rule_gates:\n  - country: { is: [ US ], vars: [ dest_ip ] }\nmax_score: 1\n",
+	# the gate named twice, once on a var and once on the offender
+	'both-ends' => "rule_gates:\n"
+		. "  - country: { is: [ US ], vars: [ dest_ip ] }\n"
+		. "  - country: { isnot: [ CN ] }\nmax_score: 1\n",
 );
-# dest-guard bans the src, not the geo-checked dest
-my %ban_var = ( 'dest-guard' => 'src_ip' );
+# dest-guard and both-ends ban the src, not the geo-checked dest
+my %ban_var = ( 'dest-guard' => 'src_ip', 'both-ends' => 'src_ip' );
 foreach my $name ( keys(%rules) ) {
 	open( my $fh, '>', $dir . '/rules/json/' . $name . '.yaml' ) || die($!);
 	my $bv = defined( $ban_var{$name} ) ? $ban_var{$name} : 'ip';
@@ -202,6 +212,11 @@ log = "$dir/l2"
 parser = "json"
 rule = [ "json/iso-hunt" ]
 
+[kur.geo.bothw]
+log = "$dir/l5"
+parser = "json"
+rule = [ "json/both-ends" ]
+
 [kur.geo.destw]
 log = "$dir/l3"
 parser = "json"
@@ -246,6 +261,17 @@ is_deeply( \@sent, [], 'a vars gate vetoes the whole result when the dest is out
 feed( $galla, 'destw', event => 'fail', src_ip => '2.2.2.2', dest_ip => '4.4.4.4' );
 is_deeply( \@sent, [], 'a vars gate fails closed on an unlocatable var' );
 
+# the gate named twice in one rule... the dest has to be in-country and the
+# offender out of the excluded one, each entry judged in its own pass
+@sent = ();
+feed( $galla, 'bothw', event => 'fail', src_ip => '3.3.3.3', dest_ip => '9.9.9.9' );
+is_deeply( \@sent, ['3.3.3.3'], 'both entries holding, one on the dest and one on the offender, bans the src' );
+@sent = ();
+feed( $galla, 'bothw', event => 'fail', src_ip => '2.2.2.2', dest_ip => '9.9.9.9' );
+is_deeply( \@sent, [], 'the entry on the offender vetoes though the one on the dest held' );
+feed( $galla, 'bothw', event => 'fail', src_ip => '3.3.3.3', dest_ip => '8.8.8.8' );
+is_deeply( \@sent, [], 'the entry on the dest vetoes though the one on the offender would hold' );
+
 # the same rule under a watcher that overrides the list resolves differently
 @sent = ();
 feed( $galla, 'overridew', event => 'fail', ip => '1.1.1.1' );
@@ -257,11 +283,15 @@ is_deeply( \@sent, ['1.1.1.1'], 'a watcher-overridden list bans a US offender th
 
 my $import_rule = App::Baphomet::Rules::JSON->new(
 	name => 'json/z',
-	def  => { %{$base}, country => { isnot => ['%%%country_codes{nope}%%%'] } }
+	def  => { %{$base}, rule_gates => [ { country => { isnot => ['%%%country_codes{nope}%%%'] } } ] }
 );
-eval { App::Baphomet::Geo::resolve_country_gate( $import_rule->country, { allowed => ['US'] }, 'where' ); };
+my $locator = sub { return undef; };
+eval {
+	bind_rule_gates( $import_rule->rule_gates, { locator => $locator, country_codes => { allowed => ['US'] } }, 'where' );
+};
 like( $@, qr/nope.*not a defined list/, 'importing a undefined country_codes list dies' );
-my $ok = App::Baphomet::Geo::resolve_country_gate( $import_rule->country, { nope => [ 'cn', 'ru' ] }, 'where' );
-is_deeply( $ok->{codes}, { CN => 1, RU => 1 }, 'a defined import resolves and uppercases into a set' );
+my $ok = bind_rule_gates( $import_rule->rule_gates,
+	{ locator => $locator, country_codes => { nope => [ 'cn', 'ru' ] } }, 'where' );
+is_deeply( $ok->{offender}[0]{codes}, { CN => 1, RU => 1 }, 'a defined import resolves and uppercases into a set' );
 
 done_testing;

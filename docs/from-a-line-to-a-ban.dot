@@ -21,11 +21,11 @@ digraph from_a_line_to_a_ban {
 	bool [label = "the boolean... gate, keywords, or\nselections, over captures, munger\nfields, and JSON fields alike"];
 	sweep [label = "the track sweep...\neach declared record takes this line's\ncontribution, offense or not"];
 	fired [label = "an offense?", shape = diamond];
-	gates [label = "the gates on named vars...\nmarked, country, namtar_list,\nreverse_dns, active_time"];
+	gates [label = "the rule_gates entries naming a var,\nin the order the rule wrote them...\nand every active_time"];
 	nofire [label = "the rule did not fire...\nnothing counted, nothing consumed"];
 	cand [label = "the offenders... each ban_var read out\nof the offense, ban_not_internal dropping\nyour own hosts"];
 	scrub [label = "usedns settles hostnames... one address\nunder two names, or two names resolving\nto one address, counting once"];
-	ogates [label = "the same gates less active_time,\nkeyed by the offender"];
+	ogates [label = "the rule_gates entries naming no var,\nin the order written, asked of each offender"];
 	brand [label = "mark and unmark\nbrand the survivors"];
 	igip [label = "ignore_ips"];
 	count [label = "the hit is deposited... weight into the\noffender's bucket, hits older than\nfind_time fall out; the subnet tally\ntakes the same deposit"];

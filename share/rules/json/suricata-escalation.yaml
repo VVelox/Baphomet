@@ -22,9 +22,10 @@ classtype: misc-attack
 gate:
   - field: event_type
     values: [ alert ]
-sequence:
-  - marks: [ recon, exploit_attempt ]
-    var: src_ip
+rule_gates:
+  - sequence:
+      marks: [ recon, exploit_attempt ]
+      var: src_ip
 ban_var:
   - src_ip
   - dest_ip

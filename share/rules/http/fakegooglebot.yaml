@@ -25,9 +25,10 @@ mark:
 match:
   - field: user_agent
     regexp: '(?i:Googlebot)'
-reverse_dns:
-  - matches: '\.google(?:bot)?\.com$'
-    negate: true
+rule_gates:
+  - reverse_dns:
+      matches: '\.google(?:bot)?\.com$'
+      negate: true
 max_score: 1
 tests:
   positive:

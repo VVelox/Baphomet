@@ -1,18 +1,15 @@
 #!perl
-# direct unit tests for App::Baphomet::Namtar, the namtar_list gate's pure
-# judgment... sets compiled from lines here stand in for the files the galla
-# reads, so the two passes and the fail-closed rules are pinned with no file
-# and no galla
+# direct unit tests for App::Baphomet::Namtar and
+# App::Baphomet::Gate::NamtarList, the namtar lists' core and the gate that
+# judges by them... sets compiled from lines here stand in for the files the
+# galla reads, so the fail-closed rules are pinned with no file and no galla
 use 5.006;
 use strict;
 use warnings;
 use Test::More;
 
-use App::Baphomet::Namtar qw( resolve_namtar_gate namtar_set namtar_listed namtar_gate_pass );
-
-#
-# resolve_namtar_gate... names to slots, and the loud die on a undefined list
-#
+use App::Baphomet::Namtar           qw( namtar_slots namtar_set namtar_listed );
+use App::Baphomet::Gate::NamtarList ();
 
 my %lists = (
 	'bad'       => { 'type' => 'cidr',   'nocase' => 0, 'paths' => [ '/feeds/bad-a', '/feeds/bad-b' ] },
@@ -22,23 +19,15 @@ my %lists = (
 	'bad_names' => { 'type' => 'string', 'nocase' => 0, 'paths' => ['/feeds/bad-a'] },
 );
 
-is( resolve_namtar_gate( undef, \%lists, 'x' ), undef, 'no namtar_list key resolves to undef' );
+#
+# namtar_slots... a slot per file a list names
+#
 
-my $gate
-	= resolve_namtar_gate(
-		[ { 'lists' => [ 'bad', 'tor' ], 'var' => undef }, { 'lists' => ['users'], 'var' => 'user' } ],
-		\%lists, 'the rule "x"' );
-is( scalar( @{$gate} ), 2,      'one entry per entry of the gate' );
-is( $gate->[1]{var},    'user', 'the var carries through' );
-is( $gate->[0]{var},    undef,  'and so does the lack of one' );
-is_deeply(
-	[ map { $_->{path} } @{ $gate->[0]{slots} } ],
-	[ '/feeds/bad-a', '/feeds/bad-b' ],
-	'a file two lists of one entry both name is one slot'
-);
+my ( $bad_a_slot, $bad_b_slot ) = namtar_slots( $lists{bad} );
+my ($users_slot) = namtar_slots( $lists{users} );
+my ($bots_slot)  = namtar_slots( $lists{bots} );
 
-my ( $bad_a_slot, $bad_b_slot ) = @{ $gate->[0]{slots} };
-my $users_slot = $gate->[1]{slots}[0];
+is( $bad_b_slot->{path}, '/feeds/bad-b', 'a list of two files comes to two slots, in the order it names them' );
 is_deeply(
 	$users_slot,
 	{
@@ -49,20 +38,12 @@ is_deeply(
 	},
 	'a slot holds its key, type, nocase, and path'
 );
-
-my $both_ways = resolve_namtar_gate( [ { 'lists' => [ 'bad', 'bad_names' ] } ], \%lists, 'x' );
-is( scalar( grep { $_->{path} eq '/feeds/bad-a' } @{ $both_ways->[0]{slots} } ),
-	2, 'one file read as cidr and as string is two slots' );
-
-ok( !eval { resolve_namtar_gate( [ { 'lists' => ['nope'] } ], \%lists, 'the rule "x"' ); 1; },
-	'referencing a list the set does not define dies' );
-like( $@, qr/the rule "x" references namtar_lists\{nope\}/, 'and the die names the rule and the missing list' );
+isnt( ( namtar_slots( $lists{bad_names} ) )[0]{key},
+	$bad_a_slot->{key}, 'one file read as cidr and as string is two slots' );
 
 #
 # namtar_set... comments, blanks, the fold, and a bad cidr entry
 #
-
-my $bots_slot = resolve_namtar_gate( [ { 'lists' => ['bots'] } ], \%lists, 'x' )->[0]{slots}[0];
 
 is_deeply(
 	namtar_set( $users_slot, [ '# bait accounts', 'root', '  admin  # the usual', '', '   ' ] ),
@@ -88,48 +69,85 @@ my %files = (
 	$users_slot->{key} => { 'set' => namtar_set( $users_slot, [ 'root', 'admin' ] ) },
 	$bots_slot->{key}  => { 'set' => namtar_set( $bots_slot,  ['EvilBot'] ) },
 );
+my @bad_slots = ( $bad_a_slot, $bad_b_slot );
 
-ok( namtar_listed( \%files,  $gate->[0]{slots}, '10.1.2.3' ),      'a address in a listed CIDR is listed' );
-ok( namtar_listed( \%files,  $gate->[0]{slots}, '203.0.113.9' ),   'and so is one on the second of two slots' );
-ok( !namtar_listed( \%files, $gate->[0]{slots}, '198.51.100.1' ),  'a address on neither is not' );
-ok( namtar_listed( \%files,  [$users_slot],     'root' ),          'a string slot lists a exact entry' );
-ok( !namtar_listed( \%files, [$users_slot],     'ROOT' ),          'and is case sensitive with out nocase' );
-ok( namtar_listed( \%files,  [$bots_slot],      'EVILBOT' ),       'a nocase slot folds the value too' );
-ok( !namtar_listed( \%files, [$users_slot],     undef ),           'a undef value is on no list' );
-ok( !namtar_listed( {},      [$users_slot],     'root' ),          'and nothing is on a slot that is not loaded' );
-ok( !namtar_listed( \%files, [$bad_a_slot],     'not-a-address' ), 'a value that is not a address is on no cidr list' );
+ok( namtar_listed( \%files,  \@bad_slots,   '10.1.2.3' ),      'a address in a listed CIDR is listed' );
+ok( namtar_listed( \%files,  \@bad_slots,   '203.0.113.9' ),   'and so is one on the second of two slots' );
+ok( !namtar_listed( \%files, \@bad_slots,   '198.51.100.1' ),  'a address on neither is not' );
+ok( namtar_listed( \%files,  [$users_slot], 'root' ),          'a string slot lists a exact entry' );
+ok( !namtar_listed( \%files, [$users_slot], 'ROOT' ),          'and is case sensitive with out nocase' );
+ok( namtar_listed( \%files,  [$bots_slot],  'EVILBOT' ),       'a nocase slot folds the value too' );
+ok( !namtar_listed( \%files, [$users_slot], undef ),           'a undef value is on no list' );
+ok( !namtar_listed( {},      [$users_slot], 'root' ),          'and nothing is on a slot that is not loaded' );
+ok( !namtar_listed( \%files, [$bad_a_slot], 'not-a-address' ), 'a value that is not a address is on no cidr list' );
 
 #
-# namtar_gate_pass... the two passes, and every entry judged having to hold
+# the gate... compiled from what a rule entry tells it
 #
 
-my $offender_gate = resolve_namtar_gate( [ { 'lists' => [ 'bad', 'tor' ] } ],           \%lists, 'x' );
-my $var_gate      = resolve_namtar_gate( [ { 'lists' => ['users'], 'var' => 'user' } ], \%lists, 'x' );
+# a namtar_list gate told what a rule entry would tell it, bound over the
+# named lists and the loaded files above
+sub namtar_gate {
+	my ($args) = @_;
 
-ok( namtar_gate_pass( \%files, undef, {}, '10.1.2.3' ), 'a undef gate passes' );
+	my $gate = App::Baphomet::Gate::NamtarList->new( 'type' => 'namtar_list', 'args' => $args, 'where' => 'the gate' );
+	return $gate->bound( { 'namtar_lists' => \%lists, 'namtar_files' => \%files }, 'the rule "x"' );
+}
 
-# a var-less entry is offender-keyed, ran in the offender pass (ip set)
-ok( namtar_gate_pass( \%files,  $offender_gate, {}, '10.1.2.3' ),     'a listed offender holds' );
-ok( !namtar_gate_pass( \%files, $offender_gate, {}, '198.51.100.1' ), 'a unlisted one fails closed' );
+my $compiled = App::Baphomet::Gate::NamtarList->new(
+	'type'  => 'namtar_list',
+	'args'  => { 'list' => 'users', 'var' => 'user' },
+	'where' => 'the gate'
+);
+is_deeply( $compiled->{lists}, ['users'], 'a lone list is a list of one' );
+is( $compiled->pass, 'result', 'a gate naming a var is of the result pass' );
+is_deeply( [ $compiled->needs ], [ 'namtar_lists', 'namtar_files' ], 'it needs the named lists and the loaded files' );
+
 ok(
-	namtar_gate_pass( \%files, $offender_gate, {}, undef ),
-	'a var-less entry is skipped in the data pass, holding vacuously'
+	!eval {
+		App::Baphomet::Gate::NamtarList->new(
+			'type'  => 'namtar_list',
+			'args'  => { 'list' => 'bad', 'lists' => ['tor'] },
+			'where' => 'the gate'
+		);
+		1;
+	},
+	'a entry naming both list and lists dies'
+);
+like( $@, qr/^the gate has both list and lists/, 'and the die leads with the where it was passed' );
+
+#
+# bound... names to slots, and the loud die on a undefined list
+#
+
+my $offender_gate = namtar_gate( { 'lists' => [ 'bad', 'tor' ] } );
+is( $offender_gate->pass, 'offender', 'a gate naming no var is of the offender pass' );
+is_deeply(
+	[ map { $_->{path} } $offender_gate->list_slots ],
+	[ '/feeds/bad-a', '/feeds/bad-b' ],
+	'a file two of its lists name is one slot, and the slots are what it reads'
 );
 
-# a var entry is data-driven, ran in the data pass (ip undef)
-ok( namtar_gate_pass( \%files,  $var_gate, { 'user' => 'admin' }, undef ), 'a listed var value holds' );
-ok( !namtar_gate_pass( \%files, $var_gate, { 'user' => 'neti' },  undef ), 'a unlisted one fails closed' );
-ok( !namtar_gate_pass( \%files, $var_gate, {}, undef ), 'and so does a var the result lacks' );
-ok(
-	namtar_gate_pass( \%files, $var_gate, { 'user' => 'neti' }, '198.51.100.1' ),
-	'a var entry is skipped in the offender pass, holding vacuously'
-);
+my $both_ways = namtar_gate( { 'lists' => [ 'bad', 'bad_names' ] } );
+is( scalar( grep { $_->{path} eq '/feeds/bad-a' } $both_ways->list_slots ),
+	2, 'one file named as cidr and as string is two slots of the one gate' );
 
-# every entry judged in a pass must hold
-my $two_entry_gate = [ @{$var_gate}, { 'slots' => [$bots_slot], 'var' => 'agent' } ];
-ok( namtar_gate_pass( \%files, $two_entry_gate, { 'user' => 'admin', 'agent' => 'evilbot' }, undef ),
-	'two entries that both hold pass' );
-ok( !namtar_gate_pass( \%files, $two_entry_gate, { 'user' => 'admin', 'agent' => 'Firefox' }, undef ),
-	'one entry failing vetoes though the other held' );
+ok( !eval { namtar_gate( { 'list' => 'nope' } ); 1; }, 'referencing a list the context does not define dies' );
+like( $@, qr/^the rule "x" references namtar_lists\{nope\}/, 'and the die names the rule and the missing list' );
+
+#
+# holds... the value checked, and fail closed
+#
+
+# a gate naming no var reads the offender
+ok( $offender_gate->holds( {},  '10.1.2.3' ),     'a listed offender holds' );
+ok( $offender_gate->holds( {},  '203.0.113.9' ),  'and so does one on the second of its lists' );
+ok( !$offender_gate->holds( {}, '198.51.100.1' ), 'a unlisted one fails closed' );
+
+# a gate naming a var reads the found data
+my $var_gate = namtar_gate( { 'list' => 'users', 'var' => 'user' } );
+ok( $var_gate->holds( { 'user'  => 'admin' }, undef ), 'a listed var value holds' );
+ok( !$var_gate->holds( { 'user' => 'neti' },  undef ), 'a unlisted one fails closed' );
+ok( !$var_gate->holds( {}, undef ), 'and so does a var the result lacks' );
 
 done_testing;

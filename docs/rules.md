@@ -261,18 +261,18 @@ rule.
 
    ├──[ 2  THE GATES ]  is the offense a real one?
    │
-   │  Each gate is asked exactly once. Whether it is asked here or in
-   │  3.4 depends on what it keys on. An entry naming a var reads a
-   │  captured field, so it can be settled now. An entry naming no var
-   │  reads the offender, which does not exist yet.
+   │  The entries of `rule_gates`, each asked exactly once. Whether one
+   │  is asked here or in 3.4 depends on what it keys on. An entry
+   │  naming a var reads a captured field, so it can be settled now. An
+   │  entry naming no var reads the offender, which does not exist yet.
    │
-   ├─ 2.1  marked / not_marked / sequence, on a named var
-   ├─ 2.2  country, on a named var
-   ├─ 2.3  namtar_list, on a named var
-   ├─ 2.4  reverse_dns, on a named var
-   ├─ 2.5  active_time, which keys on nothing and is only asked here
-   │       └─▶ any one of them vetoes. The rule did not fire. See "a
-   │           veto is not a quiet pass" below.
+   ├─ 2.1  the entries naming a var, in the order the rule wrote them
+   │       Any of marked, not_marked, sequence, country, namtar_list,
+   │       and reverse_dns. Every active_time is asked here too, as with
+   │       no var it keys on the clock and never on an offender.
+   │       └─▶ any one of them vetoes. The rule did not fire, and the
+   │           entries after it are not asked. See "a veto is not a
+   │           quiet pass" below.
    │
    ├──[ 3  THE OFFENDER ]  who does this count against?
    │
@@ -292,8 +292,10 @@ rule.
    │       under `resolve_seen`, or kept as a name under `resolve_ban`.
    │
    ├─ 3.4  the gates, keyed by the offender
-   │       The var-less entries of 2.1 through 2.4 are asked once per
-   │       candidate. A candidate any of them vetoes is dropped.
+   │       The entries of `rule_gates` naming no var are asked once per
+   │       candidate, in the order the rule wrote them. A candidate any
+   │       of them vetoes is dropped. A detection rule has no such
+   │       entry, one being refused when the rule loads.
    │       └─▶ no candidate survives. The rule did not fire.
    │
    ▼
@@ -427,6 +429,11 @@ on (logged at start) so it is never a silent no-op. On the http and
 http_error types, which count `host`/`client` by default, a `detection_var`
 overrides that to count by whatever it names. See [eve](eve.md) for the event
 shapes.
+
+A detection rule has no offender, so an entry of its
+[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear) has to name the
+var it checks. One keyed by the offender would never be asked, and is
+refused when the rule loads.
 
 ```yaml
 # count by the offending username, banish nobody
@@ -749,7 +756,7 @@ The whole `test_parser` key sets a rule-wide default
 parser for its tests.
 
 Each test entry runs the galla's own order per line... parse, match, the
-data-keyed mark gates against the throwaway store, then the rule's own
+rule's gates, the mark ones against a throwaway store, then the rule's own
 brands applied... so `found` counts what would really have fired, a gate
 veto and all. Time inside a test is a virtual clock, base `1000000000`,
 threading through matching (correlation windows, staged `within`) and the
@@ -764,12 +771,13 @@ to steer and probe it mid-run:
 | `marks_after` | A `marks_expected`-shaped assertion ran at this point rather than the end. |
 
 An unknown key anywhere in a test entry is itself a failure, so a typo'd
-assertion can not silently become one that never runs. Two bounds: var-less
-mark gates run per offender in the galla's ban path and are not evaluated
-here (key a gate by `var`/`vars` to make it provable... the shipped readers
-all do), and the geography/blocklist/time gates need config-side data a
-rule file does not carry, so those stay proven galla-side only (see each
-gate below).
+assertion can not silently become one that never runs. One bound: a gate is
+judged here only when the test has what it judges over. The mark gates
+always do, the throwaway store being there for every entry. `reverse_dns`
+does with a `dns` fixture and `country` with a `geo` one, and either is
+skipped with out it. `namtar_list` and `active_time` have no fixture, their
+lists and windows being config a rule file has none of, so those two stay
+proven galla-side only (see each gate below).
 
 ### Injection tests... who picks the offender
 
@@ -911,9 +919,10 @@ exists to end.
 
 ```yaml
 # a reader... success from a source holding any standard brand
-marked:
-  - names: [ brute_force, recon, exploit_attempt, honeypot ]
-    var: SRC
+rule_gates:
+  - marked:
+      names: [ brute_force, recon, exploit_attempt, honeypot ]
+      var: SRC
 tests:
   positive:
     - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
@@ -926,6 +935,10 @@ tests:
     - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.7 port 4711 ssh2"
       found: 0
 ```
+
+A gate naming no var keys on the offender, and is proved the same way...
+seed the brand on the address the line would banish, and leave it off for
+the negative.
 
 Value compares prove both ways too, by seeding the stored value: the
 shipped `syslog/sshd-spray` (gate `value_not: SRC`) seeds the account's
@@ -1039,11 +1052,12 @@ proves its judgment cold. The shipped `syslog/sshd-foreign-login` and its
 mail siblings are the worked example:
 
 ```yaml
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 tests:
   positive:
     # a login from abroad... the isnot gate lets it count
@@ -1099,9 +1113,8 @@ are not... which is the whole shape of the types. The full support matrix, a
 | `ban_not_internal` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `detection_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `gate` / `selections` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `mark` / `unmark` / `marked` / `not_marked` / `mark_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `sequence` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `country` / `namtar_list` / `active_time` / `reverse_dns` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `mark` / `unmark` / `mark_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `rule_gates` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` / `src_port_var` / `dest_port_var` / `user_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -1255,13 +1268,68 @@ A selection referenced but not defined, an unbalanced paren, or a stray
 token is a load-time error, as is a `condition` without `selections` or
 `selections` beside a `gate`.
 
+### rule_gates... what a match still has to clear
+
+A match says a line looks like an offense. `rule_gates` is the list of what
+it still has to clear to count as one, each entry a gate asking something
+the line can not answer for itself... if an address is branded, what
+country it is in, if it is on a list, what its reverse DNS says, what time
+it is. Legal on every rule type.
+
+```yaml
+rule_gates:
+  - active_time: { isnot: [ business ] }
+  - marked: { name: brute_force, var: SRC }
+  - country: { isnot: [ "%%%country_codes{home}%%%" ] }
+  - reverse_dns: { matches: '\.example\.org$', negate: true }
+```
+
+Each entry is a hash of one key, the gate's type, over what that gate is
+told. The types are...
+
+- [`marked`](#marks-cross-rule-state-keyed-by-anything) :: The key has a
+      brand.
+- [`not_marked`](#marks-cross-rule-state-keyed-by-anything) :: The key has
+      no such brand.
+- [`sequence`](#sequence-marks-in-order) :: The key was branded in an order.
+- [`country`](#country-narrowing-an-offense-by-geography) :: An address is
+      in, or out of, a set of countries.
+- [`namtar_list`](#namtar_list-only-the-already-condemned) :: A value is on
+      a named list.
+- [`active_time`](#active_time-only-in-or-out-of-certain-hours) :: The time
+      is in, or out of, named windows.
+- [`reverse_dns`](#reverse_dns-the-client-is-who-its-address-says) :: An
+      address reverses to what it should.
+
+**Every entry has to hold.** The first that does not ends the asking, so the
+order written decides only what a veto spares... put the gate cheapest to
+ask, or likeliest to veto, first, and one that goes to DNS last. A type may
+be named more than once, which is how one rule gates the country of both a
+captured address and the offender.
+
+**What an entry keys on decides when it is asked.** One naming a `var` or
+`vars` reads a found value, resolved like `ban_var`, so JSON dotted paths
+work. It is asked once for the whole result, ahead of there being an
+offender, and a veto drops the result. One naming neither keys on the
+offender and is asked once per candidate, filtering which of them count,
+like `ban_not_internal`. Each lot is asked in the order written.
+`active_time` is the exception... with no var it keys on the clock, so it
+is always asked once for the result.
+
+**A rule that can not have a gate does not load.** An entry naming a type
+there is none of, one telling a gate what it does not know, and one keyed
+by the offender on a [detection rule](#detection_var), which has no
+offender for it to key on, each die when the rule loads rather than leave
+it counting what its author gated off.
+
 ### marks... cross-rule state, keyed by anything
 
 Correlation (below) ties lines together with in one rule. Marks tie rules
 together... a mark is a named, expiring brand a rule leaves on a key that a
 later rule, in the same or another watcher of that galla, can gate on. It is
 how one rule remembers something for another, Sagan's xbits and flexbits. The
-keys are legal on every rule type.
+keys are legal on every rule type, the two that read a brand being types of
+[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear).
 
 The key defaults to the offender IP, but any capture or field of the matched
 line can be the key (`var`), or several joined into one compound key
@@ -1274,8 +1342,8 @@ it".
 | --- | --- |
 | `mark` | Array of brands to set on match, each `{name, ttl, var?, vars?, value_var?}`. `name` is the mark's name, `ttl` its life in seconds. Without `var`/`vars` the brand is keyed by each offender IP, with `var` by that capture, with `vars` by the named captures joined into one compound key. `value_var` names a capture to store on the brand. |
 | `unmark` | Array of brands to lift on match, each `{name, var?, vars?}`. A successful login lifting a suspicion, say. |
-| `marked` | Gate array, ANDed... the result only counts if every entry holds. Each `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
-| `not_marked` | Gate array, the inverse... the result only counts if none of the named brands is set. Same keying, and the same value compares... with one, a live brand only vetoes when the compare holds, so `value_is` spares a brand storing a *different* value and `value_not` one storing the *same*. A compare that can not be evaluated still vetoes. |
+| `marked` | A `rule_gates` type... the entry holds when the brand is set. Told `{name\|names, var?, vars?, value_is?, value_not?}`. `names` in place of `name` is a any-of... the entry holds when any listed brand is set. A var/vars-keyed entry is checked against the line's captures, a var-less one against each offender IP. `value_is`/`value_not` (at most one) name a capture the stored value must equal or differ from. |
+| `not_marked` | A `rule_gates` type, the inverse... the entry holds when the named brand is not set. Told `{name, var?, vars?, value_is?, value_not?}`, with the same keying and the same value compares... with one, a live brand only vetoes when the compare holds, so `value_is` spares a brand storing a *different* value and `value_not` one storing the *same*. A compare that can not be evaluated still vetoes. |
 | `mark_only` | When true the rule only brands and gates, never counting toward a ban, and does not consume the line, so matching falls through to the later rules. |
 
 A rule whose mark gates veto, like a mark_only rule, does not consume the
@@ -1305,10 +1373,11 @@ already branded with a *different* source:
 
 ```yaml
 # syslog/sshd-spray... a second source on a branded account
-marked:
-  - name: sshd-account-src
-    var: USER
-    value_not: SRC
+rule_gates:
+  - marked:
+      name: sshd-account-src
+      var: USER
+      value_not: SRC
 max_score: 1
 ```
 
@@ -1333,9 +1402,10 @@ mark:
 
 ```yaml
 # count only the pairs never cleared
-not_marked:
-  - name: cleared
-    vars: [ SRC, USER ]
+rule_gates:
+  - not_marked:
+      name: cleared
+      vars: [ SRC, USER ]
 ```
 
 This is Sagan's `track ip_username`, with the `not_marked` its `isnotset`.
@@ -1358,12 +1428,13 @@ in order... a rule watching several stages, one `mark_only` rule branding
 each, fires only when they happened in sequence. Legal on every rule type.
 
 ```yaml
-sequence:
-  - marks: [ recon, foothold, exfil ]
-    var: HOST
+rule_gates:
+  - sequence:
+      marks: [ recon, foothold, exfil ]
+      var: HOST
 ```
 
-An array of entries, every one required to hold, each a hash of:
+A `rule_gates` type, told:
 
 - `marks` :: Two or more mark names that must all be set for the key, in the
       listed order by when each first fired.
@@ -1534,16 +1605,18 @@ the gate reads is one the rule really built. See
 
 ### country... narrowing an offense by geography
 
-A rule may carry a `country` gate that only lets a match count when the
-offender, or some captured address, is in (or not in) a set of countries. It
-needs a GeoIP database, the `geoip_db` config setting, read through the
-optional `IP::Geolocation::MMDB` module.
+A `country` gate, a type of
+[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), only lets a
+match count when the offender, or some captured address, is in (or not in) a
+set of countries. It needs a GeoIP database, the `geoip_db` config setting,
+read through the optional `IP::Geolocation::MMDB` module.
 
 ```yaml
-country:
-  isnot:                              # count only if NOT in these
-    - "%%%country_codes{allowed}%%%"  # import a named list from the config
-    - "MX"                            # literal 2-letter codes compose too
+rule_gates:
+  - country:
+      isnot:                              # count only if NOT in these
+        - "%%%country_codes{allowed}%%%"  # import a named list from the config
+        - "MX"                            # literal 2-letter codes compose too
 max_score: 1
 ```
 
@@ -1557,9 +1630,10 @@ By default the gate checks the offender IP being counted. An optional `vars`
 list checks the country of named found vars instead:
 
 ```yaml
-country:
-  is: [ "%%%country_codes{yours}%%%" ]
-  vars: [ dest_ip ]        # gate on the dest's country, still ban the src
+rule_gates:
+  - country:
+      is: [ "%%%country_codes{yours}%%%" ]
+      vars: [ dest_ip ]        # gate on the dest's country, still ban the src
 ban_var: [ src_ip ]
 ```
 
@@ -1568,6 +1642,9 @@ ban_var: [ src_ip ]
 - **`vars` given** ... data-keyed. Checked once per result against the named
   found vars (resolved like `ban_var`, so JSON dotted paths work); all must
   pass, and a veto drops the whole result.
+
+A rule wanting both names the gate twice, an entry on the dest and an entry
+on the offender.
 
 The gate always **fails closed**: a value that does not locate, or a missing
 database, blocks the count rather than risking a wrong ban. A galla with
@@ -1601,7 +1678,9 @@ a `country` gate and your own `country_codes` lists.
 
 ### namtar_list... only the already-condemned
 
-A `namtar_list` gate only lets a match count when a value appears on a named
+A `namtar_list` gate, a type of
+[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), only lets a
+match count when a value appears on a named
 blocklist, the inverse of `ignore_ips`. The lists are named in the config's
 `namtar_lists`, layered per watcher and reloaded on mtime change, so a rule
 can count only what a feed you supply condemns. A list is either a **CIDR
@@ -1611,21 +1690,22 @@ field a rule captures, a username, a URI, a user-agent. The flavor is set on
 the list in the config, not here, so a rule stays a pure matcher.
 
 ```yaml
-namtar_list:
-  - lists: [ threatfeed, torexits ]   # SRC on ANY of these (union)
-    var: SRC
-  - list: bait_users                  # a string list of honeypot accounts
-    var: USER                         # check the user, still ban the offender
+rule_gates:
+  - namtar_list:
+      lists: [ threatfeed, torexits ]   # SRC on ANY of these (union)
+      var: SRC
+  - namtar_list:
+      list: bait_users                  # a string list of honeypot accounts
+      var: USER                         # check the user, still ban the offender
 max_score: 1
 ```
 
-The gate is a array of entries. Each names one or more lists (`lists`, or
-`list` for one) and, optionally, the found var to check (resolved like
-`ban_var`, so JSON dotted paths work); without a var it checks the offender
-IP. A value on **any** of an entry's lists satisfies it (union), even across
-flavors, and
-**every** entry must hold. Like the country gate, a var entry is data-keyed
-and vets the whole result while a var-less one filters offenders.
+An entry names one or more lists (`lists`, or `list` for one) and,
+optionally, the found var to check (resolved like `ban_var`, so JSON dotted
+paths work); without a var it checks the offender IP. A value on **any** of
+an entry's lists satisfies it (union), even across flavors, and of a rule's
+entries **every** one must hold. Like the country gate, a var entry is
+data-keyed and vets the whole result while a var-less one filters offenders.
 
 The gate **fails closed**: an address on no list, or a list whose file is
 unreadable or empty, blocks the count... an absent feed banishes nobody,
@@ -1634,16 +1714,18 @@ namtar rule, since which addresses are condemned is your policy.
 
 ### active_time... only in, or out of, certain hours
 
-A `active_time` gate only lets a match count when the time falls in, or out
-of, named windows... an admin login that is routine at midday and worth a ban
-at 03:00. The windows are defined in the config's `active_time`, layered per
-watcher.
+A `active_time` gate, a type of
+[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), only lets a
+match count when the time falls in, or out of, named windows... an admin
+login that is routine at midday and worth a ban at 03:00. The windows are
+defined in the config's `active_time`, layered per watcher.
 
 ```yaml
-active_time:
-  is: [ business, mixed ]     # count only when the time is in ANY of these (union)
-  # xor  isnot: [ overnight ] # count only when in NONE of them
-  vars: [ ts ]                # optional: which found value holds the time; default = now
+rule_gates:
+  - active_time:
+      is: [ business, mixed ]     # count only when the time is in ANY of these (union)
+      # xor  isnot: [ overnight ] # count only when in NONE of them
+      vars: [ ts ]                # optional: which found value holds the time; default = now
 max_score: 1
 ```
 
@@ -1663,7 +1745,9 @@ active_time rule, since which hours matter is your policy.
 
 ### reverse_dns... the client is who its address says
 
-A `reverse_dns` gate compares the PTR names of an address against a regexp
+A `reverse_dns` gate, a type of
+[`rule_gates`](#rule_gates-what-a-match-still-has-to-clear), compares the
+PTR names of an address against a regexp
 or against another found value, negatable... how a claim in the log is
 checked against what DNS says about the client. The gate that finally
 ports `apache-fakegooglebot` (shipped as `http/fakegooglebot`): a
@@ -1675,15 +1759,17 @@ the optional `Net::DNS` and `POE::Component::Client::DNS` modules (see
 [install](install.md)).
 
 ```yaml
-reverse_dns:
-  - matches: '\.google(?:bot)?\.com$'   # regexp over the PTR names
-    negate: true                        # count when it does NOT hold
-  - var: SRC                            # gate a named found value instead
-    matches_var: HELO                   # ... against another found value
-    forward_confirm: false              # default true, see below
+rule_gates:
+  - reverse_dns:
+      matches: '\.google(?:bot)?\.com$'   # regexp over the PTR names
+      negate: true                        # count when it does NOT hold
+  - reverse_dns:
+      var: SRC                            # gate a named found value instead
+      matches_var: HELO                   # ... against another found value
+      forward_confirm: false              # default true, see below
 ```
 
-An array of entries, every one required to hold. Each names exactly one of
+An entry names exactly one of
 `matches` (a Perl regexp any PTR name must satisfy) or `matches_var`
 (equality against another found value, case-folded, trailing dots
 stripped). A `var` entry checks that found value's address once per result,
@@ -1719,7 +1805,8 @@ non-address value, a missing `matches_var`.
 
 Lookups happen per match, not per line, bounded by `rdns_timeout` and
 cached... still, keep the gate behind a cheap matcher, never on a rule
-that matches everything. Unlike the config-side gates, a rule's embedded
+that matches everything, and last in its `rule_gates` so a cheaper gate's
+veto spares the lookup. Unlike the config-side gates, a rule's embedded
 tests exercise this one whole... a `dns` fixture in the test stands in
 for the resolver, PTRs, forwards, absences, and outages alike (see
 [tests](#tests)), which is how `http/fakegooglebot` proves its judgment

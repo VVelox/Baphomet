@@ -240,51 +240,56 @@ my @cases = (
 	[
 		'syslog',
 		'a marked with neither name nor names',
-		{ 'marked' => [ { 'var' => 'USER' } ] },
-		'The marked of the rule "syslog/x" entry 0 has neither name nor names'
+		{ 'rule_gates' => [ { 'marked' => { 'var' => 'USER' } } ] },
+		'The marked gate of the rule "syslog/x" (rule_gates entry 0) has neither name nor names'
 	],
 	[
 		'syslog',
 		'a marked with both name and names',
-		{ 'marked' => [ { 'name' => 'brute', 'names' => [ 'brute', 'spray' ] } ] },
-		'The marked of the rule "syslog/x" entry 0 has both name and names'
+		{ 'rule_gates' => [ { 'marked' => { 'name' => 'brute', 'names' => [ 'brute', 'spray' ] } } ] },
+		'The marked gate of the rule "syslog/x" (rule_gates entry 0) has both name and names'
 	],
 	[
 		'syslog',
 		'a marked names holding what is not a name',
-		{ 'marked' => [ { 'names' => [ 'brute', 'brute force' ] } ] },
-		'The marked of the rule "syslog/x" entry 0 has a names that is not a non-empty array, each ' . $name_says
+		{ 'rule_gates' => [ { 'marked' => { 'names' => [ 'brute', 'brute force' ] } } ] },
+		'The marked gate of the rule "syslog/x" (rule_gates entry 0) has a names that is not a non-empty array, each '
+			. $name_says
 	],
 	[
 		'syslog',
 		'a marked with both value_is and value_not',
-		{ 'marked' => [ { 'name' => 'brute', 'value_is' => 'USER', 'value_not' => 'USER' } ] },
-		'The marked of the rule "syslog/x" entry 0 has both value_is and value_not'
+		{ 'rule_gates' => [ { 'marked' => { 'name' => 'brute', 'value_is' => 'USER', 'value_not' => 'USER' } } ] },
+		'The marked gate of the rule "syslog/x" (rule_gates entry 0) has both value_is and value_not'
 	],
 	[
 		'syslog',
 		'a marked holding on any of several names',
-		{ 'marked' => [ { 'names' => [ 'brute', 'spray' ] } ] }, undef
+		{ 'rule_gates' => [ { 'marked' => { 'names' => [ 'brute', 'spray' ] } } ] }, undef
 	],
 	[
 		'syslog',
 		'a not_marked with names',
-		{ 'not_marked' => [ { 'names' => ['brute'] } ] },
-		'The not_marked of the rule "syslog/x" entry 0 has the unknown key "names"'
+		{ 'rule_gates' => [ { 'not_marked' => { 'names' => ['brute'] } } ] },
+		'The not_marked gate of the rule "syslog/x" (rule_gates entry 0) has the unknown key "names"'
 	],
 	[
 		'syslog',
 		'a sequence with no marks',
-		{ 'sequence' => [ { 'var' => 'USER' } ] },
-		'The sequence of the rule "syslog/x" entry 0 lacks a marks'
+		{ 'rule_gates' => [ { 'sequence' => { 'var' => 'USER' } } ] },
+		'The sequence gate of the rule "syslog/x" (rule_gates entry 0) lacks a marks'
 	],
 	[
 		'syslog',
 		'a sequence of one mark',
-		{ 'sequence' => [ { 'marks' => ['probe'] } ] },
-		'The sequence of the rule "syslog/x" entry 0 has a marks that is not a array of at least two mark names'
+		{ 'rule_gates' => [ { 'sequence' => { 'marks' => ['probe'] } } ] },
+		'The sequence gate of the rule "syslog/x" (rule_gates entry 0) has a marks that is not a array of at least two mark names'
 	],
-	[ 'syslog', 'a sequence of two marks', { 'sequence' => [ { 'marks' => [ 'probe', 'login' ] } ] }, undef ],
+	[
+		'syslog',
+		'a sequence of two marks',
+		{ 'rule_gates' => [ { 'sequence' => { 'marks' => [ 'probe', 'login' ] } } ] }, undef
+	],
 
 	#
 	# distinct
@@ -357,101 +362,195 @@ my @cases = (
 	],
 
 	#
+	# the rule_gates list, ahead of what any one gate vets of its own entry
+	#
+	[
+		'syslog',
+		'a rule_gates that is a hash',
+		{ 'rule_gates' => { 'country' => { 'is' => 'US' } } },
+		'The rule_gates of the rule "syslog/x" is not a non-empty array'
+	],
+	[
+		'syslog',
+		'a empty rule_gates',
+		{ 'rule_gates' => [] },
+		'The rule_gates of the rule "syslog/x" is not a non-empty array'
+	],
+	[
+		'syslog',
+		'a rule_gates entry that is a string',
+		{ 'rule_gates' => ['country'] },
+		'The rule_gates of the rule "syslog/x" entry 0 is not a hash of one key, the gate type'
+	],
+	[
+		'syslog',
+		'a rule_gates entry naming two gates',
+		{ 'rule_gates' => [ { 'country' => { 'is' => 'US' }, 'marked' => { 'name' => 'brute' } } ] },
+		'The rule_gates of the rule "syslog/x" entry 0 is not a hash of one key, the gate type'
+	],
+	[
+		'syslog',
+		'a rule_gates entry naming a gate there is none of',
+		{ 'rule_gates' => [ { 'country' => { 'is' => 'US' } }, { 'contry' => { 'is' => 'US' } } ] },
+		'The rule_gates of the rule "syslog/x" entry 1 names the gate "contry", which is not a known gate type'
+	],
+	[
+		'syslog',
+		'a rule_gates entry naming what is not a gate type name',
+		{ 'rule_gates' => [ { 'Country::Evil' => {} } ] },
+		'The rule_gates of the rule "syslog/x" entry 0 names the gate "Country::Evil", which is not a gate type name'
+	],
+	[
+		'syslog',
+		'a gate named twice',
+		{
+			'rule_gates' =>
+				[ { 'country' => { 'is' => 'US', 'vars' => 'SRC' } }, { 'country' => { 'isnot' => 'CN' } } ]
+		},
+		undef
+	],
+
+	#
+	# a gate keyed by the offender on a detection rule, which has no offender
+	#
+	(
+		map {
+			my ( $gate_type, $told ) = @{$_};
+			[
+				'syslog',
+				'a ' . $gate_type . ' gate keyed by the offender on a detection rule',
+				{ 'ban_var' => $left_out, 'detection_var' => ['SRC'], 'rule_gates' => [ { $gate_type => $told } ] },
+				'The '
+					. $gate_type
+					. ' gate of the rule "syslog/x" (rule_gates entry 0) keys on the offender, '
+					. 'which a detection rule does not have... name a var for it to check'
+			]
+		} (
+			[ 'marked',      { 'name'    => 'brute' } ],
+			[ 'not_marked',  { 'name'    => 'brute' } ],
+			[ 'sequence',    { 'marks'   => [ 'probe', 'login' ] } ],
+			[ 'country',     { 'isnot'   => 'US' } ],
+			[ 'namtar_list', { 'list'    => 'feed' } ],
+			[ 'reverse_dns', { 'matches' => '\.example\.org$' } ],
+		)
+	),
+	[
+		'syslog',
+		'a gate keyed by a var on a detection rule',
+		{
+			'ban_var'       => $left_out,
+			'detection_var' => ['SRC'],
+			'rule_gates'    => [ { 'country' => { 'isnot' => 'US', 'vars' => 'SRC' } } ]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a active_time gate naming no var on a detection rule, as it keys on the clock',
+		{
+			'ban_var'       => $left_out,
+			'detection_var' => ['SRC'],
+			'rule_gates'    => [ { 'active_time' => { 'is' => 'business' } } ]
+		},
+		undef
+	],
+
+	#
 	# the gates the galla judges
 	#
 	[
 		'syslog',
 		'a namtar_list entry naming no list',
-		{ 'namtar_list' => [ { 'var' => 'SRC' } ] },
-		'The namtar_list gate of the rule "syslog/x" entry 0 has neither list nor lists'
+		{ 'rule_gates' => [ { 'namtar_list' => { 'var' => 'SRC' } } ] },
+		'The namtar_list gate of the rule "syslog/x" (rule_gates entry 0) has neither list nor lists'
 	],
 	[
 		'syslog',
 		'a namtar_list entry with both list and lists',
-		{ 'namtar_list' => [ { 'list' => 'feed', 'lists' => ['feed'] } ] },
-		'The namtar_list gate of the rule "syslog/x" entry 0 has both list and lists'
+		{ 'rule_gates' => [ { 'namtar_list' => { 'list' => 'feed', 'lists' => ['feed'] } } ] },
+		'The namtar_list gate of the rule "syslog/x" (rule_gates entry 0) has both list and lists'
 	],
 	[
 		'syslog',
 		'a namtar_list list name with a space',
-		{ 'namtar_list' => [ { 'list' => 'threat feed' } ] },
-		'The namtar_list gate of the rule "syslog/x" entry 0 has a list that is not '
+		{ 'rule_gates' => [ { 'namtar_list' => { 'list' => 'threat feed' } } ] },
+		'The namtar_list gate of the rule "syslog/x" (rule_gates entry 0) has a list that is not '
 			. $name_says
 			. ' or a non-empty array of them'
 	],
 	[
 		'syslog',
 		'a namtar_list with a empty lists',
-		{ 'namtar_list' => [ { 'lists' => [] } ] },
-		'The namtar_list gate of the rule "syslog/x" entry 0 has a lists that is not '
+		{ 'rule_gates' => [ { 'namtar_list' => { 'lists' => [] } } ] },
+		'The namtar_list gate of the rule "syslog/x" (rule_gates entry 0) has a lists that is not '
 			. $name_says
 			. ' or a non-empty array of them'
 	],
 	[
 		'syslog',
 		'a namtar_list entry with a empty var',
-		{ 'namtar_list' => [ { 'list' => 'feed', 'var' => '' } ] },
-		'The namtar_list gate of the rule "syslog/x" entry 0 has a var that is not a non-empty string'
+		{ 'rule_gates' => [ { 'namtar_list' => { 'list' => 'feed', 'var' => '' } } ] },
+		'The namtar_list gate of the rule "syslog/x" (rule_gates entry 0) has a var that is not a non-empty string'
 	],
 	[
 		'syslog',
 		'a reverse_dns entry with nothing to compare against',
-		{ 'reverse_dns' => [ { 'var' => 'SRC' } ] },
-		'The reverse_dns gate of the rule "syslog/x" entry 0 has neither matches nor matches_var'
+		{ 'rule_gates' => [ { 'reverse_dns' => { 'var' => 'SRC' } } ] },
+		'The reverse_dns gate of the rule "syslog/x" (rule_gates entry 0) has neither matches nor matches_var'
 	],
 	[
 		'syslog',
 		'a reverse_dns entry with both matches and matches_var',
-		{ 'reverse_dns' => [ { 'matches' => '\.example\.org$', 'matches_var' => 'HELO' } ] },
-		'The reverse_dns gate of the rule "syslog/x" entry 0 has both matches and matches_var'
+		{ 'rule_gates' => [ { 'reverse_dns' => { 'matches' => '\.example\.org$', 'matches_var' => 'HELO' } } ] },
+		'The reverse_dns gate of the rule "syslog/x" (rule_gates entry 0) has both matches and matches_var'
 	],
 	[
 		'syslog',
 		'a reverse_dns on_nxdomain that is not a action',
-		{ 'reverse_dns' => [ { 'matches' => '\.example\.org$', 'on_nxdomain' => 'drop' } ] },
-		'The reverse_dns gate of the rule "syslog/x" entry 0 has a on_nxdomain that is not one of pass, fail, or compare'
+		{ 'rule_gates' => [ { 'reverse_dns' => { 'matches' => '\.example\.org$', 'on_nxdomain' => 'drop' } } ] },
+		'The reverse_dns gate of the rule "syslog/x" (rule_gates entry 0) has a on_nxdomain that is not one of pass, fail, or compare'
 	],
 	[
 		'syslog',
 		'a country that is a string',
-		{ 'country' => 'US' },
-		'The country gate of the rule "syslog/x" is not a hash'
+		{ 'rule_gates' => [ { 'country' => 'US' } ] },
+		'The country gate of the rule "syslog/x" (rule_gates entry 0) is not a hash'
 	],
 	[
 		'syslog',
 		'a country with both is and isnot',
-		{ 'country' => { 'is' => ['US'], 'isnot' => ['CA'] } },
-		'The country gate of the rule "syslog/x" has both is and isnot'
+		{ 'rule_gates' => [ { 'country' => { 'is' => ['US'], 'isnot' => ['CA'] } } ] },
+		'The country gate of the rule "syslog/x" (rule_gates entry 0) has both is and isnot'
 	],
 	[
 		'syslog',
 		'a country with neither is nor isnot',
-		{ 'country' => { 'vars' => ['SRC'] } },
-		'The country gate of the rule "syslog/x" has neither is nor isnot'
+		{ 'rule_gates' => [ { 'country' => { 'vars' => ['SRC'] } } ] },
+		'The country gate of the rule "syslog/x" (rule_gates entry 0) has neither is nor isnot'
 	],
 	[
 		'syslog',
 		'a country entry of three letters',
-		{ 'country' => { 'is' => ['USA'] } },
-		'The country gate of the rule "syslog/x" has a is that is not a 2-letter code or a '
+		{ 'rule_gates' => [ { 'country' => { 'is' => ['USA'] } } ] },
+		'The country gate of the rule "syslog/x" (rule_gates entry 0) has a is that is not a 2-letter code or a '
 			. '%%%country_codes{name}%%% import, or a non-empty array of them'
 	],
 	[
 		'syslog',
 		'a country vars holding a empty string',
-		{ 'country' => { 'is' => 'US', 'vars' => [''] } },
-		'The country gate of the rule "syslog/x" has a vars that is not a non-empty string or a non-empty array of them'
+		{ 'rule_gates' => [ { 'country' => { 'is' => 'US', 'vars' => [''] } } ] },
+		'The country gate of the rule "syslog/x" (rule_gates entry 0) has a vars that is not a non-empty string or a non-empty array of them'
 	],
 	[
 		'syslog',
 		'a country naming one code and one var bare',
-		{ 'country' => { 'is' => 'US', 'vars' => 'SRC' } }, undef
+		{ 'rule_gates' => [ { 'country' => { 'is' => 'US', 'vars' => 'SRC' } } ] }, undef
 	],
 	[
 		'syslog',
 		'a active_time window name with a space',
-		{ 'active_time' => { 'is' => ['business hours'] } },
-		'The active_time gate of the rule "syslog/x" has a is that is not '
+		{ 'rule_gates' => [ { 'active_time' => { 'is' => ['business hours'] } } ] },
+		'The active_time gate of the rule "syslog/x" (rule_gates entry 0) has a is that is not '
 			. $name_says
 			. ' or a non-empty array of them'
 	],

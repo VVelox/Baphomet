@@ -35,10 +35,11 @@ src_port_var: ssh_src_port
 user_var: USER
 ban_var:
   - SRC
-marked:
-  - name: sshd-account-src
-    var: USER
-    value_not: SRC
+rule_gates:
+  - marked:
+      name: sshd-account-src
+      var: USER
+      value_not: SRC
 max_score: 1
 tests:
   positive:

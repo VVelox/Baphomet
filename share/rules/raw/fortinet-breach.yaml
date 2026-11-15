@@ -56,9 +56,10 @@ selections:
       op: eq
       value: auth_success
 condition: "admin_login or vpn_login or ppp_auth"
-marked:
-  - names: [ brute_force, recon, exploit_attempt, honeypot ]
-    var: fg_offender_ip
+rule_gates:
+  - marked:
+      names: [ brute_force, recon, exploit_attempt, honeypot ]
+      var: fg_offender_ip
 src_ip_var: fg_offender_ip
 dest_ip_var: fg_dstip
 user_var: fg_user

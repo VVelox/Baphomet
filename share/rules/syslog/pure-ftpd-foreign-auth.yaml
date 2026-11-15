@@ -24,11 +24,12 @@ message_regexp:
   - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[INFO\] (?<USER>\S+) is now logged in'
   # and the failure syslog/pure-ftpd counts, verbatim
   - '^\(.+?@(?:::ffff:)?%%%%SRC%%%%\) \[WARNING\] (?:Authentication failed for user \[.*\]|Godkendelse mislykkedes for \[.*\]|Godkjennelse mislyktes for \[.*\]|Autorisatie faalde voor gebruiker \[.*\]|Autenticazione falita per l''utente \[.*\]|Autentificare esuata pentru utilizatorul \[.*\]|Autentifikacia uzivatela zlyhala \[.*\]|\[.*\] c''est un batard, il connait pas son code)\s*$'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: USER
 ban_var:

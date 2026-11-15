@@ -33,11 +33,12 @@ message_regexp:
   - '^(?:\[pid \d+\] )?\[.*\] FAIL LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:, "[^"]*")?\s*$'
   # and the pam failure syslog/vsftpd counts, verbatim
   - '^\(?pam_unix(?:\(\S+\))?\)?:?\s+authentication failure; logname=\S* uid=\S* euid=\S* tty=(?:ftp)? ruser=(?:\S*|.*?) rhost=%%%%SRC%%%%(?:\s+user=(?:\S*| +(?!rhost=))*)?\s*$'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: vsftpd_user
 ban_var:

@@ -45,10 +45,11 @@ message_regexp:
   # real pair and never sees what the client sent.
   - ' SSLVPN LOGIN \d+ \d+ :[^"]*User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
   - ' AAA LOGIN_FAILED \d+ \d+ :\s+User (?<USER>\S+) - Client_ip %%%%SRC%%%%'
-marked:
-  - name: citrix-vpn-login-src
-    var: USER
-    value_not: SRC
+rule_gates:
+  - marked:
+      name: citrix-vpn-login-src
+      var: USER
+      value_not: SRC
 src_ip_var: SRC
 user_var: USER
 detection_var:

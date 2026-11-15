@@ -9,6 +9,7 @@ use Digest::MD5                qw( md5 );
 use List::Util                 qw( uniqstr );
 use App::Baphomet::Correlation qw( correlation_prune correlation_restore );
 use App::Baphomet::Shape       qw( check_hash check_entries check_value );
+use App::Baphomet::Gate        qw( compile_rule_gates );
 use App::Baphomet::Tracks      qw( track_key track_get track_put );
 use App::Baphomet::Rules::Gates
 	qw( compile_matchers matchers_hit compile_gates gates_pass compile_condition eval_condition );
@@ -630,28 +631,22 @@ sub unmarks {
 	return is_plain_arrayref( $self->{def}{unmark} ) ? $self->{def}{unmark} : [];
 }
 
-=head2 mark_gates
+=head2 rule_gates
 
-Returns the rule's mark gates as a hash of three arrays, C<marked>,
-C<not_marked>, and C<sequence>, any possibly empty. Each marked or
-not_marked entry keys by C<var> or the
-compound C<vars>, or var-less by the offender IP. A marked entry names its
-brand with C<name>, or with C<names> holds on any of a list, and either
-kind of entry may carry one of C<value_is> or C<value_not>, naming a
-capture the stored value must equal or differ from... on a not_marked
-entry the compare narrows the veto to a brand carrying that value. The
-galla evaluates these against its marks store... a found result only
-counts if every gate holds.
+Returns the rule's gates, a array ref of L<App::Baphomet::Gate> objects in
+the order its C<rule_gates> names them, compiled but not yet bound to a
+watcher... a empty array for a rule with out any. A found result only counts
+if every one of them holds, and what binds and asks them is the galla, or
+C<run_tests> over a rule's own fixtures.
 
-    my $gates = $rule->mark_gates;
-    foreach my $gate ( @{ $gates->{marked} } ) { ... }
+    my $bound = bind_rule_gates( $rule->rule_gates, \%context, $where );
 
 =cut
 
-sub mark_gates {
+sub rule_gates {
 	my ($self) = @_;
 
-	return $self->{mark_gates};
+	return $self->{rule_gates};
 }
 
 =head2 mark_only
@@ -798,29 +793,20 @@ my %COMMON_DEF_KEYS = (
 	'attack'     => 'strings',
 	'rev'        => 'non_negative_int',
 	# marks
-	'mark'       => 'any',
-	'unmark'     => 'any',
-	'marked'     => 'any',
-	'not_marked' => 'any',
-	'mark_only'  => 'any',
-	'sequence'   => 'any',
+	'mark'      => 'any',
+	'unmark'    => 'any',
+	'mark_only' => 'any',
 	# tracked records
 	'track'       => 'any',
 	'tracked'     => 'any',
 	'not_tracked' => 'any',
 	'track_only'  => 'any',
-	# the gates the galla judges
-	'country'     => 'any',
-	'namtar_list' => 'any',
-	'active_time' => 'any',
-	'reverse_dns' => 'any',
+	# the gates the galla judges, each entry vetted by its own gate type
+	'rule_gates' => 'any',
 	# the embedded tests
 	'tests'       => 'hash',
 	'test_parser' => 'any',
 );
-
-# what a reverse_dns entry may do with a lookup that gave no names
-my $RDNS_FAILURE_ACTION = { 'in' => [qw( pass fail compare )], 'says' => 'one of pass, fail, or compare' };
 
 # what each entry of a def's list keys must look like, read by check_entries...
 # a mark name is constrained like a rule name so it rides tablets and commands
@@ -835,33 +821,6 @@ my %ENTRY_SHAPES = (
 	'unmark' => {
 		'required' => { 'name' => 'name' },
 		'optional' => { 'var'  => 'string', 'vars' => 'strings' },
-		'not_both' => [ [ 'var', 'vars' ] ],
-	},
-	# a marked entry may hold on any of a list of names in place of its one
-	'marked' => {
-		'optional' => {
-			'name'      => 'name',
-			'names'     => 'names',
-			'var'       => 'string',
-			'vars'      => 'strings',
-			'value_is'  => 'string',
-			'value_not' => 'string',
-		},
-		'one_of'   => [ [ 'name', 'names' ] ],
-		'not_both' => [ [ 'var',  'vars' ], [ 'value_is', 'value_not' ] ],
-	},
-	'not_marked' => {
-		'required' => { 'name' => 'name' },
-		'optional' => { 'var'  => 'string', 'vars' => 'strings', 'value_is' => 'string', 'value_not' => 'string' },
-		'not_both' => [ [ 'var', 'vars' ], [ 'value_is', 'value_not' ] ],
-	},
-	# ordered temporal correlation... the marks that must all be set for the
-	# key and in the listed order by set time
-	'sequence' => {
-		'required' => {
-			'marks' => { 'each' => 'name', 'min' => 2, 'says' => 'a array of at least two mark names' },
-		},
-		'optional' => { 'var' => 'string', 'vars' => 'strings' },
 		'not_both' => [ [ 'var', 'vars' ] ],
 	},
 	# fields absent means everything found is contributed, which is not the
@@ -879,22 +838,6 @@ my %ENTRY_SHAPES = (
 		'any_of'   => [ [ 'where', 'into', 'so it does nothing' ] ],
 	},
 	'not_tracked' => { 'required' => { 'name' => 'name' } },
-	'namtar_list' => {
-		'optional' => { 'list' => 'name_or_names', 'lists' => 'name_or_names', 'var' => 'string' },
-		'one_of'   => [ [ 'list', 'lists' ] ],
-	},
-	'reverse_dns' => {
-		'optional' => {
-			'var'             => 'string',
-			'matches'         => 'string',
-			'matches_var'     => 'string',
-			'negate'          => 'any',
-			'forward_confirm' => 'any',
-			'on_nxdomain'     => $RDNS_FAILURE_ACTION,
-			'on_servfail'     => $RDNS_FAILURE_ACTION,
-		},
-		'one_of' => [ [ 'matches', 'matches_var' ] ],
-	},
 );
 
 # the def checks every handler runs, one call so a new key or gate check can
@@ -902,15 +845,14 @@ my %ENTRY_SHAPES = (
 # common keys and the type's own, each common one of the kind
 # %COMMON_DEF_KEYS holds it to, then the mark lists and distinct against
 # their shapes, and last the compiles of what the galla judges, the tracks and
-# the country, namtar_list, active_time, and reverse_dns gates, each of which
-# vets its part of the def as it compiles it.
+# the rule_gates, each of which vets its part of the def as it compiles it.
 #
 # args:
 #   $type_keys :: arrayref of the def keys this type allows past the common
 #                 ones, its matcher keys, which the type vets itself
 #
 # returns nothing, dying on the first problem found. a sound def also leaves
-# thresholds, mark_gates, and info on the object, the views of it their
+# thresholds, rule_gates, and info on the object, the views of it their
 # getters hand the galla.
 #
 #   $self->_check_common( [ 'status', 'method', 'match', 'ignore' ] );
@@ -926,7 +868,7 @@ sub _check_common {
 		'The rule "' . $name . '"'
 	);
 
-	foreach my $list_key ( 'mark', 'unmark', 'marked', 'not_marked', 'sequence' ) {
+	foreach my $list_key ( 'mark', 'unmark' ) {
 		if ( defined( $def->{$list_key} ) ) {
 			check_entries(
 				$def->{$list_key},
@@ -946,19 +888,14 @@ sub _check_common {
 	}
 
 	$self->_compile_tracks;
-	$self->_compile_is_isnot_gate('country');
-	$self->_compile_namtar;
-	$self->_compile_is_isnot_gate('active_time');
-	$self->_compile_reverse_dns;
+	$self->{rule_gates} = compile_rule_gates( $def->{rule_gates}, $self, $name );
 
 	# the views of the def the galla asks for on every match, built once now
 	# that the def is known sound rather than on each asking... the threshold
-	# overrides the def actually sets, the mark gates each as a array however
-	# few the def carries, and the def less its tests for the EVE rule field,
-	# which the tests would bloat for no value
+	# overrides the def actually sets, and the def less its tests for the EVE
+	# rule field, which the tests would bloat for no value
 	$self->{thresholds}
 		= { map { $_ => $def->{$_} } grep { defined( $def->{$_} ) } ( 'max_score', 'find_time', 'ban_time' ) };
-	$self->{mark_gates} = { map { $_ => $def->{$_} // [] } ( 'marked', 'not_marked', 'sequence' ) };
 	my %def_less_tests = %{$def};
 	delete( $def_less_tests{tests} );
 	$self->{info} = { 'name' => $name, 'def' => \%def_less_tests };
@@ -1004,111 +941,6 @@ sub ban_var {
 	my ($self) = @_;
 
 	return @{ $self->{def}{ban_var} };
-}
-
-# what a country gate's is or isnot may hold... a code or a named import, or
-# a non-empty array of them
-my $COUNTRY_ENTRIES = {
-	'each'   => { 'match' => qr/^(?:[A-Za-z]{2}|%%%country_codes\{[a-zA-Z0-9_\-]+\}%%%)$/ },
-	'min'    => 1,
-	'or_one' => 1,
-	'says'   => 'a 2-letter code or a %%%country_codes{name}%%% import, or a non-empty array of them',
-};
-
-# the is/isnot gates, which share one shape... is xor isnot, each a entry or a
-# array of them, and vars an optional found var or list of them to check in
-# place of the offender or the clock. per gate, the key its getter lists the
-# entries under and the shape its hash must have
-my %IS_ISNOT_GATES = (
-	'country' => {
-		'list_key' => 'entries',
-		'shape'    => {
-			'optional' => { 'is' => $COUNTRY_ENTRIES, 'isnot' => $COUNTRY_ENTRIES, 'vars' => 'string_or_strings' },
-			'one_of'   => [ [ 'is', 'isnot' ] ],
-		},
-	},
-	'active_time' => {
-		'list_key' => 'windows',
-		'shape'    => {
-			'optional' => { 'is' => 'name_or_names', 'isnot' => 'name_or_names', 'vars' => 'string_or_strings' },
-			'one_of'   => [ [ 'is', 'isnot' ] ],
-		},
-	},
-);
-
-=head2 country
-
-Returns the rule's country gate normalized, or undef when it has none. The
-gate is a hash of C<mode> (C<is> or C<isnot>), C<entries> (the raw list, 2-
-letter codes and C<%%%country_codes{name}%%%> imports still unexpanded, as
-the config to expand against is the galla's per watcher), and C<vars> (the
-found vars to check the country of, or undef to check the offender IP). The
-galla resolves the imports and does the lookups.
-
-    my $country = $rule->country;
-
-=cut
-
-sub country {
-	my ($self) = @_;
-
-	return $self->{country_gate};
-}
-
-=head2 reverse_dns
-
-Returns the rule's reverse_dns gate compiled, or undef when it has none...
-a array of entries, each a hash of C<var> (the found var holding the
-address, or undef for the offender), C<regexp> (the compiled matches) or
-C<matches_var>, C<negate>, and C<forward_confirm>. The galla does the
-lookups.
-
-    my $reverse_dns = $rule->reverse_dns;
-
-=cut
-
-sub reverse_dns {
-	my ($self) = @_;
-
-	return $self->{reverse_dns_gate};
-}
-
-=head2 namtar_list
-
-Returns the rule's namtar_list gate normalized, or undef when it has none.
-The gate is a array of entries, each a hash of C<lists> (the named list
-references, still unresolved as the config to resolve against is the
-galla's per watcher) and C<var> (the found var to check, or undef for the
-offender IP). The galla resolves the list names to files and does the
-membership tests.
-
-    foreach my $entry ( @{ $rule->namtar_list } ) { ... }
-
-=cut
-
-sub namtar_list {
-	my ($self) = @_;
-
-	return $self->{namtar_gate};
-}
-
-=head2 active_time
-
-Returns the rule's active_time gate normalized, or undef when it has none.
-The gate is a hash of C<mode> (C<is> or C<isnot>), C<windows> (the named
-window references, still unresolved as the config to resolve against is the
-galla's per watcher), and C<vars> (the found vars holding the times to
-check, or undef to check the current time). The galla resolves the window
-names to specs and does the time tests.
-
-    my $active = $rule->active_time;
-
-=cut
-
-sub active_time {
-	my ($self) = @_;
-
-	return $self->{active_time_gate};
 }
 
 =head2 distinct
@@ -1513,137 +1345,6 @@ sub _compile_tracks {
 
 	return;
 } ## end sub _compile_tracks
-
-# normalizes the def's is/isnot gate of the named kind onto the object for its
-# getter, dying on a malformed one... the mode, its entries as a list however
-# the def wrote them, and vars as a list or undef. the token and window names
-# are resolved against the config later, by the galla, per watcher.
-#
-# args:
-#   $gate_key :: the gate's def key, a key of %IS_ISNOT_GATES, country or
-#                active_time
-#
-# returns nothing. a def without the gate leaves nothing. otherwise the gate
-# lands under its key with _gate on the end, country_gate or active_time_gate,
-# a hash ref of mode (is or isnot), the gate's list key (entries or windows)
-# holding the arrayref of its entries, and vars, a arrayref of the found vars
-# to check or undef to check the offender or the clock.
-#
-#   $self->_compile_is_isnot_gate('country');
-#   # $self->{country_gate} is { 'mode' => 'is', 'entries' => [ 'US' ], 'vars' => undef }
-sub _compile_is_isnot_gate {
-	my ( $self, $gate_key ) = @_;
-
-	my $gate_def = $self->{def}{$gate_key};
-	if ( !defined($gate_def) ) {
-		return;
-	}
-
-	my $gate = $IS_ISNOT_GATES{$gate_key};
-	check_hash( $gate_def, $gate->{shape}, 'The ' . $gate_key . ' gate of the rule "' . $self->{name} . '"' );
-
-	# a lone entry or var is a list of one, so each lands as a list
-	my $mode    = defined( $gate_def->{is} ) ? 'is' : 'isnot';
-	my $entries = $gate_def->{$mode};
-	my $vars    = $gate_def->{vars};
-	if ( defined($vars) ) {
-		$vars = is_plain_arrayref($vars) ? [ @{$vars} ] : [$vars];
-	}
-
-	$self->{ $gate_key . '_gate' } = {
-		'mode'            => $mode,
-		$gate->{list_key} => is_plain_arrayref($entries) ? [ @{$entries} ] : [$entries],
-		'vars'            => $vars,
-	};
-
-	return;
-} ## end sub _compile_is_isnot_gate
-
-# compiles the def's reverse_dns gate onto the object, dying on a malformed
-# one... a array of entries, each comparing the PTR names of an address (a
-# named found var, or var-less the offender) against a regexp (matches) or
-# another found value (matches_var), optionally negated, with forward
-# confirmation on unless refused. the galla owns the lookups and the
-# fail-closed rules, this only the shape.
-#
-# takes nothing. returns nothing. a def without the gate leaves nothing,
-# otherwise reverse_dns_gate holds a arrayref of entries, each a hash ref of
-# var, matches_var, negate, forward_confirm, on_nxdomain, on_servfail, and,
-# for a matches entry, the compiled regexp.
-#
-#   $self->_compile_reverse_dns;
-#   # $self->{reverse_dns_gate}[0]{on_servfail} is 'fail' for { matches: '\.example\.org$' }
-sub _compile_reverse_dns {
-	my ($self) = @_;
-
-	my $def = $self->{def};
-	if ( !defined( $def->{reverse_dns} ) ) {
-		return;
-	}
-
-	my $where = 'The reverse_dns gate of the rule "' . $self->{name} . '"';
-	check_entries( $def->{reverse_dns}, $ENTRY_SHAPES{reverse_dns}, $where );
-
-	my @compiled;
-	foreach my ( $entry_int, $entry ) ( indexed @{ $def->{reverse_dns} } ) {
-		my $compiled_entry = {
-			'var'             => $entry->{var},
-			'matches_var'     => $entry->{matches_var},
-			'negate'          => $entry->{negate}                                                       ? 1 : 0,
-			'forward_confirm' => ( defined( $entry->{forward_confirm} ) && !$entry->{forward_confirm} ) ? 0 : 1,
-			'on_nxdomain'     => $entry->{on_nxdomain} // 'compare',
-			'on_servfail'     => $entry->{on_servfail} // 'fail',
-		};
-		if ( defined( $entry->{matches} ) ) {
-			my $regexp = $entry->{matches};
-			try {
-				$compiled_entry->{regexp} = qr/$regexp/;
-			} catch ($caught) {
-				die( $where . ' entry ' . $entry_int . ' matches does not compile... ' . $caught );
-			}
-		}
-		push( @compiled, $compiled_entry );
-	} ## end foreach my ( $entry_int, $entry ) ( indexed @{ ...})
-	$self->{reverse_dns_gate} = \@compiled;
-
-	return;
-} ## end sub _compile_reverse_dns
-
-# normalizes the def's namtar_list gate onto the object for its getter, dying
-# on a malformed one... a array of entries, each naming one or more lists
-# (list or lists) and a optional var to check instead of the offender. the
-# list names are resolved against the config later, by the galla, per watcher.
-#
-# takes nothing. returns nothing. a def without the gate leaves nothing,
-# otherwise namtar_gate holds a arrayref of entries, each a hash ref of lists,
-# the arrayref of list names whichever of list or lists the def used, and var,
-# the found var to check or undef for the offender.
-#
-#   $self->_compile_namtar;
-#   # $self->{namtar_gate} is [ { 'lists' => [ 'threatfeed' ], 'var' => 'SRC' } ]
-sub _compile_namtar {
-	my ($self) = @_;
-
-	my $def = $self->{def};
-	if ( !defined( $def->{namtar_list} ) ) {
-		return;
-	}
-
-	check_entries(
-		$def->{namtar_list},
-		$ENTRY_SHAPES{namtar_list},
-		'The namtar_list gate of the rule "' . $self->{name} . '"'
-	);
-
-	my @compiled;
-	foreach my $entry ( @{ $def->{namtar_list} } ) {
-		my $lists = $entry->{lists} // $entry->{list};
-		push( @compiled, { 'lists' => is_plain_arrayref($lists) ? [ @{$lists} ] : [$lists], 'var' => $entry->{var} } );
-	}
-	$self->{namtar_gate} = \@compiled;
-
-	return;
-} ## end sub _compile_namtar
 
 # validates a correlation key... a non-empty string or a non-empty array of
 # them, each component either a regexp capture name or a reserved envelope

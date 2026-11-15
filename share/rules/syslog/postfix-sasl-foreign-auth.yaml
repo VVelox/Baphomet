@@ -41,11 +41,12 @@ message_regexp:
   - '^disconnect from [^\[]*\[%%%%SRC%%%%\](?::\d+)? .*\bauth=[1-9]\d*(?:/\d+)?(?:\s|$)'
   # and the failure syslog/postfix-sasl counts, verbatim
   - '^warning: [^\[]*\[%%%%SRC%%%%\](?::\d+)?: SASL (?i:LOGIN|PLAIN|(?:CRAM|DIGEST)-MD5) authentication failed:(?! Connection lost to authentication server| Invalid authentication mechanism)'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: USER
 ban_var:

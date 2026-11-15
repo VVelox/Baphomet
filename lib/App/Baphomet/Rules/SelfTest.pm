@@ -6,11 +6,10 @@ use v5.40;
 no feature 'unicode_strings';
 use Exporter               qw( import );
 use Ref::Util              qw( is_plain_arrayref is_plain_hashref );
+use List::Util             qw( all );
 use App::Baphomet::Parser  ();
-use App::Baphomet::Marks   ();
 use App::Baphomet::Tracks  qw( track_get );
-use App::Baphomet::RDNS    ();
-use App::Baphomet::Geo     ();
+use App::Baphomet::Gate    qw( bind_rule_gates );
 use App::Baphomet::Offense ();
 
 our @EXPORT_OK = qw( run_tests );
@@ -68,7 +67,7 @@ on test failures... that is the caller's call to make.
     my $results = $rule->run_tests;
 
 Each test entry runs the galla's own order per message... parse, match,
-the data-keyed mark gates against a throwaway store, then the rule's
+the rule's gates, the mark ones against a throwaway store, then the rule's
 brands applied, so C<found> counts what would really have fired. The
 store starts empty per entry, seedable via C<marks_before> (each
 C<< {name, key, value?, set?, ttl?} >>, C<key> a string or a list joined
@@ -77,9 +76,13 @@ C<marks_expected> (each C<< {name, key, value?, absent?} >>). Time is a
 virtual clock, base 1000000000, threaded through matching and the store
 both... a C<messages> entry may be a hash C<< {message, advance?|at?,
 found_after?, marks_after?, tracked_after?} >> to steer it and assert
-mid-run. Var-less mark gates are offender-time and run only in the
-galla's ban path, so they are not provable here... key a testable gate by
-C<var>/C<vars>, as the shipped readers do.
+mid-run.
+
+The gates are bound and asked as the galla binds and asks them, through
+L<App::Baphomet::Gate>, once for the result and once for each offender. One
+that can not judge with out something no fixture stands in for goes
+unjudged, which namtar_list and active_time always do, their lists and
+windows being config a rule file has none of.
 
 The tracked-record store gets the same treatment, a throwaway per entry
 seedable via C<tracked_before> (each C<< {name, key, fields, ttl?} >>) and
@@ -94,7 +97,7 @@ or C<servfail>, anything unfixtured answering servfail) stands in for the
 resolver, and a C<geo> fixture (a C<countries> map and the C<lists> a
 C<%%%country_codes{name}%%%> token resolves against) for the GeoIP
 locator... with one present the reverse_dns or country gate runs exactly
-as in the galla, and absent it the gate is skipped as it always was.
+as in the galla, and absent it the gate is skipped.
 
 =cut
 
@@ -216,59 +219,51 @@ sub run_tests {
 				next TEST;
 			}
 
-			# the dns fixture, when the test carries one... a resolver the
-			# reverse_dns gate judges over, so the gate runs here exactly as
-			# it would in the galla. absent the fixture the gate is skipped
-			my $dns_resolver;
+			# what the gates of this entry are judged over... the throwaway store
+			# always, and a fixture where the test has one
+			my %gate_context = ( 'marks' => sub { return \%marks_store; } );
+
+			# the dns fixture... a resolver the reverse_dns gate judges over, so
+			# the gate runs here exactly as it would in the galla
 			if ( defined( $test->{dns} ) ) {
-				$dns_resolver = _test_dns_resolver( $test->{dns}, $where, $results );
+				my $dns_resolver = _test_dns_resolver( $test->{dns}, $where, $results );
 				if ( !defined($dns_resolver) ) {
+					next TEST;
+				}
+				$gate_context{resolver} = sub { return $dns_resolver; };
+			}
+
+			# the geo fixture likewise... a locator, and the named code lists a
+			# %%%country_codes{...}%%% token resolves against
+			if ( defined( $test->{geo} ) ) {
+				( $gate_context{locator}, $gate_context{country_codes} )
+					= _test_geo_locator( $test->{geo}, $where, $results );
+				if ( !defined( $gate_context{locator} ) ) {
 					next TEST;
 				}
 			}
 
-			# the geo fixture likewise... a locator and the named code lists
-			# a %%%country_codes{...}%%% token resolves against, so the
-			# country gate runs here exactly as it would in the galla
-			my ( $geo_locator, $geo_gate );
-			if ( defined( $test->{geo} ) ) {
-				my $geo_lists;
-				( $geo_locator, $geo_lists ) = _test_geo_locator( $test->{geo}, $where, $results );
-				if ( !defined($geo_locator) ) {
-					next TEST;
-				}
-				try {
-					$geo_gate = App::Baphomet::Geo::resolve_country_gate( $self->country, $geo_lists, $where );
-				} catch ($caught) {
-					push( @{ $results->{failures} }, $where . ' country gate did not resolve... ' . $caught );
-					next TEST;
-				}
-			} ## end if ( defined( $test->{geo} ) )
+			# the rule's gates, bound over that and sorted by the pass each is
+			# asked in, as the galla binds them... less any that can not judge
+			# with out something no fixture stands in for, which go unjudged
+			# here. namtar_list and active_time are always among those, as they
+			# resolve against a watcher's lists and windows and a rule file has
+			# neither
+			my @judgeable = grep {
+				my $gate = $_;
+				all { defined( $gate_context{$_} ) } $gate->needs;
+			} @{ $self->rule_gates };
+			my $gates;
+			try {
+				$gates = bind_rule_gates( \@judgeable, \%gate_context, $where );
+			} catch ($caught) {
+				push( @{ $results->{failures} }, $where . ' has a gate that did not bind... ' . $caught );
+				next TEST;
+			}
 
-			my $mark_gates   = $self->mark_gates;
 			my $marks        = $self->marks;
 			my $unmarks      = $self->unmarks;
 			my $is_detection = $self->is_detection;
-			my $rdns_gate    = defined($dns_resolver) ? $self->reverse_dns : undef;
-
-			# the gates this entry can judge, in the galla's order and its two
-			# passes, over the throwaway store, the virtual clock, and the
-			# fixtures, each read as it stands when judged... a undef $ip vets a
-			# result as a whole and a offender vets that offender, a gate with
-			# nothing to judge in a pass holding. one with no fixture standing in
-			# for what it looks up was left undef above, and a undef gate holds.
-			# namtar_list and active_time resolve against a watcher's lists and
-			# windows, which a rule file does not have, so they are not judged
-			# here. neither is a var-less mark gate, documented as ran only in
-			# the galla's ban path, so the mark gates are asked only of the
-			# result
-			my $gates_pass = sub {
-				my ( $data, $ip ) = @_;
-				return ( defined($ip)
-						|| App::Baphomet::Marks::mark_gates_pass( \%marks_store, $mark_gates, $data, undef, $clock ) )
-					&& App::Baphomet::Geo::country_gate_pass( $geo_locator, $geo_gate, $data, $ip )
-					&& App::Baphomet::RDNS::rdns_gate_pass( $dns_resolver, $rdns_gate, $data, $ip );
-			};
 
 			my @found_all;
 			my $message_index = -1;
@@ -344,10 +339,10 @@ sub run_tests {
 				foreach my $one (@results_of_line) {
 					my $data = $one->{data};
 
-					# the gates vet the result once, the pass with no offender... a
-					# vetoed result did not fire, so it is neither branded nor
-					# counted as found
-					if ( !$gates_pass->( $data, undef ) ) {
+					# the gates of the result pass vet the result once, over the
+					# virtual clock as it stands... a vetoed result did not fire, so
+					# it is neither branded nor counted as found
+					if ( !all { $_->holds( $data, undef, $clock ) } @{ $gates->{result} } ) {
 						next;
 					}
 
@@ -362,7 +357,7 @@ sub run_tests {
 					# the survivor filter and the branding of survivors run
 					# through the shared App::Baphomet::Offense core, the same
 					# the galla uses, so the self-test can not drift from the
-					# engine... the gates vet each offender, the pass with one
+					# engine... the gates of the offender pass vet each offender
 					my $offense = App::Baphomet::Offense::resolve_offense(
 						'store'     => \%marks_store,
 						'marks'     => $marks,
@@ -370,7 +365,10 @@ sub run_tests {
 						'data'      => $data,
 						'offenders' => \@offenders,
 						'now'       => $clock,
-						'gate'      => sub { my ($ip) = @_; return $gates_pass->( $data, $ip ); },
+						'gate'      => sub {
+							my ($ip) = @_;
+							return all { $_->holds( $data, $ip, $clock ) } @{ $gates->{offender} };
+						},
 					);
 					if ( $offense->{fired} ) {
 						push( @found_all, $one );

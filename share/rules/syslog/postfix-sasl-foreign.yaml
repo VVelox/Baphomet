@@ -26,11 +26,12 @@ message_regexp:
   # both queue id shapes, short uppercase hex and the base 52 mixed-case one
   # enable_long_queue_ids gives
   - '^(?:[0-9A-F]{6,}|[0-9A-Za-z]{12,}): client=[^\[]*\[%%%%SRC%%%%\](?::\d+)?, sasl_method=\S+, sasl_username=(?<USER>\S+)'
-country:
-  isnot:
-    - "%%%country_codes{home}%%%"
-  vars:
-    - SRC
+rule_gates:
+  - country:
+      isnot:
+        - "%%%country_codes{home}%%%"
+      vars:
+        - SRC
 src_ip_var: SRC
 user_var: USER
 detection_var:

@@ -37,9 +37,10 @@ message_regexp:
   # follow the port and protocol for a forgery to hide in
   - '^(?:(?:error|fatal): (?:PAM: )?)?Failed \S+ for (?:invalid user )?.* from %%%%SRC%%%% port \d+ ssh\d*(?: \[preauth\])?\s*$'
   - '^pam_[a-z0-9_]+\(sshd:auth\):\s+authentication failure;.*\brhost=%%%%SRC%%%%(?:\s+user=\S*)?\s*$'
-marked:
-  - name: brute_force
-    var: SRC
+rule_gates:
+  - marked:
+      name: brute_force
+      var: SRC
 src_ip_var: SRC
 src_port_var: ssh_src_port
 user_var: ssh_user

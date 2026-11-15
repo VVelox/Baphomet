@@ -24,9 +24,10 @@ mungers:
   - vsftpd
 message_regexp:
   - '^(?:\[pid \d+\] )?\[[^\]]+\] OK LOGIN: Client "(?:::ffff:)?%%%%SRC%%%%"(?:\s*$|,)'
-marked:
-  - names: [ brute_force, recon, exploit_attempt, honeypot ]
-    var: SRC
+rule_gates:
+  - marked:
+      names: [ brute_force, recon, exploit_attempt, honeypot ]
+      var: SRC
 src_ip_var: SRC
 user_var: vsftpd_user
 detection_var: [ SRC ]
