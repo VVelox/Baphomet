@@ -926,6 +926,97 @@ my @cases = (
 	],
 
 	#
+	# epoch, fresh, novel, and banished
+	#
+	[
+		'syslog',
+		'a epoch with neither a var nor a into',
+		{ 'rule_gates' => [ { 'epoch' => { 'format' => 'auto' } }, @sshd, $ban_src ] },
+		'The epoch gate of the rule "syslog/x" (rule_gates entry 0) has neither a var nor a into, '
+			. 'and the line\'s own timestamp is no field to convert where it is'
+	],
+	[
+		'syslog',
+		'a epoch zone that is a place',
+		{ 'rule_gates' => [ { 'epoch' => { 'into' => 'WHEN', 'zone' => 'Europe/Paris' } }, @sshd, $ban_src ] },
+		'The epoch gate of the rule "syslog/x" (rule_gates entry 0) has a zone that is not local, utc, or a offset as +02:00'
+	],
+	[
+		'syslog',
+		'a fresh with no within',
+		{ 'rule_gates' => [ { 'epoch' => { 'into' => 'WHEN' } }, { 'fresh' => { 'var' => 'WHEN' } }, @sshd, $ban_src ] },
+		'The fresh gate of the rule "syslog/x" (rule_gates entry 1) lacks a within'
+	],
+	[
+		'syslog',
+		'a epoch and a fresh ahead of the matcher',
+		{
+			'rule_gates' => [
+				{ 'epoch' => { 'into' => 'WHEN', 'format' => '%b %d %H:%M:%S', 'zone' => '-05:00' } },
+				{ 'fresh' => { 'var'  => 'WHEN', 'within' => 300, 'on_unparsed' => 'pass' } },
+				@sshd, $ban_src
+			]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a novel with no of',
+		{ 'rule_gates' => [ @sshd, { 'novel' => { 'name' => 'seen', 'by' => 'USER' } }, $ban_src ] },
+		'The novel gate of the rule "syslog/x" (rule_gates entry 2) lacks a of'
+	],
+	[
+		'syslog',
+		'a novel on a detection rule',
+		{
+			'rule_gates' => [
+				@sshd,
+				{ 'novel' => { 'name' => 'seen', 'by' => [ 'USER', 'SRC' ], 'of' => 'USER', 'ttl' => 60, 'after_seen' => 1 } },
+				$detect_src
+			]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a banished that asks nothing',
+		{ 'rule_gates' => [ @sshd, $ban_src, { 'banished' => { 'var' => 'SRC' } } ] },
+		'The banished gate of the rule "syslog/x" (rule_gates entry 3) has neither now nor times'
+	],
+	[
+		'syslog',
+		'a banished of the offender on a detection rule',
+		{ 'rule_gates' => [ @sshd, $detect_src, { 'banished' => { 'now' => 1 } } ] },
+		'The banished gate of the rule "syslog/x" (rule_gates entry 3) keys on the offender, '
+			. 'which a detection rule does not have... name a var for it to check'
+	],
+	[
+		'syslog',
+		'a banished asking both',
+		{
+			'rule_gates' =>
+				[ @sshd, $ban_src, { 'banished' => { 'now' => 0, 'times' => 3, 'within' => 2592000 } } ]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a pressure by what is usual',
+		{
+			'rule_gates' =>
+				[ { 'pressure' => { 'times' => 5, 'above' => 20, 'seconds' => 60, 'baseline' => 3600 } }, @sshd, $ban_src ]
+		},
+		undef
+	],
+	[
+		'syslog',
+		'a pressure times with no baseline',
+		{ 'rule_gates' => [ { 'pressure' => { 'times' => 5, 'seconds' => 60 } }, @sshd, $ban_src ] },
+		'The pressure gate of the rule "syslog/x" (rule_gates entry 0) has a times with out a baseline, '
+			. 'or a baseline with out a times'
+	],
+
+	#
 	# travel
 	#
 	[
@@ -1027,7 +1118,7 @@ my @cases = (
 		'syslog',
 		'a pressure with no above',
 		{ 'rule_gates' => [ { 'pressure' => { 'seconds' => 60 } }, @sshd, $ban_src ] },
-		'The pressure gate of the rule "syslog/x" (rule_gates entry 0) lacks a above'
+		'The pressure gate of the rule "syslog/x" (rule_gates entry 0) has neither above nor times'
 	],
 	[
 		'syslog',

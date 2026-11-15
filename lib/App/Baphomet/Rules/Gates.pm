@@ -225,7 +225,7 @@ $PREDICATE_TRANSFORMS{wide} = $PREDICATE_TRANSFORMS{utf16le};
 
 # the gate entry keys only the predicate form carries... a entry naming any of
 # them is a predicate, else it is the legacy field/values form
-my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref decode );
+my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref times decode );
 
 # compiles a predicate entry into a runnable form, dieing on anything
 # unusable. shape: { field, op (default eq), value | values, all, negate }.
@@ -235,7 +235,7 @@ sub _compile_predicate {
 	my ( $entry, $where ) = @_;
 
 	foreach my $key ( keys( %{$entry} ) ) {
-		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|fieldref|decode)$/ ) {
+		if ( $key !~ /^(?:field|op|value|values|all|negate|nocase|fieldref|times|decode)$/ ) {
 			die( $where . ' has the unknown key "' . $key . '"' );
 		}
 	}
@@ -254,7 +254,9 @@ sub _compile_predicate {
 
 	# fieldref names another field to compare against, its value the needle
 	# resolved from the line at match time rather than a literal. it stands in
-	# for value/values and only the string ops, which compare a needle, take it
+	# for value/values. the string ops that compare a needle take it, and so
+	# do the numeric ones, for which times scales the referenced number first,
+	# so one field can be held to a share of another
 	my $fieldref = $entry->{fieldref};
 	if ( defined($fieldref) ) {
 		if ( ref($fieldref) ne '' || $fieldref eq '' ) {
@@ -263,10 +265,20 @@ sub _compile_predicate {
 		if ( exists( $entry->{value} ) || exists( $entry->{values} ) ) {
 			die( $where . ' sets both fieldref and a literal value' );
 		}
-		if ( $op !~ /^(?:eq|contains|startswith|endswith)$/ ) {
-			die( $where . ' fieldref works only with the eq, contains, startswith, and endswith ops' );
+		if ( $op !~ /^(?:eq|contains|startswith|endswith|gt|lt|ge|le)$/ ) {
+			die( $where . ' fieldref works only with the eq, contains, startswith, endswith, gt, lt, ge, and le ops' );
 		}
 	} ## end if ( defined($fieldref) )
+
+	my $times = $entry->{times};
+	if ( defined($times) ) {
+		if ( !defined($fieldref) || $op !~ /^(?:gt|lt|ge|le)$/ ) {
+			die( $where . ' times works only with a fieldref under the gt, lt, ge, and le ops' );
+		}
+		if ( ref($times) ne '' || $times !~ /^[0-9]+(?:\.[0-9]+)?$/ || $times + 0 <= 0 ) {
+			die( $where . ' times is not a positive number' );
+		}
+	}
 
 	# exists tests only whether the field is present, so it takes no needle...
 	# negate turns it into the field-absent test, Sigma's C<|exists: false>
@@ -313,6 +325,7 @@ sub _compile_predicate {
 		'negate'   => $entry->{negate} ? 1 : 0,
 		'nocase'   => $nocase,
 		'fieldref' => $fieldref,
+		'times'    => ( $times // 1 ) + 0,
 	};
 
 	if ( exists( $entry->{decode} ) ) {
@@ -504,15 +517,26 @@ sub _predicate_test_one {
 		}
 		my $number = $value + 0;
 		my $test   = $predicate->{op_code};
+
+		# a fieldref predicate is held to another field's live number, scaled
+		# by times... one that is absent or no number is a non-match
+		my $thresholds = $predicate->{numbers};
+		if ( defined( $predicate->{fieldref} ) ) {
+			if ( !defined($ref) || $ref !~ /^-?[0-9]+(?:\.[0-9]+)?$/ ) {
+				return 0;
+			}
+			$thresholds = [ $ref * $predicate->{times} ];
+		}
+
 		if ( $predicate->{all} ) {
-			foreach my $threshold ( @{ $predicate->{numbers} } ) {
+			foreach my $threshold ( @{$thresholds} ) {
 				if ( !$test->( $number, $threshold ) ) {
 					return 0;
 				}
 			}
 			return 1;
 		}
-		foreach my $threshold ( @{ $predicate->{numbers} } ) {
+		foreach my $threshold ( @{$thresholds} ) {
 			if ( $test->( $number, $threshold ) ) {
 				return 1;
 			}

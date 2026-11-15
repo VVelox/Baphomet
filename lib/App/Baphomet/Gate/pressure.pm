@@ -45,9 +45,18 @@ to nothing while there is no attack.
 
 A entry is told...
 
-    - above :: How many matched lines it takes more than.
+    - above :: How many matched lines it takes more than. Optional beside a
+          C<times>, where it is the least the count may be for the C<times>
+          to be asked.
 
     - seconds :: How far back they are counted over.
+
+    - times / baseline :: Optional, and only together. How many times what
+          is usual the count has to be more than, what is usual being what
+          the C<baseline> seconds before the C<seconds> came to, evened out
+          to as long. A mark that is a count wants setting for each host,
+          and this one sets its self. With nothing matched in the baseline
+          there is no saying what is usual, and it is not above it.
 
     - hold :: Optional. Seconds the gate goes on letting lines by after the
           count was last above the mark, so a lull between two waves does
@@ -65,10 +74,13 @@ letting lines by.
 =cut
 
 my $SHAPE = {
-	'required' => { 'above' => 'positive_int', 'seconds' => 'seconds' },
+	'required' => { 'seconds' => 'seconds' },
 	'optional' => {
-		'hold'  => 'seconds',
-		'scope' => { 'in' => [qw( watcher galla )], 'says' => 'one of watcher or galla' },
+		'above'    => 'positive_int',
+		'times'    => 'positive_number',
+		'baseline' => 'seconds',
+		'hold'     => 'seconds',
+		'scope'    => { 'in' => [qw( watcher galla )], 'says' => 'one of watcher or galla' },
 	},
 };
 
@@ -87,10 +99,19 @@ sub compile {
 
 	check_hash( $args, $SHAPE, $where );
 
-	$self->{above}   = $args->{above};
-	$self->{seconds} = $args->{seconds};
-	$self->{hold}    = $args->{hold}  // 0;
-	$self->{scope}   = $args->{scope} // 'watcher';
+	$self->{above}    = $args->{above};
+	$self->{seconds}  = $args->{seconds};
+	$self->{times}    = $args->{times};
+	$self->{baseline} = $args->{baseline};
+
+	if ( !defined( $self->{above} ) && !defined( $self->{times} ) ) {
+		die( $where . ' has neither above nor times' );
+	}
+	if ( defined( $self->{times} ) != defined( $self->{baseline} ) ) {
+		die( $where . ' has a times with out a baseline, or a baseline with out a times' );
+	}
+	$self->{hold}  = $args->{hold}  // 0;
+	$self->{scope} = $args->{scope} // 'watcher';
 
 	return;
 } ## end sub compile
@@ -170,8 +191,17 @@ sub ask {
 	my $now   = $passage->{now} // time;
 	my $count = $self->{context}{pressure}->( $self->{scope}, $self->{seconds}, $now );
 
+	my $above_mark = ( !defined( $self->{above} ) || $count > $self->{above} ) ? 1 : 0;
+	if ( $above_mark && defined( $self->{times} ) ) {
+		# what the baseline before the seconds came to, evened out to as
+		# long as the seconds are
+		my $before = $self->{context}{pressure}->( $self->{scope}, $self->{baseline}, $now - $self->{seconds} );
+		my $usual  = $before * $self->{seconds} / $self->{baseline};
+		$above_mark = ( $before > 0 && $count > $self->{times} * $usual ) ? 1 : 0;
+	}
+
 	my $open = 0;
-	if ( $count > $self->{above} ) {
+	if ($above_mark) {
 		$open = 1;
 		$self->{held_until} = $now + $self->{hold};
 	} elsif ( defined( $self->{held_until} ) && $now < $self->{held_until} ) {

@@ -359,6 +359,48 @@ feed( $many, 'auth', event => 'fail', ip => '198.51.100.4', user => 'neti' );
 is_deeply( \@sent, ['198.51.100.4'], 'the third against the one account banishes the address that made it' );
 
 #
+# banished... the galla brands what it banishes, and a rule reads it
+#
+
+@sent = ();
+write_rule( 'leak',     'fail', '', "  - banished: { var: ip, now: true }\n  - detection_var: [ ip ]\n" );
+write_rule( 'onestrike', 'fail', "max_score: 1\n", "  - ban_var: [ ip ]\n" );
+write_rule( 'repeat',   'again', "max_score: 1\n", "  - ban_var: [ ip ]\n  - banished: { times: 2, within: 3600 }\n" );
+my $banisher = galla_over( 'banisher', "\n", 'auth' => [ 'leak', 'onestrike', 'repeat' ] );
+my $banned   = '198.51.100.77';
+
+feed( $banisher, 'auth', event => 'fail', ip => $banned );
+is_deeply( \@sent, [$banned], 'a address is banished' );
+ok( exists( $banisher->{marks}{banished}{$banned} ), 'and branded banished' );
+ok( $banisher->{marks}{banished}{$banned}{expires} >= time + 86399, 'for a day, the length of the ban being the kur\'s to choose' );
+like( $banisher->{marks}{banishments}{$banned}{value}, qr/^[0-9]+$/, 'and with when the ban was made' );
+ok( !$banisher->{stats}{per_rule}{'json/leak'}{matched}, 'the line that got it banished was not one from a banished address' );
+
+feed( $banisher, 'auth', event => 'fail', ip => $banned );
+is( $banisher->{stats}{per_rule}{'json/leak'}{matched}, 1, 'a line from it after the ban is matched by the rule that asks if it is banished now' );
+
+feed( $banisher, 'auth', event => 'again', ip => $banned );
+is_deeply( \@sent, [$banned], 'banished once, it is not yet a address banished twice' );
+$banisher->_brand_banished( $banned, 600 );
+is( scalar( split( / /, $banisher->{marks}{banishments}{$banned}{value} ) ), 2, 'a second ban is a second time in the brand' );
+ok( $banisher->{marks}{banished}{$banned}{expires} <= time + 600, 'and a ban with a length of its own is branded for that long' );
+delete( $banisher->{inflight_bans}{ 'ip:' . $banned } );
+delete( $banisher->{pending_bans}{$banned} );
+feed( $banisher, 'auth', event => 'again', ip => $banned );
+is_deeply( \@sent, [ $banned, $banned ], 'banished twice of late, the rule asking that lets it by' );
+
+$banisher->_brand_banished( $banned, 600 ) foreach 1 .. 25;
+is( scalar( split( / /, $banisher->{marks}{banishments}{$banned}{value} ) ), 20, 'only the last twenty bans are remembered' );
+
+#
+# pressure by what is usual, off the meter
+#
+
+my $usual_span = time - ( time % 10 );
+$besieged->{pressure_meter} = { 'auth' => { ( map { $usual_span - 60 - ( $_ * 60 ) => 10 } 0 .. 59 ), $usual_span => 51 } };
+is( $besieged->_pressure_of( 'auth', 'watcher', 3600, $usual_span - 60 ), 600, 'the meter reads a baseline up to where the seconds begin' );
+
+#
 # who set a brand... a galla hearing of one from the fleet, and remembering
 #
 

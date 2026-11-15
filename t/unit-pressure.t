@@ -114,4 +114,66 @@ $other->ask( { 'now' => 9000 } );
 $matched = 0;
 is( $latched->ask( { 'now' => 9001 } ), 0, 'one bound gate being held open does not hold another' );
 
+#
+# times and baseline... the mark as so many times what is usual
+#
+
+# what the meter reads for the seconds up to now, and for the baseline
+# before them
+my ( $of_late, $usual_before ) = ( 0, 0 );
+
+sub relative_gate {
+	my (%args) = @_;
+
+	my $gate = App::Baphomet::Gate::pressure->new(
+		'type'  => 'pressure',
+		'args'  => { 'times' => 5, 'seconds' => 60, 'baseline' => 3600, %args },
+		'where' => 'the gate'
+	);
+	return $gate->bound(
+		{
+			'pressure' => sub {
+				my ( $scope, $seconds, $up_to ) = @_;
+				push( @asked, [@_] );
+				return $seconds == 60 ? $of_late : $usual_before;
+			},
+		},
+		'The rule "syslog/siege" of the watcher "auth"'
+	);
+} ## end sub relative_gate
+
+my $relative = relative_gate();
+@asked = ();
+( $of_late, $usual_before ) = ( 51, 600 );
+is( $relative->ask( { 'now' => 10_000 } ), 1, 'six hundred a hour is ten a minute, and fifty one is more than five times that' );
+is_deeply( $asked[-1], [ 'watcher', 3600, 9940 ], 'the baseline is read up to where the seconds begin' );
+( $of_late, $usual_before ) = ( 50, 600 );
+is( $relative->ask( { 'now' => 10_000 } ), 0, 'exactly five times what is usual is not more than it' );
+( $of_late, $usual_before ) = ( 50, 0 );
+is( $relative->ask( { 'now' => 10_000 } ), 0, 'with nothing in the baseline there is no saying what is usual, and it is not above it' );
+
+my $floored = relative_gate( 'above' => 100 );
+( $of_late, $usual_before ) = ( 51, 600 );
+@asked = ();
+is( $floored->ask( { 'now' => 10_000 } ), 0, 'with a above beside it the count has to be over that first' );
+is( scalar(@asked), 1, 'and under it the baseline is not even read' );
+( $of_late, $usual_before ) = ( 101, 600 );
+is( $floored->ask( { 'now' => 10_000 } ), 1, 'over both, it lets the line by' );
+( $of_late, $usual_before ) = ( 101, 6000 );
+is( $floored->ask( { 'now' => 10_000 } ), 0, 'over the count but not the times, it does not' );
+
+my %unpaired = (
+	'neither above nor times' => [ { 'seconds' => 60 }, qr/^the gate has neither above nor times/ ],
+	'a times with no baseline' => [ { 'seconds' => 60, 'times' => 5 }, qr/^the gate has a times with out a baseline/ ],
+	'a baseline with no times' => [ { 'seconds' => 60, 'above' => 5, 'baseline' => 3600 }, qr/^the gate has a times with out a baseline/ ],
+);
+foreach my $description ( sort( keys(%unpaired) ) ) {
+	my ( $args, $message ) = @{ $unpaired{$description} };
+	my $error
+		= eval { App::Baphomet::Gate::pressure->new( 'type' => 'pressure', 'args' => $args, 'where' => 'the gate' ); 1 }
+		? ''
+		: $@;
+	like( $error, $message, $description . ' is refused' );
+}
+
 done_testing();

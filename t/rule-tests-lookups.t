@@ -535,6 +535,134 @@ proves(
 );
 
 #
+# epoch and fresh, over a field of the line and the clock
+#
+
+proves(
+	results_for(
+		rule_gates => [
+			{ epoch   => { var => 'when', into => 'WHEN' } },
+			{ fresh   => { var => 'WHEN', within => 300 } },
+			{ ban_var => ['ip'] },
+		],
+		tests => {
+			positive => [
+				# read a minute after it says it was written
+				{
+					message => line( event => 'fail', ip => '203.0.113.9', when => '2001-09-09T01:45:40Z' ),
+					data    => { WHEN => 999999940, when => '2001-09-09T01:45:40Z' },
+				},
+			],
+			negative => [
+				# a hour old
+				{ message => line( event => 'fail', ip => '203.0.113.9', when => '2001-09-09T00:46:40Z' ) },
+				# no time at all, and one that can not be read
+				{ message => $fail_line },
+				{ message => line( event => 'fail', ip => '203.0.113.9', when => 'a while ago' ) },
+			],
+		},
+	),
+	4,
+	'a epoch gate and a fresh gate below it prove themselves over the virtual clock'
+);
+proves(
+	results_for(
+		rule_gates => [ { epoch => { var => 'when', format => 'epoch_ms' } }, { ban_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				{ message => line( event => 'fail', ip => '203.0.113.9', when => '999999940123' ), data => { when => 999999940 } },
+				# one that can not be read is left as it was, and nothing is vetoed
+				{ message => line( event => 'fail', ip => '203.0.113.9', when => 'never' ), data => { when => 'never' } },
+			],
+		},
+	),
+	2,
+	'and a epoch gate with no into converts the var where it is'
+);
+
+#
+# novel, remembered in the entry's own marks
+#
+
+proves(
+	results_for(
+		rule_gates => [ { novel => { name => 'seen-from', by => 'user', of => 'country', after_seen => 2 } }, { detection_var => ['ip'] } ],
+		tests      => {
+			positive => [
+				# the third login is the first from somewhere new
+				{
+					messages => [
+						line( event => 'fail', ip => '203.0.113.9',  user => 'neti', country => 'US' ),
+						line( event => 'fail', ip => '203.0.113.9',  user => 'neti', country => 'US' ),
+						line( event => 'fail', ip => '203.0.113.10', user => 'neti', country => 'NL' ),
+					],
+					found          => 1,
+					data           => { ip => '203.0.113.10' },
+					marks_expected => [ { name => 'seen-from', key => 'neti', value => 3 }, { name => 'seen-from', key => [ 'neti', 'NL' ] } ],
+				},
+				# and against what lines before the test left
+				{
+					message      => line( event => 'fail', ip => '203.0.113.10', user => 'neti', country => 'NL' ),
+					marks_before => [ { name => 'seen-from', key => 'neti', value => 40 }, { name => 'seen-from', key => [ 'neti', 'US' ] } ],
+				},
+			],
+			negative => [
+				# a new account's first country is new, and is no finding
+				{ message => line( event => 'fail', ip => '203.0.113.9', user => 'neti', country => 'US' ) },
+				# a country the account has had
+				{
+					message      => line( event => 'fail', ip => '203.0.113.9', user => 'neti', country => 'US' ),
+					marks_before => [ { name => 'seen-from', key => 'neti', value => 40 }, { name => 'seen-from', key => [ 'neti', 'US' ] } ],
+				},
+			],
+		},
+	),
+	4,
+	'a novel gate proves itself from the entry\'s marks'
+);
+
+#
+# banished, off the brands the galla sets
+#
+
+proves(
+	results_for(
+		rule_gates => [ { ban_var => ['ip'] }, { banished => { times => 2, within => 3600 } } ],
+		tests      => {
+			positive => [
+				{
+					message      => $fail_line,
+					marks_before => [ { name => 'banishments', key => '203.0.113.9', value => '999999000 999999900' } ],
+				},
+			],
+			negative => [
+				{ message => $fail_line },
+				{
+					message      => $fail_line,
+					marks_before => [ { name => 'banishments', key => '203.0.113.9', value => '999990000 999999900' } ],
+				},
+			],
+		},
+	),
+	3,
+	'a banished gate asking how often proves itself from a seeded banishments brand'
+);
+proves(
+	results_for(
+		rule_gates => [ { banished => { var => 'ip', now => 1, for => 60 } }, { detection_var => ['ip'] } ],
+		tests      => {
+			positive => [ { message => $fail_line, marks_before => [ { name => 'banished', key => '203.0.113.9', set => 1_000_000_000 - 90 } ] } ],
+			negative => [
+				{ message => $fail_line, marks_before => [ { name => 'banished', key => '203.0.113.9', set => 1_000_000_000 - 30 } ] },
+				{ message => $fail_line },
+			],
+		},
+	),
+	3,
+	'and one asking if it is banished now from a seeded banished brand'
+);
+
+#
 # pressure
 #
 

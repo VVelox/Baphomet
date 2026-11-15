@@ -532,8 +532,12 @@ sub new {
 				}
 				# the meter is kept as far back as the pressure gate that
 				# reads furthest does
-				if ( $gate->{type} eq 'pressure' && $gate->{seconds} > $self->{pressure_window} ) {
-					$self->{pressure_window} = $gate->{seconds};
+				# a gate with a baseline reads that far back again
+				if ( $gate->{type} eq 'pressure' ) {
+					my $read_back = $gate->{seconds} + ( $gate->{baseline} // 0 );
+					if ( $read_back > $self->{pressure_window} ) {
+						$self->{pressure_window} = $read_back;
+					}
 				}
 			} ## end foreach my $gate ( @{ $gates->{line} }, @{ $gates...})
 
@@ -3392,6 +3396,45 @@ sub _forgive {
 	return $forgiven;
 } ## end sub _forgive
 
+# brands a address the galla has just banished, for the banished gate to
+# read and, the brands being shared, for the rest of a fleet to... under
+# banished for as long as the ban is to last, and under banishments with
+# when this ban and the ones before it were made, a space between them, the
+# last twenty kept for ninety days.
+#
+# args:
+#   $address  :: the address banished
+#   $ban_time :: the seconds the ban lasts, or undef or 0 for one whose
+#                length is the kur's to choose, which is branded for a day
+#
+# returns nothing.
+#
+#   $self->_brand_banished( '192.0.2.7', 3600 );
+sub _brand_banished {
+	my ( $self, $address, $ban_time ) = @_;
+
+	my $now    = time;
+	my $gossip = sub {
+		my ( $name, $key, $value, $expires, $set ) = @_;
+		if ( $self->{mark_sync} ) {
+			$self->{tablet}->mark_publish( 'set', $name, $key, $value, $expires, $set );
+		}
+		return;
+	};
+
+	App::Baphomet::Marks::mark_set( $self->{marks}, 'banished', $address, undef, $ban_time || 86400, $now, $gossip );
+
+	my $history = App::Baphomet::Marks::live_mark( $self->{marks}, 'banishments', $address, $now );
+	my @when    = ( split( / /, defined($history) ? $history->{value} // '' : '' ), $now );
+	if ( @when > 20 ) {
+		@when = @when[ -20 .. -1 ];
+	}
+	App::Baphomet::Marks::mark_set( $self->{marks}, 'banishments', $address, join( ' ', @when ),
+		7776000, $now, $gossip );
+
+	return;
+} ## end sub _brand_banished
+
 # the network a IP is on per the ASN database, cached 60 seconds as the
 # country of one is... a lookup dies on a bad address, so it is eval'd.
 #
@@ -4559,6 +4602,7 @@ sub _ban_ips {
 		$self->_tick( 'bans', $watcher_name, $rule_name );
 		my $ledger_count = $self->_ledger_append_and_count( $ip, $context );
 		$self->_recidive_check( $ip, $ledger_count );
+		$self->_brand_banished( $ip, $ban_time );
 
 		# then the send, async under POE... its outcome only pends or
 		# clears, never touching EVE or the ledger

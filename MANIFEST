@@ -50,6 +50,7 @@ lib/App/Baphomet/Gate/active_time.pm
 lib/App/Baphomet/Gate/after.pm
 lib/App/Baphomet/Gate/asn.pm
 lib/App/Baphomet/Gate/ban_not_internal.pm
+lib/App/Baphomet/Gate/banished.pm
 lib/App/Baphomet/Gate/ban_var.pm
 lib/App/Baphomet/Gate/capture.pm
 lib/App/Baphomet/Gate/capture_regexp.pm
@@ -58,7 +59,9 @@ lib/App/Baphomet/Gate/country.pm
 lib/App/Baphomet/Gate/daemons.pm
 lib/App/Baphomet/Gate/detection_var.pm
 lib/App/Baphomet/Gate/dnsbl.pm
+lib/App/Baphomet/Gate/epoch.pm
 lib/App/Baphomet/Gate/forgive.pm
+lib/App/Baphomet/Gate/fresh.pm
 lib/App/Baphomet/Gate/gate.pm
 lib/App/Baphomet/Gate/ignore.pm
 lib/App/Baphomet/Gate/ignore_regexp.pm
@@ -78,6 +81,7 @@ lib/App/Baphomet/Gate/namtar_list.pm
 lib/App/Baphomet/Gate/network.pm
 lib/App/Baphomet/Gate/not_marked.pm
 lib/App/Baphomet/Gate/not_tracked.pm
+lib/App/Baphomet/Gate/novel.pm
 lib/App/Baphomet/Gate/pressure.pm
 lib/App/Baphomet/Gate/reverse_dns.pm
 lib/App/Baphomet/Gate/sequence.pm
@@ -535,6 +539,8 @@ t/unit-pressure.t
 t/unit-network.t
 t/unit-sum.t
 t/unit-marked.t
+t/unit-epoch.t
+t/unit-novel.t
 t/unit-primitives.t
 t/unit-offense.t
 t/unit-rule-index.t

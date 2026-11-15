@@ -223,6 +223,12 @@ gates in the order a rule usually writes them.
    │       └─▶ not above it. The rule stops. Leading the list, that
    │           cost next to nothing.
    │
+   ├─ 1.0  epoch / fresh
+   │       An `epoch` makes seconds of a timestamp, the line's own or a
+   │       field's, and a `fresh` below it turns away a line written too
+   │       long before it was read.
+   │       └─▶ old news. The rule stops, and nothing is counted.
+   │
    ├─ 1.1  daemons / status / method / level / module
    │       A syslog rule checks the line's daemon. An http rule checks
    │       the status and method of the request. An http_error rule
@@ -1236,8 +1242,8 @@ accepts a gate or key:
 | `detection_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `gate` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `mark_only` / `forgive` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `pressure` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `marked` / `not_marked` / `sequence` / `country` / `asn` / `namtar_list` / `active_time` / `reverse_dns` / `dnsbl` / `account` / `limit` / `after` / `sum` / `travel` / `network` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `pressure` / `epoch` / `fresh` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `marked` / `not_marked` / `sequence` / `country` / `asn` / `namtar_list` / `active_time` / `reverse_dns` / `dnsbl` / `account` / `limit` / `after` / `sum` / `travel` / `novel` / `banished` / `network` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `msg` / `severity` / `classtype` / `references` / `attack` / `rev` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `src_ip_var` / `dest_ip_var` / `src_port_var` / `dest_port_var` / `user_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -1312,8 +1318,14 @@ rule_gates:
       any of them does, or all of them when `all` is true.
 - `fieldref` :: Names another field to compare against instead of a literal,
       its value at match time being what is compared, Sigma's `|fieldref`. It
-      stands in for `value`/`values`, and only `eq`, `contains`,
-      `startswith`, and `endswith` take it.
+      stands in for `value`/`values`. `eq`, `contains`, `startswith`, and
+      `endswith` take it, and so do `gt`, `lt`, `ge`, and `le`, for which
+      the referenced field has to be a number.
+- `times` :: Beside a `fieldref` under a numeric op, what the referenced
+      number is multiplied by first, so one field is held to a share of
+      another... `{ field: errors, op: gt, fieldref: requests, times: 0.9 }`
+      is errors above nine in ten of requests.
+    - default :: 1
 - `all` :: Require every value to match rather than any.
     - default :: false
 - `negate` :: Invert the entry.
@@ -1395,7 +1407,7 @@ the two, or one beside a `gate`.
 ### rule_gates... what a match still has to clear
 
 A match says a line looks like an offense. `rule_gates` is the whole list a
-line goes down, and fourteen of its gate types are what a match still has to
+line goes down, and sixteen of its gate types are what a match still has to
 clear to count as one, each asking something the line can not answer for
 itself... if an address is branded, what country or network it is in, if it
 is on a list, what DNS says of it, if a name is a real account, what time
@@ -1412,7 +1424,7 @@ rule_gates:
 ```
 
 Each entry is a hash of one key, the gate's type, over what that gate is
-told. The fourteen are...
+told. The sixteen are...
 
 - [`marked`](#marks-cross-rule-state-keyed-by-anything) :: The key has a
       brand.
@@ -1441,6 +1453,10 @@ told. The fourteen are...
       for a key in a window.
 - [`travel`](#travel-further-than-it-could-have-gone) :: A key is seen
       further away than it could have gone.
+- [`novel`](#novel-a-value-a-key-has-not-had-before) :: A key is seen with
+      a value it has not had before.
+- [`banished`](#banished-what-an-address-has-already-been-banished-for) ::
+      An address is banished now, or has been so often of late.
 
 **Every entry has to hold.** The first that does not ends the asking, so
 among these gates the order written decides only what a veto spares... put
@@ -1455,8 +1471,9 @@ drops the result. One naming neither keys on the offender and is asked once
 per candidate, filtering which of them count, like `ban_not_internal`, so
 it has to be written below the `ban_var` that names them. `active_time` is
 the exception... with no var it keys on the clock, so it is always asked
-once for the result. `account`, `limit`, `after`, `sum`, and `travel` only
-ever key on a found value, so they are asked once for the result too.
+once for the result. `account`, `limit`, `after`, `sum`, `travel`, and
+`novel` only ever key on a found value, so they are asked once for the
+result too.
 
 **A rule that can not have a gate does not load.** An entry naming a type
 there is none of, one telling a gate what it does not know, one keyed by
@@ -1622,6 +1639,15 @@ time survives a restart and rides the fleet mark sync bus, so a fleet-shared
 sequence correlates stages seen on different machines. Unordered
 correlation, all stages present in any order, is the plain `marked` gate
 over the same brands.
+
+#### The galla's own brands
+
+Two brand names are the galla's. It brands every address it banishes under
+`banished`, for as long as the ban is to last, and under `banishments`,
+valued with when each of its last twenty bans was made, for ninety days.
+The [`banished`](#banished-what-an-address-has-already-been-banished-for)
+gate reads them. A rule may read them with `marked` as well, and should
+not set either.
 
 #### The standard brands
 
@@ -2167,6 +2193,48 @@ nothing, and each of those fails closed on an unset var for itself. This
 only names the network. Banishing one is the config's
 [subnet banning](configuration.md#subnet-banning).
 
+### novel... a value a key has not had before
+
+A `novel` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+holds when a key is seen with a value it has not been seen with before,
+once the key has been seen often enough to have a before. An account that
+has only ever logged in from one country and now logs in from another.
+
+```yaml
+rule_gates:
+  - daemons: [ sshd, sshd-session ]
+  - message_regexp:
+      - '^Accepted \S+ for (?<USER>\S+) from %%%%SRC%%%%'
+  - country: { vars: [ SRC ], into: COUNTRY }
+  - novel: { name: login-country, by: USER, of: COUNTRY }
+  - detection_var: [ SRC ]
+```
+
+- `name` :: The brand the sightings are kept in.
+- `by` :: The found var, or a list of them, whose values joined are the
+      key.
+- `of` :: The found var holding the value.
+- `ttl` :: Seconds a value is remembered after it was last seen, after
+      which it is new again.
+    - default :: 2592000
+- `after_seen` :: How many times a key has to have been seen before a
+      value new to it holds.
+    - default :: 3
+
+A `not_marked` over the key and the value with a `mark` below it says
+nearly the same, and holds on every account's very first login, all of a
+new key's values being new. `after_seen` is what this adds... a key with no
+history is learned from and not reported.
+
+Every offense that reaches the gate is a sighting and is remembered,
+whether or not the gate held. Like [`travel`](#travel-further-than-it-could-have-gone)
+it keeps what it knows as brands of its `name`, one under the key valued
+with how often the key has been seen and one under the key and each value,
+so it survives a restart and is shared with a fleet. Feed it only what the
+owner of the key can do. It is proved from the rule file with
+`marks_before` and `marks_expected`.
+
 ### dnsbl... what a blocklist says of an address
 
 A `dnsbl` gate, one of those
@@ -2425,6 +2493,54 @@ forgive nothing and say nothing. What is taken back is counted in the
 The counts are the galla's, so a rule's embedded tests can not prove a
 `forgive`, and skip it.
 
+### banished... what an address has already been banished for
+
+A `banished` gate, one of those
+[a match still has to clear](#rule_gates-what-a-match-still-has-to-clear),
+holds on an address by what the galla has banished it for.
+
+```yaml
+# a ban that is not holding... a line from an address a minute into its ban
+rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Failed password for \S+ from %%%%SRC%%%%'
+  - banished: { var: SRC, now: true, for: 60 }
+  - detection_var: [ SRC ]
+```
+
+```yaml
+# a shorter rope for one banished three times this month
+max_score: 1
+rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Failed password for \S+ from %%%%SRC%%%%'
+  - ban_var: [ SRC ]
+  - banished: { times: 3, within: 2592000 }
+```
+
+- `var` :: The found var holding the address, in place of the offender.
+- `now` :: `true` to hold on an address that is banished, `false` on one
+      that is not.
+- `for` :: Beside a true `now`, seconds it has to have been banished for. A
+      line or two just after a ban are ones already on their way.
+- `times` / `within` :: How many times it has to have been banished, and
+      with in how many seconds back, 90 days at the most. Only together.
+
+The first is a thing no count can say. A line from a banished address
+means the ban is not holding... the wrong table, an IPv6 path round it, a
+proxy in front of the daemon. List that rule ahead of the one that
+banishes, as it only sights. The second, listed ahead of the service's
+ordinary rule, banishes a repeat offender on the first hit.
+
+It reads [the galla's own brands](#the-gallas-own-brands), so what it
+knows is what any brand is... kept across a restart, and shared with a
+fleet, where a ban made by one host is seen by the rest. It is the galla's
+own account of it. A ban lifted by hand in the kur is not known of here,
+and one whose length is the kur's to choose is taken as a day long. It is
+proved from the rule file by seeding the two brands with `marks_before`.
+
 ### pressure... a rule for when it is under attack
 
 A `pressure` gate lets a line by only while the watcher's rules are
@@ -2442,8 +2558,13 @@ rule_gates:
   - ban_var: [ SRC ]
 ```
 
-- `above` :: How many matched lines it takes more than.
+- `above` :: How many matched lines it takes more than. Optional beside a
+      `times`, where it is the least the count may be for the `times` to be
+      asked.
 - `seconds` :: How far back they are counted over.
+- `times` / `baseline` :: How many times what is usual the count has to be
+      more than, what is usual being what the `baseline` seconds before the
+      `seconds` came to, evened out to as long. Only together.
 - `hold` :: Seconds the gate goes on letting lines by after the count was
       last above the mark, so a lull between two waves does not shut it.
     - default :: 0
@@ -2467,6 +2588,99 @@ harsher thresholds everyone's, so a real user's two typos during an attack
 become a ban, and a password rotation day does the same with no attacker
 at all. Run one as a detection rule first. It is proved from the rule file
 with a [`pressure` fixture](#tests), which says what the gate reads.
+
+A count for a mark wants setting for each host, a busy mail server and a
+quiet bastion being nothing alike. `times` sets its self:
+
+```yaml
+  - pressure: { times: 5, above: 20, seconds: 60, baseline: 3600 }
+```
+
+That is five times the last hour's minute, and twenty at the least. Keep
+the `above`... a host that matched one line in the hour is five times over
+with a second, and with nothing matched in the baseline at all there is no
+saying what is usual and the gate stays shut, which is where a galla is
+for its first while after a restart.
+
+### epoch... a timestamp as seconds
+
+An `epoch` gate reads a timestamp and makes the seconds since the epoch of
+it, for a gate below to read as a number. It judges nothing and turns no
+line away. It is of the line phase.
+
+```yaml
+rule_gates:
+  - epoch: { into: WHEN }                                    # the line's own
+  - epoch: { var: started, format: '%Y-%m-%d %H:%M:%S' }     # a field, where it is
+  - epoch: { var: time, into: WHEN, zone: utc }              # a field, into another
+```
+
+- `var` :: The field holding the timestamp. With out it the line's own is
+      read, as the parser found it.
+- `into` :: The field the seconds go into. With out it the `var` is
+      converted where it is. The line's own timestamp is no field, so
+      reading that needs one.
+- `format` :: How the timestamp is written, a `strptime` format or one of
+      the names below.
+    - default :: `auto`
+- `zone` :: The zone of a timestamp that names none... `local`, `utc`, or
+      an offset as `+02:00`.
+    - default :: `local`
+
+The formats that are names...
+
+- `auto` :: Whichever of the others reads it, then the ways the parsers
+      write one... a syslog `Jul 12 08:15:50`, an access log
+      `12/Jul/2026:08:15:50 -0500`, and the two error logs.
+- `epoch` / `epoch_ms` / `epoch_us` :: Seconds, milliseconds, or
+      microseconds since the epoch already.
+- `iso8601` :: `2026-07-12T08:15:50`, a fraction of a second and a zone
+      after it or not.
+
+A timestamp with no year, as syslog's has none, is taken as this year's, or
+as last year's when that would put it more than a day ahead of the line. One
+that can not be read leaves the field as it was, unset when it is an
+`into`, and what reads it judges that for itself.
+
+It reads the line's fields, so it sees what is there when it is asked... a
+json record's, an access log line's, what `mungers` and `message_json` laid
+down above it. A capture of a `message_regexp` below it is not there yet.
+
+### fresh... old news
+
+A `fresh` gate turns a line away when the time it says it was written is
+too long before it was read. A hit is counted when the line is read, so an
+hour of backlog handed over at once, by a relay catching up or a log picked
+up after an outage, reads as a burst happening now and can banish on events
+long over. With this ahead of a rule's matcher, old news is not counted at
+all.
+
+```yaml
+rule_gates:
+  - daemons: [ sshd ]
+  - epoch: { into: WHEN }
+  - fresh: { var: WHEN, within: 300 }
+  - message_regexp:
+      - '^Failed password for \S+ from %%%%SRC%%%%'
+  - ban_var: [ SRC ]
+```
+
+- `var` :: The field holding the time, in seconds since the epoch, which
+      is what an `epoch` gate above it makes.
+- `within` :: How many seconds old a line may be.
+- `on_unparsed` :: What a line with no time to read does, `pass` or `fail`.
+    - default :: `fail`
+
+On a syslog rule write the two below the `daemons` gate, as above. The rule
+index only reads a `daemons` gate that leads the list, and with an `epoch`
+ahead of it the rule is offered every line of the log and not just its own
+daemon's.
+
+It turns the line away outright, so nothing below it is asked and nothing
+is harvested. A line whose time is still to come, the clock that wrote it
+running ahead, is fresh. A syslog timestamp names no zone, so a log shipped
+in from a host in another needs the `epoch` above it told the `zone`, or
+every line of it is hours old or hours ahead.
 
 ## Enriching a match... mungers
 

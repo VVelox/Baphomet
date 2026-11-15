@@ -260,11 +260,33 @@ is( matches( 'json/frnc', '{"a":"Alice","b":"ALICE","src":"1.1.1.1"}' ), 1, 'and
 # --- fieldref load errors ---
 write_rule( 'json/frboth',
 	$head . "      - field: a\n        op: eq\n        fieldref: b\n        value: c\n" . $tail );
-write_rule( 'json/frnum',   $head . "      - field: a\n        op: gt\n        fieldref: b\n" . $tail );
+write_rule( 'json/frnum',   $head . "      - field: a\n        op: re\n        fieldref: b\n" . $tail );
 write_rule( 'json/frempty', $head . "      - field: a\n        op: eq\n        fieldref: ''\n" . $tail );
 ok( !eval { $rules->load('json/frboth');  1 }, 'fieldref plus a literal value is a load error' );
-ok( !eval { $rules->load('json/frnum');   1 }, 'fieldref with a numeric op is a load error' );
+ok( !eval { $rules->load('json/frnum');   1 }, 'fieldref with the re op is a load error' );
+like( $@, qr/fieldref works only with the eq, contains, startswith, endswith, gt, lt, ge, and le ops/, 'and says which ops take one' );
 ok( !eval { $rules->load('json/frempty'); 1 }, 'an empty fieldref is a load error' );
+
+# --- fieldref under the numeric ops, one field held to another ---
+write_rule( 'json/frgt', $head . "      - field: errors\n        op: gt\n        fieldref: requests\n        times: 0.9\n" . $tail );
+is( matches( 'json/frgt', '{"errors":"95","requests":"100","src":"1.1.1.1"}' ), 1, 'gt with a fieldref and times holds above the share' );
+is( matches( 'json/frgt', '{"errors":"90","requests":"100","src":"1.1.1.1"}' ), 0, 'and not at it' );
+is( matches( 'json/frgt', '{"errors":"95","src":"1.1.1.1"}' ),                  0, 'a referenced field that is absent is a non-match' );
+is( matches( 'json/frgt', '{"errors":"95","requests":"many","src":"1.1.1.1"}' ), 0, 'as is one that is no number' );
+is( matches( 'json/frgt', '{"errors":"many","requests":"100","src":"1.1.1.1"}' ), 0, 'and a field that is no number' );
+
+write_rule( 'json/frle', $head . "      - field: sent\n        op: le\n        fieldref: quota\n" . $tail );
+is( matches( 'json/frle', '{"sent":"10","quota":"10","src":"1.1.1.1"}' ), 1, 'with no times the referenced number is the mark as it is' );
+is( matches( 'json/frle', '{"sent":"11","quota":"10","src":"1.1.1.1"}' ), 0, 'and le misses above it' );
+
+write_rule( 'json/frtimes',   $head . "      - field: a\n        op: gt\n        value: 5\n        times: 2\n" . $tail );
+write_rule( 'json/frtimeseq', $head . "      - field: a\n        op: eq\n        fieldref: b\n        times: 2\n" . $tail );
+write_rule( 'json/frtimes0',  $head . "      - field: a\n        op: gt\n        fieldref: b\n        times: 0\n" . $tail );
+ok( !eval { $rules->load('json/frtimes'); 1 }, 'times with out a fieldref is a load error' );
+like( $@, qr/times works only with a fieldref under the gt, lt, ge, and le ops/, 'and says so' );
+ok( !eval { $rules->load('json/frtimeseq'); 1 }, 'as is times under a string op' );
+ok( !eval { $rules->load('json/frtimes0');  1 }, 'and a times of nothing' );
+like( $@, qr/times is not a positive number/, 'which says so' );
 
 # --- exists: field presence ---
 write_rule( 'json/ex', $head . "      - field: ParentImage\n        op: exists\n" . $tail );
