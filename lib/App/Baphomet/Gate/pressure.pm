@@ -79,7 +79,7 @@ my $SHAPE = {
 		'above'    => 'positive_int',
 		'times'    => 'positive_number',
 		'baseline' => 'seconds',
-		'hold'     => 'seconds',
+		'hold'     => 'seconds_or_zero',
 		'scope'    => { 'in' => [qw( watcher galla )], 'says' => 'one of watcher or galla' },
 	},
 };

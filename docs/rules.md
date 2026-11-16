@@ -1337,7 +1337,9 @@ brands an address in `ignore_ips`.
 
 Two brand names are the galla's. It brands every address it banishes under
 `banished`, for as long as the ban is to last, and under `banishments`,
-valued with when each of its last twenty bans was made, for ninety days.
+valued with when each of its last bans was made, as many as
+[`banished_history`](configuration.md#counting-and-banning) says and 20
+unless set, for ninety days.
 The [`banished`](rule-gates/banished.md)
 gate reads them. A rule may read them with `marked` as well, and should
 not set either.
@@ -1517,9 +1519,9 @@ Order is deliberate: written above the `message_regexp`, the munger runs
 `message_regexp` captures then overwrite any of the same name... the rule
 choosing a different read than the munger's for that one field, on purpose.
 Everything the munger decoded that the rule did not recapture rides along
-untouched. The one exception is an offense deferred to wait for its capture
-line: it is parked with only its regexp captures, so once completed it holds
-the capture line's munger fields and not its own.
+untouched. An offense deferred to wait for its capture line is parked with
+its munger fields, so once completed it holds its own line's decode, the
+capture line's fields only filling what that left unset.
 
 Mungers are supported on `syslog` and `raw` rules, including
 [staged](rule-gates/stages.md) ones... a staged rule enriches the *completed

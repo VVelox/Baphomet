@@ -53,7 +53,7 @@ completions out.
 
 The store shape is two hashes, C<context> and C<pending>, each per scope a
 hash of keys. A context key holds C<< { data, expires } >> and a pending key
-a array of C<< { caps, regexp, expires } >>. A rule dumps the store to the
+a array of C<< { caps, fields?, regexp, expires } >>. A rule dumps the store to the
 context tablet as it is, so the shape is also the tablet's.
 
 =head1 FUNCTIONS
@@ -254,17 +254,27 @@ make room.
 
     - now :: The current time.
 
+    - fields :: Optional. Hash ref of the fields message_json and the
+          mungers made of the offense's own line, which go under
+          everything else on completion. A copy is kept, so a later write
+          to the passed hash does not reach it.
+
 Returns nothing.
 
     pending_park( $store, $scope, $key, $caps, 0, 60, $now );
+    pending_park( $store, $scope, $key, $caps, 0, 60, $now, $passage->{fields} );
 
 =cut
 
 sub pending_park {
-	my ( $store, $scope, $key, $caps, $regexp, $defer, $now ) = @_;
+	my ( $store, $scope, $key, $caps, $regexp, $defer, $now, $fields ) = @_;
 
+	my %pending = ( 'caps' => $caps, 'regexp' => $regexp, 'expires' => $now + $defer );
+	if ( defined($fields) ) {
+		$pending{fields} = { %{$fields} };
+	}
 	my $pendings = $store->{pending}{$scope}{$key} //= [];
-	push( @{$pendings}, { 'caps' => $caps, 'regexp' => $regexp, 'expires' => $now + $defer } );
+	push( @{$pendings}, \%pending );
 	if ( scalar( @{$pendings} ) > $PENDING_PER_KEY_MAX ) {
 		shift( @{$pendings} );
 	}
@@ -284,8 +294,10 @@ complete, a expired one simply being dropped.
 
     - key :: The joined key the capture line produced.
 
-    - context :: Hash ref of the capture line's data, which each completion
-          takes beneath the deferred offense's own, those winning.
+    - context :: Hash ref of the capture line's data. Each completion takes
+          it over the fields the offense was parked with and under the
+          offense's own captures, the same order a offense that found its
+          context waiting is built in.
 
     - now :: The current time, against which the pendings expire.
 
@@ -314,7 +326,13 @@ sub pending_complete {
 		if ( $pending->{expires} <= $now ) {
 			next;
 		}
-		push( @completions, { 'data' => { %{$context}, %{ $pending->{caps} } }, 'regexp' => $pending->{regexp} } );
+		push(
+			@completions,
+			{
+				'data'   => { %{ $pending->{fields} // {} }, %{$context}, %{ $pending->{caps} } },
+				'regexp' => $pending->{regexp}
+			}
+		);
 	}
 
 	return @completions;

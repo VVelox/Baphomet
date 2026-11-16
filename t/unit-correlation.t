@@ -114,6 +114,18 @@ is_deeply(
 	'a pending parked with no regexp completes with none'
 );
 
+# the fields the offense's own line was decoded into go under everything,
+# the capture line's data over them, the offense's captures over that... the
+# order a offense that found its context waiting is built in
+my %line_fields = ( 'USER' => 'fields-user', 'SRC' => 'fields-src', 'PROTO' => 'ssh2' );
+pending_park( \%parked, 'maillog', 'ghi', { 'USER' => 'admin' }, 0, 60, $now, \%line_fields );
+$line_fields{PROTO} = 'changed after parking';
+is_deeply(
+	[ pending_complete( \%parked, 'maillog', 'ghi', { 'SRC' => '192.0.2.7' }, $now ) ],
+	[ { 'data' => { 'USER' => 'admin', 'SRC' => '192.0.2.7', 'PROTO' => 'ssh2' }, 'regexp' => 0 } ],
+	'parked fields go under the context and the captures, and are a copy'
+);
+
 # the per key cap of 100, the oldest dropped to make room
 foreach my $pending_int ( 1 .. 105 ) {
 	pending_park( \%parked, 'maillog', 'flood', { 'N' => $pending_int }, 0, 60, $now );

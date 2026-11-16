@@ -245,6 +245,56 @@ ok( defined($found),                 'a line missing a key component is judged a
 ok( !defined( $found->{data}{SRC} ), 'and carries no correlated address' );
 
 #
+# a deferred offense keeps the fields of its own line... message_json here,
+# the mungers being the same path. the capture line's fields only fill gaps
+#
+
+write_rule( 'syslog/deferfields', <<'EOR' );
+---
+rule_gates:
+  - daemons:
+      - appd
+  - message_json: true
+  - capture_regexp:
+      - regexp: '"event":"end","conn":"(?<KEY>\d+)","remote":"%%%%SRC%%%%"'
+        key: KEY
+        ttl: 60
+  - message_regexp:
+      - regexp: '"event":"auth failed","conn":"(?<KEY>\d+)"'
+        key: KEY
+        defer: 60
+  - ban_var:
+      - SRC
+tests:
+  positive:
+    - messages:
+        - 'Jul 12 08:15:50 mail01 appd[100]: {"event":"auth failed","conn":"7","user":"alice"}'
+        - 'Jul 12 08:15:51 mail01 appd[100]: {"event":"end","conn":"7","remote":"192.0.2.80","port":"5000"}'
+      found: 1
+      data:
+        SRC: "192.0.2.80"
+        user: "alice"
+        event: "auth failed"
+EOR
+
+my $deferfields = $rules->load('syslog/deferfields');
+ok( defined($deferfields), 'deferred message_json rule loaded, embedded sequence tests passed' );
+
+$found = $deferfields->check(
+	syslog_line('Jul 12 08:15:50 mail01 appd[100]: {"event":"auth failed","conn":"8","user":"bob"}'), 'f' );
+ok( !defined($found), 'the offense defers awaiting its capture line' );
+$found = $deferfields->check(
+	syslog_line(
+		'Jul 12 08:15:51 mail01 appd[100]: {"event":"end","conn":"8","remote":"192.0.2.81","port":"5001"}'),
+	'f'
+);
+ok( defined($found), 'the capture line completes it' );
+is( $found->{data}{user},  'bob',         'the offense keeps a field only its own line had' );
+is( $found->{data}{event}, 'auth failed', 'its own line wins a field both lines have' );
+is( $found->{data}{port},  '5001',        'the capture line fills a field the offense line lacked' );
+is( $found->{data}{SRC},   '192.0.2.81',  'and the address comes from the capture' );
+
+#
 # json correlation... offense and address on separate events sharing a field
 #
 

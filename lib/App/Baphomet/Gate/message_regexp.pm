@@ -266,9 +266,12 @@ sub ask {
 
 			if ( $entry->{defer} ) {
 				# left waiting on a capture line with this key... it was the
-				# offense, so the entries after it are not tried
+				# offense, so the entries after it are not tried. the fields
+				# message_json and the mungers made of this line are parked
+				# with it, as the capture line that completes it has fields of
+				# its own and they are not this offense's
 				pending_park( $self->{correlation}, $passage->{scope}, $key_value, $caps, $entry_int, $entry->{defer},
-					$passage->{now} );
+					$passage->{now}, $passage->{fields} );
 				last;
 			}
 

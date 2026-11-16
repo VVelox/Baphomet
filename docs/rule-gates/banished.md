@@ -48,8 +48,10 @@ asked having to be so. `now: false` with a `times` holds on an address
 banished often of late but not now.
 
 `times` and `within` go only together, `within` 90 days at the most, as
-that is as far back as the galla remembers. It remembers the last twenty
-bans, so a `times` over twenty never holds.
+that is as far back as the galla remembers. It remembers the last
+[`banished_history`](../configuration.md#counting-and-banning) bans of an
+address, 20 unless set, and a `times` over that does not load, as it could
+never hold.
 
 `for` is there because a line or two just after a ban are ones already on
 their way.
@@ -88,6 +90,9 @@ day long.
 - neither `now` nor `times` :: "has neither now nor times"
 - a `times` or a `within` with out the other :: "has a times with out a within, or a within with out a times"
 - a `for` with out a true `now` :: "has a for with out a now that is true"
+- a `times` over `banished_history`, when a galla binds the rule :: "has a
+  banished gate asking for ... bans, and the galla remembers only the last
+  ..."
 
 Beyond these, every gate is refused for what
 [every gate is refused for](../rules.md#what-every-gate-is-refused-for).

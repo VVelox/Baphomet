@@ -346,6 +346,12 @@ Top level keys are as below.
           unloadable, and no travel gate ever holds.
         Default :: undef
 
+    - banished_history :: How many of a address's bans the galla remembers
+          under the C<banishments> brand, the newest kept. A C<banished>
+          gate's C<times> can be no more than this, and a rule asking more
+          does not load.
+        Default :: 20
+
     - digest_key :: Path to a file holding the key a rule's digest gate
           hashes values under, 16 bytes or more. Every galla of a fleet
           needs the one key. Unset, and a rule with a digest gate does not
@@ -595,6 +601,7 @@ sub load_config {
 		'geoip_asn_db'              => undef,
 		'geoip_city_db'             => undef,
 		'digest_key'                => undef,
+		'banished_history'          => 20,
 		'country_codes'             => {},
 		'asn_lists'                 => {},
 		'namtar_lists'              => {},
@@ -689,7 +696,7 @@ sub load_config {
 	if ( defined($usedns_error) ) {
 		die( 'The top level ' . $usedns_error );
 	}
-	foreach my $item ( 'usedns_timeout', 'usedns_max_addrs', 'rdns_timeout' ) {
+	foreach my $item ( 'usedns_timeout', 'usedns_max_addrs', 'rdns_timeout', 'banished_history' ) {
 		if ( !is_positive_int( $config->{$item} ) ) {
 			die( $item . ', "' . $config->{$item} . '", is not a positive int' );
 		}

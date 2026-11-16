@@ -228,6 +228,7 @@ sub new {
 	$self->{enable_dns}       = $config->{enable_dns};
 	$self->{usedns_timeout}   = $config->{usedns_timeout};
 	$self->{usedns_max_addrs} = $config->{usedns_max_addrs};
+	$self->{banished_history} = $config->{banished_history};
 	$self->{dns_cache}        = {};
 	$self->{dns_resolve}      = undef;
 
@@ -393,6 +394,9 @@ sub new {
 		'groups'        => sub { return $self->_group_of( $_[0] ); },
 		'account_names' => sub { return $self->_account_names; },
 		'digest_key'    => $self->{digest_key},
+		# how many bans of a address the banishments brand remembers, which
+		# no banished gate's times may ask more than
+		'banished_history' => $self->{banished_history},
 		'rules_hit'     => sub { return $self->_rules_hit(@_); },
 		'score_of'      => sub { return $self->_address_score(@_); },
 		# undef for a galla not started as a server, as one a test drives
@@ -3440,7 +3444,7 @@ sub _forgive {
 # read and, the brands being shared, for the rest of a fleet to... under
 # banished for as long as the ban is to last, and under banishments with
 # when this ban and the ones before it were made, a space between them, the
-# last twenty kept for ninety days.
+# last banished_history of them kept for ninety days.
 #
 # args:
 #   $address  :: the address banished
@@ -3466,8 +3470,8 @@ sub _brand_banished {
 
 	my $history = App::Baphomet::Marks::live_mark( $self->{marks}, 'banishments', $address, $now );
 	my @when    = ( split( / /, defined($history) ? $history->{value} // '' : '' ), $now );
-	if ( @when > 20 ) {
-		@when = @when[ -20 .. -1 ];
+	if ( @when > $self->{banished_history} ) {
+		@when = @when[ -$self->{banished_history} .. -1 ];
 	}
 	App::Baphomet::Marks::mark_set( $self->{marks}, 'banishments', $address, join( ' ', @when ),
 		7776000, $now, $gossip );

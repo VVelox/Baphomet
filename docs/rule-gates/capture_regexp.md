@@ -90,19 +90,11 @@ evicted past that. Only the captures are kept... what `mungers` or
 `message_json` laid down on the capture line is not, so an offense the
 context resolves later has none of it.
 
-An offense it completes is the parked offense's captures over the capture
-line's, the offense's own winning, with the capture line's own fields
-underneath.
-
-**A completed offense has the capture line's fields, not its own.** An
-offense `message_regexp` parks keeps only its regexp's captures. So when
-the capture line completes it, the `mungers` and `message_json` fields
-laid under it are the capture line's... a decoded field the offense line
-had is gone, and the capture line's of the same name stands in its place.
-This is current behavior, not a design, and a gate below that judges a
-decoded field judges the capture line's. It touches every rule pairing
-`mungers` with a deferred entry, `syslog/sendmail-reject` and
-`syslog/sshd-ddos` among the shipped ones.
+An offense it completes is built the way one that found its context
+waiting is... the offense's own captures over this line's captures, over
+the fields `mungers` and `message_json` made of the offense's own line,
+which were parked with it. This line's own fields go under all of that,
+only filling what the rest left unset.
 
 The store is written to the context tablet at each checkpoint and read
 back at start, anything expired by then dropped, so both the context and

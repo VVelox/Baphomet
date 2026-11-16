@@ -390,7 +390,29 @@ feed( $banisher, 'auth', event => 'again', ip => $banned );
 is_deeply( \@sent, [ $banned, $banned ], 'banished twice of late, the rule asking that lets it by' );
 
 $banisher->_brand_banished( $banned, 600 ) foreach 1 .. 25;
-is( scalar( split( / /, $banisher->{marks}{banishments}{$banned}{value} ) ), 20, 'only the last twenty bans are remembered' );
+is( scalar( split( / /, $banisher->{marks}{banishments}{$banned}{value} ) ), 20, 'only the last twenty bans are remembered by default' );
+
+# banished_history sets how many, and a times asking more can never hold
+write_rule( 'thrice', 'again', "max_score: 1\n", "  - ban_var: [ ip ]\n  - banished: { times: 3, within: 3600 }\n" );
+my $short_memory = galla_over( 'short', "banished_history = 3\n", 'auth' => ['thrice'] );
+$short_memory->_brand_banished( $banned, 600 ) foreach 1 .. 5;
+is( scalar( split( / /, $short_memory->{marks}{banishments}{$banned}{value} ) ), 3, 'banished_history is how many bans are remembered' );
+
+write_rule( 'toomany', 'again', "max_score: 1\n", "  - ban_var: [ ip ]\n  - banished: { times: 4, within: 3600 }\n" );
+$config_count++;
+my $toomany_path = $dir . '/config' . $config_count . '.toml';
+open( my $toomany_fh, '>', $toomany_path ) || die($!);
+print $toomany_fh "run_base_dir = \"$dir/run\"\n"
+	. "tablet_base_dir = \"$dir/toomany\"\n"
+	. "rules_dir = \"$dir/rules\"\n"
+	. "ereshkigal_socket = \"$dir/nonexistent.sock\"\n"
+	. "banished_history = 3\n"
+	. "\n[kur.app]\nmax_score = 6\nfind_time = 600\nallow_per_rule_thresholds = true\n"
+	. "\n[kur.app.auth]\nlog = \"$dir/l-auth\"\nparser = \"json\"\nrule = [ \"json/toomany\" ]\n";
+close($toomany_fh);
+ok( !eval { App::Baphomet::Galla->new( config => $toomany_path, name => 'app' ); 1 },
+	'a banished gate asking for more bans than banished_history keeps does not come up' );
+like( $@, qr/asking for 4 bans, and the galla remembers only the last 3/, 'and says why' );
 
 #
 # pressure by what is usual, off the meter

@@ -94,6 +94,11 @@ Each setting's default is given in parens after its name.
   is not internal. Global and per kur.
 - `[recidive]` (off) :: A table turning on repeat offender escalation.
   See [recidivists](#recidivists).
+- `banished_history` (`20`) :: How many of an address's bans the galla
+  remembers under its `banishments` brand, the newest kept. A
+  [`banished`](rule-gates/banished.md) gate's `times` can be no more than
+  this, and a rule asking more does not load. The history rides the marks
+  tablet and the fleet's mark bus, so keep it no longer than the rules need.
 
 ### Observe mode and EVE
 

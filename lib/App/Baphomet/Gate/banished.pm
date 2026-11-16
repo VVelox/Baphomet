@@ -59,7 +59,9 @@ A entry is told...
           to have been banished, and with in how many seconds back, 90 days
           at the most.
 
-It needs the C<marks> of the L<context|App::Baphomet::Gate/THE CONTEXT>.
+It needs the C<marks> of the L<context|App::Baphomet::Gate/THE CONTEXT>,
+and reads its C<banished_history>, how many bans of a address the galla
+remembers, as the most a C<times> may ask.
 
 =cut
 
@@ -126,6 +128,45 @@ Returns C<marks>.
 sub needs {
 	return ('marks');
 }
+
+=head2 wants
+
+Returns C<banished_history>, read when the gate is bound and absent from a
+context that does not set it, as a rule's own tests do not.
+
+=cut
+
+sub wants {
+	return ('banished_history');
+}
+
+=head2 bound
+
+Returns a copy of the gate bound over a context, as
+L<App::Baphomet::Gate/bound> does. Dies on a C<times> greater than the
+context's C<banished_history>, which could never hold, the galla keeping no
+more bans of a address than that. A context with no C<banished_history>
+checks nothing.
+
+    my $bound = $gate->bound( $context, $where );
+
+=cut
+
+sub bound {
+	my ( $self, $context, $where ) = @_;
+
+	my $history = $context->{banished_history};
+	if ( defined( $self->{times} ) && defined($history) && $self->{times} > $history ) {
+		die(      $where
+				. ' has a banished gate asking for '
+				. $self->{times}
+				. ' bans, and the galla remembers only the last '
+				. $history
+				. ' of a address... raise banished_history to ask that many' );
+	}
+
+	return $self->SUPER::bound( $context, $where );
+} ## end sub bound
 
 =head2 holds
 

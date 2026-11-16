@@ -1375,6 +1375,18 @@ my @cases = (
 		undef
 	],
 	[
+		'syslog',
+		'a pressure told its default hold of 0',
+		{ 'rule_gates' => [ { 'pressure' => { 'above' => 200, 'seconds' => 60, 'hold' => 0 } }, @sshd, $ban_src ] },
+		undef
+	],
+	[
+		'syslog',
+		'a pressure with a negative hold',
+		{ 'rule_gates' => [ { 'pressure' => { 'above' => 200, 'seconds' => 60, 'hold' => -1 } }, @sshd, $ban_src ] },
+		'The pressure gate of the rule "syslog/x" (rule_gates entry 0) has a hold that is not a non-negative int of seconds'
+	],
+	[
 		'json',
 		'a pressure on a json rule, below the gate',
 		{ 'rule_gates' => [ $event_gate, { 'pressure' => { 'above' => 200, 'seconds' => 60 } }, $ban_ip ] }, undef

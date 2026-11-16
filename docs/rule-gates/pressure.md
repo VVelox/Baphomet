@@ -41,8 +41,8 @@ rule_gates:
 `seconds` is required, and so is `above` or `times`. `times` and `baseline`
 only go together. Beside a `times`, `above` is the least the count may be
 for the `times` to be asked. `hold` keeps a lull between two waves from
-shutting the gate, and when it is given it has to be a positive number of
-seconds... a `hold` of 0 is the default, and is refused written out.
+shutting the gate. A `hold` of 0, the default, shuts it the moment the
+count drops back under the mark.
 
 A count for a mark wants setting for each host, a busy mail server and a
 quiet bastion being nothing alike. `times` sets its self, what is usual
@@ -104,8 +104,10 @@ shuts.
       has a times with out a baseline, or a baseline with out a times
 - an `above` that is not a positive whole number :: is not a positive int
 - a `times` that is not a positive number :: is not a positive number
-- a `seconds`, `baseline`, or `hold` that is not a positive whole number ::
-      is not a positive int of seconds
+- a `seconds` or `baseline` that is not a positive whole number :: is not
+      a positive int of seconds
+- a `hold` that is not a whole number of zero or more :: is not a
+      non-negative int of seconds
 - a `scope` that is neither `watcher` nor `galla` :: is not one of watcher
       or galla
 

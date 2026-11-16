@@ -91,14 +91,11 @@ On a [staged](stages.md) rule the completed sequence is enriched from its
 final, completing line, the same line whose `raw` the event carries, the
 sequence's own captures winning a clash.
 
-**A deferred offense loses its own line's fields.** An offense a keyed
-`message_regexp` parks to wait for its address keeps only its regexp's
-captures. When the [`capture_regexp`](capture_regexp.md) line completes
-it, the fields laid under it are what the decoders made of the capture
-line, not of the offense line... so a `ssh_*` field the offense line
-decoded is gone, and one the capture line decoded stands in its place.
-This is current behavior, not a design. A gate below that judges a decoded
-field judges the capture line's.
+**A deferred offense keeps its own line's fields.** An offense a keyed
+`message_regexp` parks to wait for its address is parked with what the
+munger made of its line. When the [`capture_regexp`](capture_regexp.md)
+line completes it, the capture line's decoded fields go underneath and
+only fill what the offense line left unset.
 
 ## Refused at load
 
@@ -140,7 +137,7 @@ offender stays the field the appliance wrote. See
 ## Shipped rules using it
 
 - `%syslog/ssh%`, `syslog/sshd-worked` :: The `sshd` decoder enriching failures, and a staged sequence from its completing line.
-- `syslog/sendmail-reject`, `syslog/sshd-ddos` :: Enrichment beside correlation, where the deferred-offense loss above applies.
+- `syslog/sendmail-reject`, `syslog/sshd-ddos` :: Enrichment beside correlation, a deferred offense keeping its own line's decode.
 - `raw/fortinet-*`, `raw/sonicwall-*`, `raw/huawei-*` :: The decoder as the matcher, a `gate` or `condition` on the `key=value` ledger and `ban_var` on a decoded field.
 - `syslog/*_errors` :: Daemon error detections judged on decoded fields with no regexp.
 - `syslog/pam-generic` :: The `pam` decoder naming the service and account a regexp steps over.
@@ -150,6 +147,6 @@ offender stays the field the appliance wrote. See
 - [`message_regexp`](message_regexp.md) :: The captures laid over its fields.
 - [`message_json`](message_json.md) :: The other road to fields out of a message.
 - [`gate`](gate.md), [`condition`](condition.md) :: What judges its fields when it is the matcher.
-- [`capture_regexp`](capture_regexp.md) :: Where a deferred offense takes the capture line's fields.
+- [`capture_regexp`](capture_regexp.md) :: What completes a deferred offense, and whose fields win.
 - [enriching a match](../rules.md#enriching-a-match-mungers) :: Mungers and the primitive fragments, side by side.
 - [a munger as the matcher](../rules.md#a-munger-as-the-matcher) :: The appliance families, and why no regexp is safer there.

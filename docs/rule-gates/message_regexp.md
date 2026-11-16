@@ -167,10 +167,10 @@ underneath. Every gate below reads it, `ban_var` and `detection_var`
 included, and it is what the EVE `found` carries.
 
 A parked offense waits under its key in the rule's correlation store, per
-watcher, at most 100 per key, the oldest dropped to make room. What it
-parks is its regexp's captures and nothing else (see
-[`capture_regexp`](capture_regexp.md) for what that costs a rule with
-mungers). The store is written to the context tablet at each checkpoint and
+watcher, at most 100 per key, the oldest dropped to make room. It parks
+its regexp's captures and, beside them, the fields `mungers` and
+`message_json` made of its line, so a completed offense has its own
+line's decode (see [`capture_regexp`](capture_regexp.md)). The store is written to the context tablet at each checkpoint and
 read back at start, anything expired by then dropped, so a deferred
 offense can survive a restart.
 

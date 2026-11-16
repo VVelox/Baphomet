@@ -107,8 +107,9 @@ sub phase {
 =head2 ask
 
 Keeps the captures of each entry the message matches under its key, and
-stands every offense that was waiting on one of those keys, the line's
-fields laid underneath it. Always returns 1.
+stands every offense that was waiting on one of those keys. This line's
+fields go under all of it, only filling what the offense and its own
+line's fields left unset. Always returns 1.
 
     $gate->ask($passage);
 
@@ -134,7 +135,8 @@ sub ask {
 			pending_complete( $self->{correlation}, $passage->{scope}, $key_value, $caps, $passage->{now} ) )
 		{
 			# what message_json and the mungers made of this line goes
-			# under the offense, its own captures winning on a clash
+			# under the offense, which was parked with its own line's
+			# fields... so this line only fills the gaps that left
 			if ( defined( $passage->{fields} ) ) {
 				$completion->{data} = { %{ $passage->{fields} }, %{ $completion->{data} } };
 			}
