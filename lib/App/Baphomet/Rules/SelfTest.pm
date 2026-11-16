@@ -69,7 +69,7 @@ Each test entry runs the galla's own order per message... parse, then the
 rule's gates in the order it wrote them, the mark ones against a throwaway
 store, so C<found> counts what would really have fired. The
 store starts empty per entry, seedable via C<marks_before> (each
-C<< {name, key, value?, set?, ttl?} >>, C<key> a string or a list joined
+C<< {name, key, value?, set?, ttl?, hosts?} >>, C<key> a string or a list joined
 as a C<vars> compound is), and assertable after the run via
 C<marks_expected> (each C<< {name, key, value?, absent?} >>). Time is a
 virtual clock, base 1000000000, threaded through matching and the store

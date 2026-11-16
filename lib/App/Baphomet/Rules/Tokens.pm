@@ -40,7 +40,7 @@ spelling the pattern out. There are two kinds. The offender tokens (IP4,
 IP6, ADDR, DNS, HOST, SUBNET, SRC, and DEST) capture under their own name,
 and the primitive fragments of L<App::Baphomet::Primitives> do not capture
 at all. What each matches is documented for rule authors in
-F<docs/rules.md>.
+F<docs/rule-gates/message_regexp.md>.
 
 This is the compile and the match of those regexps, shared by every rule
 type that takes them. Both are plain functions holding no rule state... a

@@ -30,6 +30,8 @@ for [Ereshkigal](https://github.com/LilithSec/Ereshkigal) rules.
 - [tablets](tablets.md) :: Where a galla's state lives... the file backend
   and the redis mark bus for fleets.
 - [rules](rules.md) :: How the various rule files work.
+- [rule gates](rules.md#every-gate) :: One page per gate a rule matches with,
+  each with what it is told, where it goes, and what it refuses.
 - [rules-catalog](rules-catalog.md) :: Currently shipped rules.
 - [log-analysis](log-analysis.md) :: the detection half... rules that alert
   with out banishing, the alert metadata, the EVE stream, and how the galla

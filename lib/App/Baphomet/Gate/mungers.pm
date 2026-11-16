@@ -24,10 +24,9 @@ our $VERSION = '0.0.1';
 =head1 SYNOPSIS
 
     rule_gates:
-      - daemons: [ '//^(?:date=|logid=)//' ]
-      - mungers: [ fortigate ]
-      - gate: [ { field: fortigate.action, values: [ deny ] } ]
-      - ban_var: [ fortigate.srcip ]
+      - mungers: [ fortinet ]
+      - gate: [ { field: fg_type, values: [ event ] } ]
+      - ban_var: [ fg_offender_ip ]
 
 =head1 DESCRIPTION
 

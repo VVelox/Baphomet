@@ -55,7 +55,8 @@ A entry is told...
 
     - count :: How many gaps it takes, two or more.
 
-    - jitter :: How uneven the gaps may be, as a share of their average.
+    - jitter :: Optional. How uneven the gaps may be, as a share of their
+          average.
         Default :: 0.1
 
     - min_interval :: Optional. The shortest average gap that can be a

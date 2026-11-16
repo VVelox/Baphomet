@@ -2,7 +2,7 @@
 # Matches MongoDB auth failures in the structured JSON log mongod has
 # written since 4.4. Test lines are hand built from the documented output
 # shape... fail2ban's mongodb-auth filter covers only the pre-4.4 text
-# format, via multiline correlation Baphomet does not do.
+# format, which Baphomet covers by correlation in raw/mongodb-auth-legacy.
 rev: 2
 msg: "[MONGODB] authentication failure"
 severity: high

@@ -271,7 +271,7 @@
 
 ### The foreign-auth family
 
-Thirteen rules, the group `%syslog/foreign-auth%`, one per login service.
+Fourteen rules, the group `%syslog/foreign-auth%`, one per login service.
 Each carries its service's entire offense vocabulary from the rule above
 **plus that service's successful login**, gated on `country_codes{home}` with
 `max_score: 1`, so any authentication event from outside your home countries
@@ -456,7 +456,7 @@ Every Suricata rule lists both `src_ip` and `dest_ip` as ban_vars and sets
 is not one of your own hosts... an inbound attack bans the external src, a
 C2 callout from an inside host bans the external dest. Set the `internal`
 config field to your networks; it defaults to the ignore IPs. See
-[`ban_not_internal`](rules.md#ban_not_internal).
+[`ban_not_internal`](rule-gates/ban_not_internal.md).
 
 ## raw rules
 

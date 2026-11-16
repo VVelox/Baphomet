@@ -27,7 +27,7 @@ off the leash of being an address. It counts by anything the line carries...
 a username, a hostname, a URI, a service, a config key... so a rule can alert
 on a thing with no address to banish at all, a policy tripwire, a service
 crash, a configuration change. This is the Sagan/Wazuh(LAE/Log Analysis Engine) reach a
-pure banisher can not follow. See [rules](rules.md#detection_var).
+pure banisher can not follow. See [rules](rule-gates/detection_var.md).
 
 ## What makes it a detection engine
 

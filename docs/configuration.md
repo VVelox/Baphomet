@@ -153,7 +153,7 @@ Each setting's default is given in parens after its name.
   before being given up on. A failed lookup is judged by the gate's
   `on_servfail` knob, whose default of `fail` vetoes the count
   regardless of `negate`... under it a slow resolver slows detection,
-  never misaims it. See [rules](rules.md#reverse_dns-the-client-is-who-its-address-says).
+  never misaims it. See [rules](rule-gates/reverse_dns.md).
 - `geoip_db` (unset) :: Path to a MaxMind GeoIP2/GeoLite2 country
   database, for rules with a `country` gate. Read via the optional
   `IP::Geolocation::MMDB` module. Unset, or unloadable, and every
@@ -170,13 +170,13 @@ Each setting's default is given in parens after its name.
   Every galla of a fleet needs the one key. Keep the file readable by the
   gallas' user alone, as with it a hash can be checked against a guessed
   name. Unset, and a rule with a `digest` gate does not load. See
-  [rules](rules.md#digest-a-hash-in-place-of-a-name).
+  [rules](rule-gates/digest.md).
 - `enable_dnsbl` (`false`) :: Whether the `dnsbl` rule gate may look
   things up. A consent of its own and off by default, as every lookup
   tells whoever runs the blocklist which address this host was talking to.
   Off, dnsbl gates fail closed and count nothing, loudly. It rides the
   machinery of the `reverse_dns` gate, `rdns_timeout` included. See
-  [rules](rules.md#dnsbl-what-a-blocklist-says-of-an-address).
+  [rules](rule-gates/dnsbl.md).
 
 ### The manager socket and its gate
 
@@ -255,7 +255,7 @@ office = [ "AS64497" ]
 
 A rule imports a list with the `%%%asn_lists{name}%%%` token in its `asn`
 gate, which needs the `geoip_asn_db` to place an address on a network. See
-[rules](rules.md#asn-narrowing-an-offense-by-network).
+[rules](rule-gates/asn.md).
 
 ## Namtar lists
 
@@ -307,7 +307,8 @@ references, so a rule can count only in, or only out of, certain hours...
 an admin login that is routine at midday and an alarm at 03:00. Named so a
 rule stays policy-neutral. Each name is a spec, or an array of specs (in
 the window if in any). Layered watcher over kur over global, merged per
-name. Times are the system's local time.
+name. An epoch is judged in the system's local time, and an ISO datetime at
+its face value, the zone it names dropped.
 
 ```toml
 [active_time.business]
@@ -472,7 +473,7 @@ find_time = 60
 
 A key wrapped in percent signs is a **group**, the same spelling the `rule`
 list uses, and its table applies to every rule the group names. This is how a
-family is stood up in observe mode without thirteen stanzas:
+family is stood up in observe mode without fourteen stanzas:
 
 ```toml
 [kur.mail.maillog]
