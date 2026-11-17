@@ -55,12 +55,16 @@ so the self-test can not drift from the engine.
 =head2 run_tests
 
 Runs the tests embedded in the rule. Returns a hash as below. Does not die
-on test failures... that is the caller's call to make.
+on test failures... that is the caller's call to make. C<failures> and
+C<warnings> are array refs of strings, one a problem. A warning, such as a
+offender reached over a lazy wildcard with no C<injection> test to settle
+it, is reported but never fails the rule.
 
     {
         'pass'     => 3,
         'fail'     => 0,
         'failures' => [],
+        'warnings' => [],
     }
 
     my $results = $rule->run_tests;
@@ -425,7 +429,7 @@ sub run_tests {
 				}
 
 				# the line context a staged rule's skip bound reads... the
-				# message index is the sequence with in the test entry, and
+				# message index is the sequence within the test entry, and
 				# now the virtual clock, so windows prove deterministically
 				my $offenses = $self->walk_line(
 					$gates, $parsed,
@@ -584,11 +588,13 @@ sub run_tests {
 #   $results :: the results hash of the run, whose failures a malformed
 #               fixture is pushed onto
 #
-# returns a hash ref of reverse and forward, each a sub taking a address or
-# a name, and listed, a sub taking a zone and a address, all three answering
-# a array ref, a empty one for nxdomain, or undef for servfail. undef on a
-# malformed fixture.
+# returns:
+#   a hash ref of reverse and forward, each a sub taking a address or a name,
+#   and listed, a sub taking a zone and a address, all three answering a
+#   array ref, a empty one for nxdomain, or undef for servfail. undef on a
+#   malformed fixture.
 #
+# example:
 #   my $resolver = _test_dns_resolver( { 'ptr' => { '192.0.2.7' => ['crawl.example.org'] } }, $where, $results );
 #   my $names = $resolver->{reverse}->('192.0.2.7');    # ['crawl.example.org']
 sub _test_dns_resolver {
@@ -670,10 +676,12 @@ sub _test_dns_resolver {
 #   $results :: the results hash of the run, whose failures a malformed
 #               fixture is pushed onto
 #
-# returns a hash ref of name to account, each a hash of the uid and shell
-# the fixture gave, and a hash ref of group name to group, each a hash of
-# members keyed by name. a lone undef on a malformed fixture.
+# returns:
+#   a two item list... a hash ref of name to account, each a hash of the uid
+#   and shell the fixture gave, and a hash ref of group name to group, each a
+#   hash of members keyed by name. a lone undef on a malformed fixture.
 #
+# example:
 #   my ( $accounts, $groups ) = _test_accounts( { 'neti' => { 'uid' => 1001, 'groups' => ['wheel'] } }, $where, $results );
 #   $accounts->{neti}{uid};              # 1001
 #   $groups->{wheel}{members}{neti};     # 1
@@ -735,13 +743,15 @@ sub _test_accounts {
 #   $results :: the results hash of the run, whose failures a malformed
 #               fixture is pushed onto
 #
-# returns a hash ref of locator, a sub taking a address and returning its
-# code upcased or undef, country_codes, the named code lists, asn_locator, a
-# sub taking a address and returning a hash ref of number and org or undef,
-# asn_lists, the named number lists with any AS off, and city_locator, a sub
-# taking a address and returning a hash ref of lat, lon, and radius or
-# undef. undef on a malformed fixture.
+# returns:
+#   a hash ref of locator, a sub taking a address and returning its code
+#   upcased or undef, country_codes, the named code lists, asn_locator, a sub
+#   taking a address and returning a hash ref of number and org or undef,
+#   asn_lists, the named number lists with any AS off, and city_locator, a
+#   sub taking a address and returning a hash ref of lat, lon, and radius or
+#   undef. undef on a malformed fixture.
 #
+# example:
 #   my $geo = _test_geo_locator( { 'countries' => { '203.0.113.9' => 'nl' } }, $where, $results );
 #   my $code = $geo->{locator}->('203.0.113.9');    # 'NL'
 sub _test_geo_locator {
@@ -867,10 +877,12 @@ sub _test_geo_locator {
 #   $results      :: the run_tests results hash, each failure counted and
 #                    pushed onto its failures
 #
-# returns true when the entry is malformed, false when it is sound. a entry
-# missing what it needs is one failure, and otherwise every unknown key is one
-# failure each, not just the first found.
+# returns:
+#   1 when the entry is malformed, 0 when it is sound. a entry missing what
+#   it needs is one failure, and otherwise every unknown key is one failure
+#   each, not just the first found.
 #
+# example:
 #   if ( _test_store_entry_malformed( $seed, 'marks_before entry', [ 'name', 'key', 'value', 'set', 'ttl' ],
 #       0, $where, $results ) )
 #   {
@@ -906,9 +918,11 @@ sub _test_store_entry_malformed {
 #   $key :: the key as the rule file wrote it, a string or a arrayref of the
 #           compound's parts
 #
-# returns a two item list, the store key and the shown key. both are the
-# string itself for a plain key.
+# returns:
+#   a two item list, the store key and the shown key. both are the string
+#   itself for a plain key.
 #
+# example:
 #   my ( $store_key, $shown ) = _test_store_key( [ '192.0.2.7', 'admin' ] );
 #   # $store_key is "192.0.2.7\x1fadmin", $shown is "192.0.2.7|admin"
 sub _test_store_key {
@@ -936,9 +950,15 @@ sub _test_store_key {
 #   $where   :: the test entry's where string, for failures
 #   $results :: the run_tests results hash
 #
-# returns true on a malformed list or entry, the failure pushed, false on
-# success.
+# returns:
+#   1 on a malformed list or entry, the failure pushed, 0 on success.
 #
+# example:
+#   if ( _test_tracked_seed( \%tracked_store, $test->{tracked_before}, $clock, $where, $results ) ) {
+#       next TEST;
+#   }
+#
+#   # for a test entry holding...
 #     tracked_before:
 #       - name: mail-queue
 #         key: 1C36D185729
@@ -989,9 +1009,13 @@ sub _test_tracked_seed {
 #                message index for a tracked_after
 #   $results  :: the run_tests results hash
 #
-# returns true on any miss, the failures pushed, false when every assertion
-# held.
+# returns:
+#   1 on any miss, the failures pushed, 0 when every assertion held.
 #
+# example:
+#   my $failed = _test_tracked_assert( \%tracked_store, $test->{tracked_expected}, $clock, $where, $results );
+#
+#   # for a test entry holding...
 #     tracked_expected:
 #       - name: mail-queue
 #         key: 1C36D185729
@@ -1078,15 +1102,22 @@ sub _test_tracked_assert {
 #   $store   :: the throwaway mark store hash ref
 #   $seeds   :: the marks_before list, each a hash of name, key (a string, or
 #               a array for a vars compound), a optional value, a optional
-#               set time defaulting to the clock, and a optional ttl
-#               defaulting to 3600
+#               set time defaulting to the clock, a optional ttl defaulting
+#               to 3600, and a optional hosts, how many fleet hosts set the
+#               brand, defaulting to 1
 #   $clock   :: the virtual clock, which the ttl counts from
 #   $where   :: the test entry's where string, for failures
 #   $results :: the run_tests results hash
 #
-# returns true on a malformed list or entry, the failure pushed, false on
-# success.
+# returns:
+#   1 on a malformed list or entry, the failure pushed, 0 on success.
 #
+# example:
+#   if ( _test_marks_seed( \%marks_store, $test->{marks_before}, $clock, $where, $results ) ) {
+#       next TEST;
+#   }
+#
+#   # for a test entry holding...
 #     marks_before:
 #       - name: brute_force
 #         key: 192.0.2.7
@@ -1146,9 +1177,13 @@ sub _test_marks_seed {
 #                message index for a marks_after
 #   $results  :: the run_tests results hash
 #
-# returns true on any miss, the failures pushed, false when every assertion
-# held.
+# returns:
+#   1 on any miss, the failures pushed, 0 when every assertion held.
 #
+# example:
+#   my $failed = _test_marks_assert( \%marks_store, $test->{marks_expected}, $clock, $where, $results );
+#
+#   # for a test entry holding...
 #     marks_expected:
 #       - name: brute_force
 #         key: 192.0.2.7

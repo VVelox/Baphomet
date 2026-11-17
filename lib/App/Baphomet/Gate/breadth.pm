@@ -29,7 +29,7 @@ our $VERSION = '0.0.1';
 =head1 DESCRIPTION
 
 Holds when at least C<rules> different rules have live hits against the
-address checked with in the last C<seconds>, the rule this gate is of
+address checked within the last C<seconds>, the rule this gate is of
 counted among them. A scanner that tries ssh, ftp, and the web panel once
 each stays under every count a rule keeps, and has been counted by three.
 

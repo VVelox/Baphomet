@@ -17,7 +17,7 @@ rule_gates:
 
 - phase :: offense
 - rule types :: every type
-- keys on :: the offender | a found value
+- keys on :: the offender, or a found value with `var` or `vars`
 - vetoes :: yes
 - needs :: the galla's mark store
 - repeatable :: yes, each entry is a gate of its own
@@ -44,7 +44,7 @@ holds on a brand whose value or age did not prove out.
 
 A brand is as old as when it was first set, however often it has been set
 since, so `older_than` is "still at it a day after being branded" and
-`newer_than` "with in five minutes of the login". Both together are a span
+`newer_than` "within five minutes of the login". Both together are a span
 of ages. `hosts` counts this host when it set the brand, and every other
 the brand says did.
 
@@ -81,8 +81,8 @@ so `hosts: 2` never holds.
 - an `older_than` or `newer_than` that is not a positive whole number :: "has a older_than that is not a positive int of seconds"
 - a `hosts` that is not a positive whole number :: "has a hosts that is not a positive int"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

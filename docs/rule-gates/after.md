@@ -1,7 +1,7 @@
 # after... only once a key has been seen enough
 
 An `after` gate is [`limit`](limit.md) the other way about... it vetoes the
-first offenses of a key and holds from the `count`th with in `seconds` on.
+first offenses of a key and holds from the `count`th within `seconds` on.
 A rule's own count is kept by its offender. This one is kept by anything,
 which is how a rule says twenty failures against one account, whoever they
 came from.
@@ -34,14 +34,14 @@ count how many sources there were.
 
 - `by` :: The found var, or a list of them, whose values joined are the key.
 - `count` :: How many offenses of a key it takes, two or more.
-- `seconds` :: How long they have to land with in.
+- `seconds` :: How long they have to land within.
 
 A bare `by` is a list of one. A key differing in any one part is another
 key, counted on its own.
 
 The window slides. An offense holds when it and the `count` less one before
-it all landed with in `seconds`, wherever a window might be said to start.
-Exactly `seconds` from the oldest of them is not with in. Once a key is
+it all landed within `seconds`, wherever a window might be said to start.
+Exactly `seconds` from the oldest of them is not within. Once a key is
 there, every offense of it holds while the last `count` stay that close.
 
 ## Where it goes
@@ -58,8 +58,8 @@ one below it does not.
 
 ## When it does not hold
 
-A vetoed offense is vetoed as by any gate... it is not counted, and the
-line goes on to the rules after this one.
+A vetoed offense is vetoed as by any gate... it counts toward no rule's
+score, and the line goes on to the rules after this one.
 
 It fails closed. An offense lacking one of the `by` vars has nothing to be
 counted under and is vetoed.
@@ -67,10 +67,10 @@ counted under and is vetoed.
 ## What it leaves behind
 
 The times of the last `count` offenses of each key, kept per watcher, so
-the same key on two watchers is counted twice over. They are bounded as the
-mark store is, at ten thousand keys, a key pushed out by a flood of others
-starting over. They are not shared with a fleet, and are forgotten at a
-restart.
+the same key on two watchers is counted apart on each. They are bounded as
+the mark store is, at ten thousand keys, a key pushed out by a flood of
+others starting over. They are not shared with a fleet, and are forgotten
+at a restart.
 
 ## Refused at load
 
@@ -78,11 +78,11 @@ restart.
 - a key it does not take :: "has the unknown key ..."
 - no `by`, `count`, or `seconds` :: "lacks a ..."
 - a `by` that is not a string or a list of them :: "has a by that is not a non-empty string or a non-empty array of them"
-- a `count` under two, or no whole number :: "has a count that is not a int of two or more"
+- a `count` under two, or not a whole number :: "has a count that is not a int of two or more"
 - a `seconds` that is not a whole number of one or more :: "has a seconds that is not a positive int of seconds"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

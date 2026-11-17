@@ -275,7 +275,7 @@ sub holds {
 
 =head2 rdns_addr_eq
 
-Compares two address strings for equality by packed value with in one
+Compares two address strings for equality by packed value within one
 family, so C<::FFFF:1.2.3.4> spellings and case differences can not dodge
 a forward confirmation. False when the two parse in no common family.
 

@@ -83,8 +83,8 @@ Initiates the object. Will die on errors.
     - groups_dir :: The override dir for rule groups, searched ahead of the
           shipped C<share/groups>, C<$base/etc/baphomet/groups> by
           convention. Searched only if it exists. May be undef. Unlike the
-          rules dirs, no groups dir resolving is not an error... a config
-          referencing no C<%group%> needs none. See L</expand_rules>.
+          rules dirs, resolving no groups dir at all is not an error... a
+          config referencing no C<%group%> needs none. See L</expand_rules>.
         Default :: undef
 
 At least one usable rules dir must resolve or new dies.
@@ -237,7 +237,19 @@ sub load {
 	return $rule;
 } ## end sub load
 
-# runs a rule's embedded tests, dying in the load style when any fail
+# runs a rule's embedded tests, dying in the load style when any fail...
+# the die names the rule, the failed and total counts, and each failure on a
+# line of its own. warnings never die here.
+#
+# args:
+#   $name :: the rule name, such as 'syslog/sshd', quoted in the die
+#   $rule :: the App::Baphomet::Rule just built from that name's file
+#
+# returns:
+#   nothing, on every test passing.
+#
+# example:
+#   $self->_run_load_tests( 'syslog/sshd', $rule );
 sub _run_load_tests {
 	my ( $self, $name, $rule ) = @_;
 
@@ -327,7 +339,7 @@ Returns the path of the file backing the named group, searching the groups
 dirs in order and returning the first that exists, so an override groups dir
 shadows the shipped group of the same name. Returns undef when the group is
 found in none of them. A group name is a C<type/name> relative path like a
-rule, but the file carries no extension... C<json/suricata-all> is the file
+rule, but the file has no extension... C<json/suricata-all> is the file
 C<json/suricata-all> backing the reference C<%json/suricata-all%>.
 
     my $path = $rules->group_path($name);
@@ -449,7 +461,16 @@ sub expand_rules {
 # the EVE gid for a resolved rule path... 0 when the file came from the
 # shipped rules dir, 1 from the site override dir. A rule resolved with no
 # shipped dir in play (a caller looking at one dir in isolation) is treated
-# as an override
+# as an override.
+#
+# args:
+#   $path :: the path the rule file resolved to, as rule_path returns it
+#
+# returns:
+#   0 for a path under the shipped rules dir, else 1.
+#
+# example:
+#   $rule->set_gid( $self->_gid_for_path($path) );
 sub _gid_for_path {
 	my ( $self, $path ) = @_;
 

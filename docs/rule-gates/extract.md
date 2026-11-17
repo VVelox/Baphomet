@@ -29,7 +29,7 @@ rule_gates:
 - `var` :: The field to match against.
 - `regexp` :: The regexp, with at least one named capture.
 - `on_miss` :: What a field it does not match does, `pass` or `fail`.
-    - default :: `pass`
+  - default :: `pass`
 
 The [tokens](message_regexp.md) `message_regexp` takes work in the
 regexp too, and a token's capture counts as a named one. A token written
@@ -64,17 +64,17 @@ over a value already there. Nothing outlives the line.
 
 ## Refused at load
 
-- no `var` or no `regexp`, or a key it does not know :: lacks a var /
-      lacks a regexp / has the unknown key
-- an `on_miss` that is neither `pass` nor `fail` :: is not one of pass or
-      fail
-- a regexp that does not compile, or names an unknown token :: dies naming
-      the regexp
-- a regexp with no named capture :: has a regexp with no named capture,
-      which would lift nothing
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- no `var` or no `regexp` :: "lacks a ..."
+- a `var` or `regexp` that is not a string :: "has a ... that is not a non-empty string"
+- an `on_miss` that is neither `pass` nor `fail` :: "has a on_miss that is not one of pass or fail"
+- a regexp that does not compile :: "does not compile"
+- a regexp naming an unknown token :: "uses the unknown token ..."
+- a regexp with no named capture :: "has a regexp with no named capture, which would lift nothing"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -99,9 +99,7 @@ tests:
 
 ## See also
 
-- [`normalize`](normalize.md) :: Lifts a cleaned copy of a path the same
-      way, for a `match` below it.
-- [`digest`](digest.md) :: Hashes a found value in place, which may be one
-      this lifted.
+- [`normalize`](normalize.md) :: Lifts a cleaned copy of a path the same way, for a `match` below it.
+- [`digest`](digest.md) :: Hashes a found value in place, which may be one this lifted.
 - [`after`](after.md) :: A count keyed on what it lifts.
 - [`gate`](gate.md) :: Its `re` op tests a field and keeps nothing.

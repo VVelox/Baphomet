@@ -31,7 +31,7 @@ rule_gates:
 - `var` :: The field holding the time, in seconds since the epoch.
 - `within` :: How many seconds old a line may be.
 - `on_unparsed` :: What a line with no time to read does, `pass` or `fail`.
-    - default :: `fail`
+  - default :: `fail`
 
 The seconds are what an [`epoch`](epoch.md) gate above it makes of a
 timestamp. A line whose time is still to come, the clock that wrote it
@@ -61,15 +61,15 @@ can not be shown to be fresh and is turned away too, failing closed, unless
 
 ## Refused at load
 
-- no `var` or no `within`, or a key it does not know :: lacks a var /
-      lacks a within / has the unknown key
-- a `within` that is not a positive whole number :: is not a positive int
-      of seconds
-- an `on_unparsed` that is neither `pass` nor `fail` :: is not one of pass
-      or fail
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- no `var` or no `within` :: "lacks a ..."
+- a `var` that is not a string :: "has a var that is not a non-empty string"
+- a `within` that is not a positive whole number :: "has a within that is not a positive int of seconds"
+- an `on_unparsed` that is neither `pass` nor `fail` :: "has a on_unparsed that is not one of pass or fail"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -98,5 +98,4 @@ tests:
 ## See also
 
 - [`epoch`](epoch.md) :: Makes the seconds it reads.
-- [`startup`](startup.md) :: Keeps the backlog out by how long the galla
-      has been up, for the logs whose lines carry no time to read.
+- [`startup`](startup.md) :: Keeps the backlog out by how long the galla has been up, for the logs whose lines have no time to read.

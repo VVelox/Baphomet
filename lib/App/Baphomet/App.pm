@@ -48,7 +48,7 @@ sub global_opt_spec {
 =head2 manager_call
 
 Makes one blocking call to the baphomet manager over its socket and returns
-the result, dieing on a connect, auth, or command failure. The manager
+the result, dying on a connect, auth, or command failure. The manager
 speaks the L<POE::Component::Server::JSONUnix> protocol, so every CLI query
 rides that dist's own blocking client to the one manager socket rather than
 reaching around it to Ereshkigal, the manager being the one that talks to
@@ -65,8 +65,8 @@ sub manager_call {
 	my $client
 		= POE::Component::Server::JSONUnix::BlockingClient->new( 'socket_path' => $self->global_options->{socket} );
 
-	# the Neti dance, done transparently as the old client did... it answers
-	# ok whether or not the manager gates, so it is always safe to ask
+	# the Neti dance, done transparently... it answers ok whether or not
+	# the manager gates, so it is always safe to ask
 	my $auth = $client->authenticate;
 	if ( ( $auth->{status} // '' ) ne 'ok' ) {
 		die( 'authenticating to the manager failed... ' . ( $auth->{error} // 'unknown error' ) . "\n" );

@@ -44,10 +44,10 @@ behind that. A capture line leaves its data under the key as context, a
 offense that finds no context yet may be parked under the key as pending,
 and the capture line that arrives later completes it.
 
-The correlation machinery, lifted out of the rule handlers so it runs over
-any store hashref, the way L<App::Baphomet::Marks> and
+This is the correlation machinery, lifted out of the rule handlers so it runs
+over any store hashref, the way L<App::Baphomet::Marks> and
 L<App::Baphomet::Tracks> do. A rule passes its own store, which is walled
-off per scope, the watcher name, as a key is only unique with in one log.
+off per scope, the watcher name, as a key is only unique within one log.
 Nothing here knows of rules, tablets, or wall clocks... state in, data and
 completions out.
 
@@ -158,8 +158,8 @@ sub correlation_key {
 =head2 context_put
 
 Stores a capture line's data under a scope and key, bounding the keys held
-per scope... on hitting the cap the expired are pruned first and then the
-soonest to expire is evicted.
+per scope at 10000... on hitting the cap the expired are pruned first and
+then the soonest to expire is evicted.
 
     - store :: The correlation store.
 
@@ -419,12 +419,16 @@ call at start.
     - store :: The live correlation store.
 
     - state :: The dumped store, as it came back off the context tablet. A
-          state that is not a hash restores nothing, and a half of it that
-          is not one is skipped.
+          state that is not a hash restores nothing, a context or pending
+          half that is not one is skipped, and a context entry or pending
+          item that is not a hash or has no live expires is dropped.
 
     - now :: The current time.
 
 Returns nothing.
+
+Dies on a malformed scope within a half, a context scope or pending scope
+that is not a hash, or a pending key whose value is not a array.
 
     correlation_restore( $store, $state, $now );
 

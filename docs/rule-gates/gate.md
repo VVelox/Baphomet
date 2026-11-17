@@ -50,30 +50,28 @@ rule_gates:
 
 - `field` :: The field the entry tests.
 - `op` :: The operator.
-    - default :: `eq`
-    - `eq` / `contains` / `startswith` / `endswith` :: The string tests.
-    - `re` :: A regexp, [tokens](message_regexp.md) included.
-    - `gt` / `lt` / `ge` / `le` :: Numeric.
-    - `cidr` :: IPv4 or IPv6 membership.
-    - `exists` :: The field is present, whatever its value.
+  - default :: `eq`
+  - `eq` / `contains` / `startswith` / `endswith` :: The string tests.
+  - `re` :: A regexp, [tokens](message_regexp.md) included.
+  - `gt` / `lt` / `ge` / `le` :: Numeric.
+  - `cidr` :: IPv4 or IPv6 membership.
+  - `exists` :: The field is present, whatever its value.
 - `value` / `values` :: One scalar or a non-empty list.
 - `fieldref` :: Another field to compare against in place of a literal.
 - `times` :: What the referenced number is multiplied by first.
-    - default :: 1
-- `measure` :: What of the value a numeric op compares... `length`,
-      `entropy`, or `count`.
+  - default :: 1
+- `measure` :: What of the value a numeric op compares... `length`, `entropy`, or `count`.
 - `of` :: The regexp a `measure` of `count` counts.
 - `all` :: Require every value to match rather than any.
-    - default :: false
+  - default :: false
 - `negate` :: Invert the entry.
-    - default :: false
+  - default :: false
 - `nocase` :: Case-fold the compare.
-    - default :: false
-- `decode` :: Transforms run left to right over the value before the
-      operator.
+  - default :: false
+- `decode` :: Transforms run left to right over the value before the operator.
 
 An entry holds if any of its values does, or all of them when `all` is
-true. A field the line does not carry never matches, except under a
+true. A field the line does not have never matches, except under a
 `negate`... a negated entry also holds when the field is absent, matching
 Sigma's field-absent semantics. Under `exists` that makes `negate` the
 field-absent test, Sigma's `|exists: false`, and `exists` takes no value,
@@ -87,7 +85,7 @@ not... `{ field: auth_user, op: eq, fieldref: cert_user }`, Sigma's
 `|fieldref`. It stands in for `value`/`values`, and setting it beside one is
 an error. `eq`, `contains`, `startswith`, and `endswith` take it, and so do
 `gt`, `lt`, `ge`, and `le`, for which the referenced field has to be a
-number. A referenced field the line does not carry is a non-match. It folds
+number. A referenced field the line does not have is a non-match. It folds
 under `nocase` and its source decodes under `decode` like any other compare.
 
 `times` only goes beside a `fieldref` under a numeric op, holding one field
@@ -125,10 +123,8 @@ a flattened dotted path (json), a parsed access or error log field (http,
 http_error), or what `message_json` and `mungers` laid down. Three names are
 reserved:
 
-- `%%%ANY%%%` :: Fans the test over every field value and, on syslog and
-      raw, the message.
-- `%%%ANY:<prefix>%%%` :: Fans it over just the fields at or under
-      `prefix`.
+- `%%%ANY%%%` :: Fans the test over every field value and, on syslog and raw, the message.
+- `%%%ANY:<prefix>%%%` :: Fans it over just the fields at or under `prefix`.
 - `MESSAGE` :: On syslog and raw, the whole message.
 
 A fanned entry holds when any value it fans over does, and a `negate` on one
@@ -164,45 +160,40 @@ below it still harvests, but nothing is counted and the rule did not fire.
 
 ## Refused at load
 
-- a `condition` gate in the same rule :: is beside a condition gate, and
-      the two are two forms of the same thing
-- a list that is empty or not a list :: is not a array or is empty
-- an entry with no `field` :: is not a hash with a field
-- a legacy entry with no `values` list :: is not a hash with a field and a
-      values array
-- a key neither form knows :: has the unknown key
-- a legacy value that is not a string, or a `//regexp//` that does not
-      compile :: contains a non-string entry / does not compile
-- an `op` there is none of :: has the unknown op
-- `nocase` on a numeric or cidr op :: nocase does not apply to the op
-- `fieldref` empty, beside a `value`, or under an op that can not take it ::
-      fieldref is not a non-empty field name / sets both fieldref and a
-      literal value / works only with...
-- `fieldref` under `%%%ANY%%%` or `%%%ANY:prefix%%%` :: pairs fieldref with
-      a keyword field, which can never match
-- `measure` not one of the three, or under a non-numeric op :: measure is
-      not one of length, entropy, or count / works only with the gt, lt, ge,
-      and le ops
-- `of` with out a `measure` of `count`, or such a measure with no `of` ::
-      of works only with a measure of count / has a measure of count with
-      no of
-- `times` with out a `fieldref` under a numeric op, or not a positive
-      number :: times works only with a fieldref... / is not a positive
-      number
-- `exists` with a value, `fieldref`, `decode`, `nocase`, or `all` :: the
-      exists op takes no value...
-- no `value` or `values`, an empty `values`, or a value that is not a
-      scalar :: lacks a value or values / values is not a non-empty array /
-      has a non-scalar value
-- a numeric op with a value that is no number :: needs numeric values
-- a bad CIDR under `cidr` :: dies as the ignore lists do
-- `decode` empty, or naming a transform there is none of :: decode is not a
-      non-empty array / has the unknown decode transform
-- a `re` value or an `of` that does not compile, or names an unknown token
-      :: dies naming the regexp
+- a `condition` gate in the same rule :: "is beside a condition gate, and the two are two forms of the same thing"
+- a list that is empty or not a list :: "is not a array or is empty"
+- an entry with no `field` :: "is not a hash with a field"
+- a legacy entry with no `values` list :: "is not a hash with a field and a values array"
+- a key neither form knows :: "has the unknown key ..."
+- a legacy value that is not a string :: "contains a non-string entry"
+- a legacy `//regexp//` that does not compile :: "does not compile"
+- an `op` there is none of :: "has the unknown op ..."
+- `nocase` on a numeric or cidr op :: "nocase does not apply to the ... op"
+- an empty `fieldref` :: "fieldref is not a non-empty field name"
+- `fieldref` beside a `value` :: "sets both fieldref and a literal value"
+- `fieldref` under an op that can not take it :: "fieldref works only with the eq, contains, startswith, endswith, gt, lt, ge, and le ops"
+- `fieldref` under `%%%ANY%%%` or `%%%ANY:prefix%%%` :: "pairs fieldref with a keyword field, which can never match"
+- `measure` not one of the three :: "measure is not one of length, entropy, or count"
+- `measure` under a non-numeric op :: "measure works only with the gt, lt, ge, and le ops"
+- `of` with out a `measure` of `count` :: "of works only with a measure of count"
+- a `measure` of `count` with no `of` :: "has a measure of count with no of, the regexp to count"
+- `times` with out a `fieldref` under a numeric op :: "times works only with a fieldref under the gt, lt, ge, and le ops"
+- `times` not a positive number :: "times is not a positive number"
+- `exists` with a value, `fieldref`, `decode`, `nocase`, or `all` :: "the exists op takes no value, fieldref, decode, nocase, or all"
+- no `value` or `values` :: "lacks a value or values"
+- an empty `values` :: "values is not a non-empty array"
+- a value that is not a scalar :: "has a non-scalar value"
+- a numeric op with a value that is no number :: "needs numeric values, got ..."
+- an empty value under `cidr` :: "contains a empty or non-string entry"
+- a value under `cidr` that is not an address or a CIDR :: "entry "..." is not a IPv4 or IPv6 address or CIDR"
+- a CIDR with a prefix the family has no bits for :: "entry "..." has a invalid prefix length"
+- `decode` empty or not a list :: "decode is not a non-empty array"
+- `decode` naming a transform there is none of :: "has the unknown decode transform ..."
+- a `re` value or an `of` that does not compile :: "does not compile"
+- a `re` value or an `of` naming an unknown token :: "uses the unknown token ..."
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -224,23 +215,15 @@ tests:
 
 ## Shipped rules using it
 
-- `%json/suricata-all%` :: Each classtype rule pins `event_type` and
-      `alert.category`, which is also what indexes them.
+- `%json/suricata-all%` :: Each classtype rule pins `event_type` and `alert.category`, which is also what indexes them.
 - `json/caddy-botsearch` :: A `status` filter ahead of the `match`.
-- `syslog/postfix-harvest` :: Typed `eq` and `re` entries over the postfix
-      munger's fields, with no `message_regexp` at all.
-- `syslog/freeradius-auth` and `syslog/kernel_errors` :: `exists` and `re`
-      entries over munger fields as the whole matcher.
-- `raw/sonicwall-attack` :: One `re` over the decomposed `sw_msg` in place
-      of a regexp over the line.
+- `syslog/postfix-harvest` :: Typed `eq` and `re` entries over the postfix munger's fields, with no `message_regexp` at all.
+- `syslog/freeradius-auth` and `syslog/kernel_errors` :: `exists` and `re` entries over munger fields as the whole matcher.
+- `raw/sonicwall-attack` :: One `re` over the decomposed `sw_msg` in place of a regexp over the line.
 
 ## See also
 
-- [`condition`](condition.md) :: The boolean form of the same thing, never
-      beside it.
-- [`keywords`](keywords.md) :: The shorthand for a `contains` fanned over
-      many fields, ANDed with it.
-- [`match`](match.md) :: What makes the offense of a json or http line,
-      below the `gate` that filters it.
-- [the gate / selections / condition / keywords family](../rules.md#gate--selections--condition--keywords)
-- [what every gate is refused for](../rules.md#what-every-gate-is-refused-for)
+- [`condition`](condition.md) :: The boolean form of the same thing, never beside it.
+- [`keywords`](keywords.md) :: The shorthand for a `contains` fanned over many fields, ANDed with it.
+- [`match`](match.md) :: What makes the offense of a json or http line, below the `gate` that filters it.
+- [the gate / selections / condition / keywords family](../rules.md#gate--selections--condition--keywords) :: The four forms side by side, in the type overview.

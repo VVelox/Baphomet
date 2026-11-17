@@ -127,7 +127,21 @@ sub parse {
 
 # splits the contents of a [client ...] into the address and the port 2.4
 # appends... for IPv6 the split is ambiguous, so the split is preferred
-# when what is left of the last colon is still a valid address
+# when what is left of the last colon is still a valid address. a hostname,
+# from HostnameLookups, is split the same way, and anything else comes back
+# whole as the address
+#
+# args:
+#   $raw :: the text inside [client ...], such as 192.0.2.7:51234,
+#           2001:db8::7:51234, or 2001:db8::7, or undef
+#
+# returns:
+#   a two item list of the address and the port, the port undef when none
+#   was appended, both undef for a undef $raw
+#
+# example:
+#   my ( $client, $port ) = _split_client('192.0.2.7:51234');
+#   # ( '192.0.2.7', '51234' )
 sub _split_client {
 	my ($raw) = @_;
 

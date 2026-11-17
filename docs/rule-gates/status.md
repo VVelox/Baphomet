@@ -25,7 +25,7 @@ rule_gates:
 
 A non-empty list, each entry one of...
 
-- `<status>` :: A status the line's has to equal, as a string.
+- `<status>` :: A status the line's status has to equal, as a string.
 - `//<regexp>//` :: A regexp the status has to match.
 
 A status is matched as a string, so it is `404` and never a range of
@@ -51,8 +51,8 @@ on to the rules after it.
 - an entry that is not a string or number :: "contains a non-string entry"
 - a `//regexp//` that will not compile :: "entry ... does not compile"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

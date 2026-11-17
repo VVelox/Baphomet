@@ -35,10 +35,16 @@ The manager must be running, and the config must set a C<digest_key>.
 
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'show the hash a digest gate makes of a value' }
 

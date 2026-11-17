@@ -36,8 +36,9 @@ The kinds...
 - `multicast` :: `224.0.0.0/4` and `ff00::/8`.
 - `bogon` :: Any address no one on the internet can have... all of the above, and `0.0.0.0/8`, `192.0.0.0/24`, `198.18.0.0/15`, `240.0.0.0/4`, and `::`.
 
-A bare kind is taken as a list of one, and an address of any kind listed
-is of the kinds.
+A bare kind is taken as a list of one. A list is read as any of its kinds,
+so `is` holds on an address of one or more of them and `isnot` on one of
+none.
 
 ## Where it goes
 
@@ -64,8 +65,8 @@ whichever way the gate asks.
 - both `is` and `isnot` :: "has both is and isnot"
 - neither `is` nor `isnot` :: "has neither is nor isnot"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -80,10 +81,6 @@ tests:
     - message: "Jul 12 08:25:49 mail01 sshd[2278]: Failed password for root from 100.64.12.9 port 4711 ssh2"
       found: 0
 ```
-
-## Shipped rules using it
-
-None.
 
 ## See also
 

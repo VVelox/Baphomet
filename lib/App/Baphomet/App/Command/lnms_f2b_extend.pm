@@ -46,8 +46,8 @@ truth for who Kur holds, reports, gathered by the manager rather than
 reached for around it.
 
 A kur this Baphomet targets that is a fan_out gate on the Ereshkigal side
-has no ban list of it's own... the banishments land on it's members, so
-such a jail's tally is the union of it's members holdings.
+has no ban list of its own... the banishments land on its members, so
+such a jail's tally is the union of its members' holdings.
 
 The recidive kur, when configured, is counted alongside the watched kurs.
 
@@ -69,15 +69,22 @@ does... so LibreNMS records the fault rather than choking on a empty reply.
 
 With C<-b> the reply is GZip compressed then Base64 encoded onto one line,
 the LibreNMS SNMP extend compression convention, which LibreNMS decodes on
-it's own by the GZip magic... worth it once a fleet has enough jails to
+its own by the GZip magic... worth it once a fleet has enough jails to
 strain the SNMP reply size.
 
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... command_names, abstract, opt_spec,
-validate_args, and execute.
+Standard L<App::Cmd::Command> methods... command_names, abstract,
+description, usage_desc, opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... command_names for the name the command is invoked by,
+# abstract and description for the help, usage_desc and opt_spec for the
+# usage line and option parsing, validate_args to vet the args ahead of
+# execute, and execute for the work itself. their contract is App::Cmd's,
+# so they are not documented one by one here
 
 # hyphens can not live in a package name, so the on-disk module is
 # lnms_f2b_extend while the command is spelled with hyphens, matching the
@@ -156,10 +163,25 @@ sub execute {
 } ## end sub execute
 
 # the per-jail tallies from the manager's banished answer... a real kur's own
-# banned count, a fan_out gate's the union of it's members holdings since a
-# banishment to a gate lands on each member and the gate keeps no list of it's
+# banned count, a fan_out gate's the union of its members' holdings since a
+# banishment to a gate lands on each member and the gate keeps no list of its
 # own, and a kur the manager could not read (an error entry) an empty jail of
 # zero, so every fed kur still shows as a jail
+#
+# args:
+#   $banished :: hashref, the manager's banished answer... kurs is a hash of
+#       kur name to entry, each with banned (arrayref of IPs), or members
+#       (hashref of member kur name to a hashref with banned), or neither
+#       when the kur could not be read. anything not shaped so reads as no
+#       kurs at all
+#
+# returns:
+#   a flat list of kur name and int count pairs, meant for a hash
+#
+# example:
+#   my %tallies = _tallies_from_banished(
+#       { 'kurs' => { 'sshd' => { 'banned' => [ '192.0.2.7', '192.0.2.8' ] } } } );
+#   # ( 'sshd' => 2 )
 sub _tallies_from_banished {
 	my ($banished) = @_;
 
@@ -191,6 +213,21 @@ sub _tallies_from_banished {
 # assembles the extend structure from the per-jail tallies... total is the
 # sum of the jail counts, an IP held in two jails counting in each, exactly
 # as the fail2ban extend sums its jails
+#
+# args:
+#   $tallies :: hashref of jail (kur) name to int count, as
+#       _tallies_from_banished gives
+#   $error :: the extend's error number, 0 for none, undef read as 0
+#   $error_string :: text naming the fault, '' for none, undef read as ''
+#
+# returns:
+#   hashref in the LibreNMS extend shape... data => { total, jails }, error,
+#   errorString, and version, which is always '1'
+#
+# example:
+#   _extend_structure( { 'sshd' => 4, 'smtp' => 1 }, 0, '' );
+#   # { 'data' => { 'total' => 5, 'jails' => { 'sshd' => 4, 'smtp' => 1 } },
+#   #   'error' => 0, 'errorString' => '', 'version' => '1' }
 sub _extend_structure {
 	my ( $tallies, $error, $error_string ) = @_;
 

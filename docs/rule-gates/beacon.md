@@ -33,11 +33,11 @@ rule_gates:
 
 A bare `by` is a list of one. `min_interval` has to be under `max_interval`.
 
-How even is the gaps' standard deviation over their average. Gaps of 300,
-302, and 298 seconds are well under one percent. An average shorter than
-`min_interval` is a burst and never holds, however even. A gap longer than
-`max_interval` starts the key over, a beacon that stopped and started again
-being two.
+How even is the gaps' standard deviation over their average, which has to
+be at most `jitter`. Gaps of 300, 302, and 298 seconds are well under one
+percent. An average shorter than `min_interval` is a burst and never holds,
+however even. A gap longer than `max_interval` starts the key over, a
+beacon that stopped and started again being two.
 
 It takes `count` gaps, so `count` and one offenses, before the first can
 hold. Once regular, every even offense after holds too, until an uneven one
@@ -54,8 +54,8 @@ below it does not.
 
 ## When it does not hold
 
-A vetoed offense is vetoed as by any gate... it is not counted, and the
-line goes on to the rules after this one.
+A vetoed offense is vetoed as by any gate... it counts toward no rule's
+score, and the line goes on to the rules after this one.
 
 It fails closed. An offense lacking one of the `by` vars is vetoed. So is a
 key's first offense, and the first after a gap past `max_interval`. An
@@ -76,13 +76,13 @@ over. They are not shared with a fleet, and are forgotten at a restart.
 - a key it does not take :: "has the unknown key ..."
 - no `by` or no `count` :: "lacks a ..."
 - a `by` that is not a string or a list of them :: "has a by that is not a non-empty string or a non-empty array of them"
-- a `count` under two, or no whole number :: "has a count that is not a int of two or more"
-- a `jitter` that is not a number over nothing :: "has a jitter that is not a positive number"
+- a `count` under two, or not a whole number :: "has a count that is not a int of two or more"
+- a `jitter` that is not a number over zero :: "has a jitter that is not a positive number"
 - a `min_interval` or `max_interval` that is not a whole number of one or more :: "has a ... that is not a positive int of seconds"
 - a `min_interval` not under the `max_interval` :: "has a min_interval that is not under its max_interval"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -116,4 +116,4 @@ tests:
 ## See also
 
 - [`after`](after.md) :: Holds on how often a key is seen, where this holds on how evenly.
-- [`limit`](limit.md) :: Thins what it sights, every even offense after the first holding too.
+- [`limit`](limit.md) :: Thins what this sights, every even offense after the first holding too.

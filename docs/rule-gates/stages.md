@@ -48,9 +48,12 @@ Each stage is a hash of...
 - `count` :: How many hits complete the stage.
   - default :: 1
 - `within` :: The most seconds since the sequence's last hit.
-  - default :: none, but a sequence waiting 600 seconds on the stage expires
+  - default :: none
 - `skip` :: The most log lines that may come between the sequence's last hit and this one.
   - default :: none
+
+A stage with no `within` still expires a sequence that has waited 600
+seconds on it.
 
 The stages' regexps are tokened as [`message_regexp`](message_regexp.md)'s
 are, offender tokens and primitive fragments both, but every entry is a
@@ -58,7 +61,7 @@ plain string, there being no keyed form. A `per` component names a capture
 of the stages' regexps and, on syslog, may name the reserved envelope
 fields `syslog.host`, `syslog.daemon`, and `syslog.pid`. A single counted
 stage keyed `per: [ syslog.host, syslog.daemon, syslog.pid ]` counts
-repetition with in one daemon session, a far sharper signal than per-IP
+repetition within one daemon session, a far sharper signal than per-IP
 counting across the whole window. Raw has no envelope, so a raw `per` keys
 on captures only.
 
@@ -117,15 +120,15 @@ only... a restart forgets a half-built sequence.
 - not a hash, a key other than `stages` and `per`, or no `stages` :: "is not a hash", "has the unknown key ...", "lacks a stages"
 - `stages` not a non-empty list of hashes :: "is not a non-empty array", "entry N is not a hash"
 - a stage with out `message_regexp`, an unknown key, or a `message_regexp` that is not a non-empty list of strings :: "lacks a message_regexp", "has the unknown key ...", "is not a non-empty array of regexp strings"
-- a `count`, `within`, or `skip` that is not a positive int :: "has a count that is not a positive int"
+- a `count`, `within`, or `skip` that is not a positive int :: "has a ... that is not a positive int"
 - a `per` that is neither a string nor a list, an empty list, or a component that is not a non-empty string :: "has a key that is not a string or a array", "has a empty key array", "has a key component that is not a non-empty string"
-- a `syslog.*` `per` component on a raw rule :: "keys on ..., which is not a envelope field this rule type carries"
+- a `syslog.*` `per` component on a raw rule, or any other than `syslog.daemon`, `syslog.host`, and `syslog.pid` on a syslog rule :: "keys on ..., which is not a envelope field this rule type carries"
 - a regexp naming an unknown token, or one that will not compile :: "uses the unknown token ...", "does not compile"
-- beside a `message_regexp`, a `capture_regexp`, or a `message_json` told true :: "is beside ...... stages are the whole matcher"
+- beside a `message_regexp`, a `capture_regexp`, or a `message_json` told true :: "... stages are the whole matcher"
 - a second `stages` in the rule :: "is the second stages gate of the rule, which can have the one"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -173,4 +176,4 @@ tests:
 - [`capture_regexp`](capture_regexp.md) :: Correlation, which merges data across lines but knows no order and counts nothing.
 - [`mungers`](mungers.md) :: What enriches the completing line.
 - [`ignore_regexp`](ignore_regexp.md) :: Still vetoes lines above it.
-- [stages](stages.md) :: Sequences beside correlation, in the type overview.
+- [stages](../rules.md#stages-ordered-sequences-with-in-one-rule) :: Sequences beside correlation, in the type overview.

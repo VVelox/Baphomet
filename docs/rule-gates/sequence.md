@@ -17,7 +17,7 @@ rule_gates:
 
 - phase :: offense
 - rule types :: every type
-- keys on :: the offender | a found value
+- keys on :: the offender, or a found value with `var` or `vars`
 - vetoes :: yes
 - needs :: the galla's mark store
 - repeatable :: yes, each entry is a gate of its own
@@ -46,7 +46,7 @@ through to them untouched, and a held one has this rule speak instead.
 
 It fails closed. A line with out the var, or vars, it keys on vetoes, as
 does a stage missing, expired, or set before the one listed ahead of it. A
-brand with no saying when it was set is not ordered against the others,
+brand with no record of when it was set is not ordered against the others,
 only required to be live.
 
 The first-set time survives a restart and rides the fleet mark sync of a
@@ -58,13 +58,13 @@ stages seen on different machines.
 - told other than a hash :: "is not a hash"
 - a key it does not take :: "has the unknown key ..."
 - no `marks` :: "lacks a marks"
-- a `marks` of fewer than two names :: "has a marks that is not a array of at least two mark names"
+- a `marks` that is not a list of two or more names :: "has a marks that is not a array of at least two mark names"
 - a `var` that is not a string :: "has a var that is not a non-empty string"
 - a `vars` that is not a list of strings :: "has a vars that is not a non-empty array of non-empty strings"
 - both `var` and `vars` :: "has both var and vars"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

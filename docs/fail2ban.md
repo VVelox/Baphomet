@@ -11,37 +11,37 @@ is how a jail with several actions maps over (see below).
 
 ## The concept map
 
-| fail2ban                                               | here                                                                                                                     |
-|--------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
-| jail                                                   | a kur... the counting side in Baphomet's `[kur.<name>]`, the banning side in Ereshkigal's                                |
-| filter (`filter.d/*.conf`)                             | a rule (`rules/<type>/<name>.yaml`)... some shipped rules cite the fail2ban filter they were translated from             |
-| `failregex`                                            | `message_regexp` (syslog/raw/http_error types) or `match` entries (http/json types)                                      |
-| `ignoreregex`                                          | `ignore_regexp` / `ignore`                                                                                               |
-| `<HOST>`                                               | `%%%%SRC%%%%` etc... or, for the http/http_error/json types, the field the parser put the client in, named in `ban_var`  |
-| `maxretry`                                             | `max_score`                                                                                                              |
-| `findtime`                                             | `find_time`                                                                                                              |
-| `bantime`                                              | `ban_time`... 0 means eternal, and unset defers to the Ereshkigal side default                                           |
-| `logpath`                                              | the watcher `log`, which may also be a array and may glob, re-expanded live                                              |
-| `backend = auto/polling`                               | POE::Wheel::FollowTail, always                                                                                           |
-| `backend = systemd` / `journalmatch`                   | a watcher's `journal` key, matches and all... native, via journalctl                                                     |
-| action (`action.d/*.conf`)                             | Ereshkigal's kur backends...                                                                                             |
-| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side...                                                                                 |
-| `ignoreip`                                             | `ignore_ips`, global or per kur                                                                                          |
-| `fail2ban-client status/set`                           | `baphomet status`, `ereshkigal status/ban/unban/banned`                                                                  |
-| `fail2ban-client status <jail>`, currently failed      | `baphomet accused`... and with the per-IP detail fail2ban never shows                                                    |
-| `fail2ban-client status <jail>`, banned IP list        | `baphomet banished`, the manager asking Ereshkigal and marking bans still pending delivery                               |
-| `fail2ban-client banned <ip>`                          | `baphomet banished --ip <ip>`                                                                                            |
-| `fail2ban-client get <jail> banip --with-time`         | `baphomet ledger`, filterable by kur, IP, and time                                                                       |
-| `fail2ban-regex`                                       | `baphomet check_rules` and `baphomet test_line`                                                                          |
-| the fail2ban SNMP extend for LibreNMS                  | `baphomet lnms-f2b-extend`                                                                                               |
-| `recidive` jail                                        | the `[recidive]` table, escalating across all kurs                                                                       |
-| `bantime.increment`                                    | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban                                |
-| sqlite persistence                                     | the state tablets under `tablet_base_dir`, the ban history in the shared banishment ledger                               |
+| fail2ban                                               | here                                                                                                                                                      |
+|--------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| jail                                                   | a kur... the counting side in Baphomet's `[kur.<name>]`, the banning side in Ereshkigal's                                                                 |
+| filter (`filter.d/*.conf`)                             | a rule (`rules/<type>/<name>.yaml`)... some shipped rules cite the fail2ban filter they were translated from                                              |
+| `failregex`                                            | `message_regexp` (syslog/raw/http_error types) or `match` entries (http/json types)                                                                       |
+| `ignoreregex`                                          | `ignore_regexp` / `ignore`                                                                                                                                |
+| `<HOST>`                                               | `%%%%HOST%%%%`, or `%%%%SRC%%%%` for addresses only... or, for the http/http_error/json types, the field the parser put the client in, named in `ban_var` |
+| `maxretry`                                             | `max_score`                                                                                                                                               |
+| `findtime`                                             | `find_time`                                                                                                                                               |
+| `bantime`                                              | `ban_time`... 0 means eternal, and unset defers to the Ereshkigal side default                                                                            |
+| `logpath`                                              | the watcher `log`, which may also be a array and may glob, re-expanded live                                                                               |
+| `backend = auto/polling`                               | POE::Wheel::FollowTail, always                                                                                                                            |
+| `backend = systemd` / `journalmatch`                   | a watcher's `journal` key, matches and all... native, via journalctl                                                                                      |
+| action (`action.d/*.conf`)                             | Ereshkigal's kur backends...                                                                                                                              |
+| a jail's several actions (`banaction` + mail + report) | a fan_out gate on the Ereshkigal side...                                                                                                                  |
+| `ignoreip`                                             | `ignore_ips`, global or per kur                                                                                                                           |
+| `fail2ban-client status/set`                           | `baphomet status`, `ereshkigal status/ban/unban/banned`                                                                                                   |
+| `fail2ban-client status <jail>`, currently failed      | `baphomet accused`... and with the per-IP detail fail2ban never shows                                                                                     |
+| `fail2ban-client status <jail>`, banned IP list        | `baphomet banished`, the manager asking Ereshkigal and marking bans still pending delivery                                                                |
+| `fail2ban-client banned <ip>`                          | `baphomet banished --ip <ip>`                                                                                                                             |
+| `fail2ban-client get <jail> banip --with-time`         | `baphomet ledger`, filterable by kur, IP, and time                                                                                                        |
+| `fail2ban-regex`                                       | `baphomet check_rules` and `baphomet test_line`                                                                                                           |
+| the fail2ban SNMP extend for LibreNMS                  | `baphomet lnms-f2b-extend`                                                                                                                                |
+| `recidive` jail                                        | the `[recidive]` table, escalating across all kurs                                                                                                        |
+| `bantime.increment`                                    | not directly... recidive escalates to a longer-held kur instead of growing a IP's own ban                                                                 |
+| sqlite persistence                                     | the state tablets under `tablet_base_dir`, the ban history in the shared banishment ledger                                                                |
 
 ## What is better over here
 
 - **Rules carry their own tests.** Every rule embeds positive and negative
-  log lines, ran at every load... a broken rule refuses to load at
+  log lines, run at every load... a broken rule refuses to load at
   `baphomet start` instead of silently matching nothing. fail2ban-regex
   sessions become part of the rule file itself.
 - **A parser layer with a daemon gate.** Lines are parsed once (syslog,
@@ -54,7 +54,7 @@ is how a jail with several actions maps over (see below).
   (`attr.remote`, `request.client_ip`) rather than regexps over JSON
   text. fail2ban has no equivalent.
 - **Live globs.** `log = "/jails/*/var/log/auth.log"` picks up a jail
-  created while running with in ten seconds.
+  created while running within ten seconds.
 - **Correlation without the buffer.** Cases where the offense and the
   address land on different lines (mongodb pre-4.4, sendmail's No such
   user) correlate by key with TTLs, instead of fail2ban's maxlines buffer
@@ -64,7 +64,7 @@ is how a jail with several actions maps over (see below).
 - **Gates fail2ban never had.** Per-rule thresholds, cross-rule marks, and
   country / blocklist / time-of-day gates, folded in from Sagan whose rule
   language reaches past a regexp per jail... see [sagan](sagan.md).
-- **Weighted scoring** fail2ban counts every match as
+- **Weighted scoring.** fail2ban counts every match as
   one and bans at `maxretry`. Here a rule carries a `weight`, and `max_score`
   is a score to reach, not a retry count... so a dangerous signature can weigh
   10 and banish on one hit, and several different rules against one IP accrue
@@ -72,7 +72,7 @@ is how a jail with several actions maps over (see below).
   sshguard scores attacks by dangerousness; this is that, per rule. Honored
   under the same `allow_per_rule_thresholds` consent, and with every weight 1
   it is exactly fail2ban's count. See [rules](rules.md).
-- **Observe mode** A rule, watcher, kur, or the whole
+- **Observe mode.** A rule, watcher, kur, or the whole
   deployment can be set `eve_only`... it matches and writes to EVE but never
   banishes, a would-be ban surfacing as an `alert` and each match as `noted`.
   Stand a new rule up, watch what it would have done, then trust it to act by
@@ -183,9 +183,8 @@ mechanical...
    `classtype`, then paste the corpus lines under `tests: positive:` with the
    `SRC` each should capture, and the must-not-match lines under `negative:`.
    The `fail2ban-regex` session becomes part of the rule file.
-5. **Verify.** `baphomet test_line` pokes a single line at a draft with its
-   tests skipped, and `baphomet check_rules` runs the embedded tests, refusing
-   to load a rule that fails its own... the same guard `baphomet start` uses.
+5. **Verify.** `baphomet test_line` pokes a draft and `baphomet check_rules`
+   runs its tests... see [tests](rules.md#tests).
 
 What does not port one-to-one: `journalmatch` is a watcher's `journal` key,
 not a rule key; `datepattern` is the parser's job, chosen by the rule type;

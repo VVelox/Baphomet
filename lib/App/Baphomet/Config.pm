@@ -137,7 +137,7 @@ Top level keys are as below.
           galla ones and the Ereshkigal one.
         Default :: 30
 
-    - max_score :: How many matches with in find_time seconds it takes
+    - max_score :: How many matches within find_time seconds it takes
           for a IP to be banned. May be overridden per kur and per watcher.
         Default :: 5
 
@@ -160,7 +160,7 @@ Top level keys are as below.
     - ban_subnet_v4 :: A IPv4 prefix length, turning on subnet bucketing
           for v4 offenders... beside its own tally each offender also
           feeds a bucket for its /prefix CIDR, and the bucket crossing
-          subnet_max_score with in subnet_find_time banishes the whole
+          subnet_max_score within subnet_find_time banishes the whole
           CIDR. May be overridden per kur and per watcher.
         Default :: undef, off
 
@@ -269,7 +269,7 @@ Top level keys are as below.
           alone; every command not named falls to the baseline built from
           authed_users and authed_groups. The commands that may be named are
           status, status_all, status_galla, accused, marked, tracked,
-          watching, banished, and stop. Keys...
+          watching, banished, digest, and stop. Keys...
 
               default :: The verdict for a command that no rule and no
                   baseline speaks to, one of C<allow> or C<deny>.
@@ -303,7 +303,7 @@ Top level keys are as below.
 
     - recidive :: A table turning on repeat offender escalation. When set,
           every banishment is recorded to a shared ledger, and a IP
-          banished across any kurs max_score times with in find_time is
+          banished across any kurs max_score times within find_time is
           dragged through a further gate... banished to the recidive
           C<kur> for ban_time seconds, which should be long. Keys...
 
@@ -742,9 +742,23 @@ sub load_config {
 	return $config;
 } ## end sub load_config
 
-# checks the ClayTablet table, dieing on anything unusable... the backend the
+# checks the ClayTablet table, dying on anything unusable... the backend the
 # store is dispatched to, and the free-form options that backend interprets.
-# the store itself is verified later, when the galla constructs it
+# only the shape is vetted here... the store itself is verified later, when
+# the galla constructs it, so a unreachable redis is not a config error
+#
+# args:
+#   $ct :: the ClayTablet hash from the config, holding any of backend, a
+#          plain name matching /^[A-Za-z][A-Za-z0-9]*$/ such as "File" or
+#          "Redis", and options, a hash the backend interprets as it likes
+#
+# returns:
+#   undef on success... dies with a description of the problem otherwise,
+#   such as a unknown key, a backend that is not a plain name, or options
+#   that is not a hash
+#
+# example:
+#   _check_claytablet( { 'backend' => 'Redis', 'options' => { 'server' => '127.0.0.1:6379' } } );
 sub _check_claytablet {
 	my ($ct) = @_;
 
@@ -768,7 +782,22 @@ sub _check_claytablet {
 	return;
 } ## end sub _check_claytablet
 
-# checks the recidive table, dieing on anything unusable
+# checks the recidive table, dying on anything unusable... the kur repeat
+# offenders are banished to and the thresholds that decide who is one
+#
+# args:
+#   $recidive :: the recidive hash from the config... kur, required, a kur
+#                name matching /^[a-zA-Z0-9\-]+$/; max_score and find_time,
+#                optional positive ints, find_time in seconds; ban_time,
+#                optional non-negative int of seconds
+#
+# returns:
+#   undef on success... dies with a description of the problem otherwise,
+#   such as a unknown key, a missing or malformed kur, or a non-int
+#   threshold
+#
+# example:
+#   _check_recidive( { 'kur' => 'recidive', 'max_score' => 3, 'find_time' => 86400 } );
 sub _check_recidive {
 	my ($recidive) = @_;
 
@@ -812,11 +841,31 @@ sub known_command {
 	return ( defined($name) && $command_set{$name} ) ? 1 : 0;
 }
 
-# checks the command_perms table, dieing on anything unusable... the default
+# checks the command_perms table, dying on anything unusable... the default
 # verdict and the per-command rules the Neti gate lays over the
 # authed_users/authed_groups baseline. %DEFAULT% is the catch-all any command
 # without its own rule falls to; every other command named must be one the
-# manager actually answers, so a typo guards nothing silently
+# manager actually answers, so a typo guards nothing silently. each rule
+# itself is handed to _check_command_spec
+#
+# args:
+#   $perms :: the command_perms hash from the config... default, optional,
+#             "allow" or "deny"; commands, optional, a hash keyed by a name
+#             from @COMMANDS or %DEFAULT%, each value a rule as
+#             _check_command_spec takes it
+#
+# returns:
+#   undef on success... dies with a description of the problem otherwise,
+#   such as a unknown key, a bad default, a unknown command name, or a
+#   malformed rule
+#
+# example:
+#   _check_command_perms(
+#       {
+#           'default'  => 'deny',
+#           'commands' => { 'status' => 'allow', 'stop' => { 'users' => ['operator'] } },
+#       }
+#   );
 sub _check_command_perms {
 	my ($perms) = @_;
 
@@ -851,6 +900,21 @@ sub _check_command_perms {
 # checks a single per-command rule... a bare "allow" or "deny", or a table of
 # the user and group allow/deny lists JSONUnix understands. the check coderef
 # JSONUnix also accepts is code, not config, so it has no place here
+#
+# args:
+#   $name :: the command name the rule is for, such as "stop" or
+#            "%DEFAULT%"... only used to lead the error message
+#   $spec :: the rule... the string "allow" or "deny", or a hash of any of
+#            users, groups, deny_users, and deny_groups, each a array of
+#            strings, a all-digit string matching by UID or GID
+#
+# returns:
+#   undef on success... dies with a description of the problem otherwise,
+#   such as a string other than allow/deny, a unknown key, or a list that
+#   is not a array of strings
+#
+# example:
+#   _check_command_spec( 'stop', { 'users' => [ 'operator', '0' ], 'deny_groups' => ['guests'] } );
 sub _check_command_spec {
 	my ( $name, $spec ) = @_;
 
@@ -879,7 +943,9 @@ sub _check_command_spec {
 =head2 kur_split
 
 Splits a kur def hash into its settings and its watchers. Hash values are
-watchers, everything else is a setting.
+watchers, everything else is a setting... save the hash-valued settings
+country_codes, asn_lists, namtar_lists, active_time, and rule_config, which
+stay settings.
 
     my ( $settings, $watchers ) = kur_split($def);
 
@@ -887,7 +953,8 @@ watchers, everything else is a setting.
 
 # settings that are hashes rather than scalars, so kur_split does not
 # mistake them for watchers... country_codes, asn_lists, namtar_lists, and
-# active_time are hashes of named things
+# active_time are hashes of named things, rule_config a hash of per-rule
+# override tables
 my %hash_settings
 	= ( 'country_codes' => 1, 'asn_lists' => 1, 'namtar_lists' => 1, 'active_time' => 1, 'rule_config' => 1 );
 
@@ -918,10 +985,21 @@ my %watcher_key_ref_types = (
 	),
 );
 
-# returns a bare error string if the passed default_severity is set and not a
-# valid level, undef otherwise... the caller supplies its own context lead.
-# the levels are the severity kind's, the one scale a rule's own severity is
-# held to
+# vets a default_severity setting, or a rule_config severity override... the
+# levels are the severity kind's, the one scale a rule's own severity is held
+# to. the caller supplies its own context lead
+#
+# args:
+#   $value :: the severity to vet, one of info, low, medium, high, or
+#             critical, or undef for one left unset
+#
+# returns:
+#   undef when $value is unset or a valid level, else the bare error string
+#   'default_severity is not one of info/low/medium/high/critical'
+#
+# example:
+#   my $error = _severity_error('urgent');    # the error string
+#   my $none  = _severity_error('high');      # undef
 sub _severity_error {
 	my ($value) = @_;
 
@@ -932,10 +1010,23 @@ sub _severity_error {
 	return undef;
 }
 
-# returns a bare error string if the passed overlap is set and not a valid
-# mode, undef otherwise... first is first-match-wins, shadow keeps the real
-# judgment on the first firing rule and demotes every later one to a
-# detection-style sighting, all judges every firing rule for real
+# vets a overlap setting, the mode for a line more than one rule fires on...
+# first is first-match-wins, shadow keeps the real judgment on the first
+# firing rule and forces eve_only (observe mode) on every later one for that
+# hit, counting it into the shadow buckets, all judges every firing rule for
+# real
+#
+# args:
+#   $value :: the overlap mode to vet, one of first, shadow, or all, or
+#             undef for one left unset
+#
+# returns:
+#   undef when $value is unset or a valid mode, else the bare error string
+#   'overlap is not one of first/shadow/all'
+#
+# example:
+#   my $error = _overlap_error('every');    # the error string
+#   my $none  = _overlap_error('shadow');   # undef
 sub _overlap_error {
 	my ($value) = @_;
 
@@ -964,9 +1055,10 @@ sub kur_split {
 
 =head2 check_kur_def
 
-Checks a kur def, dieing with a description of the problem if it is not
-usable... bad name, no watchers, a watcher lacking log/parser/rule, a
-unknown parser or rule type, or a unknown or invalid setting.
+Checks a kur def, dying with a description of the problem if it is not
+usable... bad name, no watchers, a watcher lacking a log or journal, carrying
+both, or lacking a rule, a unknown parser or rule type, or a unknown or
+invalid setting.
 
     check_kur_def( $name, $def );
 
@@ -1118,10 +1210,13 @@ sub check_kur_def {
 =head2 resolve_settings
 
 Resolves the effective max_score, find_time, ban_time,
-allow_per_rule_thresholds, eve_only, track_only_eve_store, observe_ignored, and
-default_severity for a watcher... watcher over kur over global, each setting
-documented under L</DESCRIPTION>. The four booleans are normalized to a plain
-0 or 1. A rule's own eve_only, when set, layers over the resolved one.
+allow_per_rule_thresholds, eve_only, track_only_eve_store, observe_ignored,
+overlap, default_severity, ban_subnet_v4, ban_subnet_v6, subnet_max_score,
+subnet_find_time, and usedns for a watcher... watcher over kur over global,
+each setting documented under L</DESCRIPTION>. The four booleans are
+normalized to a plain 0 or 1. The resolved eve_only is only the watcher
+default... a rule's own eve_only, and a rule_config one over that, are layered
+on by the galla, not here.
 
     my $settings = resolve_settings( $config, $kur_settings, $watcher );
 
@@ -1372,12 +1467,17 @@ sub ip_network {
 # matched, netted, and bucketed as one.
 #
 # args:
-#   $ip :: the address string
+#   $ip :: the address string, such as "192.0.2.7", "2001:db8::1", or
+#          "::ffff:192.0.2.7"
 #
-# returns the two item list ( $packed, $bits ), bits 32 or 128, or the empty
-# list for anything that is not a IP, a ref or undef included.
+# returns:
+#   the two item list ( $packed, $bits )... $packed the 4 or 16 byte
+#   network-order address, $bits 32 or 128 to match. the empty list for
+#   anything that is not a IP, a ref or undef included
 #
+# example:
 #   my ( $packed, $bits ) = _pack_ip('::ffff:192.0.2.7');    # 192.0.2.7's 4 bytes, 32
+#   my ( $packed, $bits ) = _pack_ip('2001:db8::1');         # 16 bytes, 128
 sub _pack_ip {
 	my ($ip) = @_;
 
@@ -1404,12 +1504,17 @@ sub _pack_ip {
 # partial byte after them, the split ip_network masks a address under.
 #
 # args:
-#   $prefix :: the prefix length in bits, already known to suit its family
+#   $prefix :: the prefix length in bits, a int already known to suit its
+#              family, 0..32 for IPv4 or 0..128 for IPv6
 #
-# returns the two item list ( $whole_bytes, $mask ), mask a one byte string,
-# or undef when the prefix ends on a byte boundary.
+# returns:
+#   the two item list ( $whole_bytes, $mask )... $whole_bytes the count of
+#   bytes kept whole, $mask a one byte string masking the byte after them,
+#   or undef when the prefix ends on a byte boundary
 #
+# example:
 #   my ( $whole_bytes, $mask ) = _prefix_split(20);    # 2, "\xf0"
+#   my ( $whole_bytes, $mask ) = _prefix_split(24);    # 3, undef
 sub _prefix_split {
 	my ($prefix) = @_;
 
@@ -1508,7 +1613,7 @@ sub watcher_is_journal {
 Validates and compiles the join of a watcher, the joiner gluing physical
 continuation lines onto their head line ahead of the parser... how a stack
 trace or any other one-event-many-lines record becomes a single record for
-the rules to judge. Returns undef when the watcher carries none, a hash of
+the rules to judge. Returns undef when the watcher has no join, a hash of
 the compiled continuation regexp and the resolved max_lines and flush_after
 otherwise. Will die on anything unusable, with the passed $where leading
 the error message.
@@ -1570,8 +1675,21 @@ sub watcher_join {
 	};
 } ## end sub watcher_join
 
-# returns a error string if the passed value is not a array of strings,
-# undef otherwise... for the authed_users/authed_groups lists
+# vets a list of user or group names... for authed_users, authed_groups, and
+# the users/groups/deny_users/deny_groups lists of a command_perms rule. the
+# caller leads the error with its own context
+#
+# args:
+#   $list :: the list to vet, a array of strings, each a name or a all-digit
+#            UID or GID
+#
+# returns:
+#   undef when $list is a array of just strings, else a bare error string,
+#   'not a array' or 'not a array of just strings'
+#
+# example:
+#   my $error = _authed_list_error( [ 'operator', '0' ] );    # undef
+#   my $error = _authed_list_error('operator');               # 'not a array'
 sub _authed_list_error {
 	my ($list) = @_;
 
@@ -1587,8 +1705,26 @@ sub _authed_list_error {
 	return undef;
 } ## end sub _authed_list_error
 
-# returns a error string if any of max_score/find_time/ban_time present in
-# the passed hash is invalid, undef otherwise
+# vets the settings of a kur or a watcher... rejects any key not in the
+# allowed set, then checks the named-list settings (country_codes,
+# asn_lists, namtar_lists, active_time, rule_config), default_severity,
+# overlap, and usedns, and lastly the counts, times, and subnet keys via
+# _times_error. the first problem found answers
+#
+# args:
+#   $settings     :: the settings hash, a kur's settings from kur_split or a
+#                    whole watcher hash
+#   $allowed_keys :: optional hash of the key names allowed, a name to true
+#                    value... %kur_setting_keys or %watcher_setting_keys,
+#                    %kur_setting_keys when not a hash
+#
+# returns:
+#   undef when every setting is usable, else a error string worded to follow
+#   "has ", such as 'the unknown setting "maxscore"'
+#
+# example:
+#   my $error = _settings_error( $watcher, \%watcher_setting_keys );
+#   die( $where . 'has ' . $error ) if defined($error);
 sub _settings_error {
 	my ( $settings, $allowed_keys ) = @_;
 
@@ -1647,10 +1783,23 @@ sub _settings_error {
 	return _times_error($settings);
 } ## end sub _settings_error
 
-# returns a error string if the passed value is not a usable usedns mode,
-# undef otherwise... no drops hostname offenders, resolve_seen resolves at
-# match time and buckets by the addresses, resolve_ban buckets by the name
-# and resolves at the threshold
+# vets a usedns setting, how a offender given as a hostname is handled... no
+# drops hostname offenders, resolve_seen resolves at match time and buckets
+# by the addresses, resolve_ban buckets by the name and resolves at the
+# threshold
+#
+# args:
+#   $usedns :: the mode to vet, one of no, resolve_seen, or resolve_ban, or
+#              undef for one left unset
+#
+# returns:
+#   undef when $usedns is unset or a valid mode, else a error string worded
+#   to follow "has ", 'a usedns that is not one of no, resolve_ban, or
+#   resolve_seen'
+#
+# example:
+#   my $error = _usedns_error('yes');            # the error string
+#   my $none  = _usedns_error('resolve_ban');    # undef
 sub _usedns_error {
 	my ($usedns) = @_;
 
@@ -1690,9 +1839,23 @@ sub resolve_country_codes {
 	return $resolved;
 } ## end sub resolve_country_codes
 
-# returns a error string if the passed country_codes is not a hash of
-# non-empty arrays of 2-letter codes, undef otherwise... $where leads the
-# message
+# vets a country_codes setting, the named lists a country gate tests a
+# offender's country against
+#
+# args:
+#   $codes :: the country_codes hash, list name to a non-empty array of
+#             2-letter country codes, either case
+#   $where :: the string leading the error message, such as "country_codes"
+#             or "The top level country_codes"
+#
+# returns:
+#   undef when $codes is usable, else a error string led by $where naming
+#   the bad list
+#
+# example:
+#   my $error = _country_codes_error( { 'home' => [ 'US', 'ca' ] }, 'country_codes' );    # undef
+#   my $error = _country_codes_error( { 'home' => ['USA'] }, 'country_codes' );
+#   # 'country_codes list "home" has a entry that is not a 2-letter country code'
 sub _country_codes_error {
 	my ( $codes, $where ) = @_;
 
@@ -1764,9 +1927,22 @@ sub resolve_asn_lists {
 	return $resolved;
 } ## end sub resolve_asn_lists
 
-# returns a error string if the passed asn_lists is not a hash of non-empty
-# arrays of AS numbers, each bare or written AS64496, undef otherwise...
-# $where leads the message
+# vets a asn_lists setting, the named lists a asn gate tests a offender's AS
+# number against
+#
+# args:
+#   $lists :: the asn_lists hash, list name to a non-empty array of AS
+#             numbers, each bare like 64496 or written AS64496, either case
+#   $where :: the string leading the error message, such as "asn_lists"
+#
+# returns:
+#   undef when $lists is usable, else a error string led by $where naming
+#   the bad list
+#
+# example:
+#   my $error = _asn_lists_error( { 'hosters' => [ 'AS64496', 64511 ] }, 'asn_lists' );    # undef
+#   my $error = _asn_lists_error( { 'hosters' => [] }, 'asn_lists' );
+#   # 'asn_lists list "hosters" is not a non-empty array'
 sub _asn_lists_error {
 	my ( $lists, $where ) = @_;
 
@@ -1815,10 +1991,28 @@ sub resolve_namtar_lists {
 	return $resolved;
 } ## end sub resolve_namtar_lists
 
-# normalizes one named namtar list, in either the bare cidr form (a path or
-# array of paths) or the typed table form ({type, files, nocase}), into a
-# {type, nocase, paths} spec. defaults type to cidr and nocase off, the
-# shape already vetted by _namtar_lists_error
+# normalizes one named namtar list into the one spec shape the namtar gate
+# reads, so it never has to care which form the config wrote. the shape is
+# already vetted by _namtar_lists_error, so nothing is checked here
+#
+# args:
+#   $value :: the list as the config wrote it... the bare cidr form, a path
+#             string or a array of them, or the typed table form, a hash of
+#             type ("cidr" or "string", default cidr), files (a path or a
+#             array of them), and nocase (a boolean, string lists only)
+#
+# returns:
+#   a hash of...
+#     - type :: "cidr" or "string"
+#     - nocase :: 1 for a string list matched case-insensitively, else 0
+#     - paths :: a array of the list file paths, a lone path made a one
+#           element array
+#
+# example:
+#   my $spec = _namtar_list_spec('/usr/local/etc/baphomet/tor.txt');
+#   # { 'type' => 'cidr', 'nocase' => 0, 'paths' => ['/usr/local/etc/baphomet/tor.txt'] }
+#   my $spec = _namtar_list_spec( { 'type' => 'string', 'files' => 'users.txt', 'nocase' => 1 } );
+#   # { 'type' => 'string', 'nocase' => 1, 'paths' => ['users.txt'] }
 sub _namtar_list_spec {
 	my ($value) = @_;
 
@@ -1839,10 +2033,25 @@ sub _namtar_list_spec {
 	};
 } ## end sub _namtar_list_spec
 
-# returns a error string if the passed namtar_lists is not a hash of named
-# lists, each a path, a non-empty array of paths, or a typed table
-# ({type: cidr|string, files: path or array, nocase: bool, string only}),
-# undef otherwise... $where leads the message
+# vets a namtar_lists setting, the named list files a namtar gate tests a
+# value against
+#
+# args:
+#   $lists :: the namtar_lists hash, list name to a path, a non-empty array
+#             of paths, or a typed table of type ("cidr" or "string"),
+#             files (required, a path or array of paths), and nocase (a
+#             boolean, only on a string list)
+#   $where :: the string leading the error message, such as "namtar_lists"
+#
+# returns:
+#   undef when $lists is usable, else a error string led by $where naming
+#   the bad list
+#
+# example:
+#   my $error = _namtar_lists_error( { 'tor' => '/usr/local/etc/baphomet/tor.txt' }, 'namtar_lists' );    # undef
+#   my $error = _namtar_lists_error( { 'tor' => { 'type' => 'cidr', 'nocase' => 1, 'files' => 'tor.txt' } },
+#       'namtar_lists' );
+#   # 'namtar_lists list "tor" sets nocase on a non-string list'
 sub _namtar_lists_error {
 	my ( $lists, $where ) = @_;
 
@@ -1919,9 +2128,26 @@ sub resolve_active_time {
 	return $resolved;
 } ## end sub resolve_active_time
 
-# returns a error string if the passed active_time is not a hash of named
-# windows, each a spec or a array of specs of {days?, hours?}, undef
-# otherwise... $where leads the message
+# vets a active_time setting, the named time windows a active_time gate
+# tests the hour of a line against. each spec is handed to
+# _active_time_spec_error
+#
+# args:
+#   $windows :: the active_time hash, window name to a spec or a non-empty
+#               array of specs, each a hash of days and/or hours as
+#               _active_time_spec_error takes it
+#   $where   :: the string leading the error message, such as "active_time"
+#               or "The top level active_time"
+#
+# returns:
+#   undef when $windows is usable, else a error string led by $where naming
+#   the bad window
+#
+# example:
+#   my $error = _active_time_error( { 'office' => { 'days' => [ 1 .. 5 ], 'hours' => '0800-1800' } },
+#       'active_time' );    # undef
+#   my $error = _active_time_error( { 'office' => [] }, 'active_time' );
+#   # 'active_time window "office" is a empty array'
 sub _active_time_error {
 	my ( $windows, $where ) = @_;
 
@@ -1948,9 +2174,22 @@ sub _active_time_error {
 	return undef;
 } ## end sub _active_time_error
 
-# returns a error string if a single active_time spec is malformed, undef
-# otherwise... a hash of optional days (0..6) and hours ("HHMM-HHMM" or a
-# array of them), at least one of the two present
+# vets a single active_time spec, one day/hour window of a named window
+#
+# args:
+#   $spec  :: the spec, a hash of days, a non-empty array of day numbers
+#             0..6 with 0 sunday, and/or hours, a "HHMM-HHMM" range or a
+#             non-empty array of them... at least one of the two present
+#   $where :: the string leading the error message, such as
+#             'active_time window "office"'
+#
+# returns:
+#   undef when $spec is usable, else a error string led by $where
+#
+# example:
+#   my $error = _active_time_spec_error( { 'hours' => [ '0000-0600', '2200-2359' ] }, $where );    # undef
+#   my $error = _active_time_spec_error( { 'days' => [7] }, $where );
+#   # $where . ' has a day that is not 0..6'
 sub _active_time_spec_error {
 	my ( $spec, $where ) = @_;
 
@@ -2093,9 +2332,27 @@ sub resolve_rule_config {
 # table through a typo
 my %rule_config_keys = map { $_ => 1 } qw( max_score find_time ban_time weight eve_only severity );
 
-# returns a error string if the passed rule_config is not a hash of rule
-# names, each mapping to a table of the allowed per-rule overrides with usable
-# values, undef otherwise... $where leads the message
+# vets a rule_config setting, the per-rule override tables. only the key
+# spelling is vetted for a %group% key... its members are looked up later,
+# by resolve_rule_config
+#
+# args:
+#   $rule_config :: the rule_config hash, a rule name like "syslog/sshd" or
+#                   a group like "%syslog/foreign-auth%" to a hash of any of
+#                   max_score, find_time, ban_time, weight (a positive
+#                   number), eve_only (a boolean), and severity (a level)
+#   $where       :: the string leading the error message, such as
+#                   "rule_config"
+#
+# returns:
+#   undef when $rule_config is usable, else a error string led by $where
+#   naming the bad rule
+#
+# example:
+#   my $error = _rule_config_error( { 'syslog/sshd' => { 'max_score' => 3, 'eve_only' => 1 } },
+#       'rule_config' );    # undef
+#   my $error = _rule_config_error( { 'syslog/sshd' => { 'usedns' => 'no' } }, 'rule_config' );
+#   # 'rule_config rule "syslog/sshd" has the unknown override "usedns"'
 sub _rule_config_error {
 	my ( $rule_config, $where ) = @_;
 
@@ -2159,9 +2416,27 @@ sub _rule_config_error {
 	return undef;
 } ## end sub _rule_config_error
 
-# returns a error string if any count, time, or subnet prefix setting in the
-# passed hash is invalid, undef otherwise... the settings are checked in a
-# fixed order and the first bad one answers
+# vets the count, time, and subnet prefix settings of a hash... max_score,
+# find_time, ban_time, subnet_max_score, subnet_find_time, ban_subnet_v4,
+# and ban_subnet_v6. the settings are checked in a fixed order and the first
+# bad one answers. keys not in that set are ignored
+#
+# args:
+#   $settings :: the hash holding any of those keys... a kur's settings, a
+#                watcher, or a rule_config override table. max_score,
+#                find_time, subnet_max_score, and subnet_find_time positive
+#                ints, ban_time a non-negative int, ban_subnet_v4 a prefix of
+#                1..32, ban_subnet_v6 one of 1..128, times in seconds
+#
+# returns:
+#   undef when every one present is usable, else a error string worded to
+#   follow "has ", such as 'a find_time, "soon", that is not a positive int
+#   of seconds'
+#
+# example:
+#   my $error = _times_error( { 'max_score' => 5, 'ban_subnet_v4' => 24 } );    # undef
+#   my $error = _times_error( { 'ban_subnet_v6' => 129 } );
+#   # 'a ban_subnet_v6, "129", that is not a prefix length of 1..128'
 sub _times_error {
 	my ($settings) = @_;
 

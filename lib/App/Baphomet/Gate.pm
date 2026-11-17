@@ -137,6 +137,16 @@ What a gate of the offense phase is handed. A hash of...
     - set / lifted :: Array refs of the brands set on and lifted from it,
           each a hash of C<name> and C<key>.
 
+    - usedns :: A sub taking the subjects array ref and returning the
+          subjects with any hostname among them handled per the watcher's
+          C<usedns>, what L</settle_offenders> settles them through. undef
+          when there is none, as under C<run_tests>.
+
+    - judged :: True for a offense a earlier line left waiting that this
+          line completed, as a capture gate's correlation does. Already
+          judged by the gates of the rule that left it, it is let by the
+          gates of this line rather than judged again.
+
 =head1 THE CONTEXT
 
 What a gate is bound over, a hash the caller fills... the galla with its
@@ -636,11 +646,12 @@ sub gate_class {
 
 Compiles a rule's C<rule_gates> list into its gates, in the order written,
 at rule load. Dies on a list that is not a non-empty array, a entry that is
-not a hash of one key, a type that does not load, a type with nothing to be
-asked by, whatever a type's own L</compile> or L</settle> refuses, a second
-gate of a type a rule can name
-L</once>, and a gate that reads the offenders of a offense with nothing
-above it to name them.
+not a hash of one key, a type that does not load, a gate whose phase is
+neither line nor offense, a type with nothing to be asked by, whatever a
+type's own L</compile> or L</settle> refuses, a second gate of a type a rule
+can name L</once>, a second ban_var or detection_var, a gate that reads the
+offenders of a offense with nothing above it to name them, and such a gate
+under a detection_var, which names no offenders.
 
     - rule_gates :: The list as the author wrote it, or undef for a rule
           with out any.

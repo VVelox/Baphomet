@@ -61,8 +61,8 @@ harvested... and the line goes on to the rules after it.
 - a regexp naming a token that is neither an offender token nor a fragment, on syslog or raw :: "uses the unknown token ..."
 - a regexp that will not compile :: "does not compile"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

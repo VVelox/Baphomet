@@ -43,7 +43,8 @@ Two `daemons` gates are ANDed, a daemon having to get by both.
 
 **Leading the list.** The rule index reads only the `daemons` gates in the
 run of gates leading the list that read nothing but the parsed line...
-`daemons` and `ignore_regexp` on a syslog rule, in either order. One
+`daemons`, `ignore_regexp`, `pressure`, and `startup` on a syslog rule, in
+any order. One
 written below anything else, a `mungers` say, still turns lines away, but
 the rule is offered every line the watcher reads and asks it of each, and
 whatever stands above it has already run on lines it then refuses.
@@ -62,8 +63,8 @@ line at all, which comes to the same thing.
 - a `//regexp//` that will not compile :: "entry ... does not compile"
 - a syslog rule with out one :: "has no daemons gate, which a syslog rule has to have"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -76,7 +77,7 @@ to the `bsd_syslog` parser, which is what puts the daemon on the line. See
 tests:
   negative:
     # right message, wrong daemon
-    - message: "Jul 12 08:25:49 mail01 cron[1234]: Failed password for invalid user admin from 192.0.2.7 port 4711 ssh2"
+    - message: "Jul 12 08:25:49 mail01 cron[1234]: Invalid user admin from 192.0.2.7 port 4711"
       found: 0
       undefed: ["SRC"]
 ```
@@ -88,7 +89,7 @@ Every syslog rule leads with one.
 - `%syslog/ssh%` :: `sshd` and `sshd-session`, plain names.
 - `syslog/sendmail-reject` :: The three names sendmail logs under.
 - `syslog/postfix` :: One regexp over every `postfix/<service>`, multi-instance names included.
-- `syslog/dovecot` :: Two regexps, `dovecot` and its auth workers.
+- `syslog/dovecot` :: Two plain names and two regexps, `dovecot` and its auth workers.
 - `syslog/pam-generic` :: `//.//`, any daemon at all, pam logging under whatever links it.
 
 ## See also

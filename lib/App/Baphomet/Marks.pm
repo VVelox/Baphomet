@@ -32,8 +32,8 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-The mark machinery, lifted out of the galla so it runs over any store
-hashref... the galla passes its live C<< $self->{marks} >> and layers the
+This is the mark machinery, lifted out of the galla so it runs over any
+store hashref... the galla passes its live C<< $self->{marks} >> and layers the
 fleet gossip and the ignore pre-filter around these, while C<run_tests>
 passes a throwaway store per test entry and a virtual clock, so a rule
 file can prove its own branding and gating cold. Nothing here knows of
@@ -81,7 +81,7 @@ sub mark_key {
 =head2 live_mark
 
 Looks a brand up in a store, live ones only. Returns the mark's hash ref,
-C<< { expires, set?, value? } >>, or undef when the key is not branded under
+C<< { expires, set?, value?, here?, hosts? } >>, or undef when the key is not branded under
 the name or the brand has expired.
 
     my $mark = live_mark( $store, 'brute_force', '192.0.2.7', $now );

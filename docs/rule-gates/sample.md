@@ -50,10 +50,10 @@ being let by.
 - told other than a hash :: "is not a hash"
 - a key it does not take :: "has the unknown key ..."
 - no `every` :: "lacks a every"
-- an `every` under two, or no whole number :: "has a every that is not a int of two or more"
+- an `every` under two, or not a whole number :: "has a every that is not a int of two or more"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

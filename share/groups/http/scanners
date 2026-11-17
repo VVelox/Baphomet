@@ -1,6 +1,7 @@
 # Bot, scanner, and probe rules over an HTTP access log... bad bots, admin/
 # login panel sweeps, the fake-Googlebot check, PHP url-fopen abuse, and
-# password-protected-area probes. Reference as %http/scanners%.
+# apache-pass, the port-knock pass request, meant to be repointed at a honeypot
+# URL. Reference as %http/scanners%.
 #
 # See docs/rules.md (Rule groups).
 

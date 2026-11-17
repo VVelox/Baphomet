@@ -67,11 +67,12 @@ A gate that reads what `km_into` or `kmh_into` lifts goes below it.
 A veto drops the offense, and the line goes on to the rules after this one.
 
 It fails closed. It does not hold on a key's first sighting, on a last
-sighting past its `ttl`, on an address the database can not place, or on
-an offense lacking the address or part of the key. Of these, the
-unplaceable address and the offense lacking a part are not kept as
-sightings either. A brand of the `name` that some other rule set, valued as
-no sighting is, is not measured against, and the sighting takes its place.
+sighting past its `ttl`, on an address the database can not place, or on an
+offense lacking the address or part of the key. Of these, the unplaceable
+address and the offense lacking a part are not kept as sightings either. If
+some other rule set a brand of the same `name` with a value that is not a
+sighting, the gate does not measure against it, and this sighting takes its
+place.
 
 With no city database loaded, unset or unloadable, it never holds, and the
 galla says so at its start... "travel-gated rules are configured but no
@@ -106,8 +107,8 @@ the EVE event read.
 - a `faster_than_kmh` or `min_km` that is not a number over nothing :: "has a ... that is not a positive number"
 - a `ttl` that is not a whole number of one or more :: "has a ttl that is not a positive int of seconds"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

@@ -34,9 +34,11 @@ our $VERSION = '0.0.1';
     $tablet->write( 'marks', [ '{"name":"x",...}' ] );
     my @lines = $tablet->read('marks');
 
-The frontend a galla holds for its state tablets... counters, pending bans,
-log positions, journal cursors, running stats, correlation context, and the
-persistent marks. It reads the global C<ClayTablet> config, picks a backend by
+=head1 DESCRIPTION
+
+The frontend a galla holds for its state tablets... counters, pending IP and
+CIDR bans, subnet buckets, log positions, journal cursors, running stats,
+correlation context, distinct sets, tracked records, and the persistent marks. It reads the global C<ClayTablet> config, picks a backend by
 name, and proxies the line-oriented C<read>/C<write>/C<locator>/C<verify> the
 galla speaks straight through to it.
 
@@ -131,7 +133,8 @@ sub read {
 
 Replaces the whole tablet with the given lines. Whole-tablet replace, never
 append. Failures are the backend's to log and swallow, so a lost checkpoint
-never takes the galla down.
+never takes the galla down. Returns 1 when the tablet was written and 0 when
+the write failed.
 
 =cut
 

@@ -14,7 +14,9 @@ under `tablet_base_dir`.
 backend = "file"
 [ClayTablet.options]
 base_dir = "/var/db/baphomet"   # optional, else tablet_base_dir
+```
 
+```toml
 # or share marks across a fleet over redis, keeping local state on disk
 [ClayTablet]
 backend = "redis"
@@ -75,8 +77,10 @@ base_dir = "/var/db/baphomet"   # host-local tablets on disk; redis is bus-only
   the oldest are dropped.
   - default :: `10000`
 
-A third party backend is a module `App::Baphomet::ClayTablet::<Ucfirst>`
-selected by its lower-cased name.
+A third party backend is a module under `App::Baphomet::ClayTablet::`,
+selected by its `backend` name... a name with no capitals is ucfirst'd, so
+`foo` loads `App::Baphomet::ClayTablet::Foo`, while one with capitals is
+used as written.
 
 The shared banishment ledger is not a per-galla tablet and is unaffected...
 it stays a flock'd file under `tablet_base_dir` whatever the backend.

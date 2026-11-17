@@ -105,8 +105,8 @@ survive a restart on the tracked tablet and are listed with
 - the same record declared by a `track` above it :: "declares "..." twice, which leaves its key ambiguous"
 - a `track_only` rule with no `track` :: "is track_only but has no track gate"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

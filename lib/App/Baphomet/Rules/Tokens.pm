@@ -148,9 +148,12 @@ sub compile_tokened_regexp {
 #   $original :: the whole regexp string as the rule file wrote it, quoted in
 #                the die message
 #
-# returns the regexp text that takes the token's place. dies on a name that
-# is neither a offender token nor a primitive fragment.
+# returns:
+#   the regexp text that takes the token's place... a named capture for a
+#   offender token, a (?:...) group for a primitive fragment. dies on a name
+#   that is neither a offender token nor a primitive fragment.
 #
+# example:
 #   my %aliases;
 #   my $first  = _expand_token( 'SRC', \%aliases, $where, $regexp );    # (?<SRC>...)
 #   my $second = _expand_token( 'SRC', \%aliases, $where, $regexp );    # (?<SRC_2>...)
@@ -220,7 +223,7 @@ sub match_tokened {
 		}
 	} ## end foreach my $token ( keys( %{ $entry->{aliases} ...}))
 
-	# SRC/DEST only regard as being found if matched together
+	# SRC and DEST only count as found when both matched
 	if ( $entry->{paired} && ( !defined( $caps{SRC} ) || !defined( $caps{DEST} ) ) ) {
 		return undef;
 	}

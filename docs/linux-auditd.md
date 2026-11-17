@@ -6,8 +6,8 @@ that ledger to a syslog file a galla can tail, and how to tell the kernel to rec
 few things it stays silent about by default, so the `%syslog/linux-audit%` rules have
 something to read.
 
-The rules and their group are named `linux-auditd-*` on purpose... other
-platforms carry their own audit machinery, with different records and
+The group is named `linux-audit` and its rules `linux-auditd-*` on purpose...
+other platforms carry their own audit machinery, with different records and
 different field names, and would want their own rules and their own page.
 
 For what each rule watches for, see [rules-catalog](rules-catalog.md). For the
@@ -95,7 +95,7 @@ baphomet test_line --rule syslog/linux-apparmor-denied \
 One wrinkle of the kernel road, worth knowing about but not worth doing anything
 about: rsyslog's kernel reader keeps the printk uptime (`[ 1234.567890]`) at the
 head of the message, while journald's kmsg reader strips it, so the same event
-reaches two hosts in two shapes. Both the rule and Log-Munger's `kernel` decoder
+reaches two hosts in two shapes. Both the rule and Log::Munger's `kernel` decoder
 step over the prefix rather than reading it, so the captures come out identical
 either way. The rule captures the profile
 itself rather than leaning on the enrichment for it, so the match never depends
@@ -290,7 +290,7 @@ by default on stock installs:
 
 | rule                               | record it reads                                                   | emitted by                            |
 |------------------------------------|-------------------------------------------------------------------|---------------------------------------|
-| `linux-auditd-auth-failed`         | `USER_LOGIN`/`USER_AUTH`/`USER_ERR`/`CRED_ACQ`                    | PAM                                   |
+| `linux-auditd-auth-failed`         | `USER_LOGIN`/`USER_AUTH`/`USER_ERR`/`USER_ACCT`/`CRED_ACQ`        | PAM                                   |
 | `linux-auditd-anom-login-failures` | `ANOM_LOGIN_FAILURES`                                             | PAM / faillock                        |
 | `linux-auditd-user-mgmt`           | `ADD_USER`/`DEL_USER`/`USER_MGMT`/...                             | shadow-utils                          |
 | `linux-auditd-avc-denied`          | `AVC` denied                                                      | SELinux                               |
@@ -412,12 +412,12 @@ baphomet test_line --rule syslog/linux-auditd-promiscuous \
   ordinary reload looks like... the record does not say which mode it landed in.
   `linux-auditd-mac-tamper` therefore matches only `profile_remove`, an unload,
   and lets the replace go. The blind spot is real and there is nothing in the
-  record to close it with. What it does catch, note, includes every snap being
-  removed, so on a snap-heavy host give that rule `eve_only` until you have
-  watched the volume.
+  record to close it with. Note that it also catches every snap removal, so on
+  a snap-heavy host give that rule `eve_only` until you have watched the
+  volume.
 - **Not a file-integrity monitor.** These rules read the shapes a compromise
   leaves in the audit trail; they are not a substitute for a full FIM ruleset.
-  The pre-existing `raw/selinux-ssh` rule covers the raw, SELinux-specific
+  The shipped `raw/selinux-ssh` rule covers the raw, SELinux-specific
   `audit.log` path and complements this forwarded stream.
 
 ## See also

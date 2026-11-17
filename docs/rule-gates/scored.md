@@ -45,7 +45,7 @@ about to be is not counted, as its weight is not known until it is.
 
 With out a `var` it keys on the offender, so it goes below the `ban_var`
 that names one, and is asked of each. With a `var` it is asked once for the
-offense, and is the only way a detection rule can have one.
+offense, and is the only way a detection rule can have a `scored` gate.
 
 Listed ahead of the service's ordinary rules, with a `max_score: 1`, it
 banishes the address the moment it has been counted for enough anywhere,
@@ -68,8 +68,8 @@ never counted adds up to nothing.
 - a `seconds` that is not a whole number of one or more :: "has a seconds that is not a positive int of seconds"
 - a `var` that is not a string :: "has a var that is not a non-empty string"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

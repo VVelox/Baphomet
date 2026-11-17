@@ -5,25 +5,28 @@
 Only Wazuh's log-analysis stage maps... the decoders, the rules, and the
 alert. The rest of the platform has no counterpart.
 
-| Wazuh                                                   | here                                                                       |
-|---------------------------------------------------------|----------------------------------------------------------------------------|
-| a decoder (`decoders/*.xml`), fields pulled from a line | the parser (syslog/http/http_error/json)... fields broken out before rules |
-| a rule (`rules/*.xml`)                                  | a rule (`rules/<type>/<name>.yaml`)                                        |
-| `<decoded_as>` / `<program_name>`                       | the rule type and its `daemons` gate                                       |
-| `<match>` / `<regex>` / `<pcre2>`                       | `message_regexp` (syslog/raw/http_error) or `match` (http/json)            |
-| `<field name="...">` over decoded fields                | the json type's `gate`/`match` over flattened dotted paths                 |
-| the extracted `srcip`                                   | the `%%%%SRC%%%%` token, named in `ban_var`                                |
-| `level` (0–16)                                          | `severity` (info/low/medium/high/critical)                                 |
-| `<group>` classification                                | `classtype`                                                                |
-| `<mitre><id>`                                           | `attack`                                                                   |
-| a rule's numeric `id`                                   | `sid`, derived from the rule name; `gid` marks shipped vs override         |
-| `<if_sid>` / `<if_group>`, composite rules              | marks... one rule gates on another having fired (`mark`/`marked`)          |
-| `<if_matched_sid>` + `<frequency>` + `<timeframe>`      | per-rule `max_score` / `find_time`, under `allow_per_rule_thresholds`      |
-| `<same_source_ip>`, `<different_url>`, ...              | a staged rule's `per`, or a mark's `var` / `value_var`                     |
-| a CDB `<list>` lookup                                   | the `namtar_list` gate (boolean membership)                                |
-| `alerts.json`                                           | the EVE stream ([eve](eve.md))                                             |
-| active response (`firewall-drop`)                       | Ereshkigal's kur backends... the ban itself                                |
-| the agent / manager / indexer / dashboard               | no counterpart... Baphomet follows log files, it is not a fleet            |
+| Wazuh                                                   | here                                                                           |
+|---------------------------------------------------------|--------------------------------------------------------------------------------|
+| a decoder (`decoders/*.xml`), fields pulled from a line | the parser (syslog/http/http_error/json)... fields broken out before rules     |
+| a rule (`rules/*.xml`)                                  | a rule (`rules/<type>/<name>.yaml`)                                            |
+| `<decoded_as>` / `<program_name>`                       | the rule type and its `daemons` gate                                           |
+| `<match>` / `<regex>` / `<pcre2>`                       | `message_regexp` (syslog/raw/http_error) or `match` (http/json)                |
+| `<field name="...">` over decoded fields                | the json type's `gate`/`match` over flattened dotted paths                     |
+| the extracted `srcip`                                   | the `%%%%SRC%%%%` token, named in `ban_var`                                    |
+| `level` (0–16)                                          | `severity` (info/low/medium/high/critical)                                     |
+| `<group>` classification                                | `classtype`                                                                    |
+| `<mitre><id>`                                           | `attack`                                                                       |
+| a rule's numeric `id`                                   | `sid`, derived from the rule name; `gid` marks shipped vs override             |
+| `<if_sid>` / `<if_group>`, composite rules              | marks... one rule gates on another having fired (`mark`/`marked`)              |
+| `<if_matched_sid>` + `<frequency>` + `<timeframe>`      | per-rule `max_score` / `find_time`, under `allow_per_rule_thresholds`          |
+| `<same_source_ip>`, `<different_url>`, ...              | a staged rule's `per`, a mark's `var` / `value_var`, or `distinct`             |
+| a CDB `<list>` lookup                                   | the `namtar_list` gate (boolean membership)                                    |
+| `alerts.json`                                           | the EVE stream ([eve](eve.md))                                                 |
+| active response (`firewall-drop`)                       | Ereshkigal's kur backends... the ban itself                                    |
+| the agent / manager / indexer / dashboard               | none... no agent, indexer, or dashboard; Baphomet follows logs and the journal |
+
+The one fleet-shaped piece is the redis [tablet](tablets.md) backend, which
+shares marks across hosts as a sync bus.
 
 ## What needs no borrowing
 
@@ -37,14 +40,15 @@ log rule ports about as mechanically as a Sagan one.
 
 ## What Wazuh does that this does not
 
-Honesty section... the log-analysis engines are the same class, but Wazuh is a
-platform and Baphomet is one program in a pair.
+The log-analysis engines are the same class, but Wazuh is a platform and
+Baphomet is one program in a pair.
 
 - **Hierarchical decoders.** Wazuh's parent/child decoder tree pulls fields
   from almost any format. Baphomet has fixed parser modules plus the
-  `%%%%TOKEN%%%%` engine, so a novel format needs a `raw` rule or a new
-  parser... a grok-like named-pattern layer is a roadmap item, not a thing
-  today, or possibly mapped to JSON.
+  `%%%%TOKEN%%%%` engine, with [mungers](rules.md#enriching-a-match-mungers)
+  borrowing Log::Munger's decoders to read a line into fields. A format none
+  of those know needs a `raw` rule or a new parser... a grok-like
+  named-pattern layer is a roadmap item, not a thing today.
 - **A composite rule graph.** Wazuh's `if_sid` / `if_matched_sid` chain rules
   into a dependency tree by id. Baphomet's marks, staged sequences, and
   weighted scoring cover much of the same ground, but there is no rule-id
@@ -73,17 +77,12 @@ ceiling as [sigma](sigma.md).
 
 Two things the table does not settle, the same two every port asks.
 
-**Ban or detect.** Wazuh alerts, and separately its active response acts. To
-keep just the alert... surface the signature, banish nobody... port it as a
-detection rule with a `detection_var: [ SRC ]` gate, writing
-`sighting`/`sighted` to EVE. To fold Wazuh's active response in as well, make
-that gate `ban_var: [ SRC ]` and let the kur's thresholds decide, and
-Ereshkigal does the firewall-drop.
+**Ban or detect.** Keep just the alert with a `detection_var: [ SRC ]` gate, or
+fold in Wazuh's active response with `ban_var: [ SRC ]` and let Ereshkigal do
+the firewall-drop... see [the two verdicts](log-analysis.md#the-two-verdicts).
 
-**Tests.** Lift sample lines from the rule's comments or your own logs into a
-`tests:` block, then `baphomet test_line` pokes single lines at a draft and
-`baphomet check_rules` runs the embedded tests, refusing to load a rule that
-fails its own... the same guard `baphomet start` uses.
+**Tests.** Lift sample lines into a `tests:` block and run them with
+`baphomet check_rules`... see [tests](rules.md#tests).
 
 See [rules](rules.md) to write one, [log-analysis](log-analysis.md) for the engine
 in full, and [rules-catalog](rules-catalog.md) for what already ships.

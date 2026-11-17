@@ -1,5 +1,10 @@
 # Rules catalog
 
+## syslog rules
+
+For syslog lines via the syslog parsers... each reads only the lines of the
+daemons its daemon gate names.
+
 - `syslog/authelia` :: Authelia authentication failures, first factor and
   second, in its default text format through syslog or the journal
   - daemon gate :: `authelia`
@@ -24,12 +29,6 @@
   in the authenticating pass block)
   - daemon gate :: `danted`, `sockd`
 - `syslog/asterisk` :: Asterisk auth/registration failures
-  - daemon gate :: `asterisk`
-- `syslog/asterisk-foreign-auth` :: any Asterisk authentication event,
-  failed or successful, from outside `country_codes{home}`... a
-  registration that WORKED from abroad is toll fraud. Opt-in, needs
-  geoip_db. The success pattern is a mechanical extension of the proven
-  security-event format, not a mined line... confirm against your own PBX
   - daemon gate :: `asterisk`
 - `syslog/linux-auditd-auth-failed` :: auditd remote authentication
   failures forwarded via audisp-syslog
@@ -84,15 +83,15 @@
   (x86_64 init/finit/delete_module syscalls, or a module watch key)...
   detection-only, counts by the loading program (`comm`)
   - daemon gate :: `audisp-syslog`, `audispd`, `audit`
-- `syslog/linux-auditd-preload-tamper` :: auditd a write to the
+- `syslog/linux-auditd-preload-tamper` :: auditd recording a write to the
   dynamic-linker preload config (`/etc/ld.so.preload`, `ld.so.conf*`, or
   an `ldpreload` watch key)... detection-only, counts by the target
   - daemon gate :: `audisp-syslog`, `audispd`, `audit`
-- `syslog/linux-auditd-exec-from-writable` :: auditd an exec out of
+- `syslog/linux-auditd-exec-from-writable` :: auditd recording an exec out of
   `/tmp`, `/var/tmp`, `/dev/shm`, or a `susp_exec` watch key...
   detection-only, counts by the executable (`exe`)
   - daemon gate :: `audisp-syslog`, `audispd`, `audit`
-- `syslog/linux-auditd-odd-path` :: auditd a path named to hide (`...`
+- `syslog/linux-auditd-odd-path` :: auditd recording a path named to hide (`...`
   dir, dotfile in a system bin/lib dir or `/dev/shm`, or a bare
   hex-encoded name)... detection-only, counts by the path
   - daemon gate :: `audisp-syslog`, `audispd`, `audit`
@@ -161,9 +160,9 @@
 - `syslog/qmail` :: qmail/rblsmtpd rejects
   - daemon gate :: `qmail`, `rblsmtpd`
 - `syslog/sendmail-auth` :: Sendmail AUTH failures
-  - daemon gate :: `sendmail`, `sm-mta`
+  - daemon gate :: `sendmail`, `sm-mta`, `sm-acceptingconnections`
 - `syslog/sendmail-reject` :: Sendmail spam/relay rejects
-  - daemon gate :: `sendmail`, `sm-mta`
+  - daemon gate :: `sendmail`, `sm-mta`, `sm-acceptingconnections`
 - `syslog/sieve` :: Sieve (timsieved) login failures
   - daemon gate :: `sieved`/`timsieved`
 - `syslog/solid-pop3d` :: Solid POP3 auth failures
@@ -214,7 +213,7 @@
   - daemon gate :: `sshd`, `sshd-session`
 - `syslog/sshd-foreign-login` :: a successful ssh login from outside
   `country_codes{home}`... detection-only, opt-in, needs geoip_db and
-  your home list (see [rules](rules.md), the country gate)
+  your home list (see [the country gate](rule-gates/country.md))
   - daemon gate :: `sshd`, `sshd-session`
 - `syslog/systemd-flap` :: a service crash loop... three scheduled
   restarts of one unit inside two minutes (staged, detection-only, counts
@@ -233,8 +232,10 @@
   - daemon gate :: `webmin`
 - `syslog/xinetd-fail` :: xinetd connection failures
   - daemon gate :: `xinetd`
-- `syslog/gssftpd`, `syslog/wuftpd` :: GSS and wu-ftpd login failures
-  - daemon gate :: `ftpd`, `wu-ftpd`
+- `syslog/gssftpd` :: GSS ftpd repeated login failures
+  - daemon gate :: `ftpd`
+- `syslog/wuftpd` :: wu-ftpd login failures
+  - daemon gate :: `wu-ftpd`
 - `syslog/haproxy-http-auth` :: haproxy 401s
   - daemon gate :: `haproxy`
 - `syslog/nagios` :: NRPE bad command / access denied
@@ -267,7 +268,8 @@
 - `syslog/samba` :: Samba connection denials
   - daemon gate :: `smbd` (needs `logging = syslog`)
 - `syslog/rsyncd` :: rsync daemon module auth failures
-  - daemon gate :: `rsyncd`, `rsync`
+  - daemon gate :: `rsyncd`, `rsync` (needs the daemon logging through
+    syslog, not its own `log file`)
 
 ### The foreign-auth family
 
@@ -283,7 +285,8 @@ They ban, including on a login that **succeeded**... which is the point, and
 also the risk. Read the group file before listing it: the ordering rule (put
 these ahead of the per-service rules, so a domestic event falls through
 un-consumed and counts normally), the config it needs, and the traveler
-problem. The three `*-foreign-login` rules above are the gentler policy over
+problem. `syslog/sshd-foreign-login`, `syslog/dovecot-foreign-login`, and
+`syslog/postfix-sasl-foreign` are the gentler policy over
 the same ground, sighting a foreign success and banishing nobody... run one
 family or the other per service.
 
@@ -295,32 +298,86 @@ file for live-log confirmation; every failure half is corpus-proven. `sshd`, `do
 - `syslog/sshd-foreign-auth` :: any ssh authentication event from
   outside `country_codes{home}`, failed or successful
   - daemon gate :: `sshd`, `sshd-session`
-- `syslog/dovecot-foreign-auth` :: " for Dovecot IMAP/POP3/submission
+- `syslog/dovecot-foreign-auth` :: the same, for Dovecot IMAP/POP3/submission
   - daemon gate :: `dovecot` and variants
-- `syslog/postfix-sasl-foreign-auth` :: " for Postfix SASL
+- `syslog/postfix-sasl-foreign-auth` :: the same, for Postfix SASL
   - daemon gate :: `postfix/smtpd` and variants
-- `syslog/courier-foreign-auth` :: " for Courier IMAP/POP3
+- `syslog/courier-foreign-auth` :: the same, for Courier IMAP/POP3
   - daemon gate :: `imapd`, `pop3d` and variants
-- `syslog/vsftpd-foreign-auth` :: " for vsftpd
+- `syslog/vsftpd-foreign-auth` :: the same, for vsftpd
   - daemon gate :: `vsftpd`
-- `syslog/cyrus-imap-foreign-auth` :: " for Cyrus IMAP/POP3
+- `syslog/cyrus-imap-foreign-auth` :: the same, for Cyrus IMAP/POP3
   - daemon gate :: `imap`, `pop3` and variants
-- `syslog/dropbear-foreign-auth` :: " for Dropbear ssh
+- `syslog/dropbear-foreign-auth` :: the same, for Dropbear ssh
   - daemon gate :: `dropbear`
-- `syslog/proftpd-foreign-auth` :: " for ProFTPD
+- `syslog/proftpd-foreign-auth` :: the same, for ProFTPD
   - daemon gate :: `proftpd`
-- `syslog/pure-ftpd-foreign-auth` :: " for Pure-FTPd
+- `syslog/pure-ftpd-foreign-auth` :: the same, for Pure-FTPd
   - daemon gate :: `pure-ftpd`
-- `syslog/wuftpd-foreign-auth` :: " for wu-ftpd
+- `syslog/wuftpd-foreign-auth` :: the same, for wu-ftpd
   - daemon gate :: `wu-ftpd`
-- `syslog/uwimap-foreign-auth` :: " for UW IMAP/POP3
+- `syslog/uwimap-foreign-auth` :: the same, for UW IMAP/POP3
   - daemon gate :: `imapd`, `ipop3d`
-- `syslog/perdition-foreign-auth` :: " for perdition (verdict is the
+- `syslog/perdition-foreign-auth` :: the same, for perdition (verdict is the
   `status=` field)
   - daemon gate :: `perdition.*`
-- `syslog/openvpn-foreign-auth` :: " for OpenVPN... read the traveler
+- `syslog/openvpn-foreign-auth` :: the same, for OpenVPN... read the traveler
   warning twice, a VPN is usually meant to be reached from abroad
   - daemon gate :: `openvpn`
+- `syslog/asterisk-foreign-auth` :: the same, for Asterisk... a
+  registration that WORKED from abroad is toll fraud. The success pattern
+  is a mechanical extension of the proven security-event format, not a
+  mined line... confirm against your own PBX
+  - daemon gate :: `asterisk`
+
+### Daemon health
+
+Detection-only rules for a daemon failing at its own job, Baphomet's own
+stack included. Each is read by a Log-Munger decoder, so they need
+Log::Munger, and each counts by what failed rather than by an address.
+
+- `syslog/asterisk_errors` :: a module or subsystem failing to load, the
+  CDR and CEL modules above all
+  - daemon gate :: `asterisk`
+- `syslog/baphomet_errors` :: a galla in a crash loop, or unreachable by
+  its supervisor
+  - daemon gate :: `baphomet`
+- `syslog/daemonlogger_errors` :: the capture sensor reporting packets
+  dropped
+  - daemon gate :: `daemonlogger`
+- `syslog/dovecot_errors` :: dovecot Error, Fatal, or Panic lines, its SSL
+  context failing to start above all
+  - daemon gate :: `dovecot`, `dovecot-auth`, and variants
+- `syslog/ereshkigal_errors` :: a kur in a crash loop, or unresponsive to
+  its supervisor
+  - daemon gate :: `ereshkigal`
+- `syslog/galla_errors` :: a banishment the galla decided that never
+  reached Kur
+  - daemon gate :: `galla` and `galla-*`
+- `syslog/kernel_errors` :: a process FreeBSD killed on a fault signal
+  (SIGSEGV, SIGBUS and kin), the sibling of `linux-auditd-abend`
+  - daemon gate :: `kernel`
+- `syslog/kur_errors` :: a ban Kur was asked for and did not carry out...
+  a target it can not parse, a CIDR ban it has disabled, a ban list line
+  it can not load
+  - daemon gate :: `kur` and `kur-*`
+- `syslog/named_dnssec_errors` :: this resolver's trust anchor failing to
+  refresh, or its priming query failing
+  - daemon gate :: `named` and `named-*`
+- `syslog/named_errors` :: a zone not loaded, or a secondary failing its
+  transfer
+  - daemon gate :: `named` and `named-*`
+- `syslog/postfix_errors` :: postfix failing at its own job... a map it
+  can not open, a stale table, a service it can not reach, a daemon dying
+  - daemon gate :: `postfix/*` and variants
+- `syslog/postgresql_errors` :: PostgreSQL ERROR, FATAL, or PANIC lines
+  - daemon gate :: `postgres`, `postgresql`, and variants
+- `syslog/suricata_extract_submit_errors` :: carved files the sandbox
+  submitter failed to send, read from its per-run stats deltas
+  - daemon gate :: `suricata_extract_submit`
+- `syslog/syslogd_errors` :: syslogd discarding messages to its rate
+  limiter
+  - daemon gate :: `syslogd`, `rsyslogd`, `syslog-ng`
 
 ## http rules
 
@@ -461,9 +518,10 @@ config field to your networks; it defaults to the ignore IPs. See
 ## raw rules
 
 For logs in their own formats via the `raw` parser... like syslog rules but
-with no daemon gate. Most extract their offender with a regexp; the appliance
-families under [network gear](#network-gear) mostly read it out of a decomposed
-field instead, the type being the same either way.
+with no daemon gate. Most extract their offender with a regexp. Under
+[network gear](#network-gear), the Fortinet, Huawei, and SonicWall rules
+marked munger read take it from a decomposed field instead, the type being
+the same either way.
 
 - `raw/mongodb-auth-legacy` :: MongoDB auth failures in the pre-4.4 text
   log, correlated by conn id... 4.4 and later use `json/mongodb-auth`
@@ -498,6 +556,7 @@ field instead, the type being the same either way.
   SELinux audit
 - `raw/vaultwarden` :: Vaultwarden password, TOTP and admin-token failures
   in its own log file... `raw/bitwarden` reads the Bitwarden server's
+  Identity log
 - `raw/xrdp` :: xrdp remote-desktop login failures in
   `/var/log/xrdp-sesman.log` (xrdp 0.9.19+, sesman at INFO)
 - `raw/ejabberd-auth`, `raw/guacamole` :: XMPP and Guacamole auth
@@ -507,8 +566,8 @@ field instead, the type being the same either way.
 
 ### Network gear
 
-Currently ported as raw rules and really need cleaned up/checked and made proper syslog
-rules.
+These ship as raw rules for now; they still need checking and porting to
+syslog rules.
 
 - MikroTik RouterOS (remote syslog, topic list in the program slot) ::
   `routeros-auth` (banning), login failures over web, Winbox, ssh and the
@@ -550,12 +609,11 @@ rules.
 
 `baphomet check_rules` lists every shipped rule with its test results.
 
-Of the syslog set, `syslog/openvpn`, `syslog/postgresql`, `syslog/samba`,
-and `syslog/rsyncd` each need the daemon to log through syslog, and
-postgresql additionally needs `%h` in its `log_line_prefix` for the
-client address to reach the failure line (see its header comment).
+Some syslog rules need the daemon itself set to log through syslog, or
+to log more than it does by default. Each says so on its daemon gate line
+under [syslog rules](#syslog-rules).
 
-Two rules are built on staged sequences (see [rules](rules.md)):
+Two rules are built on [staged sequences](rule-gates/stages.md):
 `syslog/sshd-worked`, the brute force that landed, and
 `syslog/systemd-flap`, the service crash loop. Both are detection-only...
 they surface as `sighting`/`sighted` in EVE and banish nobody, so loading

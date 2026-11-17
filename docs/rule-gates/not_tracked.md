@@ -53,8 +53,8 @@ earlier line left waiting is let by, having been judged already.
 - a `name` that is not a name :: "has a name that is not a name matching /^[a-zA-Z0-9_\-]+$/"
 - no `track` of the rule declaring the record :: "names the record "...", which the rule declares no track for"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

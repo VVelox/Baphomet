@@ -118,8 +118,8 @@ account database once and kept five minutes, ten thousand at the most.
 - a `near` with out an `exists: false` :: "has a near with out a exists of false, a name near a account being one that is none"
 - an `exists: false` beside a `shell`, `system`, or `group` :: "has a exists of false and a ..., and nothing can be asked of a account that is none"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

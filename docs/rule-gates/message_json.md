@@ -81,8 +81,8 @@ they are the offense's data and what the EVE `found` carries.
 - one beside a [`stages`](stages.md) gate, unless told false :: "is beside message_json... stages are the whole matcher"
 - told true with no `message_regexp` and nothing to judge the fields :: "has no gate that makes a offense of a line or judges one ..."
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

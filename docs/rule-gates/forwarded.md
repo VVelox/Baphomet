@@ -78,8 +78,8 @@ to read. It never lifts over a value the offense already has.
 - a `trusted` CIDR with a prefix the family has no bits for :: "trusted entry "..." has a invalid prefix length"
 - a `max_hops` that is not a whole number of one or more :: "has a max_hops that is not a positive int"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -101,10 +101,6 @@ tests:
       data:
         CLIENT: "203.0.113.9"
 ```
-
-## Shipped rules using it
-
-None. Which proxies are yours is yours to say.
 
 ## See also
 

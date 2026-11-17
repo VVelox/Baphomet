@@ -103,7 +103,24 @@ sub parse {
 } ## end sub parse
 
 # walks the decoded structure, writing scalars into the flat hash under
-# dotted paths
+# dotted paths... a hash key or array index each add a path segment, a JSON
+# boolean lands as 1 or 0, a null is skipped, and anything nested past ten
+# levels is dropped so a hostile line can not recurse without bound
+#
+# args:
+#   $node   :: the decoded value at this point, a hash ref, array ref,
+#              boolean object, scalar, or undef
+#   $prefix :: the dotted path down to $node, '' at the top
+#   $flat   :: the hash ref being filled, path to scalar
+#   $depth  :: how deep $node is, 0 at the top
+#
+# returns:
+#   nothing... the results land in $flat
+#
+# example:
+#   my %flat;
+#   _flatten( { 'src' => { 'ip' => '192.0.2.7' }, 'tags' => ['a'] }, '', \%flat, 0 );
+#   # %flat is ( 'src.ip' => '192.0.2.7', 'tags.0' => 'a' )
 sub _flatten {
 	my ( $node, $prefix, $flat, $depth ) = @_;
 

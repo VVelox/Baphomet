@@ -32,7 +32,7 @@ rule_gates:
 
 - `var` :: The found var to hash.
 - `into` :: The found var the hash goes into, the `var` left as it was.
-    - default :: the `var`, hashed where it is
+  - default :: the `var`, hashed where it is
 
 The hash is the first 16 hex digits of an HMAC-SHA256 under the
 `digest_key` of the [config](../configuration.md#lookups-dns-and-geoip), a
@@ -75,19 +75,20 @@ and those survive a restart as they always do.
 carries the line the match was found in, and that has the name in it. A
 rule's [`eve_line`](../rules.md#eve_line) of false leaves the line out. A
 `digest` with an `into` leaves the name in the found data as well, and so
-in the event's `found`... hash in place for the event to hold none of it.
+in the event's `found`. Hash in place, with no `into`, for the event to
+hold none of it.
 
 ## Refused at load
 
-- no `var`, or a key it does not know :: lacks a var / has the unknown key
-- an `into` that a `ban_var` of the rule names :: hashes it, which a
-      ban_var names, and a ban has to be of the address itself
-- hashing in place a var an `account` or `namtar_list` gate reads :: hashes
-      it where it is, and the gate that reads it would only ever see the
-      hash... give it a into
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- no `var` :: "lacks a var"
+- a `var` or `into` that is not a string :: "has a ... that is not a non-empty string"
+- an `into`, or with none the `var`, that a `ban_var` of the rule names :: "which a ban_var names, and a ban has to be of the address itself"
+- hashing in place a var an `account` or `namtar_list` gate reads :: "gate that reads it would only ever see the hash... give it a into"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -119,9 +120,7 @@ config whose `digest_key` file holds the test's key.
 
 ## See also
 
-- [`account`](account.md) :: Reads the name, so needs an `into` beside a
-      `digest`.
+- [`account`](account.md) :: Reads the name, so needs an `into` beside a `digest`.
 - [`namtar_list`](namtar_list.md) :: The same.
 - [`after`](after.md) :: Counts on the hash as well as on the name.
-- [`novel`](novel.md) and [`travel`](travel.md) :: What a new key makes
-      forget.
+- [`novel`](novel.md) and [`travel`](travel.md) :: What a new key makes forget.

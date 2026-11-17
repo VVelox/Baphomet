@@ -34,7 +34,9 @@ of...
 - `regexp` :: The regexp.
 - `key` :: The capture the offense is keyed by, or a list of them joined into one key.
 - `defer` :: Seconds an offense whose key has no context waits for a capture line to bring it.
-  - default :: none, an unresolved offense is passed over
+  - default :: none
+
+With no `defer`, an offense whose key finds no context is passed over.
 
 What the regexp is matched against is the message... on syslog the part
 after `daemon[pid]: `, on raw the whole line, on http_error what follows
@@ -56,7 +58,7 @@ the field...
 | `IP4` | a IPv4 address |
 | `IP6` | a IPv6 address |
 | `ADDR` | a IPv4 or IPv6 address |
-| `DNS` | a domainname |
+| `DNS` | a domain name |
 | `SRC` / `DEST` | a IPv4 or IPv6 address... meant to be used in combination |
 
 A regexp that uses both `SRC` and `DEST` only counts as matched when both
@@ -179,6 +181,7 @@ offense can survive a restart.
 - not a list, or an empty one :: "is not a array or is empty"
 - an entry that is neither a string nor a hash, on syslog or raw :: "is not a string or a hash"
 - an entry that is not a string, on http_error :: "is not a string"
+- a hash entry whose `regexp` is not a string :: "has a regexp that is not a string"
 - a hash entry with out `regexp` or `key`, an unknown key, or a `defer` that is not a positive int of seconds :: "lacks a ...", "has the unknown key ...", "has a defer that is not ..."
 - a key that is neither a string nor a list, an empty list, or a component that is not a non-empty string :: "has a key that is not a string or a array", "has a empty key array", "has a key component that is not a non-empty string"
 - a `syslog.*` key component on a raw rule, or one the envelope does not have :: "keys on ..., which is not a envelope field this rule type carries"
@@ -189,8 +192,8 @@ offense can survive a restart.
 - a syslog or raw rule with neither it nor `stages`, and no `mungers` or `message_json` to give a gate fields :: "has no message_regexp or stages gate, and no message_json or mungers gate ..."
 - one beside a `stages` gate :: "is beside message_regexp... stages are the whole matcher"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

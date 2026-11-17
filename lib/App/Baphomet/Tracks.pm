@@ -45,13 +45,13 @@ than replacing it, and a field a line did not carry leaves what the record
 already holds standing... each stage of a transaction contributes what it
 knows.
 
-Lifted out of the galla so it runs over any store hashref, the way
+This is lifted out of the galla so it runs over any store hashref, the way
 L<App::Baphomet::Marks> is. The galla passes its live C<< $self->{tracked} >>,
 while C<run_tests> passes a throwaway store per test entry and a virtual
 clock, so a rule file can prove its own tracking cold. Nothing here knows
-of tablets, buses, or wall clocks... state in, records out. The predicate
-judging of a C<where> stays in the rule, which owns the predicate
-vocabulary; this owns only the store.
+of tablets, buses, or wall clocks... state in, records out. Judging a
+record's fields against predicates is L<App::Baphomet::Gate::tracked>'s
+job; this owns only the store.
 
 The store shape is per track name a hash of keys, each
 C<< { expires, fields } >>.
@@ -153,21 +153,19 @@ Takes the whole store hash ref, the track name, the resolved key, the
 fields to contribute as a hash ref of name to value, the ttl in seconds,
 and the current time. Returns nothing.
 
-Three behaviors worth naming:
-
-- undef is skipped, never stored :: so each stage of a transaction
-  contributes what it knows and a later line silent on a field never
-  blanks what an earlier one gave. The read side needs nothing for this,
-  a undef stored value already failing every predicate operator but
-  C<exists>.
-- the ttl refreshes whether or not anything was contributed :: sighting
-  the key at all is evidence the transaction is alive, and postfix
-  retries deferred mail for days. The record still ages out once the key
-  stops appearing.
-- the record is capped at L</TRACK_FIELD_CAP> fields :: past it a field
-  name the record does not already hold is dropped, while the names it
-  does hold still update. So a runaway rule can not grow one record
-  without bound, and the fields that were there first are the ones kept.
+    - undef is skipped, never stored :: So each stage of a transaction
+          contributes what it knows and a later line silent on a field never
+          blanks what an earlier one gave. The read side needs nothing for
+          this, a undef stored value already failing every predicate operator
+          but exists.
+    - the ttl refreshes whether or not anything was contributed :: Sighting
+          the key at all is evidence the transaction is alive, and postfix
+          retries deferred mail for days. The record still ages out once the
+          key stops appearing.
+    - the record is capped at TRACK_FIELD_CAP fields :: Past it a field name
+          the record does not already hold is dropped, while the names it does
+          hold still update. So a runaway rule can not grow one record without
+          bound, and the fields that were there first are the ones kept.
 
     track_put( $store, 'mail-queue', $key, { 'postfix_to' => 'a@example.org' }, 3600, $now );
 

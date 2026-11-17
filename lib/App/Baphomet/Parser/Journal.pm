@@ -65,7 +65,7 @@ have something to match. Fields outside the set above are ignored.
 
 Parses a single line. Returns the parsed hash, as described in
 L<App::Baphomet::Parser>, or undef if the line could not be parsed or
-carries no MESSAGE.
+has no MESSAGE field.
 
     my $parsed = App::Baphomet::Parser::Journal::parse($line);
 
@@ -120,7 +120,20 @@ sub parse {
 
 # journal field values are usually strings, but a non-UTF-8 value comes as
 # a array of byte numbers... turn that back into a string, and treat empty
-# strings as absent
+# strings as absent. a array element that is not a plain number is dropped,
+# and any other reference is not a value at all
+#
+# args:
+#   $value :: a field value off the decoded journal record... a string, a
+#             array ref of byte numbers, or undef when the field is absent
+#
+# returns:
+#   the value as a string, or undef when it is absent, empty, or a
+#   reference other than a byte array
+#
+# example:
+#   my $daemon = _journal_scalar( $decoded->{SYSLOG_IDENTIFIER} );
+#   _journal_scalar( [ 115, 115, 104, 100 ] );    # 'sshd'
 sub _journal_scalar {
 	my ($value) = @_;
 

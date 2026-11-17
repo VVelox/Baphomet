@@ -27,12 +27,31 @@ our $VERSION = '0.0.1';
     baphomet test_line --rule syslog/sshd 'Jul 12 08:15:50 mail01 sshd[1]: Invalid user foo from 1.2.3.4'
     baphomet test_line --rule syslog/sshd --parser ietf_syslog '<38>1 ...'
 
+=head1 DESCRIPTION
+
+Parses one log line with the named parser, C<syslog> by default, checks
+it against a single rule, and prints the result as JSON... how the line
+parsed, whether it matched, which regexp matched, what was captured, and
+the file the rule was read from. The rule is loaded with its embedded
+tests skipped, so a rule failing them can still be poked at. Dies after
+printing when the line does not parse.
+
+The rule is named with C<--rule> and resolved as at run time, or looked
+for in one dir with C<--rules-dir>, or given as a path with C<--file>.
+The manager need not be running.
+
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'feed a single log line through a parser and a rule' }
 

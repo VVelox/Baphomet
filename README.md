@@ -11,7 +11,7 @@ daemon looses one `galla` worker per kur configured. Each galla follows the
 log files of its kur, parses the lines, reads them against its rules like
 omen tablets, and counts the offenses of each IP.
 
-An IP that racks up `max_score` offenses with in `find_time` seconds is
+An IP that racks up `max_score` offenses within `find_time` seconds is
 seized and banished to Kur... a ban request sent to the Ereshkigal manager
 socket, aimed at the kur of the same name over there. Ereshkigal does the
 firewalling. Baphomet never touches a firewall itself.
@@ -60,14 +60,15 @@ baphomet test_line --rule syslog/sshd 'Jul 12 08:15:50 mail01 sshd[1]: Invalid u
 ```
 
 Rules are YAML files carrying their own positive and negative tests, which
-are ran at load time... a rule that fails its own tests refuses to load.
+are run at load time... a rule that fails its own tests refuses to load.
 See [docs/rules.md](docs/rules.md) for writing them.
 
 ## Install
 
-Requires a running [Ereshkigal](https://github.com/LilithSec/Ereshkigal)
-for the bans to go anywhere. Fuller notes, optional extras included, live
-in [docs/install.md](docs/install.md).
+Requires Perl 5.40 or newer, and a running
+[Ereshkigal](https://github.com/LilithSec/Ereshkigal) for the bans to go
+anywhere. Fuller notes, optional extras included, live in
+[docs/install.md](docs/install.md).
 
 ### From source
 
@@ -75,6 +76,8 @@ Dependencies are declared in Makefile.PL, so with
 [cpanminus](https://metacpan.org/pod/App::cpanminus)...
 
 ```shell
+# Makefile.PL itself needs this one before it can say what else is wanted
+cpanm File::ShareDir::Install
 cpanm --installdeps .
 perl Makefile.PL
 make
@@ -82,18 +85,17 @@ make test
 make install
 ```
 
-`make install` installs the shipped rules into the dist's share dir, found
-there at run time, so nothing needs copying into place. To override a shipped
-rule or add your own, drop the YAML under `/usr/local/etc/baphomet/rules`,
-which is searched ahead of the shipped rules... see
-[docs/rules.md](docs/rules.md#where-rules-live).
+The shipped rules install into the dist share dir... see
+[docs/install.md](docs/install.md#from-source) for overriding them.
 
 ### FreeBSD
 
 ```shell
-pkg install p5-App-Cmd p5-Error-Helper p5-File-ShareDir p5-JSON-MaybeXS \
-    p5-Net-Patricia p5-Net-Server p5-Path-Tiny p5-POE p5-Ref-Util p5-YAML-LibYAML p5-Regexp-IPv6 p5-Text-CSV_XS p5-App-cpanminus
-cpanm Ereshkigal App::Baphomet
+pkg install p5-App-Cmd p5-Error-Helper p5-File-ShareDir p5-File-ShareDir-Install \
+    p5-JSON-MaybeXS p5-Net-Patricia p5-Net-Server p5-Path-Tiny p5-POE \
+    p5-Ref-Util p5-Regexp-IPv6 p5-Text-CSV_XS p5-YAML-LibYAML p5-App-cpanminus
+cpanm Regexp::IPv4 TOML::Tiny Log::Munger POE::Component::Server::JSONUnix \
+    Ereshkigal App::Baphomet
 ```
 
 Startup script for running at boot [rc/freebsd/baphomet](rc/freebsd/baphomet).
@@ -101,10 +103,12 @@ Startup script for running at boot [rc/freebsd/baphomet](rc/freebsd/baphomet).
 ### Debian
 
 ```shell
-apt-get install libapp-cmd-perl libfile-sharedir-perl libjson-maybexs-perl \
-    libnet-patricia-perl libnet-server-perl libpath-tiny-perl libpoe-perl libref-util-perl libtoml-tiny-perl libyaml-libyaml-perl \
-    libregexp-ipv6-perl libtext-csv-xs-perl cpanminus
-cpanm Ereshkigal App::Baphomet
+apt-get install libapp-cmd-perl libfile-sharedir-perl libfile-sharedir-install-perl \
+    libjson-maybexs-perl libnet-patricia-perl libnet-server-perl libpath-tiny-perl \
+    libpoe-perl libref-util-perl libregexp-ipv6-perl libtext-csv-xs-perl \
+    libtoml-tiny-perl libyaml-libyaml-perl cpanminus
+cpanm Error::Helper Regexp::IPv4 Log::Munger POE::Component::Server::JSONUnix \
+    Ereshkigal App::Baphomet
 ```
 
 Startup script for running at boot
@@ -114,8 +118,8 @@ Startup script for running at boot
 
 GNU General Public License, version 2 or (at your option) any later
 version... see [COPYING](COPYING). The shipped rules are derived from the
-filters of [fail2ban](https://github.com/fail2ban/fail2ban), which is under
-the same license.
+filters of [fail2ban](https://github.com/fail2ban/fail2ban) and the rules of
+[Sagan](https://github.com/quadrantsec/sagan-rules), both under GPLv2.
 
 ## Documentation
 
@@ -125,5 +129,8 @@ Also...
 
 - `perldoc App::Baphomet`
 - `perldoc App::Baphomet::Galla`
+- `perldoc App::Baphomet::Config`
+- `perldoc App::Baphomet::Rules`
 - `perldoc App::Baphomet::Rule`
 - `perldoc App::Baphomet::Gate`
+- `perldoc App::Baphomet::Parser`

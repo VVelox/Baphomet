@@ -18,7 +18,7 @@ gates. Only the **matcher**, how a line is judged an offense, changes from
 type to type. This page covers the common parts first, then how the types
 differ, then a writing guide for each.
 
-A rule carries its own tests, and they are ran every time it is loaded... a
+A rule carries its own tests, and they run every time it is loaded... a
 rule that fails its own tests refuses to load, failing `baphomet start`
 loudly instead of silently matching nothing while logs scroll past.
 
@@ -58,7 +58,7 @@ Groups live and resolve exactly as rules do... a **site override dir**,
 searched ahead of the **shipped groups** under the dist share dir. A group
 named `json/suricata-all` is the file `groups/json/suricata-all`, and a file
 of that name in the override dir shadows the shipped one. Unlike a rule, a
-group file carries no extension.
+group file has no extension.
 
 The file is newline delimited, one rule name per line... `#` comments and
 blank lines are ignored, and surrounding whitespace is trimmed.
@@ -95,20 +95,54 @@ watcher whole. What ships:
 | group | for | holds |
 | --- | --- | --- |
 | `json/suricata-all` | a Suricata `eve.json` | every classtype rule |
-| `json/suricata-bad` | " | all of them bar the noise and the too-generic... no `icmp-event`, `inappropriate-content`, generic protocol-command-decode, or `policy-violation` |
+| `json/suricata-bad` | " | every classtype rule except `icmp-event`, `inappropriate-content`, `protocol-command-decode`, and `policy-violation` |
 | `json/suricata-attack` | " | the high-confidence hostile set... malware plus active intrusion attempts and successes |
 | `json/suricata-malware` | " | the critical "host is compromised" classtypes (C2, trojan, exploit kit, credential theft, coin mining) |
 | `json/suricata-recon` | " | scanning and probing... noisier, suits `eve_only` observe mode |
 | `syslog/mail` | a maillog | postfix, sendmail, dovecot, courier, cyrus, perdition, sieve, qmail, and the rest of the MTA/IMAP/POP auth rules |
-| `syslog/messages` | the broad catch-all syslog | the eighteen daemons with no log file of their own... the panels and monitors (webmin, phpMyAdmin, Froxlor, monit, nrpe, haproxy), the file and directory services (samba, rsyncd, slapd), openvpn, postgresql, screensharingd, suhosin, and the daemons that refuse or rate-limit (strongswan, unbound, freeradius's unknown clients, scanlogd, xinetd). Their facilities scatter them across `messages`/`daemon`/`syslog`, so give it to each broad log you have... a rule whose daemon is absent costs one string compare. Deliberately excludes `pam-generic` and `drupal-auth`, whose `//.//` gate double-counts against the service rules, and `named-refused`, whose own header warns a refusal can be innocent |
+| `syslog/messages` | the broad catch-all syslog | the eighteen daemons with no log file of their own |
 | `syslog/ftp` | an FTP log | proftpd, pure-ftpd, vsftpd, wuftpd, gssftpd |
 | `syslog/voip` | a VoIP log | asterisk, freeswitch, murmur |
-| `syslog/ssh` | an auth log | the base `sshd` and `dropbear`... not the `sshd-*` tuning variants, which are alternative modes, not additive |
-| `syslog/foreign-auth` | any log carrying a login service | the fourteen `*-foreign-auth` rules... any authentication event, failed or successful, from outside `country_codes{home}`, banning on the first one. Opt-in twice over (list it, and name your home countries) and **listed ahead** of the per-service rules it shadows. See [the country gate](rule-gates/country.md) |
-| `syslog/linux-audit` | a forwarded auditd stream (audisp-syslog) | the auditd auth-failure and login-failure-anomaly ban rules, plus a detection-only sweep for the shapes a compromise leaves in the audit trail: account management, SELinux AVC and AppArmor denials, promiscuous NICs, MAC/audit tampering, fault-signal crashes, forbidden execs, kernel module loads, linker-preload writes, execs from writable dirs, and paths named to hide. Not `syslog/linux-apparmor-denied`, which reads the kernel ring buffer, not this stream |
+| `syslog/ssh` | an auth log | the base `sshd` and `dropbear` |
+| `syslog/foreign-auth` | any log carrying a login service | the fourteen `*-foreign-auth` rules |
+| `syslog/linux-audit` | a forwarded auditd stream (audisp-syslog) | the auditd ban rules and a detection-only compromise sweep |
 | `http_error/apache` | an Apache error log | the `apache-*` error-log rules |
 | `http_error/nginx` | an Nginx error log | the `nginx-*` error-log rules |
-| `http/scanners` | an HTTP access log | bad bots, panel sweeps, the fake-Googlebot check, PHP url-fopen abuse, protected-area probes |
+| `http/scanners` | an HTTP access log | bad bots, panel sweeps, the fake-Googlebot check, PHP url-fopen abuse, the `apache-pass` port-knock request |
+
+`syslog/messages` holds the panels and monitors (webmin, phpMyAdmin,
+Froxlor, monit, nrpe, haproxy), the file and directory services (samba,
+rsyncd, slapd), openvpn, postgresql, screensharingd, suhosin, and the
+daemons that refuse or rate-limit (strongswan, unbound, freeradius's
+unknown clients, scanlogd, xinetd). Their facilities scatter them across
+`messages`/`daemon`/`syslog`, so give it to each broad log you have... a
+rule whose daemon is absent costs one string compare. It leaves out
+`pam-generic` and `drupal-auth`, whose `//.//` gate double-counts against
+the service rules, and `named-refused`, whose own header warns a refusal
+can be innocent.
+
+`syslog/ssh` leaves the `sshd-*` variants out, as each is a choice to make
+by hand. `sshd-ddos` and `sshd-extra` run beside `sshd`, adding pre-auth
+abuse and negotiation probes it does not count. `sshd-aggressive` is those
+two as one rule, listed beside `sshd` in their place.
+
+`syslog/foreign-auth` bans on any authentication event, failed or
+successful, from outside `country_codes{home}`, on the first one. It is
+opt-in twice over (list it, and name your home countries), and it has to
+be **listed ahead** of the per-service rules it shadows. See
+[the country gate](rule-gates/country.md).
+
+`syslog/linux-audit` bans on auditd auth failures and the login-failure
+anomaly, and sights the shapes a compromise leaves in the audit trail:
+account management, SELinux AVC and AppArmor denials, promiscuous NICs,
+MAC/audit tampering, fault-signal crashes, forbidden execs, kernel module
+loads, linker-preload writes, execs from writable dirs, and paths named to
+hide. It leaves out `syslog/linux-apparmor-denied`, which reads the kernel
+ring buffer, not this stream.
+
+`http/scanners` carries `apache-pass`, fail2ban's port-knock pass request
+(a 200 for the knocking URL), shipped as an offense to be repointed at a
+honeypot URL of your own.
 
 ## Anatomy of a rule
 
@@ -151,7 +185,7 @@ rule_gates:                    # what it matches with, in the order it runs
       - sshd                   #   then the regexps below
       - sshd-session
   - message_regexp:
-      - '^[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%%'
+      - '^[iI](?:llegal|nvalid) user .*? from %%%%SRC%%%% port \d+'
   - ban_var:                   # who to count and ban
       - SRC
 tests:                         # about the rule... proven every load
@@ -505,23 +539,26 @@ so it is always present. Inert to matching.
 Optional triage metadata, on every rule type, all inert to matching and all
 written to EVE beside `msg` when set (see [eve](eve.md)):
 
-- `severity` — one of `info`/`low`/`medium`/`high`/`critical`. Emitted as
-  `.severity`. When a rule sets none, the config's `default_severity`
-  (global/kur/watcher, see [configuration](configuration.md)) fills in; absent
-  that too, the field is omitted.
-- `classtype` — the rule's class, the short Snort/Sagan/Suricata classtype slug
-  (e.g. `brute-force`, `web-application-attack`, `trojan-activity`). Emitted as
-  `.category`, in words rather than as the slug, the way Snort and Suricata keep
-  the slug in the rule and the description in their `classification.config`...
-  `misc-attack` reads downstream as `Misc Attack`. Free-form; the shipped
-  suricata rules carry their Suricata class here, and a classtype Baphomet's
-  table does not know becomes its slug title-cased.
-- `references` — an array of URLs, CVE ids, or doc links.
-- `attack` — an array of MITRE ATT&CK technique ids (e.g. `T1110`).
-- `rev` — the rule's revision, a non-negative integer, Suricata's
-  `alert.rev`. Emitted as `.rev`, defaulting to `0`... a `0` or unset `rev`
-  is an unversioned rule. Bump it when you change a rule so a downstream
-  consumer can tell versions apart.
+- `severity` :: One of `info`/`low`/`medium`/`high`/`critical`, emitted as
+  `.severity`. A `severity` in the config's
+  [per-rule overrides](configuration.md#per-rule-config-overrides) wins over
+  the rule's own, and a rule with neither takes the config's
+  `default_severity` (global/kur/watcher, see
+  [configuration](configuration.md)). Absent all three, the field is omitted.
+- `classtype` :: The rule's class, the short Snort/Sagan/Suricata classtype
+  slug (e.g. `brute-force`, `web-application-attack`, `trojan-activity`).
+  Emitted as `.category`, in words rather than as the slug, the way Snort and
+  Suricata keep the slug in the rule and the description in their
+  `classification.config`... `misc-attack` reads downstream as `Misc Attack`.
+  Free-form; the shipped suricata rules carry their Suricata class here, and
+  a classtype Baphomet's table does not know becomes its slug title-cased.
+- `references` :: An array of URLs, CVE ids, or doc links.
+- `attack` :: An array of MITRE ATT&CK technique ids (e.g. `T1110`).
+- `rev` :: The rule's revision, a non-negative integer, Suricata's
+  `alert.rev`, emitted as `.rev`. A `0` or unset `rev` is an unversioned
+  rule. Bump it when you change a rule so a downstream consumer can tell
+  versions apart.
+  - default :: `0`
 
 Together with `msg` these are the Suricata/Sagan `alert` metadata set,
 flattened to top-level EVE fields so a stream of matches becomes triageable
@@ -539,13 +576,16 @@ holding one of the fields worth reading at a glance, whose value is lifted to
 a top-level EVE field so a consumer gets it without digging through `found`
 (see [eve](eve.md)):
 
-- `src_ip_var` — the var promoted to `.src_ip`. Defaults to the found var
-  literally named `src_ip`.
-- `dest_ip_var` — the var promoted to `.dest_ip`. Defaults to `dest_ip`.
-- `src_port_var` — the var promoted to `.src_port`. Defaults to `src_port`.
-- `dest_port_var` — the var promoted to `.dest_port`. Defaults to `dest_port`.
-- `user_var` — the var promoted to `.user`, the account the line was about.
-  Defaults to `user`.
+- `src_ip_var` :: The var promoted to `.src_ip`.
+  - default :: `src_ip`, or `host` on http and `client` on http_error
+- `dest_ip_var` :: The var promoted to `.dest_ip`.
+  - default :: `dest_ip`
+- `src_port_var` :: The var promoted to `.src_port`.
+  - default :: `src_port`
+- `dest_port_var` :: The var promoted to `.dest_port`.
+  - default :: `dest_port`
+- `user_var` :: The var promoted to `.user`, the account the line was about.
+  - default :: `user`
 
 Point any of them at whatever a schema uses, `flow.src_ip` for a Suricata eve
 line say, since `found` flattens nesting to dotted paths. All five are always
@@ -598,10 +638,12 @@ forged lines it must still aim right on. Each is a hash...
 | `found` | Whether the rule should match, `1` or `0`. Defaults to 1 for positive and injection tests, 0 for negative. |
 | `data` | For positive tests, capture names to the values they should have captured. **Required** on a injection test, where it is the assertion. |
 | `undefed` | For negative tests, capture names that should not be defined. |
-| `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?, hosts?}`... `key` a string or, for a `vars` compound, a list joined as the store joins. What other rules would have branded, so a [mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate from its own file. `ttl` defaults 3600, `set` to the clock base, and `hosts`, how many hosts set the brand, to 1. |
-| `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`... what proves a rule's own `mark`/`unmark` did what it claims. |
-| `dns` | A fixture resolver for the [reverse_dns](rule-gates/reverse_dns.md) and [dnsbl](rule-gates/dnsbl.md) gates... `ptr` maps an address to its names, `forward` a name to its addresses, and `dnsbl` a zone to a map of address to what the zone answers, each answer a list, `nxdomain` (authoritative absence), or `servfail` (a failure). Anything unfixtured answers servfail, fail-closed as an unanswerable question is live. With the fixture present the gate runs exactly as in the galla, offender pass and all; without it the gate is skipped, as it always was. |
-| `geo` | A fixture locator for the [country](rule-gates/country.md), [asn](rule-gates/asn.md), and [travel](rule-gates/travel.md) gates... `countries` maps an address to its ISO code, `asns` one to its AS number or a `{number, org}` hash, and `locations` one to a `[ latitude, longitude ]` pair or a `{lat, lon, radius}` hash (each `unknown` for one the database would not place), and `lists` and `asn_lists` name the sets a `%%%country_codes{name}%%%` and a `%%%asn_lists{name}%%%` token resolve against, standing in for the config. Anything unfixtured is unplaceable, fail-closed as it is live. Present, the gate runs as in the galla; absent, it is skipped. |
+| `marks_before` | Brands seeded into the test's own throwaway mark store before the lines run, each `{name, key, value?, set?, ttl?, hosts?}`. |
+| `marks_expected` | Brands the store must hold (or, under `absent: 1`, lack) after the lines run, each `{name, key, value?, absent?}`. |
+| `tracked_before` | Records seeded into the test's own throwaway tracked store before the lines run, each `{name, key, fields, ttl?}`. |
+| `tracked_expected` | Records the store must hold, with the named fields (or, under `absent: 1`, lack) after the lines run, each `{name, key, fields?, absent?}`. |
+| `dns` | A fixture resolver for the [reverse_dns](rule-gates/reverse_dns.md) and [dnsbl](rule-gates/dnsbl.md) gates. |
+| `geo` | A fixture locator for the [country](rule-gates/country.md), [asn](rule-gates/asn.md), and [travel](rule-gates/travel.md) gates. |
 | `pressure` | A fixture for the [pressure](rule-gates/pressure.md) gate... the count of matched lines it reads, however far back it asks. Present, the gate runs as in the galla; absent, it is skipped. |
 | `scores` | A fixture for the [scored](rule-gates/scored.md) gate... a map of address to what its live hits add up to, standing in for the galla's counts. Present, the gate runs as in the galla; absent, it is skipped. |
 | `uptime` | A fixture for the [startup](rule-gates/startup.md) gate... how many seconds the galla has been up. Present, the gate runs as in the galla; absent, it is skipped. |
@@ -613,8 +655,35 @@ A test may use `messages`, an array of lines fed through in order, instead of
 a single `message`, with `found` the expected count across the sequence...
 this is how [correlation](#syslog-rules) rules, whose offense and address
 span lines, are tested. `data` then asserts against the last result found.
-The whole `test_parser` key sets a rule-wide default
+A rule-level `test_parser` key sets a rule-wide default
 parser for its tests.
+
+`marks_before` seeds what other rules would have branded, so a
+[mark](#marks-cross-rule-state-keyed-by-anything)-gated rule proves its gate
+from its own file. Its `key` is a string or, for a `vars` compound, a list
+joined as the store joins. `ttl` defaults to 3600, `set` to the clock base,
+and `hosts`, how many hosts set the brand, to 1. `marks_expected` is what
+proves a rule's own `mark`/`unmark` did what it claims. `tracked_before` and
+`tracked_expected` do the same for [tracked
+records](#tracked-records-state-that-accumulates-across-lines), a seeded
+record's `ttl` also defaulting to 3600.
+
+The `dns` fixture has three maps: `ptr`, an address to its names;
+`forward`, a name to its addresses; and `dnsbl`, a zone to a map of address
+to what the zone answers. Each answer is a list, `nxdomain` (authoritative
+absence), or `servfail` (a failure). Anything unfixtured answers servfail,
+fail-closed as an unanswerable question is live. With the fixture present
+the gate runs exactly as in the galla, offender pass and all; with out it
+the gate is skipped.
+
+The `geo` fixture maps an address in `countries` to its ISO code, in `asns`
+to its AS number or a `{number, org}` hash, and in `locations` to a
+`[ latitude, longitude ]` pair or a `{lat, lon, radius}` hash, each
+`unknown` for one the database would not place. Its `lists` and `asn_lists`
+name the sets a `%%%country_codes{name}%%%` and a `%%%asn_lists{name}%%%`
+token resolve against, standing in for the config. Anything unfixtured is
+unplaceable, fail-closed as it is live. Present, the gate runs as in the
+galla; absent, it is skipped.
 
 Each test entry runs the galla's own order per line... parse, then the
 rule's gates in the order it wrote them, the mark ones against a throwaway
@@ -629,7 +698,8 @@ to steer and probe it mid-run:
 | `message` | The line itself. Required in the hash form. |
 | `advance` / `at` | Move the clock forward by seconds, or pin it absolutely, before the line runs... ttl expiry and sequence ordering become provable. |
 | `found_after` | The cumulative `found` count expected once this line has run. |
-| `marks_after` | A `marks_expected`-shaped assertion ran at this point rather than the end. |
+| `marks_after` | A `marks_expected`-shaped assertion run at this point rather than the end. |
+| `tracked_after` | A `tracked_expected`-shaped assertion run at this point rather than the end. |
 
 An unknown key anywhere in a test entry is itself a failure, so a typo'd
 assertion can not silently become one that never runs. One bound: a gate is
@@ -675,14 +745,15 @@ tests:
 unbounded wildcard between its head and its offender token and nothing anchors
 the token, whichever candidate appears *first* is the one banned... so if the
 line lets a client write ahead of the real field, the client chooses. The loader
-spots that shape, and where the rule carries no `tests.injection` to answer it
+spots that shape, and where the rule has no `tests.injection` to answer it
 says so, naming the pattern. Greedy is not asked about: it takes the *last*
 candidate, and a forgery can only be planted ahead of what the daemon writes, so
 the ordering is itself the defence.
 
 It is a **warning and not a failure**, and the rule loads regardless. The shape
 does not make a rule exploitable... that turns on what feeds the log, which no
-reading of the pattern settles. The two `raw/palo-alto-*` rules are the same
+reading of the pattern settles. `raw/palo-alto-auth-bruteforce` and
+`raw/palo-alto-vpn-bruteforce` are the same
 shape with opposite answers: the auth failures write the account *before* the
 address, so they are anchored, while the SSL-VPN and GlobalProtect events write
 it *after*, where lazy is already correct and greedy would be the bug. Only a
@@ -827,7 +898,9 @@ Tracked records get the same treatment. `tracked_before` seeds one, each
 entry a `name`, a `key` (a string, or a list for a compound key), the
 `fields` the record holds, and an optional `ttl`. `tracked_expected`
 asserts after the run, either that a record is live and holds the named
-fields or, under `absent`, that there is none.
+fields or, under `absent`, that there is none. These are the tests of the
+postfix reader rule under
+[tracked records](#tracked-records-state-that-accumulates-across-lines):
 
 ```yaml
 tests:
@@ -1027,9 +1100,11 @@ accepts a gate or key:
 | `daemons` | ✓ | — | — | — | — |
 | `message_regexp` | ✓ | ✓ | — | ✓ | — |
 | `ignore_regexp` | ✓ | ✓ | — | ✓ | — |
-| `capture_regexp` / `capture`+`key` (correlation) | ✓ | ✓ | — | — | ✓ |
+| `capture_regexp` (correlation) | ✓ | ✓ | — | — | — |
+| `capture` / `key` (correlation) | — | — | — | — | ✓ |
 | `stages` (staged sequences) | ✓ | ✓ | — | — | — |
 | `message_json` | ✓ | — | — | — | — |
+| `mungers` | ✓ | ✓ | — | — | — |
 | `status` / `method` | — | — | ✓ | — | — |
 | `level` / `module` | — | — | — | ✓ | — |
 | `match` / `ignore` | — | — | ✓ | — | ✓ |
@@ -1038,6 +1113,7 @@ accepts a gate or key:
 | `detection_var` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `gate` / `condition` / `keywords` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `mark` / `unmark` / `mark_only` / `forgive` / `weigh` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `track` / `tracked` / `not_tracked` / `track_only` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `pressure` / `epoch` / `fresh` / `startup` / `extract` / `normalize` / `digest` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `marked` / `not_marked` / `sequence` / `country` / `asn` / `namtar_list` / `active_time` / `reverse_dns` / `dnsbl` / `account` / `limit` / `after` / `sum` / `beacon` / `sample` / `travel` / `novel` / `banished` / `address` / `network` / `forwarded` / `concurrent` / `breadth` / `scored` | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `max_score` / `find_time` / `ban_time` / `weight` / `eve_only` / `eve_line` / `distinct` | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -1049,20 +1125,18 @@ Everything from `ban_var` down is universal... any rule whose ban target is an
 IP can spare your own hosts. The one asymmetry among the universal rows is not
 *whether* a gate runs but *what it can key on*: a gate naming a
 `field`/`var`/`vars` resolves it against the matched line's data... regexp
-captures on syslog, raw, and json, flattened dotted paths on json. The http
-and http_error types expose no arbitrary captures, so on them a keyed gate
-reaches the parsed fields, not a custom capture.
+captures on syslog, raw, http_error, and json, flattened dotted paths on
+json. The http type has no regexp of its own that captures, so there a
+keyed gate reaches the parsed fields, or what an
+[`extract`](rule-gates/extract.md) lifted out of one.
 
 ### gate / selections / condition / keywords
 
 The predicate layer, a boolean refinement over a line's fields or captures,
-ANDed with the type's own matching. Every type has it, in three forms:
-
-- [`gate`](rule-gates/gate.md) :: A flat list of field tests, ANDed.
-- [`keywords`](rule-gates/keywords.md) :: A string searched for across a
-  line's fields.
-- [`condition`](rule-gates/condition.md) :: Named `selections` folded into
-  one boolean judgment.
+ANDed with the type's own matching. Every type has it, in three forms,
+[`gate`](rule-gates/gate.md), [`keywords`](rule-gates/keywords.md), and
+[`condition`](rule-gates/condition.md), each indexed under
+[every gate](#every-gate).
 
 What a `field` names depends on the type... a regexp capture (syslog/raw), a
 flattened dotted path (json), a parsed access/error-log field (http,
@@ -1091,7 +1165,7 @@ it is told, where it goes, what it refuses, and how to prove it.
 - [`ignore_regexp`](rule-gates/ignore_regexp.md) :: A message that is never
   an offense.
 - [`ignore`](rule-gates/ignore.md) :: A field that is never an offense.
-- [`stages`](rule-gates/stages.md) :: An ordered sequence with in one rule.
+- [`stages`](rule-gates/stages.md) :: An ordered sequence within one rule.
 - [`message_json`](rule-gates/message_json.md) :: A JSON message read into
   fields.
 - [`mungers`](rule-gates/mungers.md) :: A line read into fields by
@@ -1216,9 +1290,10 @@ dies when a galla binds the rule to a watcher.
 - what the watcher lacks :: A gate needing something of its watcher, such
   as the GeoIP database for `country` or a named list or window, that the
   watcher does not have.
+
 ### marks... cross-rule state, keyed by anything
 
-Correlation (below) ties lines together with in one rule. Marks tie rules
+Correlation (below) ties lines together within one rule. Marks tie rules
 together... a mark is a named, expiring brand a rule leaves on a key that a
 later rule, in the same or another watcher of that galla, can gate on. It is
 how one rule remembers something for another, Sagan's xbits and flexbits. The
@@ -1231,16 +1306,10 @@ line can be the key (`var`), or several joined into one compound key
 username", "this source on this account", and store "the address that used
 it".
 
-- [`mark`](rule-gates/mark.md) :: Sets a brand on match.
-- [`unmark`](rule-gates/unmark.md) :: Lifts a brand on match.
-- [`marked`](rule-gates/marked.md) :: Holds when a brand is set, and may ask
-  how old it is, what it stores, and how many hosts set it.
-- [`not_marked`](rule-gates/not_marked.md) :: Holds when a brand is not set.
-- [`sequence`](rule-gates/sequence.md) :: Holds when brands were set in
-  order.
-- `mark_only` :: A key of the rule. When true the rule only brands and
-  gates, never counting toward a ban, and does not consume the line, so
-  matching falls through to the later rules.
+The mark gates are indexed under [brands](#every-gate), each with a page
+of its own. `mark_only` is a key of the rule rather than a gate. When true
+the rule only brands and gates, never counting toward a ban, and does not
+consume the line, so matching falls through to the later rules.
 
 #### How old a brand is, and who set it
 
@@ -1295,8 +1364,10 @@ max_score: 1
 Order matters: list the reading rule (`sshd-spray`) before the branding one
 (`sshd-mark-users`) in the watcher, so the gate sees the source that
 established the account rather than the one the same line would re-brand it
-with. Since `sshd-spray` carries `max_score: 1`, it only fires where the kur
-sets `allow_per_rule_thresholds`.
+with. `sshd-spray` fires either way. Its `max_score: 1` is honored only
+where `allow_per_rule_thresholds` is set (global, kur, or watcher), making
+the first hit a ban; without that consent it counts toward the watcher's
+own `max_score` like any other rule.
 
 A `vars` key brands a *pair* instead... `vars: [ SRC, USER ]` joins both
 captures into one compound key, so "this source cleared this account" and
@@ -1414,43 +1485,61 @@ or `smtp` an hour later, and the only thing joining them is the queue id.
 The line that finally says something worth banning on is rarely the line
 that says who to ban.
 
-    track_only: true
-    rule_gates:
-      - track:
-          name: mail-queue
-          key: postfix_queueid
-          fields: [ postfix_client_ip, postfix_sasl_username ]
-          ttl: 3600
+```yaml
+track_only: true
+rule_gates:
+  - daemons: [ postfix/smtpd ]
+  - message_regexp:
+      - '^(?<postfix_queueid>[0-9A-F]+): client=\S+\[(?<postfix_client_ip>[^\]]+)\](?:, sasl_method=\S+, sasl_username=(?<postfix_sasl_username>\S+))?'
+  - track:
+      name: mail-queue
+      key: postfix_queueid
+      fields: [ postfix_client_ip, postfix_sasl_username ]
+      ttl: 3600
+  - ban_var: [ postfix_client_ip ]
+tests:
+  positive:
+    - message: "Jan  2 03:00:00 mx1 postfix/smtpd[111]: 1C36D185729: client=unknown[203.0.113.9], sasl_method=PLAIN, sasl_username=alice"
+      tracked_expected:
+        - name: mail-queue
+          key: 1C36D185729
+          fields: { postfix_client_ip: "203.0.113.9", postfix_sasl_username: alice }
+```
 
 That is the harvest rule. It watches the `smtpd` lines, files what they say
-under the queue id, and does nothing else. And this is the rule that reads
-it back:
+under the queue id, and does nothing else... `track_only` keeps it from
+counting, though like every rule it still names who an offense would count
+against. And this is the rule that reads it back:
 
-    rule_gates:
-      - tracked:
-          name: mail-queue
-          where:
-            - { field: postfix_sasl_username, op: exists }
-            - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
-          into: [ postfix_client_ip ]
-      - track:
-          name: mail-queue
-          key: postfix_queueid
-          fields: [ postfix_status ]
-      - ban_var: [ postfix_client_ip ]
+```yaml
+rule_gates:
+  - daemons: [ postfix/local, postfix/smtp ]
+  - message_regexp:
+      - '^(?<postfix_queueid>[0-9A-F]+): to=<[^>]*>,.* status=(?<postfix_status>bounced)'
+  - tracked:
+      name: mail-queue
+      where:
+        - { field: postfix_sasl_username, op: exists }
+        - { field: postfix_client_ip, op: cidr, value: 10.0.0.0/8, negate: true }
+      into: [ postfix_client_ip ]
+  - track:
+      name: mail-queue
+      key: postfix_queueid
+      fields: [ postfix_status ]
+  - ban_var: [ postfix_client_ip ]
+```
 
-The bounce fires on the `local` line, and `ban_var` names an address that
+Its tests are the ones under
+[proving brands and gates](#proving-brands-and-gates). The bounce fires on the `local` line, and `ban_var` names an address that
 only ever appeared on an `smtpd` line an hour earlier. That is what `into`
 is for.
 
-- [`track`](rule-gates/track.md) :: Harvests the line into a record, keyed
-  by the joining id.
-- [`tracked`](rule-gates/tracked.md) :: Judges the line by its record with
-  a `where`, or lifts stored fields into the offense with an `into`.
-- [`not_tracked`](rule-gates/not_tracked.md) :: Holds when there is no live
-  record for the key.
-- `track_only` :: `mark_only`'s sibling. The rule harvests, never counts,
-  and does not consume the line.
+[`track`](rule-gates/track.md), [`tracked`](rule-gates/tracked.md), and
+[`not_tracked`](rule-gates/not_tracked.md) are indexed under
+[every gate](#every-gate). `tracked` judges the line by its record with a
+`where`, or lifts stored fields into the offense with an `into`.
+`track_only` is a key of the rule, `mark_only`'s sibling... the rule
+harvests, never counts, and does not consume the line.
 
 A rule that reads a record also declares the `track` for it, the
 declaration being what the read is a read of. One with nothing of its own
@@ -1576,10 +1665,11 @@ Because such a rule's matcher *is* its munger, losing the munger would not
 merely lose fields... it would veto every line and never fire. The
 fatal-on-unresolvable behavior above covers that, and the rule's own
 [tests](#tests) exercise the real munger, so a missing or wrong decoder
-fails at load rather than matching nothing in the field. The
-`raw/fortinet-*` and `raw/sonicwall-*` rules accordingly need Log::Munger
-installed *with* the `fortinet` and `sonicwall` rule files, not merely
-present.
+fails at load rather than matching nothing in the field. The members
+of the `raw/fortinet-*`, `raw/sonicwall-*`, and `raw/huawei-*` families
+that carry a `mungers` gate accordingly need Log::Munger installed *with*
+the `fortinet`, `sonicwall`, and `huawei` rule files, not merely present.
+The rest of those families are plain regexp rules and need neither.
 
 ## How the types differ
 
@@ -1613,7 +1703,7 @@ The axes underneath that table:
   the data).
 - **Correlation.** Offense-and-address-on-different-lines correlation is a
   syslog, raw, and json feature... `capture_regexp` and keyed
-  `message_regexp` on the text types, a `capture` gate and a `key` gate
+  `message_regexp` on syslog and raw, a `capture` gate and a `key` gate
   keyed on fields for json. The http and http_error types have no
   need of it, every line already carrying its offender.
 - **Staging.** In-rule ordered sequences... counted stages with time and
@@ -1622,7 +1712,11 @@ The axes underneath that table:
   a syslog line into gateable fields, a syslog-only bridge to the json
   machinery.
 
-The rest of this page is one section per type.
+The rest of this page is one section per type. See
+[`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and
+the class of each gate,
+[`App::Baphomet::Gate::daemons`](https://metacpan.org/pod/App::Baphomet::Gate::daemons)
+and the like, for the full reference.
 
 ## syslog rules
 
@@ -1735,7 +1829,7 @@ rule_gates:
 the syslog type the `syslog.host`/`syslog.daemon`/`syslog.pid` envelope
 fields, so a single counted stage keyed
 `per: [ syslog.host, syslog.daemon, syslog.pid ]` counts repetition
-*with in one daemon session*, a far sharper signal than per-IP counting
+*within one daemon session*, a far sharper signal than per-IP counting
 across the whole window. Every `per` component must resolve on a hit or
 the line joins nothing.
 
@@ -1760,11 +1854,6 @@ header.
 Sequences prove themselves through the `messages:` test form, whose line
 order also drives `skip`. A `within` bound is proven the same way, an
 `advance` or `at` on a `messages:` entry moving the virtual clock past it.
-
-See [`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule)
-and the class of each gate,
-[`App::Baphomet::Gate::daemons`](https://metacpan.org/pod/App::Baphomet::Gate::daemons)
-and the like, for the full reference.
 
 ## raw rules
 
@@ -1831,7 +1920,7 @@ rule_gates:
   - ban_var: [ host ]
 tests:
   positive:
-    - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 404 196 "-" "zgrab/0.x"'
+    - message: '203.0.113.9 - - [12/Jul/2026:08:15:50 -0500] "GET /.env HTTP/1.1" 401 196 "-" "zgrab/0.x"'
       found: 1
       data:
         host: "203.0.113.9"
@@ -1842,11 +1931,7 @@ protocol, status, bytes, referer, user_agent, and format. The
 [predicate gate](#gate--selections--condition--keywords) works over them too,
 written above the `match`. A rule with no `match` (every 401, say) is legal...
 one with neither a `match` nor a gate that judges is a error. Tests default to
-the `http_access` parser. See
-[`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and the
-class of each gate,
-[`App::Baphomet::Gate::match`](https://metacpan.org/pod/App::Baphomet::Gate::match)
-and the like, for the full reference.
+the `http_access` parser.
 
 ## http_error rules
 
@@ -1864,7 +1949,7 @@ feature, not used here, but named captures in a winning regexp merge into
 
 ```yaml
 ---
-test_parser: nginx_error # per rule test parser default... apache_error if unset
+test_parser: apache_error # per rule test parser default... nginx_error for a nginx rule
 rule_gates:
   - level:               # optional gates, ANDed, string-or-//regexp//
       - error
@@ -1873,22 +1958,19 @@ rule_gates:
   - ignore_regexp:
       - 'from the health checker'
   - message_regexp:
-      - '^user \S*: password mismatch'
+      - '^user (?<user>\S*): authentication failure for "[^"]*": Password Mismatch$'
   - ban_var: [ client ]
 tests:
   positive:
-    - message: '[Wed Jul 17 22:18:52 2013] [error] [client 127.0.0.1] user username: authentication failure for "/basic/file": Password Mismatch'
+    - message: '[Sat Jul 20 21:39:11.978080 2013] [auth_basic:error] [pid 17512:tid 140123053950720] [client 127.0.0.1:51390] AH01617: user username: authentication failure for "/basic/file": Password Mismatch'
       found: 1
       data:
         client: "127.0.0.1"
+        user: "username"
 ```
 
 The [predicate gate](#gate--selections--condition--keywords) is available,
 written above the `message_regexp`, which every http_error rule has to have.
-See [`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and
-the class of each gate,
-[`App::Baphomet::Gate::level`](https://metacpan.org/pod/App::Baphomet::Gate::level)
-and the like, for the full reference.
 
 ## json rules
 
@@ -1898,8 +1980,8 @@ flattens whatever the application logged into dotted field paths
 matter... ANDed `gate` entries pinning fields to value lists
 (string-or-`//regexp//`), ORed first-match-wins `match` entries running
 regexps ([tokens](rule-gates/message_regexp.md) included) against named fields, and
-vetoing `ignore` entries of the same shape. A rule needs at least a gate or a
-match.
+vetoing `ignore` entries of the same shape. A rule needs at least a `gate`,
+`keywords`, `condition`, or `match`.
 
 `ban_var` resolves against the found line's data, which is the flattened
 fields merged with the winning match's captures... so it may name a token
@@ -1931,11 +2013,7 @@ tests:
 Tests default to the `json` parser, each message being one line of JSON. The
 full [predicate gate](#gate--selections--condition--keywords) vocabulary,
 `selections`/`condition` and `keywords` included, is at home here... json is
-where the Sigma-style boolean model earns its keep. See
-[`App::Baphomet::Rule`](https://metacpan.org/pod/App::Baphomet::Rule) and the
-class of each gate,
-[`App::Baphomet::Gate::match`](https://metacpan.org/pod/App::Baphomet::Gate::match)
-and the like, for the full reference.
+where the Sigma-style boolean model earns its keep.
 
 ### correlation on json... capture, key, defer
 
@@ -2010,8 +2088,8 @@ clean pass having never read your edits, and an override dir shadowing them
 hides them from both. Every run therefore ends by naming what it read:
 
 ```
-254 rules checked, read from /usr/local/etc/baphomet/rules (135), \
-    /usr/local/lib/perl5/site_perl/auto/share/dist/App-Baphomet/rules (119)
+296 rules checked, read from /usr/local/etc/baphomet/rules (3), \
+    /usr/local/lib/perl5/site_perl/auto/share/dist/App-Baphomet/rules (293)
 ```
 
 `test_line` answers the same question with a `rule_file` in its JSON. When it

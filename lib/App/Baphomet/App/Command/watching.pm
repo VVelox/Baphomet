@@ -24,14 +24,32 @@ our $VERSION = '0.0.1';
     baphomet watching
     baphomet watching sshd
 
+=head1 DESCRIPTION
+
+Asks the Baphomet manager, over its socket, what each galla is watching
+via the C<watching> command. Per galla and per watcher, a file watcher
+shows its log specs, literal paths and globs alike, under C<globs> and
+the concrete files they resolved to and are being followed under
+C<following>. A journal watcher shows its journalctl matches under
+C<journal>, with C<journal_running> saying whether it is being followed.
+
+With no args every galla is asked, with a galla name just that one. The
+manager must be running.
+
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+validate_args, and execute.
 
 =cut
 
-sub abstract { return 'show what files and globs each galla is watching' }
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc for
+# the usage line, validate_args to vet the args ahead of execute, and
+# execute for the work itself. their contract is App::Cmd's, so they are
+# not documented one by one here
+
+sub abstract { return 'show what each galla is watching' }
 
 sub description {
 	return

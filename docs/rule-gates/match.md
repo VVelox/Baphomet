@@ -86,8 +86,8 @@ entry matched goes down as the offense's `regexp`, counted from zero.
 - a second `match` in the rule :: "is the second match gate of the rule, which can have the one"
 - a rule with no `match` and nothing that judges :: "has no gate that makes a offense of a line or judges one ..."
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

@@ -33,10 +33,10 @@ our @EXPORT_OK = qw( log_drek );
 
 =head1 DESCRIPTION
 
-The C<log_drek> sub both C<baphomet> and C<galla> and the various
-App::Baphomet modules log through... a plain function, no new needed,
-exported on request, so everything shares one implementation instead of each
-carrying their own copy.
+C<log_drek> is the one logging sub shared by the C<baphomet> and C<galla>
+bins and the App::Baphomet modules... a plain exported function, no object
+needed, so everything logs through one implementation instead of each
+keeping its own copy.
 
 =head1 EXPORTS
 

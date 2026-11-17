@@ -1,7 +1,7 @@
 # concurrent... too many at once
 
 A `concurrent` gate holds when a key has been seen with more than
-`more_than` different values with in the last `seconds`, this offense's
+`more_than` different values within the last `seconds`, this offense's
 among them. One account logged in from three addresses in the one ten
 minutes is an account shared, or one that is not its owner's any more.
 
@@ -33,10 +33,10 @@ rule_gates:
 A bare `by` is a list of one. `more_than` is one or more, so a key with one
 value never holds.
 
-A value seen again stays one value, and counts `seconds` from then. It says
+A value seen again stays one value, its `seconds` starting over. It says
 what [`distinct`](../rules.md#distinct-counting-how-many-not-how-often)
-says, as a gate beside a rule's own counting where `distinct` is the rule's
-counting, and a rule can have only one of those.
+says, but `distinct` is how the rule itself counts, and a rule counts only
+one way. This is a gate, so it sits beside whatever counting the rule does.
 
 ## Where it goes
 
@@ -47,8 +47,8 @@ A gate above it that vetoes keeps the value out, and one below it does not.
 
 ## When it does not hold
 
-A vetoed offense is vetoed as by any gate... it is not counted, and the
-line goes on to the rules after this one.
+A vetoed offense is vetoed as by any gate... it counts toward no rule's
+score, and the line goes on to the rules after this one.
 
 It fails closed. An offense lacking one of the `by` vars or the `of`, or
 holding the `of` empty, is vetoed and noted nowhere.
@@ -71,8 +71,8 @@ forgotten at a restart.
 - a `more_than` that is not a whole number of one or more :: "has a more_than that is not a positive int"
 - a `seconds` that is not a whole number of one or more :: "has a seconds that is not a positive int of seconds"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

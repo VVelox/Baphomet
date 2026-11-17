@@ -38,16 +38,13 @@ alone, and always in the order below whatever order `ops` names them in, as
 a step done ahead of the one it depends on would leave standing what it was
 for... `dot_segment` ahead of `url` would leave `%2e%2e` a segment.
 
-- `url` :: Percent decoding, done again while it changes things, three
-      times at the most.
-- `overlong` :: The overlong UTF-8 forms of an ASCII byte, and IIS's
-      `%u00XX` form, made the byte they stand for.
+- `url` :: Percent decoding, done again while it changes things, three times at the most.
+- `overlong` :: The overlong UTF-8 forms of an ASCII byte, and IIS's `%u00XX` form, made the byte they stand for.
 - `nul` :: Everything from a NUL on cut off.
 - `backslash` :: Each `\` made a `/`, as IIS takes it.
 - `slashes` :: Each run of `/` made one.
 - `params` :: The `;name=value` parameters of each segment cut off.
-- `dot_segment` :: The `.` and `..` segments resolved as a server resolves
-      them, a `..` above `/` dropped.
+- `dot_segment` :: The `.` and `..` segments resolved as a server resolves them, a `..` above `/` dropped.
 - `dot_segment_below` :: The same, but a `..` above `/` kept.
 - `lower` :: Lower case, for a server that does not tell the cases apart.
 - `query` :: The query left off.
@@ -63,7 +60,7 @@ the query is put back after the path as it was given.
 `dot_segment` makes `/../../etc/passwd` `/etc/passwd`. `dot_segment_below`
 makes `/a/../../etc/passwd` `/../etc/passwd`, so a rule can see the climb
 was tried, and it is never named beside `dot_segment`. It is for a rule
-about the climb its self:
+about the climb itself:
 
 ```yaml
 rule_gates:
@@ -105,16 +102,16 @@ the line has is never written. Nothing outlives the line.
 
 ## Refused at load
 
-- no `var`, `into`, or `ops`, or a key it does not know :: lacks a var /
-      lacks a into / lacks a ops / has the unknown key
-- `ops` empty, or naming a step there is none of :: has a ops that is not a
-      non-empty array of url, overlong, ...
-- a step named twice :: names the op twice
-- `dot_segment` beside `dot_segment_below` :: names both dot_segment and
-      dot_segment_below
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- no `var`, `into`, or `ops` :: "lacks a ..."
+- a `var` or `into` that is not a string :: "has a ... that is not a non-empty string"
+- `ops` empty, or naming a step there is none of :: "has a ops that is not a non-empty array of url, overlong, ..."
+- a step named twice :: "names the op ... twice"
+- `dot_segment` beside `dot_segment_below` :: "names both dot_segment and dot_segment_below"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

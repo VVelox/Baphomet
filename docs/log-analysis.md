@@ -26,8 +26,9 @@ of it:
 off the leash of being an address. It counts by anything the line carries...
 a username, a hostname, a URI, a service, a config key... so a rule can alert
 on a thing with no address to banish at all, a policy tripwire, a service
-crash, a configuration change. This is the Sagan/Wazuh(LAE/Log Analysis Engine) reach a
-pure banisher can not follow. See [rules](rule-gates/detection_var.md).
+crash, a configuration change. This is the reach of a log analysis engine like
+Sagan or Wazuh, which a pure banisher can not follow. See
+[detection_var](rule-gates/detection_var.md).
 
 ## What makes it a detection engine
 
@@ -64,7 +65,8 @@ Suricata/Sagan alert-metadata set, flattened onto each event it raises so a
 stream of matches is a stream of triageable detections... `msg` (the
 `[TAG] description` signature line), `severity`, `category` (the rule's
 classtype in words, as Suricata writes it), `references`, `attack` (MITRE
-ATT&CK ids), and `rev`, plus a `sid` and `gid` the loader derives. This is the vocabulary a SOC reads a detection by. See
+ATT&CK ids), and `rev`, plus a `sid` and `gid` the loader derives. This is
+the vocabulary a SOC reads a detection by. See
 [triage metadata](rules.md#triage-metadata).
 
 ## The output... the EVE stream
@@ -72,10 +74,11 @@ ATT&CK ids), and `rev`, plus a `sid` and `gid` the loader derives. This is the v
 Where the accuser's output is a ban request to Ereshkigal, the detection
 engine's output is the **EVE event log**, a Suricata-shaped NDJSON stream of
 what the gallas see. A detection rule writes a `sighting` per match and a
-`sighted` when a subject crosses its threshold; a would-be ban held in
-observe mode surfaces as an `alert`; a real ban rides as a `found`. One
-stream, machine-shaped, is what drives a SIEM, a dashboard, or a notifier...
-the alerting Ereshkigal's half never sees. See [eve](eve.md).
+`sighted` when a subject crosses its threshold; a ban rule writes a `found`
+per match under the threshold and a `banish` for the real ban; a would-be ban
+held in observe mode surfaces as an `alert`. One stream, machine-shaped, is
+what drives a SIEM, a dashboard, or a notifier... the alerting Ereshkigal's
+half never sees. See [eve](eve.md).
 
 ## Observe mode... detection before trust
 

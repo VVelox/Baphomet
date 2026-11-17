@@ -141,7 +141,8 @@ sub matchers_hit {
 
 # the typed field operators, the opt-in richer form of a gate entry. legacy
 # entries (field + values, equality or //regex//) are untouched and never reach
-# here... this only fires for an entry carrying op/value/all/negate
+# here... this only fires for a entry naming any of @PREDICATE_ONLY_KEYS, which
+# are op, value, all, negate, nocase, fieldref, times, measure, of, and decode
 our %PREDICATE_OPS = map { $_ => 1 } qw( eq contains startswith endswith re gt lt ge le cidr exists );
 
 # the comparators, resolved once at compile time onto the predicate as
@@ -227,10 +228,32 @@ $PREDICATE_TRANSFORMS{wide} = $PREDICATE_TRANSFORMS{utf16le};
 # them is a predicate, else it is the legacy field/values form
 my @PREDICATE_ONLY_KEYS = qw( op value all negate nocase fieldref times measure of decode );
 
-# compiles a predicate entry into a runnable form, dieing on anything
-# unusable. shape: { field, op (default eq), value | values, all, negate }.
-# op eq/contains/startswith/endswith are string tests, re a regexp (tokened),
-# gt/lt/ge/le numeric, cidr a v4/v6 membership reusing the ignore-list machine
+# compiles a predicate entry into a runnable form, dying on anything
+# unusable... a unknown key or op, nocase on a numeric or cidr op, a
+# fieldref paired with a literal or a op it does not fit, a bad measure, of,
+# times, or decode, a missing or non-scalar value, a non-numeric value under
+# a numeric op, or a bad CIDR. compile_gates calls this for any entry naming
+# one of @PREDICATE_ONLY_KEYS. op eq/contains/startswith/endswith are string
+# tests, re a regexp (tokened), gt/lt/ge/le numeric, cidr a v4/v6 membership
+# reusing the ignore-list machine, and exists a presence test.
+#
+# args:
+#   $entry :: the gate entry hash ref as the rule file wrote it... field, op
+#             (default eq), value or values, and the optional all, negate,
+#             nocase, fieldref, times, measure, of, and decode
+#   $where :: the lead in for the die messages, such as 'The gate of the rule
+#             "json/example" entry 0'
+#
+# returns:
+#   the compiled predicate hash ref... field, op, negate, and for any op but
+#   exists also all, nocase, fieldref, times, measure, count_of, decode when
+#   set, and kind (string, re, num, or cidr) with the matching strings,
+#   regexps, numbers, or cidr plus op_code for the string and numeric kinds.
+#   a exists predicate is just { field, op => 'exists', negate }.
+#
+# example:
+#   my $predicate = _compile_predicate( { field => 'port', op => 'gt', value => 1024 }, $where );
+#   # { field => 'port', op => 'gt', kind => 'num', numbers => [1024], ... }
 sub _compile_predicate {
 	my ( $entry, $where ) = @_;
 
@@ -421,9 +444,11 @@ sub _compile_predicate {
 #   $ref       :: the referenced field's value for a fieldref predicate, the
 #                 needle compared against, else undef
 #
-# returns 1 when the operator holds for the value, or for any candidate its
-# decode chain fans it out to, else 0.
+# returns:
+#   1 when the operator holds for the value, or for any candidate its decode
+#   chain fans it out to, else 0.
 #
+# example:
 #   my $core = _predicate_core( $gate->{predicate}, $data->{user} );
 sub _predicate_core {
 	my ( $predicate, $value, $ref ) = @_;
@@ -453,7 +478,20 @@ sub _predicate_core {
 
 # applies a predicate's decode chain to a value, fanning out... each transform
 # maps every current candidate to zero or more, so base64offset widens and a
-# failed decode narrows. no decode chain is the value unchanged
+# failed decode narrows. no decode chain is the value unchanged.
+#
+# args:
+#   $decode :: array ref of transform names from %PREDICATE_TRANSFORMS, in
+#              the order they apply, such as [ 'base64', 'utf16le' ]... undef
+#              when the predicate has no decode
+#   $value  :: the field value as a string
+#
+# returns:
+#   a list of candidate strings... ( $value ) with no decode chain, empty
+#   when every decode in the chain failed.
+#
+# example:
+#   my @candidates = _decode_candidates( [ 'base64' ], 'aGVsbG8=' );    # ( 'hello' )
 sub _decode_candidates {
 	my ( $decode, $value ) = @_;
 
@@ -479,7 +517,22 @@ sub _decode_candidates {
 # tests one candidate string against a predicate's operator and values. $ref,
 # the referenced field's value, is the dynamic needle for a fieldref predicate.
 # the operator was resolved to kind and op_code at compile time and the any/all
-# folds are inlined, as this is the innermost per-line call
+# folds are inlined, as this is the innermost per-line call. a numeric
+# predicate with a measure turns the value into its length, entropy, or match
+# count first, and a fieldref numeric one scales the referenced number by times.
+#
+# args:
+#   $predicate :: a compiled predicate from _compile_predicate, never exists
+#   $value     :: one candidate string, defined
+#   $ref       :: the referenced field's value for a fieldref predicate, else
+#                 undef
+#
+# returns:
+#   1 when the operator holds against any needle, or every needle under all,
+#   else 0. a fieldref predicate whose referenced field is absent returns 0.
+#
+# example:
+#   if ( _predicate_test_one( $predicate, $candidate, $ref ) ) { return 1; }
 sub _predicate_test_one {
 	my ( $predicate, $value, $ref ) = @_;
 
@@ -593,8 +646,10 @@ sub _predicate_test_one {
 # args:
 #   $value :: the value, as bytes
 #
-# returns the bits a byte, 0 for a empty value.
+# returns:
+#   the bits a byte as a float, 0 for a empty value.
 #
+# example:
 #   my $bits = _entropy_of('aaaa');    # 0
 #   my $bits = _entropy_of('abcd');    # 2
 sub _entropy_of {
@@ -695,8 +750,8 @@ sub compile_gates {
 			$gate->{keyword} = 1;
 			$gate->{prefix}  = $1;
 		}
-		# the keyword fan carries no referenced value, so a fieldref under it
-		# would compile and then silently never match
+		# the keyword fan has no referenced value to compare against, so a
+		# fieldref under it would compile and then silently never match
 		if ( $gate->{keyword} && defined( $gate->{predicate} ) && defined( $gate->{predicate}{fieldref} ) ) {
 			die( $where . ' pairs fieldref with a keyword field, which can never match' );
 		}
@@ -731,15 +786,17 @@ sub compile_gates {
 # restating the walk... it is the strings-only case that is worth
 # specializing, and it is the only one specialized here.
 #
-# Args...
+# args:
+#   $gate :: one compiled gate hash ref as compile_gates builds it... field,
+#            matchers or predicate, and keyword/prefix when a keyword gate
 #
-#    - gate :: One compiled gate, as built above.
+# returns:
+#   a code ref taking the data hash ref and returning 1 or 0, or undef when
+#   the gate is a shape this does not compile.
 #
-# Returns a code ref taking the data hash ref and returning 1 or 0, or undef
-# when the gate is a shape this does not compile.
-#
-#    my $code = _compile_gate_code($gate);
-#    my $hit = defined($code) ? $code->($data) : _gate_hit( $gate, $data, $message );
+# example:
+#   my $code = _compile_gate_code($gate);
+#   my $hit  = defined($code) ? $code->($data) : _gate_hit( $gate, $data, $message );
 sub _compile_gate_code {
 	my ($gate) = @_;
 
@@ -815,7 +872,21 @@ sub gates_pass {
 # tests one gate against a data hash, true when it holds. an ordinary gate reads
 # its one field (MESSAGE reaching the whole message); a keyword gate fans its
 # predicate over many field values, matching if any hits, so a string can be
-# searched across every field or a subtree
+# searched across every field or a subtree. negate is applied here, once per
+# value for a plain gate and once over the whole fan for a keyword gate.
+#
+# args:
+#   $gate    :: one compiled gate hash ref from compile_gates
+#   $data    :: hash ref of field or capture name to value
+#   $message :: the line's message, read for the reserved MESSAGE field when
+#               the data hash has no MESSAGE key, and searched by a bare
+#               %%%ANY%%%... undef when the caller has none
+#
+# returns:
+#   1 when the gate holds, else 0.
+#
+# example:
+#   if ( !_gate_hit( $gate, $data, $message ) ) { return 0; }
 sub _gate_hit {
 	my ( $gate, $data, $message ) = @_;
 
@@ -865,7 +936,21 @@ sub _gate_hit {
 
 # the values a keyword gate fans over... every field value plus the message for
 # a bare %%%ANY%%%, or the values whose flattened path is the prefix or under it
-# for a scoped %%%ANY:prefix%%%, so nothing unrelated is searched
+# for a scoped %%%ANY:prefix%%%, so nothing unrelated is searched.
+#
+# args:
+#   $data    :: hash ref of flattened field name to value, such as
+#               { 'http.hostname' => 'example.org', 'src_ip' => '192.0.2.7' }
+#   $message :: the line's message, added for a bare %%%ANY%%%, undef when
+#               there is none
+#   $prefix  :: the dotted path of a scoped keyword, such as 'http', undef
+#               for a bare %%%ANY%%%
+#
+# returns:
+#   a list of the values to search, in hash order.
+#
+# example:
+#   my @values = _keyword_values( $data, undef, 'http' );    # ( 'example.org' )
 sub _keyword_values {
 	my ( $data, $message, $prefix ) = @_;
 
@@ -1020,7 +1105,22 @@ sub compile_condition {
 } ## end sub compile_condition
 
 # resolves a quantifier target to the list of selection names it covers...
-# "them" is all, a trailing * is a name prefix, else a single named selection
+# "them" is all, a trailing * is a name prefix, else a single named selection,
+# dying when a plain target names no selection.
+#
+# args:
+#   $target     :: the token after "of"... 'them', a prefix such as 'is_*',
+#                  or a selection name
+#   $selections :: hash ref keyed by selection name, only the keys read
+#   $where      :: the lead in for the die message
+#
+# returns:
+#   a list of selection names, sorted for them and a *-pattern... a
+#   *-pattern matching nothing returns a empty list, which the caller dies on.
+#
+# example:
+#   my @names = _cond_resolve( 'is_*', { is_alert => [], is_internal => [], other => [] }, $where );
+#   # ( 'is_alert', 'is_internal' )
 sub _cond_resolve {
 	my ( $target, $selections, $where ) = @_;
 

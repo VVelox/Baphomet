@@ -29,17 +29,17 @@ rule_gates:
 - `grace` :: How many seconds after the galla starts lines are turned away.
 
 [`fresh`](fresh.md) does the same by the time a line says it was written,
-which is the better wherever the lines carry a time that can be read... it
+which is the better wherever the lines have a time that can be read... it
 keeps the backlog out and counts the lines that are new, where this keeps
-everything out for the grace. This is for the logs whose lines carry no
+everything out for the grace. This is for the logs whose lines have no
 such time.
 
 ## Where it goes
 
-First. It reads nothing of the line, so leading the list it turns a line
-away before anything else is made of it. It is one of the gates that read
-only the parsed line, so a `daemons` gate right below it still leads for
-the rule index, and the rule is still offered only its own daemon's lines.
+First. Leading the list it turns a line away before anything else is made
+of it. It is one of the early gates, asked before the rest of the line is
+made, so a `daemons` gate right below it still leads for the rule index,
+and the rule is still offered only its own daemon's lines.
 
 ## When it does not hold
 
@@ -49,13 +49,13 @@ as one a test drives, has nothing to wait out and lets every line by.
 
 ## Refused at load
 
-- no `grace`, or a key it does not know :: lacks a grace / has the unknown
-      key
-- a `grace` that is not a positive whole number :: is not a positive int
-      of seconds
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- no `grace` :: "lacks a grace"
+- a `grace` that is not a positive whole number :: "has a grace that is not a positive int of seconds"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -75,7 +75,5 @@ tests:
 
 ## See also
 
-- [`fresh`](fresh.md) :: The better choice wherever a line has a time to
-      read.
-- [`pressure`](pressure.md) :: The other gate that reads nothing of the
-      line.
+- [`fresh`](fresh.md) :: The better choice wherever a line has a time to read.
+- [`pressure`](pressure.md) :: The other gate that reads nothing of the line.

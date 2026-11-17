@@ -53,8 +53,8 @@ on to the rules after it.
 - an entry that is not a string :: "contains a non-string entry"
 - a `//regexp//` that will not compile :: "entry ... does not compile"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

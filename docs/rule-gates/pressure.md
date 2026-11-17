@@ -30,13 +30,11 @@ rule_gates:
 - `above` :: How many matched lines it takes more than.
 - `seconds` :: How far back they are counted over.
 - `times` :: How many times what is usual the count has to be more than.
-- `baseline` :: How many seconds before the `seconds` what is usual is
-      read over.
-- `hold` :: Seconds the gate goes on letting lines by after the count was
-      last above the mark.
-    - default :: 0
+- `baseline` :: How many seconds before the `seconds` what is usual is read over.
+- `hold` :: Seconds the gate goes on letting lines by after the count was last above the mark.
+  - default :: 0
 - `scope` :: What is counted over, `watcher` or `galla`.
-    - default :: `watcher`
+  - default :: `watcher`
 
 `seconds` is required, and so is `above` or `times`. `times` and `baseline`
 only go together. Beside a `times`, `above` is the least the count may be
@@ -45,7 +43,7 @@ shutting the gate. A `hold` of 0, the default, shuts it the moment the
 count drops back under the mark.
 
 A count for a mark wants setting for each host, a busy mail server and a
-quiet bastion being nothing alike. `times` sets its self, what is usual
+quiet bastion being nothing alike. `times` sets itself, what is usual
 being what the `baseline` seconds before the `seconds` came to, evened out
 to as long:
 
@@ -61,12 +59,12 @@ for its first while after a restart.
 
 ## Where it goes
 
-First. It reads nothing of the line, so written first it turns a line away
-before anything else is done with it, and a family of harsher rules costs
-next to nothing while there is no attack. It is one of the gates that read
-only the parsed line, so a `daemons` gate right below it still leads for
-the rule index. The rule itself goes ahead of the one it shadows in the
-watcher's list, so it has the line first.
+First. Written first it turns a line away before anything else is done with
+it, and a family of harsher rules costs next to nothing while there is no
+attack. It is one of the early gates, asked before the rest of the line is
+made, so a `daemons` gate right below it still leads for the rule index.
+The rule itself goes ahead of the one it shadows in the watcher's list, so
+it has the line first.
 
 ## When it does not hold
 
@@ -97,28 +95,27 @@ shuts.
 
 ## Refused at load
 
-- no `seconds`, or a key it does not know :: lacks a seconds / has the
-      unknown key
-- neither `above` nor `times` :: has neither above nor times
-- a `times` with out a `baseline`, or a `baseline` with out a `times` ::
-      has a times with out a baseline, or a baseline with out a times
-- an `above` that is not a positive whole number :: is not a positive int
-- a `times` that is not a positive number :: is not a positive number
-- a `seconds` or `baseline` that is not a positive whole number :: is not
-      a positive int of seconds
-- a `hold` that is not a whole number of zero or more :: is not a
-      non-negative int of seconds
-- a `scope` that is neither `watcher` nor `galla` :: is not one of watcher
-      or galla
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- no `seconds` :: "lacks a seconds"
+- neither `above` nor `times` :: "has neither above nor times"
+- a `times` with out a `baseline`, or a `baseline` with out a `times` :: "has a times with out a baseline, or a baseline with out a times"
+- an `above` that is not a positive whole number :: "has a above that is not a positive int"
+- a `times` that is not a positive number :: "has a times that is not a positive number"
+- a `seconds` or `baseline` that is not a positive whole number :: "has a ... that is not a positive int of seconds"
+- a `hold` that is not a whole number of zero or more :: "has a hold that is not a non-negative int of seconds"
+- a `scope` that is neither `watcher` nor `galla` :: "has a scope that is not one of watcher or galla"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
 A test gives the count the gate reads as a `pressure` fixture, the same
-however far back it asks. With none the gate is skipped and the line let
-by. See [tests](../rules.md#tests) for the shape.
+however far back it asks. It answers the baseline the same as the
+`seconds`, so a `times` threshold is proved galla-side only. With none the
+gate is skipped and the line let by. See [tests](../rules.md#tests) for the
+shape.
 
 ```yaml
 tests:
@@ -132,9 +129,6 @@ tests:
 
 ## See also
 
-- [`startup`](startup.md) :: The other gate that reads nothing of the
-      line.
-- [`breadth`](breadth.md) and [`scored`](scored.md) :: Counts over every
-      rule as well, but of one address rather than of a watcher's lines.
-- [detection_var](detection_var.md) :: How to run it watching
-      before it acts.
+- [`startup`](startup.md) :: The other gate that reads nothing of the line.
+- [`breadth`](breadth.md) and [`scored`](scored.md) :: Counts over every rule as well, but of one address rather than of a watcher's lines.
+- [detection_var](detection_var.md) :: How to run it watching before it acts.

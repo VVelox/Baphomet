@@ -26,7 +26,7 @@ baphomet stop --timeout 10
 ```
 
 `start` fails fast... every kur def is checked and every referenced rule is
-loaded and has its embedded tests ran before anything is spawned, so a typo
+loaded and has its embedded tests run before anything is spawned, so a typo
 in the config or a broken rule is a start error rather than a runtime
 mystery.
 
@@ -76,6 +76,18 @@ baphomet marked
 baphomet marked sshd
 baphomet marked --name sshd-account-src
 
+# the tracked records the gallas hold... per track name the keys with
+# their expiries and the fields gathered so far. just one galla's, or
+# one track name
+baphomet tracked
+baphomet tracked sshd
+baphomet tracked --name mail-queue
+
+# per galla and watcher, the log specs and globs each is set to watch
+# and the files they resolve to now, or the journal matches
+baphomet watching
+baphomet watching sshd
+
 # who Kur holds right now, per kur this Baphomet feeds... the manager
 # asks Ereshkigal, expands fan_out gates to their members, and marks
 # bans still pending delivery
@@ -98,9 +110,9 @@ baphomet ledger --ip 1.2.3.4 --tail 20
 
 Every one of these rides the one manager socket... the CLI never reaches
 around the manager to Ereshkigal, the manager does that itself. So
-`accused`, `marked`, and `banished` all want the manager up; the manager
-in turn asks Ereshkigal for the `banished` lists. The lone exception is
-`ledger`, which reads the shared ledger file straight from the tablet dir,
+every command but `start`, `ledger`, `check_rules`, and `test_line` wants
+the manager up; the manager in turn asks Ereshkigal for the `banished`
+lists. `ledger` reads the shared ledger file straight from the tablet dir,
 so it works with everything down. How far back the ledger reaches is
 bounded by the `ledger_keep` setting, 30 days by default.
 
@@ -132,17 +144,6 @@ GZip magic.
 extend fail2ban /usr/local/bin/baphomet lnms-f2b-extend -b
 ```
 
-Requires the following in the config [neti-gate](neti-gate.md)
-
-```toml
-enable_auth   = true
-authed_groups = [ "wheel" ]
-socket_mode = "0666"
-
-[command_perms.commands.banished]
-users = [ "snmpd" ]
-```
-
 It wants the manager up for the tallies, which is what reaches Ereshkigal;
 with the manager unreachable it still emits valid JSON with `error` set and
 `errorString` naming the fault, as the extend does. Since the snmpd user
@@ -159,10 +160,32 @@ baphomet check_rules
 # just one, from a rules dir being worked on in a checkout
 baphomet check_rules --rules-dir ./share/rules syslog/sshd
 
+# a rule file by path, resolving nothing... repeatable
+baphomet check_rules -f ./share/rules/syslog/sshd.yaml
+
+# name the file each rule loaded from, its rank, and its tests by section
+baphomet check_rules -v
+
 # feed one line through a parser and a rule and see what comes of it
 baphomet test_line --rule syslog/sshd \
     'Jul 12 08:15:50 mail01 sshd[1]: Invalid user foo from 1.2.3.4'
+
+# a different parser, and the rule by path rather than by name
+baphomet test_line --parser http_access -f ./my-rules/http/probe.yaml \
+    '192.0.2.7 - - [12/Jul/2026:08:15:50 +0000] "GET /.env HTTP/1.1" 404 153'
 ```
+
+`check_rules` with no rule names checks every rule available, resolved as
+at run time... the `rules_dir` from the config first, then the shipped
+rules. In a source checkout that shipped set is the installed copy, not the
+tree, so `--rules-dir` checks one dir in isolation and `-f`/`--file` checks
+a path outright. `-v`/`--verbose` shows where each rule came from.
+
+`test_line` takes exactly one arg, the line, and one of `--rule` or
+`-f`/`--file`. `--parser` picks the parser, `syslog` by default, and
+`--rules-dir` looks in that one dir in place of the resolved set. The rule
+loads with its embedded tests skipped, so a rule those are failing can still
+be poked at.
 
 See [rules](rules.md) for the rule format.
 

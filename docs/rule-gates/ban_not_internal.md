@@ -69,8 +69,8 @@ a host-to-host flow is not passed on to the rules listed after this one.
 
 - told a list or a hash :: "is not a boolean"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -82,6 +82,7 @@ galla. See [tests](../rules.md#tests).
 ## Shipped rules using it
 
 - `%json/suricata-all%` :: Every Suricata classtype rule, naming `src_ip` and `dest_ip`.
+- `json/suricata`, `json/suricata-breadth`, `json/suricata-condemned`, `json/suricata-escalation` :: Outside the group, each naming `src_ip` and `dest_ip` the same way.
 - `raw/fortinet-attack` :: An outbound hit puts your own host in `srcip=`.
 - `raw/palo-alto-threat-exploit` and `raw/palo-alto-threat-virus` :: Both ends captured, `SRC` and `DEST`, as with Suricata.
 

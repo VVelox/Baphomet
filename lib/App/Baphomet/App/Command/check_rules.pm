@@ -29,12 +29,33 @@ our $VERSION = '0.0.1';
     baphomet check_rules --file ./share/rules/syslog/sshd.yaml
     baphomet check_rules -v syslog/sshd
 
+=head1 DESCRIPTION
+
+Loads each named rule, or every rule available when none are named,
+compiles it, and runs the tests embedded in it, printing a line per rule
+and a closing summary of how many were checked and which dirs they were
+read from. Warnings are printed but never count against the exit, which
+is non-zero when any rule failed to load or failed a test.
+
+With out C<--rules-dir> or C<--file> the rules resolve as at run time...
+the config's override dir first, then the shipped rules, which in a
+source checkout is the installed copy and not the tree. C<--rules-dir>
+checks one dir in isolation, and C<--file> checks a path outright with
+nothing resolved. Reads the rule files directly, so the manager need not
+be running.
+
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, and execute for the work
+# itself. their contract is App::Cmd's, so they are not documented one by
+# one here
 
 sub abstract { return 'check that rules load and pass their own tests' }
 
@@ -200,6 +221,19 @@ sub execute {
 # the dir a resolved rule path sits under, the path with the rule's own
 # type/name tail taken back off... so the summary names the dir that was
 # searched rather than repeating the file
+#
+# args:
+#   $path :: the full path the rule resolved to, such as
+#       /usr/local/share/baphomet/rules/syslog/sshd.yaml
+#   $name :: the rule name in type/name form, such as syslog/sshd
+#
+# returns:
+#   the dir string with "/$name.yaml" stripped from the end, or $path
+#   unchanged when it does not end that way
+#
+# example:
+#   _dir_of( '/usr/local/share/baphomet/rules/syslog/sshd.yaml', 'syslog/sshd' );
+#   # '/usr/local/share/baphomet/rules'
 sub _dir_of {
 	my ( $path, $name ) = @_;
 

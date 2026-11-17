@@ -189,7 +189,7 @@ Baphomet side...
 ```toml
 [recidive]
 kur        = "recidive"
-max_score = 5
+max_score  = 5
 find_time  = 604800
 ban_time   = 0
 ```

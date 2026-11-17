@@ -19,7 +19,7 @@ rule_gates:
 
 - phase :: offense
 - rule types :: every type
-- keys on :: the offender | a found value
+- keys on :: the offender, or a found value with `var`
 - vetoes :: no, it only takes back counts
 - needs :: the galla's running counts
 - repeatable :: yes, each entry is a gate of its own
@@ -73,10 +73,10 @@ say nothing.
 - a key it does not take :: "has the unknown key ..."
 - no `rules` :: "lacks a rules"
 - a `rules` that is not a rule name or a list of them :: "has a rules that is not a rule name or a non-empty array of them"
-- a `var` or `same` that is not a string :: "has a var that is not a non-empty string"
+- a `var` or `same` that is not a string :: "has a ... that is not a non-empty string"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

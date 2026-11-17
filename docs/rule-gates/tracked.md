@@ -11,6 +11,9 @@ on the `local` line an hour after the `smtpd` line that named the client.
 
 ```yaml
 rule_gates:
+  - daemons: [ postfix/local ]
+  - message_regexp:
+      - '^(?<postfix_queueid>[0-9A-F]+): to=<[^>]*>, status=(?<postfix_status>bounced)'
   - tracked:
       name: mail-queue
       where:
@@ -63,10 +66,17 @@ What it finds decides it.
 
 | the key | the record | `where` | what happens |
 |---|---|---|---|
-| does not resolve | — | — | holds. A `NOQUEUE` reject has no queue id and must sail through |
-| resolves | none | given | vetoes, failing closed, as `country` and `namtar_list` do |
-| resolves | none | not given | holds. Nothing lifts, so a `ban_var` naming a lifted field finds nothing |
-| resolves | live | given | holds when the record passes the `where`, else vetoes |
+| does not resolve | — | — | holds |
+| resolves | none | given | vetoes |
+| resolves | none | not given | holds, lifting nothing |
+| resolves | live | given | holds and lifts `into` when the record passes the `where`, else vetoes |
+| resolves | live | not given | holds and lifts `into` |
+
+A key that does not resolve holds because a line may rightly lack one...
+a `NOQUEUE` reject has no queue id and must sail through. A record that
+is not there under a `where` vetoes, failing closed as `country` and
+`namtar_list` do. With no `where` and no record nothing lifts, so a
+`ban_var` naming a lifted field finds nothing.
 
 A line with no tracked store is read as having no records. A veto refuses
 the offense and does not turn the line away, so a `track` below still
@@ -91,8 +101,8 @@ every offense gate can read them.
 - a `where` entry `gate` would refuse :: refused as `gate` refuses it, the message led by "... where"
 - no `track` of the rule declaring the record :: "names the record "...", which the rule declares no track for"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -106,6 +116,17 @@ through one scope. See
 [tests](../rules.md#tests) for the shape.
 
 ```yaml
+rule_gates:
+  - daemons: [ postfix/local ]
+  - message_regexp:
+      - '^(?<postfix_queueid>[0-9A-F]+): to=<[^>]*>, status=(?<postfix_status>bounced)'
+  - tracked:
+      name: mail-queue
+      where:
+        - { field: postfix_sasl_username, op: exists }
+      into: [ postfix_client_ip ]
+  - track: { name: mail-queue, key: postfix_queueid, fields: [ postfix_status ] }
+  - ban_var: [ postfix_client_ip ]
 tests:
   positive:
     - message: "Jan  2 04:00:00 mx1 postfix/local[222]: 1C36D185729: to=<victim@example.org>, status=bounced"

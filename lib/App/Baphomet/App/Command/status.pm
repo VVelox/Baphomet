@@ -25,12 +25,26 @@ our $VERSION = '0.0.1';
     baphomet status --all
     baphomet status sshd
 
+=head1 DESCRIPTION
+
+Asks the Baphomet manager, over its socket, for its status. With no args
+it is the manager's own status and the up or down state of each galla,
+via the C<status> command. C<--all> adds each galla's full status block,
+via C<status_all>, and a galla name shows the full status of just that
+one, via C<status_galla>. The manager must be running.
+
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'show status of the manager and gallas' }
 

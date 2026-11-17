@@ -51,7 +51,7 @@ Inside a galla, each new line of a watcher's log runs the gauntlet...
 A rule runs in the order it is written, and the chart has its gates in the
 order a rule usually writes them. The field tests of a `gate` gate were
 ground down when the rule was read... the plain shapes compiled to bare code
-refs (see compiled gates below). The ban itself is
+refs (see [compiled gates](#compiled-gates)). The ban itself is
 `{"command":"ban","args":{"ips":["..."],"kur":"<name>","ban_time":...}}` on
 the Ereshkigal manager socket. Observe mode and detection rules walk the
 same road but count into the shadow buckets and never banish. The full set
@@ -158,7 +158,7 @@ every ten seconds...
 
 ```
 /var/run/baphomet/
-├── socket             manager socket... status and stop
+├── socket             manager socket... every CLI query
 ├── pid                manager PID
 └── galla/
     ├── <kur>.sock     per galla socket (0600, only the manager talks to it)
@@ -212,7 +212,7 @@ where it could not answer. A galla's own report...
 - `name` :: the galla's kur
 - `pid` :: its PID
 - `uptime` :: seconds since it started
-- `watchers` :: keyed by watcher name... each with its `parser`, `rules`, and `settings`, plus `logs` and `following` for a file watcher or `journal` and `journal_running` for a journal one, as under `watching` below
+- `watchers` :: keyed by watcher name... each with its `parser`, `rules`, and `settings`, plus `logs` and `following` for a file watcher or `journal` and `journal_running` for a journal one, as under `watching` below with `logs` in place of `globs`
 - `stats` :: the running stats totals
 - `tracked_ips` :: how many IPs carry live hits
 - `tracked_subnets` :: how many subnets carry live tallies
@@ -348,8 +348,8 @@ Tablet by tablet, what the rows hold...
   journal watcher, so the journal resumes just past the last line seen
   rather than from now.
 - `stats.jsonl` :: a single JSON line holding the running stats, so the
-  totals `stats` answers with mean since first loosing rather than since
-  the last respawn.
+  stats totals in `status` count from the first loosing rather than the last
+  respawn.
 - `context.jsonl` :: one JSON line per rule carrying correlation state...
   `rule` and `state`, the state opaque, whatever the rule handed over and
   gets handed back on restore.

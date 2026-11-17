@@ -32,13 +32,13 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-Holds from the C<count>th offense of a key with in C<seconds> on, and
+Holds from the C<count>th offense of a key within C<seconds> on, and
 vetoes the ones before it. The count a rule keeps is by its offender, and
 this one is by anything, so it is how a rule says twenty failures against
 one account, whoever they came from.
 
 The window slides... a offense holds when it and the C<count> less one
-before it all landed with in C<seconds>, wherever a window might have been
+before it all landed within C<seconds>, wherever a window might have been
 said to start.
 
 A offense it vetoes is vetoed as by any gate, so the line is not consumed
@@ -55,7 +55,7 @@ A entry is told...
 
     - count :: How many offenses of a key it takes. Two or more.
 
-    - seconds :: How long they have to land with in.
+    - seconds :: How long they have to land within.
 
 =cut
 
@@ -101,7 +101,7 @@ sub compile {
 =head2 ask
 
 Notes the offense under its key. Returns 1 when it is the C<count>th or
-later with in C<seconds>, else 0.
+later within C<seconds>, else 0.
 
     if ( !$gate->ask($offense) ) { ... }
 
@@ -126,7 +126,7 @@ sub ask {
 	my $seen = $store->{$key};
 
 	# only the last count of them are ever needed... the oldest kept is the
-	# one this offense has to be with in seconds of
+	# one this offense has to be within seconds of
 	push( @{ $seen->{times} }, $now );
 	if ( @{ $seen->{times} } > $self->{count} ) {
 		shift( @{ $seen->{times} } );

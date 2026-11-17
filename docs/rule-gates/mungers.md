@@ -69,7 +69,7 @@ written first.
 ## When it does not hold
 
 It never turns a line away. A line the decoders make nothing of is left as
-it was, with no fields... beside a `message_regexp` the offense is the
+it was, gaining no fields... beside a `message_regexp` the offense is the
 captures alone, and as the matcher a `gate` then finds nothing to pass and
 the line makes no offense.
 
@@ -85,7 +85,7 @@ munger would otherwise veto every line and never fire.
 
 The decoded fields, as the line's fields. Every gate below reads them...
 the predicate gates, the marks, `ban_var` and `detection_var`, the
-promoted vars, and the EVE `found`, no rule-format change.
+promoted vars, and the EVE `found`.
 
 On a [staged](stages.md) rule the completed sequence is enriched from its
 final, completing line, the same line whose `raw` the event carries, the
@@ -108,8 +108,8 @@ The two of Log::Munger come when the processor is first built... by the
 rule's own tests at load, the first of them to run a line through it, and
 for every set again as the galla starts, which refuses to start over one.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -138,7 +138,7 @@ offender stays the field the appliance wrote. See
 
 - `%syslog/ssh%`, `syslog/sshd-worked` :: The `sshd` decoder enriching failures, and a staged sequence from its completing line.
 - `syslog/sendmail-reject`, `syslog/sshd-ddos` :: Enrichment beside correlation, a deferred offense keeping its own line's decode.
-- `raw/fortinet-*`, `raw/sonicwall-*`, `raw/huawei-*` :: The decoder as the matcher, a `gate` or `condition` on the `key=value` ledger and `ban_var` on a decoded field.
+- most of `raw/fortinet-*`, `raw/sonicwall-*`, `raw/huawei-*` :: The decoder as the matcher, a `gate` or `condition` on the `key=value` ledger and `ban_var` on a decoded field.
 - `syslog/*_errors` :: Daemon error detections judged on decoded fields with no regexp.
 - `syslog/pam-generic` :: The `pam` decoder naming the service and account a regexp steps over.
 

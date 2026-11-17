@@ -28,12 +28,28 @@ our $VERSION = '0.0.1';
     baphomet stop --no-wait
     baphomet stop --timeout 10
 
+=head1 DESCRIPTION
+
+Asks the Baphomet manager, over its socket, to stop all its gallas and
+then itself, via the C<stop> command. The stop is asynchronous on the
+manager's side, so by default this waits for the manager's PID to exit,
+up to C<--timeout> seconds or else the config's C<timeout>, falling back
+to 30 when the config can not be read. That keeps a restart from racing
+the still-present PID file. C<--no-wait> returns as soon as the stop is
+acknowledged.
+
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'stop all the gallas and the manager' }
 
@@ -98,6 +114,16 @@ sub execute {
 # config. a raw TOML read rather than load_config, as one integer does not
 # warrant the full validation pass and a config broken in some other way
 # should not break stopping
+#
+# args:
+#   $config_path :: path of the TOML config, from --config
+#
+# returns:
+#   the config's timeout in int seconds when it reads as a non-negative int,
+#   else 30
+#
+# example:
+#   my $timeout = _config_timeout('/usr/local/etc/baphomet/config.toml');
 sub _config_timeout {
 	my ($config_path) = @_;
 
@@ -111,8 +137,20 @@ sub _config_timeout {
 	return ( defined($timeout) && $timeout =~ /^[0-9]+$/ ) ? $timeout : 30;
 } ## end sub _config_timeout
 
-# polls until the passed PID is gone or the timeout elapses, 100ms a poll...
-# returns true if it died, false on timeout. a timeout of 0 does not wait
+# polls until the passed PID is gone or the timeout elapses, 100ms a poll,
+# so stop can return only once the manager has truly exited. a timeout of 0
+# does not wait, just checks once
+#
+# args:
+#   $pid :: the manager's PID, a int
+#   $timeout :: int seconds to wait at most
+#
+# returns:
+#   true (1) if the PID is gone, false if it was still alive when the
+#   timeout ran out
+#
+# example:
+#   if ( !_wait_for_exit( 4242, 30 ) ) { warn("still alive\n"); }
 sub _wait_for_exit {
 	my ( $pid, $timeout ) = @_;
 
@@ -130,6 +168,15 @@ sub _wait_for_exit {
 # kill 0 tests liveness without signalling... a dead PID gives 0, but so
 # does a live one owned by somebody else, with EPERM, and a non-root stop
 # of a root-owned manager must not read that as it having died
+#
+# args:
+#   $pid :: the PID to test, a int
+#
+# returns:
+#   1 if the process exists, whoever owns it, else 0
+#
+# example:
+#   my $alive = _pid_alive(4242);
 sub _pid_alive {
 	my ($pid) = @_;
 

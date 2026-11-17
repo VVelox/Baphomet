@@ -4,27 +4,29 @@ Some daemons log a hostname where an offense wants an address... PAM's
 rhost above all, whatever the client claimed, and mysqld when it resolves
 clients itself. Ereshkigal banishes addresses, not names, so what becomes
 of a hostname offender... a `ban_var` value that is not an IP... is the
-`usedns` setting. The resolve modes are a security decision with real
-teeth, so the reasoning sits here next to the knobs.
+`usedns` setting.
 
 ## The knobs
 
-- **`usedns`**, default `no` :: How a hostname offender is handled: `no`, `resolve_seen`,
-  or `resolve_ban`. Layered watcher over kur over global, like the other counting
-  settings.
-  
-- **`enable_dns`**, default `false` :: The consent for DNS resolution. With out it, any
-  `usedns` is treated as `no`, loudly. Resolution rides the optional `Net::DNS`
-  and `POE::Component::Client::DNS` modules... set but either unloadable,
-  and `usedns` behaves as `no`, also loudly. Global only... consent is not
+- `usedns` :: How a hostname offender is handled: `no`, `resolve_seen`, or
+  `resolve_ban`. Layered watcher over kur over global, like the other
+  counting settings.
+  - default :: `no`
+- `enable_dns` :: The consent for DNS resolution. With out it, any `usedns`
+  is treated as `no`, loudly. Resolution rides the optional `Net::DNS` and
+  `POE::Component::Client::DNS` modules... set but either unloadable, and
+  `usedns` behaves as `no`, also loudly. Global only... consent is not
   delegated downward.
-
-- **`usedns_timeout`**, default `2` :: Seconds a DNS query may take before being given up
-  on. Resolution is blocking, so this bounds how long a hostile name can stall the galla.
-
-- **`usedns_max_addrs`**, default `4` :: The most addresses a hostname may resolve to and
-  still be acted on... more and the whole resolution is refused rather than trimmed,
-  failing closed.
+  - default :: `false`
+- `usedns_timeout` :: Seconds a DNS query may take before being given up
+  on. Queries go through a background engine under a running galla, so a
+  hostile name never stalls the event loop... this bounds how long each
+  answer may be waited on.
+  - default :: `2`
+- `usedns_max_addrs` :: The most addresses a hostname may resolve to and
+  still be acted on... more and the whole resolution is refused rather
+  than trimmed, failing closed.
+  - default :: `4`
 
 ## The modes
 
@@ -88,7 +90,7 @@ because the other side does not take names.
 
 ## The other direction... reverse_dns
 
-The [`reverse_dns` rule gate](rules.md) is the other direction... PTR lookups
+The [`reverse_dns` rule gate](rule-gates/reverse_dns.md) is the other direction... PTR lookups
 refining a match rather than resolving an offender... and rides its own
 consent, `enable_rdns` (with its own `rdns_timeout`), on by default since
 that gate can only veto a count, never aim one. The two are deliberately

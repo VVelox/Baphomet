@@ -12,7 +12,7 @@ use App::Baphomet::Parser::JSONSyslog ();
 
 =head1 NAME
 
-App::Baphomet::Parser::Syslog - Syslog line parser for Baphomet handling both RFC 3164 and RFC 5424.
+App::Baphomet::Parser::Syslog - Syslog line parser for Baphomet handling RFC 3164, RFC 5424, and syslog-ng JSON.
 
 =head1 VERSION
 
@@ -44,7 +44,7 @@ When the format is known, the specific parsers are the stricter choice, as
 they refuse lines that should not be in that log to begin with.
 
 The C<format> key of the returned hash says which grammar won,
-C<bsd_syslog> or C<ietf_syslog>.
+C<bsd_syslog>, C<ietf_syslog>, or C<json_syslog>.
 
 =head1 FUNCTIONS
 
@@ -52,7 +52,7 @@ C<bsd_syslog> or C<ietf_syslog>.
 
 Parses a single line. Returns the parsed hash, as described in
 L<App::Baphomet::Parser>, or undef if the line could not be parsed by
-either grammar.
+any of the three grammars.
 
     my $parsed = App::Baphomet::Parser::Syslog::parse($line);
 

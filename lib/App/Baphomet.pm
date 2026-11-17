@@ -11,7 +11,9 @@ use POE                                              qw( Wheel::Run );
 use POE::Component::Server::JSONUnix                 ();
 use POE::Component::Server::JSONUnix::Client         ();
 use POE::Component::Server::JSONUnix::BlockingClient ();
-use Ereshkigal::Client                               ();
+use IO::Select                                       ();
+use IO::Socket::UNIX                                 ();
+use JSON::MaybeXS                                    ();
 use Path::Tiny                                       qw( path );
 use App::Baphomet::Config       qw( load_config check_kur_def kur_split read_digest_key watcher_rules );
 use App::Baphomet::Gate::digest qw( digest_of );
@@ -72,9 +74,9 @@ Example...
     # read authlog
     # the key for the hash under sshd is just a freeform name
     [kur.sshd.authlog]
-    log=/var/log/auth.log
-    parser=bsd_syslog
-    rule=syslog/sshd
+    log="/var/log/auth.log"
+    parser="bsd_syslog"
+    rule="syslog/sshd"
 
 =head1 METHODS
 
@@ -316,47 +318,183 @@ chmoded to the configured mode.
 
 The JSON commands handled are as below.
 
-    - status :: Manager status... uptime and galla list with up/down state.
+    - status :: What the manager itself knows, without asking the gallas.
 
-    - status_all :: The above plus each galla's full status block.
+    - status_all :: status with every running galla asked for its own.
 
-    - status_galla :: Full status of the galla args.name.
+    - status_galla :: One galla, summary and status.
 
-    - accused :: The IPs each galla is counting but has not yet
-          banished... every galla, or just args.name if given. Per IP
-          the live hit count and the epochs of the first and last hit.
+    - accused :: The IPs each galla is counting but has not yet banished.
 
-    - marked :: The live marks each galla holds... every galla, or just
-          args.name if given. Per mark name a hash of the branded keys
-          with their expiries and stored values.
+    - marked :: The live marks each galla holds.
 
-    - tracked :: The live tracked records each galla holds... every galla,
-          or just args.name if given. Per track name a hash of keys with
-          their expiries and the fields the transaction has accumulated.
+    - tracked :: The live tracked records each galla holds.
 
-    - watching :: What each galla watches... every galla, or just
-          args.name if given. Per watcher the log specs and globs it is
-          set to watch and the concrete files it is following now, or the
-          journalctl matches for a journal watcher.
+    - watching :: What each galla's watchers follow right now.
 
-    - banished :: Who Kur holds for the kurs this Baphomet feeds, seen
-          from the watcher's seat. The manager asks Ereshkigal, the source
-          of truth, for its banned lists, pares them to the fed kurs (the
-          recidive kur included), expands any fan_out gate to its members,
-          and folds in each galla's pending bans... banishments spoken but
-          not yet heard. With args.name, just that one kur. So every CLI
-          query rides the one manager socket rather than reaching around
-          it to Ereshkigal.
+    - banished :: Who Kur holds for the kurs this Baphomet feeds, pending
+          bans included.
 
-    - digest :: The hash args.value comes to under the config's
-          digest_key, as a digest gate makes it, so a operator can find a
-          name in what the gallas hold. Returns C<digest>, or a error with
-          no digest_key set.
+    - digest :: The hash a value comes to under the config's digest_key.
 
-    - stop :: Stop all the gallas and then the manager. Returns
-          C<stopping> and the manager's C<pid>, so the caller can wait for
-          the process to actually die before it returns... a restart's
-          start would otherwise race the still-present PID file.
+    - stop :: Stop all the gallas and then the manager.
+
+=head3 status
+
+Takes no args. The result...
+
+    - pid :: The manager's PID.
+
+    - uptime :: Seconds since it started.
+
+    - config :: The path of the loaded config.
+
+    - gallas :: Keyed by galla name, each with running (0 or 1), pid
+          (undef when down), restarts (times respawned), and enabled
+          (0 or 1).
+
+=head3 status_all
+
+Takes no args. The result is that of status, with each running galla's
+entry under gallas gaining status, the galla's own report, or error where
+it could not answer. A galla's own report...
+
+    - name :: The galla's kur.
+
+    - pid :: Its PID.
+
+    - uptime :: Seconds since it started.
+
+    - watchers :: Keyed by watcher name, each with its parser, rules, and
+          settings, plus logs and following for a file watcher or journal
+          and journal_running for a journal one.
+
+    - stats :: The running stats totals.
+
+    - tracked_ips :: How many IPs have live hits.
+
+    - tracked_subnets :: How many subnets have live tallies.
+
+    - pending_bans :: IPs banished but not yet heard by Ereshkigal.
+
+    - pending_cidr_bans :: The subnet twin of pending_bans.
+
+    - recidive :: The kur banishments escalate to, or undef.
+
+=head3 status_galla
+
+Args...
+
+    - name :: The galla to ask. Required.
+
+The result is that galla's gallas entry from status... name, running,
+pid, restarts, and enabled... plus, when running, status or error as in
+status_all.
+
+=head3 accused, marked, tracked, watching
+
+The four fan-out commands all take the same one arg...
+
+    - name :: One galla instead of all. Optional.
+
+Each answers with a gallas hash keyed by galla name, each entry the
+galla's own answer or a hash of just error for one dead, wedged, or not
+running, so one bad worker never takes the whole reply down. Each answer
+has the galla's name beside its payload.
+
+For accused the payload is accused, keyed by IP...
+
+    - hits :: The raw count of still-live hits.
+
+    - score :: Their weighted sum, what actually races max_score.
+
+    - first :: Epoch of the oldest live hit.
+
+    - last :: Epoch of the newest live hit.
+
+    - rules :: The same four per rule, where per-rule buckets exist.
+
+For marked it is marks, keyed by mark name, each branded key under it
+having...
+
+    - expires :: When the brand fades, epoch.
+
+    - hosts :: How many hosts of the fleet set the brand.
+
+    - value :: The harvested value, where the mark stores one.
+
+For tracked it is tracked, keyed by track name, each live record
+having...
+
+    - expires :: When the record lapses, epoch.
+
+    - key :: The compound key, split into its parts.
+
+    - fields :: What the transaction has accumulated so far.
+
+For watching it is watchers, keyed by watcher name...
+
+    - globs :: The paths and globs a file watcher hunts by.
+
+    - following :: The concrete files it has a tail wheel on right now.
+
+    - journal :: The journalctl matches, for a journal watcher.
+
+    - journal_running :: Whether the journal wheel is up, for the same.
+
+=head3 banished
+
+Who Kur holds for the kurs this Baphomet feeds, seen from the watcher's
+seat. The manager asks Ereshkigal, the source of truth, for its banned
+lists, pares them to the fed kurs (the recidive kur included), expands
+any fan_out gate to its members, and folds in each galla's pending
+bans... banishments spoken but not yet heard. So every CLI query rides
+the one manager socket rather than reaching around it to Ereshkigal.
+
+Args...
+
+    - name :: One kur instead of every fed kur. Optional, and refused for
+          a kur this Baphomet does not feed.
+
+The result is a kurs hash keyed by kur, each entry...
+
+    - banned :: The IPs Ereshkigal holds for it.
+
+    - expires :: Keyed by IP, when each is released, epoch, 0 meaning
+          never.
+
+    - fan_out :: In place of banned and expires for a gate holding no
+          list of its own, its member kurs.
+
+    - members :: Alongside fan_out, each member's own banned and expires,
+          or error.
+
+    - pending :: The galla's bans not yet heard by Ereshkigal.
+
+    - error :: In place of the above where Ereshkigal could not say.
+
+=head3 digest
+
+Args...
+
+    - value :: The value to hash. Required.
+
+The result is digest, the hash a digest rule gate makes of the value
+under the config's digest_key, read afresh on each call, so a operator
+can find a name in what marked and tracked answer. It errors with no
+digest_key set.
+
+=head3 stop
+
+Takes no args. The result...
+
+    - stopping :: Always 1.
+
+    - pid :: The manager's PID.
+
+It is answered before the death so the caller can wait on the PID...
+a restart's start would otherwise race the still-present PID file.
+Then the gallas go down, then the manager.
 
 =cut
 
@@ -492,7 +630,24 @@ sub start_server {
 # JSONUnix resolves membership through NSS with secondary groups included, and
 # an all-digit entry matches by UID or GID, so numeric ids work in the lists
 # too. it resolves once per connection rather than per request, which is the
-# same thing for the one-shot CLI clients that drive the manager
+# same thing for the one-shot CLI clients that drive the manager.
+#
+# args:
+#   none... it reads enable_auth, authed_users, authed_groups, and
+#   command_perms off the object
+#
+# returns:
+#   undef with enable_auth off. otherwise the hash ref JSONUnix takes as its
+#   permissions arg...
+#     default  :: 'allow' or 'deny', the verdict for a command no rule speaks to
+#     commands :: hash ref keyed by command name, plus '%DEFAULT%' for the
+#                 baseline, each value a rule as _neti_command_rule returns
+#
+# example:
+#   # authed_users = ['cuthbert'], authed_groups = ['baphomet'], no command_perms
+#   my $permissions = $self->_neti_permissions;
+#   # { 'default'  => 'deny',
+#   #   'commands' => { '%DEFAULT%' => { 'users' => [ 0, 'cuthbert' ], 'groups' => ['baphomet'] } } }
 sub _neti_permissions {
 	my ($self) = @_;
 
@@ -536,7 +691,21 @@ sub _neti_permissions {
 # as it passes the baseline... but only when the rule already names allowed
 # users or groups. a rule of only denials is left alone, so it still lets
 # whoever it does not name fall through to the default verdict rather than
-# being narrowed to root
+# being narrowed to root. a plain function, not a method.
+#
+# args:
+#   $spec :: one value from command_perms.commands... the string 'allow' or
+#            'deny', or a hash ref of any of users, groups, deny_users, and
+#            deny_groups, each a array ref of names or numeric ids
+#
+# returns:
+#   a non-hash $spec as it came. otherwise a new hash ref with the same keys,
+#   each list copied, and 0 prepended to users when users or groups is set
+#
+# example:
+#   _neti_command_rule('allow');                          # 'allow'
+#   _neti_command_rule( { 'groups' => ['wheel'] } );      # { 'groups' => ['wheel'], 'users' => [0] }
+#   _neti_command_rule( { 'deny_users' => ['bob'] } );    # { 'deny_users' => ['bob'] }
 sub _neti_command_rule {
 	my ($spec) = @_;
 
@@ -559,6 +728,20 @@ sub _neti_command_rule {
 	return \%rule;
 } ## end sub _neti_command_rule
 
+# the argv a galla is spawned with... the configured galla_bin kept in the
+# foreground, so POE::Wheel::Run holds its stdio and can reap it, and pointed
+# at the same config the manager loaded.
+#
+# args:
+#   $name :: the kur name the galla serves, a key of $self->{gallas}
+#
+# returns:
+#   the argv as a list, the program first
+#
+# example:
+#   my @cmd = $self->_build_galla_cmd('sshd');
+#   # ( 'galla', '--foreground', '--name', 'sshd',
+#   #   '--config', '/usr/local/etc/baphomet/config.toml' )
 sub _build_galla_cmd {
 	my ( $self, $name ) = @_;
 
@@ -569,6 +752,19 @@ sub _build_galla_cmd {
 # POE states for the manager session
 #
 
+# the manager session's _start state... takes the baphomet_manager alias, so
+# the stop command can post stop_all to it, and queues a spawn_galla for
+# every kur in the config.
+#
+# args:
+#   none beyond the POE OBJECT and KERNEL
+#
+# returns:
+#   nothing
+#
+# example:
+#   # fired by POE once start_server creates the session
+#   POE::Session->create( object_states => [ $self => { '_start' => '_poe_start', ... } ] );
 sub _poe_start {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
@@ -581,6 +777,22 @@ sub _poe_start {
 	return;
 } ## end sub _poe_start
 
+# the spawn_galla state... starts one galla under a POE::Wheel::Run, with its
+# stdout and stderr routed to the log and its exit to galla_reaped, and
+# indexes the wheel ID and PID back to the galla name. a galla that is
+# unknown, disabled, already running, or asked for while the manager is
+# shutting down is silently not spawned, which is what makes a delayed
+# respawn safe to fire whatever happened meanwhile.
+#
+# args:
+#   ARG0 :: the name of the galla to spawn, a key of $self->{gallas}
+#
+# returns:
+#   nothing. the galla's entry gains wheel, pid, and spawned (epoch)
+#
+# example:
+#   $kernel->yield( 'spawn_galla', 'sshd' );
+#   $kernel->delay_set( 'spawn_galla', 4, 'sshd' );
 sub _poe_spawn_galla {
 	my ( $self, $kernel, $name ) = @_[ OBJECT, KERNEL, ARG0 ];
 
@@ -611,6 +823,19 @@ sub _poe_spawn_galla {
 	return;
 } ## end sub _poe_spawn_galla
 
+# the galla_stdout state... logs one line a galla wrote to stdout at info,
+# named by the galla it came from, or 'unknown' for a wheel already
+# forgotten.
+#
+# args:
+#   ARG0 :: the line, with out its newline
+#   ARG1 :: the POE::Wheel::Run ID it came from
+#
+# returns:
+#   nothing
+#
+# example:
+#   # fired by the wheel... logs 'galla "sshd" stdout... <line>'
 sub _poe_galla_stdout {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
 
@@ -621,6 +846,18 @@ sub _poe_galla_stdout {
 	return;
 }
 
+# the galla_stderr state... the stderr twin of _poe_galla_stdout, logging
+# the line at err instead, as stderr from a galla is a death cry or a warn.
+#
+# args:
+#   ARG0 :: the line, with out its newline
+#   ARG1 :: the POE::Wheel::Run ID it came from
+#
+# returns:
+#   nothing
+#
+# example:
+#   # fired by the wheel... logs 'galla "sshd" stderr... <line>'
 sub _poe_galla_stderr {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
 
@@ -631,6 +868,23 @@ sub _poe_galla_stderr {
 	return;
 }
 
+# the galla_reaped state, the sig_child handler for a galla... clears the
+# dead galla's wheel and PID and, unless the manager is shutting down or the
+# galla is disabled, schedules a respawn with backoff. the delay starts at 1
+# second, doubles per death up to 60, and resets to 1 when the galla had
+# lived past 60 seconds. while shutting down, the last reaping also drops
+# the stop_escalate alarm so the manager exits at once.
+#
+# args:
+#   ARG1 :: the PID reaped
+#   ARG2 :: its wait status, as $?
+#
+# returns:
+#   nothing. a PID not belonging to a known galla is ignored
+#
+# example:
+#   # registered per spawn in _poe_spawn_galla
+#   $kernel->sig_child( $wheel->PID, 'galla_reaped' );
 sub _poe_galla_reaped {
 	my ( $self, $kernel, $pid, $exit ) = @_[ OBJECT, KERNEL, ARG1, ARG2 ];
 
@@ -681,6 +935,20 @@ sub _poe_galla_reaped {
 	return;
 } ## end sub _poe_galla_reaped
 
+# the stop_all state, posted by the stop command... marks the manager as
+# shutting down so nothing respawns, shuts the async galla clients, asks
+# every running galla to stop over its socket, TERMing any that can not be
+# asked, then drops the manager's alarms and alias so the session can end.
+# when a galla still runs after that, stop_escalate is set a timeout out.
+#
+# args:
+#   none beyond the POE OBJECT and KERNEL
+#
+# returns:
+#   nothing
+#
+# example:
+#   $poe_kernel->post( 'baphomet_manager', 'stop_all' );
 sub _poe_stop_all {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
@@ -726,7 +994,17 @@ sub _poe_stop_all {
 
 # the stop escalation... signal whoever is still alive after the grace
 # period, TERM the first pass, and when a galla shrugs that off too a
-# second grace ends in the unrefusable KILL
+# second grace ends in the unrefusable KILL.
+#
+# args:
+#   ARG0 :: the signal to send, 'TERM' or 'KILL'. undef is read as 'TERM'
+#
+# returns:
+#   nothing. after a TERM pass that found a galla still running, it sets
+#   itself again a timeout out with 'KILL'
+#
+# example:
+#   $kernel->delay( 'stop_escalate', $self->{timeout}, 'TERM' );
 sub _poe_stop_escalate {
 	my ( $self, $kernel, $signal ) = @_[ OBJECT, KERNEL, ARG0 ];
 	$signal = 'TERM' if !defined($signal);
@@ -759,11 +1037,15 @@ sub _poe_stop_escalate {
 # args:
 #   $entry :: the galla's slot in $self->{gallas}
 #
-# returns a hash ref of running (1 or 0, whether it has a live PID), pid
-# (undef when not running), restarts (the count since the manager started),
-# and enabled (1 or 0).
+# returns:
+#   a hash ref of...
+#     running  :: 1 or 0, whether it has a live PID
+#     pid      :: its PID, undef when not running
+#     restarts :: the count of respawns since the manager started
+#     enabled  :: 1 or 0
 #
-#   my $view = $self->_galla_entry_status( $self->{gallas}{one} );
+# example:
+#   my $view = $self->_galla_entry_status( $self->{gallas}{sshd} );
 #   # { 'running' => 1, 'pid' => 4242, 'restarts' => 0, 'enabled' => 1 }
 sub _galla_entry_status {
 	my ( $self, $entry ) = @_;
@@ -776,6 +1058,25 @@ sub _galla_entry_status {
 	};
 } ## end sub _galla_entry_status
 
+# the status command... what the manager itself knows, with out asking any
+# galla, so it answers even with every worker wedged. status_all and
+# status_galla build on it.
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of...
+#     pid    :: the manager's PID
+#     uptime :: seconds since start_server
+#     config :: the path of the loaded config
+#     gallas :: hash ref keyed by galla name, each as _galla_entry_status
+#               returns
+#
+# example:
+#   my $status = $self->_cmd_status;
+#   # { 'pid' => 4100, 'uptime' => 360, 'config' => '/usr/local/etc/baphomet/config.toml',
+#   #   'gallas' => { 'sshd' => { 'running' => 1, 'pid' => 4242, 'restarts' => 0, 'enabled' => 1 } } }
 sub _cmd_status {
 	my ($self) = @_;
 
@@ -794,7 +1095,20 @@ sub _cmd_status {
 
 # the persistent async client to one galla's socket, made on first use...
 # lazy-connecting, every request bounded by the config timeout and answered
-# locally past it, so a wedged galla can not stall the manager loop
+# locally past it, so a wedged galla can not stall the manager loop. the
+# clients are kept in $self->{galla_clients} till stop_all shuts them.
+#
+# args:
+#   $name :: the galla's name, a key of $self->{gallas}
+#
+# returns:
+#   the POE::Component::Server::JSONUnix::Client for that galla's socket,
+#   the same object on every call
+#
+# example:
+#   my $client = $self->_galla_async_client('sshd');
+#   $client->connect;
+#   $client->call( 'command' => 'status', 'callback' => sub { ... } );
 sub _galla_async_client {
 	my ( $self, $name ) = @_;
 
@@ -829,11 +1143,15 @@ sub _galla_async_client {
 # one, else 'no answer', which covers a envelope that is not even a hash.
 #
 # args:
-#   $response :: the envelope as the client handed it back
+#   $response :: the envelope as the client handed it back, normally a hash
+#                ref of status and result or error, but anything is taken
 #
-# returns the error string.
+# returns:
+#   the error string
 #
-#   my $error = _envelope_error($response);
+# example:
+#   _envelope_error( { 'status' => 'error', 'error' => 'No such galla' } );    # 'No such galla'
+#   _envelope_error(undef);                                                     # 'no answer'
 sub _envelope_error {
 	my ($response) = @_;
 
@@ -843,17 +1161,21 @@ sub _envelope_error {
 	return 'no answer';
 }
 
-# reads one galla's answer from call_many as a result and error pair.
+# reads one galla's answer from _galla_call_many as a result and error pair.
 #
 # args:
-#   $answer :: the galla's entry in the call_many answers, a { result => ... }
+#   $answer :: the galla's entry in the _galla_call_many answers, a { result => ... }
 #              or { error => ... } hash, or undef when it never answered
 #
-# returns the two item list ( $result, $error ), exactly one of them defined
-# for a answer that is either... a missing answer, or one with neither, reads
-# as the error 'no answer'.
+# returns:
+#   the two item list ( $result, $error ), exactly one of them defined for a
+#   answer that is either... a missing answer, or one with neither, reads as
+#   the error 'no answer'
 #
+# example:
 #   my ( $result, $error ) = _galla_answer( $answers->{sshd} );
+#   _galla_answer( { 'result' => { 'name' => 'sshd' } } );    # ( { 'name' => 'sshd' }, undef )
+#   _galla_answer(undef);                                     # ( undef, 'no answer' )
 sub _galla_answer {
 	my ($answer) = @_;
 
@@ -863,27 +1185,174 @@ sub _galla_answer {
 	return ( undef, _envelope_error($answer) );
 }
 
-# asks every named running galla the one command concurrently... a select
-# fan out against a single shared deadline, so the wall time is the slowest
-# galla capped at one timeout instead of the sum. galla sockets never
-# challenge, which is the case call_many is built for. returns the answers
-# hash, each value { result => ... } or { error => ... }
+# asks every named galla the one command concurrently and blocks till all
+# have answered or the deadline passes. this is the blocking road, taken when
+# there is no JSONUnix context to defer through (the stop at shutdown, direct
+# calls in the tests)... the async road goes through _galla_async_client.
+#
+# it speaks the JSONUnix line protocol by hand, one newline-terminated JSON
+# request out and one response line back per socket, because the JSONUnix
+# BlockingClient asks one socket at a time and asking N gallas in turn would
+# let one wedged galla eat the budget of the rest. so it is a select fan out
+# against a single shared deadline, the wall time being the slowest galla
+# capped at one timeout instead of the sum. galla sockets never challenge, so
+# there is no auth step.
+#
+# each connect is bounded by a alarm of a even share of what is left of the
+# deadline, never under a second... a unix connect to a listener whose
+# accept queue has filled blocks, and one alarm can not watch N sockets, so
+# the connects are done in turn and only the conversations run together. a
+# timeout of 0 means no deadline at all.
+#
+# args:
+#   $names   :: arrayref of galla names to ask, e.g. [ 'sshd', 'postfix' ]
+#   $command :: the command string sent to each, e.g. 'stop'
+#
+# returns:
+#   a hashref keyed by galla name, each value either { result => ... } for a
+#   response with a ok status, or { error => 'text' } for anything else... a
+#   failed connect, a write or read failure, the galla hanging up, a
+#   undecodable or non-object line, a non-ok status (its own error, else
+#   'unknown error'), or the deadline passing. one galla failing never
+#   disturbs the others. a empty $names gives a empty hashref.
+#
+# example:
+#   my $answers = $self->_galla_call_many( [ 'sshd', 'postfix' ], 'stop' );
+#   # { sshd => { result => { stopping => 1 } }, postfix => { error => 'timed out after 5 seconds' } }
 sub _galla_call_many {
 	my ( $self, $names, $command ) = @_;
 
-	my %sockets;
-	foreach my $name ( @{$names} ) {
-		$sockets{$name} = $self->galla_socket_path($name);
-	}
-	if ( !%sockets ) {
-		return {};
+	my $answers = {};
+	if ( !@{$names} ) {
+		return $answers;
 	}
 
-	return Ereshkigal::Client->call_many(
-		'sockets' => \%sockets,
-		'command' => $command,
-		'timeout' => $self->{timeout},
-	);
+	# a write to a galla that died would otherwise raise SIGPIPE and kill the
+	# manager... ignored, the write fails with EPIPE and lands in that galla's
+	# error answer
+	local $SIG{PIPE} = 'IGNORE';
+
+	my $timeout      = $self->{timeout};
+	my $deadline     = $timeout ? time + $timeout : undef;
+	my $request_line = JSON::MaybeXS::encode_json( { 'command' => $command, 'id' => 1 } ) . "\n";
+
+	# each connection is a little state machine... writing till the request
+	# line is fully sent, then reading till a newline shows up
+	my %conns;
+	my $writers     = IO::Select->new;
+	my $readers     = IO::Select->new;
+	my @sorted      = sort( @{$names} );
+	my $left_to_try = scalar(@sorted);
+	foreach my $name (@sorted) {
+		my $socket_path = $self->galla_socket_path($name);
+		my $connect_budget;
+		if ( defined($deadline) ) {
+			my $time_left = $deadline - time;
+			if ( $time_left <= 0 ) {
+				$answers->{$name} = { 'error' => 'timed out before connecting to "' . $socket_path . '"' };
+				$left_to_try--;
+				next;
+			}
+			$connect_budget = int( $time_left / $left_to_try ) || 1;
+		}
+		$left_to_try--;
+
+		my $sock;
+		my $connect_error;
+		eval {
+			local $SIG{ALRM} = sub { die("timed out\n"); };
+			alarm($connect_budget) if defined($connect_budget);
+			$sock = IO::Socket::UNIX->new(
+				'Type' => IO::Socket::UNIX::SOCK_STREAM(),
+				'Peer' => $socket_path,
+			);
+			$connect_error = $! if !$sock;
+			alarm(0);
+			1;
+		} or do {
+			alarm(0);
+			$sock          = undef;
+			$connect_error = 'timed out';
+		};
+		if ( !$sock ) {
+			$answers->{$name} = { 'error' => 'failed to connect to "' . $socket_path . '"... ' . $connect_error };
+			next;
+		}
+		$sock->blocking(0);
+		$conns{$sock} = { 'name' => $name, 'sock' => $sock, 'sent' => 0, 'buffer' => '' };
+		$writers->add($sock);
+	} ## end foreach my $name (@sorted)
+
+	my $finish = sub {
+		my ( $conn, $answer ) = @_;
+		$writers->remove( $conn->{sock} );
+		$readers->remove( $conn->{sock} );
+		close( $conn->{sock} );
+		delete( $conns{ $conn->{sock} } );
+		$answers->{ $conn->{name} } = $answer;
+	};
+
+	while (%conns) {
+		my $time_left;
+		if ( defined($deadline) ) {
+			$time_left = $deadline - time;
+			last if $time_left <= 0;
+		}
+
+		my ( $readable, $writable ) = IO::Select->select( $readers, $writers, undef, $time_left );
+
+		foreach my $sock ( @{ $writable // [] } ) {
+			my $conn = $conns{$sock} // next;
+			my $wrote
+				= syswrite( $sock, $request_line, length($request_line) - $conn->{sent}, $conn->{sent} );
+			if ( !defined($wrote) ) {
+				next if $!{EAGAIN} || $!{EWOULDBLOCK} || $!{EINTR};
+				$finish->( $conn, { 'error' => 'failed to write the request... ' . $! } );
+				next;
+			}
+			$conn->{sent} += $wrote;
+			if ( $conn->{sent} >= length($request_line) ) {
+				$writers->remove($sock);
+				$readers->add($sock);
+			}
+		} ## end foreach my $sock ( @{ $writable // [] } )
+
+		foreach my $sock ( @{ $readable // [] } ) {
+			my $conn = $conns{$sock} // next;
+			my $read = sysread( $sock, my $chunk, 65536 );
+			if ( !defined($read) ) {
+				next if $!{EAGAIN} || $!{EWOULDBLOCK} || $!{EINTR};
+				$finish->( $conn, { 'error' => 'failed to read the response... ' . $! } );
+				next;
+			}
+			if ( $read == 0 ) {
+				$finish->( $conn, { 'error' => 'galla "' . $conn->{name} . '" hung up with out answering' } );
+				next;
+			}
+			$conn->{buffer} .= $chunk;
+			next if $conn->{buffer} !~ /\n/;
+
+			my ($line) = split( /\n/, $conn->{buffer}, 2 );
+			my $response = eval { JSON::MaybeXS::decode_json($line) };
+			if ( !is_plain_hashref($response) ) {
+				$finish->( $conn, { 'error' => 'undecodable or non-object response' } );
+				next;
+			}
+			if ( ( $response->{status} // '' ) ne 'ok' ) {
+				$finish->( $conn, { 'error' => $response->{error} // 'unknown error' } );
+				next;
+			}
+			$finish->( $conn, { 'result' => $response->{result} } );
+		} ## end foreach my $sock ( @{ $readable // [] } )
+	} ## end while (%conns)
+
+	# whatever had not answered when the deadline passed
+	foreach my $conn ( values(%conns) ) {
+		close( $conn->{sock} );
+		$answers->{ $conn->{name} } = { 'error' => 'timed out after ' . $timeout . ' seconds' };
+	}
+
+	return $answers;
 } ## end sub _galla_call_many
 
 # asks the named gallas one command and builds the reply from their answers,
@@ -892,20 +1361,29 @@ sub _galla_call_many {
 # go out over the async clients and the reply is chiseled once the last lands,
 # which the per-request timeout guarantees, so the manager loop never blocks.
 # without one (a direct call, as in the tests), or with no one to ask,
-# call_many answers in place, bounded by one deadline.
+# _galla_call_many answers in place, bounded by one deadline.
 #
 # args:
 #   $names   :: arrayref of the names of the gallas to ask, the running ones
-#   $command :: the command each is sent
+#   $command :: the command each is sent, such as 'status' or 'accused'
 #   $ctx     :: the JSONUnix context the reply defers through, or undef
-#   $fold    :: called per galla as $fold->( $name, $result, $error ), one of
-#               result and error defined, to fold its answer into the reply
-#   $reply   :: called once every answer is folded, returning the reply
+#   $fold    :: code ref called per galla as $fold->( $name, $result, $error ),
+#               one of result and error defined, to fold its answer into the
+#               reply
+#   $reply   :: code ref called once every answer is folded, returning the
+#               reply
 #
-# returns the reply when it was answered in place, else undef, the reply
-# going out through $ctx when the last answer lands.
+# returns:
+#   the reply when it was answered in place, else undef, the reply going out
+#   through $ctx when the last answer lands
 #
-#   return $self->_galla_ask( \@running, 'status', $ctx, $fold, sub { return $status; } );
+# example:
+#   my %up;
+#   return $self->_galla_ask(
+#       [ 'sshd', 'postfix' ], 'status', $ctx,
+#       sub { my ( $name, $result, $error ) = @_; $up{$name} = defined($error) ? 0 : 1; return; },
+#       sub { return \%up; }
+#   );
 sub _galla_ask {
 	my ( $self, $names, $command, $ctx, $fold, $reply ) = @_;
 
@@ -942,6 +1420,21 @@ sub _galla_ask {
 	return undef;
 } ## end sub _galla_ask
 
+# the status_all command... status, with every running galla asked for its
+# own report via _galla_ask, which lands under that galla's entry as status,
+# or as error when it could not answer. a galla not running is not asked.
+#
+# args:
+#   $ctx :: the JSONUnix context to defer the reply through, or undef to
+#           answer in place
+#
+# returns:
+#   the status hash ref with the galla entries filled in when answered in
+#   place, else undef with the reply sent through $ctx
+#
+# example:
+#   my $status = $self->_cmd_status_all(undef);
+#   # { 'pid' => 4100, ..., 'gallas' => { 'sshd' => { 'running' => 1, ..., 'status' => { 'name' => 'sshd', ... } } } }
 sub _cmd_status_all {
 	my ( $self, $ctx ) = @_;
 
@@ -969,11 +1462,14 @@ sub _cmd_status_all {
 # is read afresh each time, so one rotated on disk is the one asked of.
 #
 # args:
-#   $request :: the JSON request, whose args.value is the value to hash
+#   $request :: the JSON request hash ref, whose args.value is the value to
+#               hash, a plain string
 #
-# returns a hash ref of digest, the hash. dies with no args.value, and with
-# no digest_key set or one that can not be read.
+# returns:
+#   a hash ref of digest, the hash. dies with no args.value or a non-string
+#   one, and with no digest_key set or one that can not be read
 #
+# example:
 #   my $answer = $self->_cmd_digest( { 'args' => { 'value' => 'neti' } } );    # { 'digest' => '6a1f0c2b9e4d7a35' }
 sub _cmd_digest {
 	my ( $self, $request ) = @_;
@@ -989,6 +1485,24 @@ sub _cmd_digest {
 	return { 'digest' => digest_of( $args->{value}, read_digest_key( $self->{digest_key} ) ) };
 } ## end sub _cmd_digest
 
+# the status_galla command... one galla's manager-side view, and when it is
+# running its own report too, asked the same way status_all asks.
+#
+# args:
+#   $request :: the JSON request hash ref, whose args.name is the galla
+#   $ctx     :: the JSONUnix context to defer the reply through, or undef to
+#               answer in place
+#
+# returns:
+#   a hash ref of name plus the _galla_entry_status fields, and, when
+#   running, status (the galla's own report) or error. it is returned at
+#   once for a galla not running or answered in place, else undef with the
+#   reply sent through $ctx. dies with no args.name, or one naming no galla
+#
+# example:
+#   my $status = $self->_cmd_status_galla( { 'args' => { 'name' => 'sshd' } }, undef );
+#   # { 'name' => 'sshd', 'running' => 1, 'pid' => 4242, 'restarts' => 0, 'enabled' => 1,
+#   #   'status' => { 'name' => 'sshd', ... } }
 sub _cmd_status_galla {
 	my ( $self, $request, $ctx ) = @_;
 
@@ -1030,7 +1544,27 @@ sub _cmd_status_galla {
 
 # the shared shape of the per-galla fan-out commands... one galla when
 # args.name says so, else all, each answering into its own entry, a galla
-# not running reading as such without being asked
+# not running reading as such with out being asked. accused, marked,
+# tracked, and watching all ride it, each relaying its own name as the
+# command.
+#
+# args:
+#   $request :: the JSON request hash ref, whose optional args.name picks
+#               one galla
+#   $command :: the command relayed to each galla... 'accused', 'marked',
+#               'tracked', or 'watching'
+#   $ctx     :: the JSONUnix context to defer the reply through, or undef to
+#               answer in place
+#
+# returns:
+#   a hash ref of gallas, keyed by galla name, each value that galla's
+#   answer or { error => ... } for one not running or not answering. it is
+#   returned when answered in place, else undef with the reply sent through
+#   $ctx. dies when args.name names no galla
+#
+# example:
+#   my $reply = $self->_cmd_fanout( { 'args' => { 'name' => 'sshd' } }, 'accused', undef );
+#   # { 'gallas' => { 'sshd' => { 'name' => 'sshd', 'accused' => { '192.0.2.7' => { 'hits' => 2, ... } } } } }
 sub _cmd_fanout {
 	my ( $self, $request, $command, $ctx ) = @_;
 
@@ -1092,9 +1626,25 @@ sub _ereshkigal_client {
 	return $client;
 } ## end sub _ereshkigal_client
 
-# one call to Ereshkigal, returning the result or dieing with the fault... the
+# one call to Ereshkigal, returning the result or dying with the fault... the
 # call_ok shape over the JSONUnix blocking client, which hands back the whole
-# envelope rather than dieing on a non-ok of it's own
+# envelope rather than dying on a non-ok of its own. a plain function, not a
+# method.
+#
+# args:
+#   $client  :: a authenticated JSONUnix BlockingClient, as _ereshkigal_client
+#               returns
+#   $command :: the Ereshkigal command name, such as 'banned' or 'status_kur'
+#   $args    :: hash ref of the command's args, or undef to send none
+#
+# returns:
+#   the result from the envelope, whatever shape that command answers with.
+#   dies, the message newline terminated, on a envelope that is not a hash
+#   or whose status is not ok
+#
+# example:
+#   my $banned     = _ereshkigal_call( $client, 'banned' );
+#   my $kur_status = _ereshkigal_call( $client, 'status_kur', { 'name' => 'all' } );
 sub _ereshkigal_call {
 	my ( $client, $command, $args ) = @_;
 
@@ -1108,7 +1658,20 @@ sub _ereshkigal_call {
 
 # the kurs this Baphomet feeds... the watched ones, each with a galla, plus
 # the recidive kur banishments are escalated to, which has none. dies on a
-# args.name that is not one of them, matching the old CLI-side check
+# args.name that is not one of them, matching the old CLI-side check.
+#
+# args:
+#   $request :: the JSON request hash ref, whose optional args.name narrows
+#               the answer to one kur
+#
+# returns:
+#   the list of kur names... sorted gallas, with the recidive kur last when
+#   it is not already one, or just args.name when given
+#
+# example:
+#   # gallas sshd and postfix, recidive kur recidive
+#   my @kurs = $self->_banished_kurs( {} );                                # ( 'postfix', 'sshd', 'recidive' )
+#   my @one  = $self->_banished_kurs( { 'args' => { 'name' => 'sshd' } } );  # ( 'sshd' )
 sub _banished_kurs {
 	my ( $self, $request ) = @_;
 
@@ -1130,8 +1693,28 @@ sub _banished_kurs {
 
 # one kur's held entry from Ereshkigal's banned lists... its own banned and
 # expires when Ereshkigal holds a list for it, else, being a fan_out gate with
-# no list of it's own, its member list with each member's holdings. blocking,
-# but only against Ereshkigal, and only the gates cost a second call
+# no list of its own, its member list with each member's holdings. blocking,
+# but only against Ereshkigal, and only the gates cost a second call.
+#
+# args:
+#   $ereshkigal :: the authenticated client from _ereshkigal_client, used
+#                  for a status_kur call on a kur with no held list
+#   $held       :: hash ref of Ereshkigal's banned lists, keyed by kur, each
+#                  with banned (array ref of IPs) and expires (hash ref of IP
+#                  to epoch, 0 meaning never)
+#   $kur        :: the kur name to build the entry for
+#
+# returns:
+#   a hash ref, one of...
+#     { banned => [...], expires => {...} } for a kur with a held list
+#     { fan_out => [ member names ], members => { name => entry } } for a
+#       fan_out gate, each member entry banned and expires, or error when
+#       it is not among the held lists
+#     { error => '...' } when status_kur failed or the kur is neither
+#
+# example:
+#   my $entry = $self->_banished_kur_entry( $client, $held, 'sshd' );
+#   # { 'banned' => ['192.0.2.7'], 'expires' => { '192.0.2.7' => 1763300000 } }
 sub _banished_kur_entry {
 	my ( $self, $ereshkigal, $held, $kur ) = @_;
 
@@ -1174,12 +1757,17 @@ sub _banished_kur_entry {
 # args:
 #   $result :: the banished reply being built, { kurs => { name => entry } }
 #   $name   :: the galla's name, which is its kur's
-#   $status :: the galla's answer to status, whose pending_bans is folded
+#   $status :: the galla's answer to status, a hash ref whose pending_bans
+#              array ref of IPs is folded
 #
-# returns nothing. a status with no pending_bans list, or a kur with no
-# entry in the reply, adds nothing.
+# returns:
+#   nothing. $result->{kurs}{$name} gains pending, the pending_bans array
+#   ref. a status with no pending_bans list, or a kur with no entry in the
+#   reply, adds nothing
 #
-#   _banished_merge_pending( $result, 'sshd', $galla_status );
+# example:
+#   _banished_merge_pending( $result, 'sshd', { 'pending_bans' => ['192.0.2.7'] } );
+#   # $result->{kurs}{sshd}{pending} is now ['192.0.2.7']
 sub _banished_merge_pending {
 	my ( $result, $name, $status ) = @_;
 
@@ -1197,7 +1785,25 @@ sub _banished_merge_pending {
 # Ereshkigal merged with the gallas' pending bans, so a CLI query rides the
 # one manager socket rather than reaching around it. the Ereshkigal ask is a
 # bounded block, the galla fan-out for pending rides the same async path the
-# status commands use, so the wedge-prone workers never stall the loop
+# status commands use, so the wedge-prone workers never stall the loop.
+#
+# args:
+#   $request :: the JSON request hash ref, whose optional args.name narrows
+#               it to one fed kur
+#   $ctx     :: the JSONUnix context to defer the reply through, or undef to
+#               answer in place
+#
+# returns:
+#   a hash ref of kurs, keyed by kur, each as _banished_kur_entry returns
+#   plus pending where the galla has any. it is returned when answered in
+#   place, else undef with the reply sent through $ctx. when Ereshkigal can
+#   not be asked, the error goes through $ctx and undef is returned, or with
+#   out a $ctx it dies. dies too on a args.name not among the fed kurs
+#
+# example:
+#   my $reply = $self->_cmd_banished( { 'args' => { 'name' => 'sshd' } }, undef );
+#   # { 'kurs' => { 'sshd' => { 'banned' => ['192.0.2.7'], 'expires' => { '192.0.2.7' => 0 },
+#   #                           'pending' => ['198.51.100.9'] } } }
 sub _cmd_banished {
 	my ( $self, $request, $ctx ) = @_;
 
@@ -1245,7 +1851,7 @@ sub _cmd_banished {
 	);
 } ## end sub _cmd_banished
 
-=head1 ERRORS CODES / ERROR FLAGS
+=head1 ERROR CODES / ERROR FLAGS
 
 Error handling is provided by L<Error::Helper>. All errors
 are considered fatal.
@@ -1266,7 +1872,7 @@ uncompilable, or its embedded tests failing.
 =head2 4, runBaseDirError
 
 The run base dir or the galla dir under it could not be created or is not
-read/writable.
+read/write/traversable.
 
 =head2 5, badSocketGroup
 

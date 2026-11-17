@@ -81,14 +81,15 @@ name, when the database has one. What can read them is what can read
 - two of the four that judge :: "has both ... and ..."
 - nothing to judge and nothing to lift :: "has none of is, isnot, org_is, org_isnot, into, or org_into"
 - an `org_is` or `org_isnot` regexp that does not compile :: "has a ... that does not compile..."
+- an `into` or `org_into` that is not a string :: "has a ... that is not a non-empty string"
 - an `into` or `org_into` with other than one var :: "has a into or org_into, which needs exactly one var to lift the network of"
 - an import of a list the watcher does not define, when bound :: "imports asn_lists{...}, which is not a defined list for it"
 
 The last is found when the galla binds the rule to a watcher, and the
 galla will not start on it.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -101,22 +102,44 @@ for the config's lists. A lone number is a network with no name. With out
 [tests](../rules.md#tests) for the shape.
 
 ```yaml
+rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Failed password for \S+ from %%%%SRC%%%%'
+  - ban_var: [ SRC ]
+  - asn:
+      isnot:
+        - "%%%asn_lists{office}%%%"
+        - AS64496
+max_score: 1
 tests:
   positive:
-    # on a hosting network
+    # on a hosting network, which is neither the office nor AS64496
     - message: "Jul 12 08:25:49 mail01 sshd[2278]: Failed password for oracle from 203.0.113.9 port 4711 ssh2"
       geo:
         asns:
-          "203.0.113.9": { number: 64496, org: "Example Hosting" }
+          "203.0.113.9": { number: 64511, org: "Example Hosting" }
         asn_lists:
-          hosting: [ 64496 ]
+          office: [ 64500 ]
       found: 1
+  negative:
+    # the office network is spared
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Failed password for oracle from 198.51.100.4 port 4711 ssh2"
+      geo:
+        asns:
+          "198.51.100.4": { number: 64500, org: "Example Office" }
+        asn_lists:
+          office: [ 64500 ]
+      found: 0
+    # so is AS64496, listed literally
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Failed password for oracle from 192.0.2.8 port 4711 ssh2"
+      geo:
+        asns:
+          "192.0.2.8": 64496
+        asn_lists:
+          office: [ 64500 ]
+      found: 0
 ```
-
-## Shipped rules using it
-
-None. Which networks are the office and which are hosting is yours to
-say.
 
 ## See also
 

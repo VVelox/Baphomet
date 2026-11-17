@@ -91,8 +91,8 @@ every record of the watcher.
 - a `syslog.*` key component :: "keys on ..., which is not a envelope field this rule type carries"
 - a second `key` in the rule :: "is the second key gate of the rule, which can have the one"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

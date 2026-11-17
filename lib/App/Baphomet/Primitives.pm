@@ -130,6 +130,16 @@ sub primitives {
 
 # drops the memo and the configured dir, so a test can exercise the
 # resolve/cache path more than once in one process. not used at run time
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   App::Baphomet::Primitives::_reset();
+#   App::Baphomet::Primitives::configure( 'cache_dir' => $tmp_dir );
 sub _reset {
 	$resolved  = undef;
 	$cache_dir = undef;
@@ -137,8 +147,20 @@ sub _reset {
 }
 
 # resolves Log-Munger's base into a flat name -> regexp map, less the
-# reserved offender-token names. dies loudly on any failure... the
-# fragments are a declared dependency, so a broken one is a real error
+# reserved offender-token names and any var that is not a non-empty plain
+# string. dies loudly when Log::Munger will not load or its base will not
+# resolve... the fragments are a declared dependency, so a broken one is a
+# real error
+#
+# args:
+#   none
+#
+# returns:
+#   a hashref of fragment name to its final regexp string
+#
+# example:
+#   my $map = _resolve();
+#   # { 'INT' => '...', 'WORD' => '...', ... }
 sub _resolve {
 	eval {
 		require Log::Munger::RuleFileParser;
@@ -166,8 +188,20 @@ sub _resolve {
 
 # the source signature... the Log-Munger version plus the base file's
 # mtime and size, so a version bump (code change) or a base edit (data
-# change) both invalidate the cache. undef when the base file can not be
-# located, which makes load skip the cache and resolve live
+# change) both invalidate the cache. a version that can not be read reads
+# as unknown
+#
+# args:
+#   none
+#
+# returns:
+#   the signature string, logmunger:<version>:<mtime>:<size>, or undef when
+#   the base file can not be located, which makes primitives skip the cache
+#   and resolve live
+#
+# example:
+#   my $signature = _signature();
+#   # logmunger:0.0.1:1787443200:48213
 sub _signature {
 	my $version = eval { require Log::Munger; $Log::Munger::VERSION; };
 	if ( !defined($version) || $version eq '' ) {
@@ -186,8 +220,20 @@ sub _signature {
 	return join( ':', 'logmunger', $version, $mtime, $size );
 } ## end sub _signature
 
-# reads the cache map when the file is present, parseable, and carries the
-# current signature... undef otherwise, which tells load to re-resolve
+# reads the cache map back when the file is present, parseable, and holds
+# the current signature
+#
+# args:
+#   $cache_dir :: the dir the cache file lives in, a galla's tablet dir
+#   $signature :: the current signature, as _signature gives it
+#
+# returns:
+#   the cached hashref of fragment name to regexp string, or undef when the
+#   file is missing, unreadable, not a JSON hash, or holds a different
+#   signature, which tells primitives to re-resolve
+#
+# example:
+#   my $cached = _read_cache( '/var/db/baphomet', $signature );
 sub _read_cache {
 	my ( $cache_dir, $signature ) = @_;
 
@@ -201,9 +247,10 @@ sub _read_cache {
 		return undef;
 	}
 
-	# the fragments are character strings (a primitive like MONTH carries a
+	# the fragments are character strings (a primitive like MONTH holds a
 	# ä), so the cache is UTF-8 bytes read raw and decoded utf8, symmetric
-	# with the write... a plain decode_json would choke on the lone byte
+	# with the write... decoding with out utf8 would turn each ä into two
+	# Latin-1 characters and the fragment would no longer match
 	my $decoded = eval { JSON::MaybeXS->new->utf8->decode($text); };
 	if (   !is_plain_hashref($decoded)
 		|| !defined( $decoded->{signature} )
@@ -225,6 +272,18 @@ sub _read_cache {
 # filesystem is atomic, so a reader opens the whole old file or the whole new
 # one, never a half write, and concurrent gallas just race to be last, each
 # leaving a complete file
+#
+# args:
+#   $cache_dir :: the dir to write the cache file in... nothing is written
+#                 when it is not a existing directory
+#   $signature :: the signature to stamp on it, as _signature gives it
+#   $map       :: the hashref of fragment name to regexp string to cache
+#
+# returns:
+#   nothing
+#
+# example:
+#   _write_cache( '/var/db/baphomet', $signature, $resolved );
 sub _write_cache {
 	my ( $cache_dir, $signature, $map ) = @_;
 

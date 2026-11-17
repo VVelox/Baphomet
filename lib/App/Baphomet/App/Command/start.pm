@@ -27,12 +27,26 @@ our $VERSION = '0.0.1';
     baphomet start --foreground
     baphomet start --config /usr/local/etc/baphomet/config.toml
 
+=head1 DESCRIPTION
+
+Starts the Baphomet manager, which in turn spawns a galla for every kur
+in the config. It daemonizes unless C<--foreground> is passed, and the
+PID file is removed when the manager exits, a failed start included.
+With STDERR gone once daemonized, a failure to start is logged to syslog
+as well as rethrown.
+
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'start the manager and a galla for every configured kur' }
 

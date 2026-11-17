@@ -88,11 +88,11 @@ gate type in its own class, L<App::Baphomet::Gate::daemons> and the like.
 Initiates the object, compiling the passed rule def. Will die on a invalid
 or uncompilable def.
 
-    - name :: The rule name, the type and then the name with in it.
+    - name :: The rule name, the type and then the name within it.
         Default :: unnamed
 
     - def :: The rule def hash, as parsed from the YAML.
-        Default :: undef
+        Required
 
     - type :: The rule's type, for a rule whose name does not lead with it.
         Default :: the part of the name ahead of the first /
@@ -630,7 +630,7 @@ sub sweep_state {
 
 Returns a hash of the rule's own threshold overrides, max_score,
 find_time, and ban_time, holding only the keys the def actually sets...
-a empty hash for a rule carrying none. The galla is what has the watcher
+a empty hash for a rule that sets none of them. The galla is what has the watcher
 settings and decides if these are honored, per its
 C<allow_per_rule_thresholds>... this just exposes the def keys.
 
@@ -674,6 +674,16 @@ toward a real ban, and a would-be banish surfaces as an alert instead.
 
 =cut
 
+sub eve_only {
+	my ($self) = @_;
+
+	if ( !exists( $self->{def}{eve_only} ) ) {
+		return undef;
+	}
+
+	return $self->{def}{eve_only} ? 1 : 0;
+}
+
 =head2 eve_line
 
 Returns 0 when the rule's EVE events are to leave out the line they were
@@ -687,16 +697,6 @@ sub eve_line {
 	my ($self) = @_;
 
 	return ( exists( $self->{def}{eve_line} ) && !$self->{def}{eve_line} ) ? 0 : 1;
-}
-
-sub eve_only {
-	my ($self) = @_;
-
-	if ( !exists( $self->{def}{eve_only} ) ) {
-		return undef;
-	}
-
-	return $self->{def}{eve_only} ? 1 : 0;
 }
 
 =head2 is_detection
@@ -979,9 +979,9 @@ sub rev {
 
 Returns the rule's gates, a array ref of L<App::Baphomet::Gate> objects in
 the order its C<rule_gates> names them, compiled but not yet bound to a
-watcher... a empty array for a rule with out any. A found result only counts
-if every one of them holds, and what binds and asks them is the galla, or
-C<run_tests> over a rule's own fixtures.
+watcher. A found result only counts if every one of them holds, and what
+binds and asks them is the galla, or C<run_tests> over a rule's own
+fixtures.
 
     my $bound = bind_rule_gates( $rule->rule_gates, \%context, $where );
 
@@ -1044,11 +1044,13 @@ sub track_only {
 =head2 distinct
 
 Returns the rule's distinct-cardinality spec, a hash naming C<of> (the found
-var whose distinct values are counted per offender), or undef when the rule
+var whose distinct values are counted) and optionally C<by> (the found var
+they are grouped under, the offender when unset), or undef when the rule
 counts hits the usual way. The galla is what does the counting... this just
 exposes the def key.
 
     my $distinct = $rule->distinct;   # undef or { of => 'USER' }
+    # or { of => 'SRC', by => 'USER' }
 
 =cut
 
@@ -1218,7 +1220,7 @@ sub restore_state {
 =head2 run_tests
 
 Runs the tests embedded in the rule, returning a hash of C<pass>, C<fail>,
-and C<failures>. Does not die on test failures... that is the caller's call
+C<failures>, and C<warnings>, the last two array refs of strings. Does not die on test failures... that is the caller's call
 to make. The runner is L<App::Baphomet::Rules::SelfTest/run_tests>, imported
 here so it is a method of every rule, and what it does per test entry is
 documented there.

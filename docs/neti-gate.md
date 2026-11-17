@@ -4,20 +4,24 @@ Neti is the gatekeeper of Kur, and the manager socket has one too. This
 page covers who may drive the manager... the socket perms baseline, the
 ownership challenge over it, and the per command authorization over that.
 
-Note this only covers the manager socker. Galla sockets are always owned by user running
-baphomet with the perms 0600. It is expected that ONLY baphomet will be talking to those.
+Note this only covers the manager socket. Galla sockets are always owned by
+the user running baphomet with the perms 0600, and ONLY baphomet is expected
+to talk to those.
 
 ## The knobs
 
-| setting           | default              | what                                                                                                                    |
-|-------------------|----------------------|-------------------------------------------------------------------------------------------------------------------------|
-| `socket_group`    | root's default group | Group ownership of the manager socket.                                                                                  |
-| `socket_mode`     | `"0660"`             | Perms for the manager socket, an octal string, processed via oct.                                                       |
-| `enable_auth`     | `false`              | Opens the Neti gate proper... the unix ownership auth challenge on the manager socket.                                  |
-| `authed_users`    | `[]`                 | Users allowed past the Neti gate.                                                                                       |
-| `authed_groups`   | `[]`                 | Groups whose members are allowed past the Neti gate.                                                                    |
-| `auth_temp_dir`   | unset                | Dir for the ownership challenge cookie files, handed to the server module. Unset, that module chooses its own temp dir. |
-| `[command_perms]` | off                  | Per command authorization layered over the baseline. See [below](#per-command-authorization).                           |
+| setting           | default              | what                                                                                   |
+|-------------------|----------------------|----------------------------------------------------------------------------------------|
+| `socket_group`    | root's default group | Group ownership of the manager socket.                                                 |
+| `socket_mode`     | `"0660"`             | Perms for the manager socket, an octal string, processed via oct.                      |
+| `enable_auth`     | `false`              | Opens the Neti gate proper... the unix ownership auth challenge on the manager socket. |
+| `authed_users`    | `[]`                 | Users allowed past the Neti gate.                                                      |
+| `authed_groups`   | `[]`                 | Groups whose members are allowed past the Neti gate.                                   |
+| `auth_temp_dir`   | unset                | Dir for the ownership challenge cookie files, handed to the server module.             |
+| `[command_perms]` | off                  | Per command authorization layered over the baseline.                                   |
+
+Left unset, `auth_temp_dir` lets the server module choose its own temp dir.
+`[command_perms]` is covered [below](#per-command-authorization).
 
 ## The gate
 
@@ -26,8 +30,8 @@ By default the socket's group ownership and perms (`socket_group`,
 stop it. Setting `enable_auth` opens the Neti gate proper... the
 [POE::Component::Server::JSONUnix](https://metacpan.org/pod/POE::Component::Server::JSONUnix)
 unix ownership challenge, where a caller proves who they are by owning a
-cookie file, and only UID 0 or a user in `authed_users` or a
-`authed_groups` is let through.
+cookie file, and only UID 0, a user in `authed_users`, or a member of a
+group in `authed_groups` is let through.
 
 ```toml
 enable_auth   = true
@@ -37,10 +41,10 @@ authed_groups = [ "wheel" ]
 
 The `baphomet` CLI completes the challenge transparently, so nothing
 changes in how you drive it beyond being one of the permitted. Group and
-user membership is resolved per request, so changes apply without a
-restart. This gates the manager socket only, and every CLI command rides
-it, the manager reaching Ereshkigal on their behalf... the gate here
-covers the whole control plane.
+user membership is resolved once per connection, so a change applies with
+out a restart... for the CLI, on the next command. This gates the manager
+socket only, and every CLI command rides it, the manager reaching
+Ereshkigal on their behalf... the gate here covers the whole control plane.
 
 ## Per command authorization
 
@@ -76,9 +80,10 @@ default = "deny"
 [command_perms.commands.banished]
 users = [ "snmpd" ] # remember to make sure snmpd is a member of baphometAccess
 
-# stop in herits the top level and ea-nasir is turned away outright
+# stop is narrowed to nanni, and ea-nasir is turned away outright
 [command_perms.commands.stop]
-deny_users = [ "ea-nasir" ] # may be a member of ops, but fuck him being able to stop it
+users      = [ "nanni" ]
+deny_users = [ "ea-nasir" ] # may be in ops, but is barred from stop
 ```
 
 Here `snmpd` may run `banished` (and so `lnms-f2b-extend`) but falls to the

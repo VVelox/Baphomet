@@ -68,8 +68,8 @@ This only names the network. Banishing one is the config's
 - a `v4` out of 1 to 32 :: "has a v4 that is not a prefix length of 1 to 32"
 - a `v6` out of 1 to 128 :: "has a v6 that is not a prefix length of 1 to 128"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -78,10 +78,6 @@ It needs nothing, so a rule's tests judge it as the galla does, and the
 by network with `after` proves itself with a `messages` test walking
 enough addresses out of the one network. See [tests](../rules.md#tests)
 for the shape.
-
-## Shipped rules using it
-
-None.
 
 ## See also
 

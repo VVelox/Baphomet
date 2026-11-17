@@ -44,10 +44,16 @@ is the last week.
 
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'read the shared banishment ledger' }
 
@@ -133,11 +139,27 @@ sub execute {
 	return;
 } ## end sub execute
 
-# a ledger row into a entry hash... epoch,kur,ip,rule,watcher, the last
-# two quoted if they carry a comma, and absent entirely on rows from
-# before the ledger carried them. undef for the header or anything mangled
 my $ledger_csv = Text::CSV_XS->new( { 'binary' => 1 } );
 
+# a ledger row into a entry hash... epoch,kur,ip,rule,watcher, the last
+# two quoted if they have a comma, and absent entirely on rows from before
+# the ledger recorded them
+#
+# args:
+#   $line :: one chomped line of banishments.csv, such as
+#       1763300000,sshd,192.0.2.7,syslog/sshd,auth
+#
+# returns:
+#   hashref... epoch (int), date (local ISO 8601 string of the epoch), kur,
+#   ip, and rule and watcher when the row has them non-empty. undef for the
+#   header, a row that does not parse as CSV, a field count other than 3 or
+#   5, a non-numeric epoch, or a empty IP
+#
+# example:
+#   my $entry = _parse_row('1763300000,sshd,192.0.2.7,syslog/sshd,auth');
+#   # { 'epoch' => 1763300000, 'date' => '2025-11-16T13:33:20+0000',
+#   #   'kur' => 'sshd', 'ip' => '192.0.2.7', 'rule' => 'syslog/sshd',
+#   #   'watcher' => 'auth' }
 sub _parse_row {
 	my ($line) = @_;
 
@@ -162,6 +184,17 @@ sub _parse_row {
 
 # a --since spec into a epoch... bare digits are a epoch already, digits
 # with a unit are a span back from now
+#
+# args:
+#   $spec :: the --since value, already vetted by validate_args as digits
+#       with a optional unit of s, m, h, d, or w
+#
+# returns:
+#   the int epoch entries must be at or after
+#
+# example:
+#   _since_epoch('1763300000');    # 1763300000
+#   _since_epoch('7d');            # time - 604800
 sub _since_epoch {
 	my ($spec) = @_;
 

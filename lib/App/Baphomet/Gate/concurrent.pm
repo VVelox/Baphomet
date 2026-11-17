@@ -32,7 +32,7 @@ our $VERSION = '0.0.1';
 =head1 DESCRIPTION
 
 Holds when a key has been seen with more than C<more_than> different values
-of C<of> with in the last C<seconds>, this offense's among them. One account
+of C<of> within the last C<seconds>, this offense's among them. One account
 logged in from three addresses in the one ten minutes is a account shared,
 or one that is not its owner's any more.
 
@@ -104,7 +104,7 @@ sub compile {
 =head2 ask
 
 Notes the offense's value under its key. Returns 1 when the key then has
-more than C<more_than> values with in C<seconds>, else 0.
+more than C<more_than> values within C<seconds>, else 0.
 
     if ( !$gate->ask($offense) ) { ... }
 

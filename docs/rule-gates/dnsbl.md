@@ -93,8 +93,8 @@ holding on no listing, as under `negate`, lifts nothing.
 
 A zone name has to have at least two labels.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -118,11 +118,6 @@ tests:
             "203.0.113.9": [ "127.0.0.2" ]
       found: 1
 ```
-
-## Shipped rules using it
-
-None. Which blocklists to trust, and whether to tell them who you talk
-to, is yours to say.
 
 ## See also
 

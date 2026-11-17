@@ -45,7 +45,7 @@ rule's own hit on this line is counted, though it is not in the counts yet.
 
 With out a `var` it keys on the offender, so it goes below the `ban_var`
 that names one, and is asked of each. With a `var` it is asked once for the
-offense, and is the only way a detection rule can have one.
+offense, and is the only way a detection rule can have a `breadth` gate.
 
 Listed ahead of the service's ordinary rules, with a `max_score: 1`, it
 banishes the address on the first hit of the third service, and lets every
@@ -65,13 +65,13 @@ rule's, and counts toward nothing here.
 - told other than a hash :: "is not a hash"
 - a key it does not take :: "has the unknown key ..."
 - no `rules` or no `seconds` :: "lacks a ..."
-- a `rules` under two, or no whole number :: "has a rules that is not a int of two or more"
+- a `rules` under two, or not a whole number :: "has a rules that is not a int of two or more"
 - a `seconds` that is not a whole number of one or more :: "has a seconds that is not a positive int of seconds"
 - an `of` that is not a rule name or a list of them :: "has a of that is not a rule name or a non-empty array of them"
 - a `var` that is not a string :: "has a var that is not a non-empty string"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

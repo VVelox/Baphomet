@@ -110,9 +110,9 @@ count, and the next one, once the answer has landed, does.
 
 With an `into`, the name the comparison hit on, or under `negate`, where it
 holds on hitting none, the first name that took part. It needs a `var`,
-under the rules [`country`'s `into`](country.md#told) has, never lifts
-over a value the offense already has, and an address with no name to give
-lifts nothing.
+as an offense may have several offenders and the `into` holds one value.
+It never lifts over a value the offense already has, and an address with
+no name to give lifts nothing.
 
 ## Refused at load
 
@@ -125,8 +125,8 @@ lifts nothing.
 - an `into` with no `var` :: "has a into, which needs a var to lift the name of"
 - a `matches` that does not compile :: "matches does not compile..."
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

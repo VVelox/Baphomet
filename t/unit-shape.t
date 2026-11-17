@@ -359,12 +359,13 @@ ok( is_non_negative_int('042'),  'and digits with a leading zero' );
 ok( !is_non_negative_int('-1'),  'and refuses a sign' );
 ok( !is_non_negative_int('1.0'), 'and a point' );
 ok( !is_non_negative_int(' 1'),  'and a space' );
+ok( !is_non_negative_int("1\n"), 'and a trailing newline' );
 ok( !is_non_negative_int(''),    'and a empty string' );
 ok( !is_non_negative_int(undef), 'and undef' );
 ok( !is_non_negative_int( [1] ), 'and a ref' );
 
 ok( is_positive_int(1),      'is_positive_int takes one' );
-ok( is_positive_int('00'),   'and all zeros that perl does not read as false' );
+ok( !is_positive_int('00'),  'and refuses all zeros' );
 ok( !is_positive_int(0),     'and refuses zero' );
 ok( !is_positive_int('1.5'), 'and a point' );
 ok( !is_positive_int(undef), 'and undef' );

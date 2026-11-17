@@ -34,7 +34,7 @@ our $VERSION = '0.0.1';
 =head1 DESCRIPTION
 
 Adds the number in a found var to a running total for a key, and holds
-while what the key has added up to with in C<seconds> is above the mark. It
+while what the key has added up to within C<seconds> is above the mark. It
 is the after gate for how much in place of how often... the bytes sent to
 one client in a hour, say.
 
@@ -103,7 +103,7 @@ sub compile {
 =head2 ask
 
 Adds the offense's number to the total of its key. Returns 1 when the
-total with in C<seconds> is above the mark, else 0.
+total within C<seconds> is above the mark, else 0.
 
     if ( !$gate->ask($offense) ) { ... }
 
@@ -132,7 +132,7 @@ sub ask {
 	$spans->{ $now - ( $now % $self->{span} ) } += $number;
 	$total->{expires} = $now + $self->{seconds};
 
-	# a span counts while any of it is with in the seconds
+	# a span counts while any of it is within the seconds
 	delete( @{$spans}{ grep { $_ + $self->{span} <= $now - $self->{seconds} } keys( %{$spans} ) } );
 
 	return sum0( values( %{$spans} ) ) > $self->{above} ? 1 : 0;

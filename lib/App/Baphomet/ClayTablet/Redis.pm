@@ -34,25 +34,23 @@ dependency only real when this backend is chosen.
 =head2 Storage, and the optional file backend
 
 Storage and sharing are separate axes. The host-local tablets (counters,
-pending bans, positions, cursors, stats, context, marks, and the mark stream
-cursor) are not shared... a log offset means nothing on another machine. Where
-they persist depends on C<options.local>:
+subnet counters, pending bans, positions, cursors, stats, context, distinct,
+marks, tracked, and the mark stream cursor) are not shared... a log offset
+means nothing on another machine. Where they persist depends on
+C<options.local>:
 
-=over 4
-
-=item * With C<options.local> set, the host-local tablets go to a wrapped
-L<App::Baphomet::ClayTablet::File> on the local disk, and Redis is used only for
-the mark stream. This is the fleet-safe mode: a galla that loses the Redis and
-is restarted while it is still gone resumes its whole state from disk, and only
-the fleet gossip waits for the bus. C<options.local> may be a table carrying a
-C<base_dir>, else the global C<tablet_base_dir> is used.
-
-=item * Without it, the host-local tablets are Redis strings under
-C<< <prefix>:tablet:<galla>:<kind> >>, the whole store living in the one Redis.
-Simpler, but a Redis outage then takes the state with it, so this suits a deploy
-that treats Redis as reliable infrastructure or a single galla per prefix.
-
-=back
+    - local set :: The host-local tablets go to a wrapped
+          App::Baphomet::ClayTablet::File on the local disk, and Redis is used
+          only for the mark stream. This is the fleet-safe mode: a galla that
+          loses the Redis and is restarted while it is still gone resumes its
+          whole state from disk, and only the fleet gossip waits for the bus.
+          options.local may be a table with a base_dir, else the global
+          tablet_base_dir is used.
+    - local unset :: The host-local tablets are Redis strings under
+          <prefix>:tablet:<galla>:<kind>, the whole store living in the one
+          Redis. Simpler, but a Redis outage then takes the state with it, so
+          this suits a deploy that treats Redis as reliable infrastructure or a
+          single galla per prefix.
 
 =head2 The mark sync bus
 
@@ -195,22 +193,38 @@ sub new {
 #   $default :: the value used in its place when it is not a plain digits
 #               string or number at least the minimum
 #
-# returns the option as a number, or the default.
+# returns:
+#   the option as a number, or the default
 #
+# example:
 #   my $outbox_max = _int_option( $options, 'outbox_max', 0, 10000 );
 sub _int_option {
 	my ( $options, $key, $minimum, $default ) = @_;
 
 	my $value = $options->{$key};
-	if ( !defined($value) || ref($value) ne '' || $value !~ /^[0-9]+$/ || $value < $minimum ) {
+	if ( !defined($value) || ref($value) ne '' || $value !~ /^[0-9]+\z/ || $value < $minimum ) {
 		return $default;
 	}
 	return $value + 0;
 }
 
 # (re)connects the Redis if it is down, throttled so a persistent outage does
-# not mean a connect attempt on every call. sets connect_error and leaves redis
-# undef on failure. returns true if the link is up after this
+# not mean a connect attempt on every call... a held handle is trusted as up,
+# and a new attempt is only made once reconnect seconds have passed since the
+# last. on a fresh connect the db option, when set, is SELECTed. on failure
+# connect_error is set to the caught error and redis is left undef
+#
+# args:
+#   none
+#
+# returns:
+#   1 when a handle is held after the call, 0 when the link is down or the
+#   throttle skipped the attempt
+#
+# example:
+#   if ( !$self->_ensure_redis ) {
+#       return 0;
+#   }
 sub _ensure_redis {
 	my ($self) = @_;
 
@@ -240,13 +254,35 @@ sub _ensure_redis {
 
 # the key a host-local tablet of the given kind lives under, when the store is
 # Redis rather than the local file backend
+#
+# args:
+#   $kind :: the tablet kind, such as counters or marks
+#
+# returns:
+#   the key string, <prefix>:tablet:<galla>:<kind>, the galla name being
+#   empty when none was given
+#
+# example:
+#   my $key = $self->_key('counters');
+#   # baphomet:tablet:sshd:counters
 sub _key {
 	my ( $self, $kind ) = @_;
 
 	return $self->{prefix} . ':tablet:' . ( $self->{name} // '' ) . ':' . $kind;
 }
 
-# the mark stream key for this scope, shared across the fleet
+# the mark stream key for this scope, shared across the fleet... every galla
+# with the same prefix and scope appends to and drains the one stream
+#
+# args:
+#   none
+#
+# returns:
+#   the stream key string, <prefix>:marklog:<scope>
+#
+# example:
+#   my $stream = $self->_marklog_key;
+#   # baphomet:marklog:sshd
 sub _marklog_key {
 	my ($self) = @_;
 
@@ -313,8 +349,20 @@ sub verify {
 	return undef;
 } ## end sub verify
 
-# true if the Redis link is up and answers a ping... drops the handle on a
-# failed ping so the next call reconnects
+# checks the Redis link is up and answers a ping, connecting first via
+# _ensure_redis when no handle is held... drops the handle on a failed or
+# dying ping so the next call reconnects
+#
+# args:
+#   none
+#
+# returns:
+#   1 when the ping was answered, 0 when the link is down or the ping failed
+#
+# example:
+#   if ( !$self->_redis_ok ) {
+#       return 'ClayTablet redis backend ping failed';
+#   }
 sub _redis_ok {
 	my ($self) = @_;
 
@@ -474,7 +522,19 @@ sub mark_publish {
 } ## end sub mark_publish
 
 # pushes as many buffered deltas as the Redis will take, oldest first, stopping
-# at the first that fails so the rest stay queued for the next attempt
+# at the first that fails so the rest stay queued for the next attempt... each
+# goes out as a XADD that also trims the stream to mark_max_ttl by MINID. a
+# failed send is logged and drops the handle so the next flush reconnects, and
+# a successful one rearms the outbox-full warning
+#
+# args:
+#   none... works on the outbox queue mark_publish fills
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_flush_outbox;
 sub _flush_outbox {
 	my ($self) = @_;
 
@@ -528,8 +588,8 @@ sub _flush_outbox {
 
 Flushes any buffered deltas, then reads the stream forward from C<$last_id>
 (undef or empty meaning from the start, so a cold galla replays the retained
-stream). Returns the new deltas as hashrefs, its own C<origin> filtered out, and
-the id to resume from next time. A Redis that will not answer returns no events
+stream). Returns a arrayref of the new deltas as hashrefs, at most 1000 per
+call and its own C<origin> filtered out, and the id to resume from next time. A Redis that will not answer returns no events
 and the same id, so the galla just keeps its local marks and tries again.
 
 =cut

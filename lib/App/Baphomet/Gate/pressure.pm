@@ -55,7 +55,7 @@ A entry is told...
           is usual the count has to be more than, what is usual being what
           the C<baseline> seconds before the C<seconds> came to, evened out
           to as long. A mark that is a count wants setting for each host,
-          and this one sets its self. With nothing matched in the baseline
+          and this one sets itself. With nothing matched in the baseline
           there is no saying what is usual, and it is not above it.
 
     - hold :: Optional. Seconds the gate goes on letting lines by after the
@@ -177,7 +177,7 @@ sub bound {
 
 =head2 ask
 
-Returns 1 while the count is above the mark, or was with in C<hold> seconds
+Returns 1 while the count is above the mark, or was within C<hold> seconds
 ago, else 0. Says so through the context's C<notice> each time that
 changes.
 

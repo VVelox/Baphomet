@@ -17,7 +17,7 @@ rule_gates:
 
 - phase :: offense
 - rule types :: every type
-- keys on :: the offender | a found value
+- keys on :: the offender, or a found value with `var` or `vars`
 - vetoes :: yes
 - needs :: the galla's mark store
 - repeatable :: yes, each entry is a gate of its own
@@ -64,8 +64,8 @@ proven either way, and still vetoes.
 - both `var` and `vars` :: "has both var and vars"
 - both `value_is` and `value_not` :: "has both value_is and value_not"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

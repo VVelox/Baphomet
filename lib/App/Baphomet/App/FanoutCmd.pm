@@ -40,10 +40,11 @@ our $VERSION = '0.0.1';
 
 =head1 DESCRIPTION
 
-The accused and marked commands are the same shape... ask the manager,
-which fans out to one galla or all, then optionally pare each galla's
-answer down to one key of interest. This holds that shape once so the
-commands carry only their own names and wording.
+The accused, marked, tracked, and watching commands are the same
+shape... ask the manager, which fans out to one galla or all, then
+optionally pare each galla's answer down to one key of interest. This
+holds that shape once so the commands carry only their own names and
+wording.
 
 =head1 FUNCTIONS
 

@@ -74,7 +74,7 @@ my $csv = Text::CSV_XS->new(
 
 Each galla handles a single kur from the config... it follows the log of
 each watcher of that kur, parses the lines, checks them against the rules,
-counts matches per IP, and once a IP racks up max_score matches with in
+counts matches per IP, and once a IP racks up max_score matches within
 find_time seconds, banishes it to Kur via the Ereshkigal manager socket.
 
 Normally spawned and supervised by C<baphomet>, but usable standalone via
@@ -482,7 +482,7 @@ sub new {
 		#          a gate.
 		#    - eve_only :: 1 if the rule only observes on this watcher, 0 if not.
 		#    - max_score :: The score a subject has to reach to be banished.
-		#    - find_time :: The seconds its hits have to land with in to count.
+		#    - find_time :: The seconds its hits have to land within to count.
 		#    - ban_time :: The seconds a ban lasts, undef for the kur's default.
 		#    - weight :: What one hit adds to the score.
 		#    - own_bucket :: True if the rule counts in a bucket of its own
@@ -528,7 +528,7 @@ sub new {
 			} ## end if ( !App::Baphomet::Rules::type_accepts_parser...)
 
 			# the rule's gates, bound over this watcher's context and sorted by
-			# phase, the order the rule wrote them in kept with in each... the
+			# phase, the order the rule wrote them in kept within each... the
 			# ones of the line phase, which a line goes down to be a offense,
 			# and the ones of the offense phase, which each offense it made
 			# then goes down. the first to turn a line away or veto a offense
@@ -597,7 +597,7 @@ sub new {
 				$weight = $rule->weight;
 			}
 
-			# a weigh gate is a weight the rule says for its self, so it speaks
+			# a weigh gate is a weight the rule says for itself, so it speaks
 			# where the rule's own weight does
 			my $weighs = ( $allow || defined( $rule_cfg->{weight} ) ) ? 1 : 0;
 
@@ -946,10 +946,12 @@ sub state_path {
 
 =head2 checkpoint
 
-Writes the state tablets out now... the counters, the distinct-cardinality
-sets, the pending bans, the log positions, the journal cursors, the running
-stats, the correlation context, the marks, and the mark-stream cursor. Called
-periodically by the sweeper and on stop.
+Writes the state tablets out now... the counters, the subnet buckets, the
+distinct-cardinality sets, the pending bans, the log positions, the journal
+cursors, the running stats, the correlation context, the marks, the tracked
+records, and the mark-stream cursor. Then compacts the shared ledger, pruning
+it here rather than on every ban. Called periodically by the sweeper and on
+stop.
 
     $galla->checkpoint;
 
@@ -1175,7 +1177,19 @@ sub checkpoint {
 } ## end sub checkpoint
 
 # records the current tell and inode of every followed file into the
-# positions map, so a checkpoint reflects where the wheels actually are
+# positions map, so a checkpoint reflects where the wheels actually are...
+# a file whose tell or stat fails keeps its last known position. a position
+# for a file neither followed nor on disk any more is dropped
+#
+# args:
+#   none
+#
+# returns:
+#   nothing... $self->{positions} is updated in place, file path to
+#   { inode => $inode, offset => $offset }
+#
+# example:
+#   $self->_snapshot_positions;
 sub _snapshot_positions {
 	my ($self) = @_;
 
@@ -1208,7 +1222,19 @@ sub _snapshot_positions {
 # stale, pending bans taken back up for retry, log positions kept for
 # start_server to seek to, journal cursors restored, the running stats carried forward, correlation
 # context restored into the rules, marks restored and pruned of the expired,
-# and the mark stream drained to catch up on what the fleet branded while down
+# and the mark stream drained to catch up on what the fleet branded while down.
+# subnet buckets and tracked records come back too. each tablet has its own
+# loader below, called here in order... subnet ahead of the counters so the
+# counters' prune sorts and ages both
+#
+# args:
+#   none
+#
+# returns:
+#   nothing... the stores on $self are filled in place
+#
+# example:
+#   $self->_load_state;
 sub _load_state {
 	my ($self) = @_;
 
@@ -1235,7 +1261,18 @@ sub _load_state {
 
 # restores the accumulated per-ip and per-rule hit counters, then sorts each
 # bucket by epoch and drops anything with nothing recent... the register path
-# re-prunes per the effective find_time on the next hit
+# re-prunes per the effective find_time on the next hit. each entry lands as
+# [ $hit_epoch, $weight, $counted_by, $account ] in $self->{counters} for the
+# shared bucket or $self->{rule_counters}{$rule} for a per-rule one
+#
+# args:
+#   $now :: the current epoch, the base the day-stale prune measures from
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_counters(time);
 sub _load_counters {
 	my ( $self, $now ) = @_;
 
@@ -1288,7 +1325,19 @@ sub _load_counters {
 # restores the subnet buckets, per family, remembering each deposit's member
 # IP... loaded before the counters so their shared prune sorts and ages these
 # too. a row for a family other than v4 or v6, or with a unusable epoch, is
-# skipped. a missing weight restores as 1, like the per-IP counters
+# skipped. a missing weight restores as 1, like the per-IP counters. each
+# deposit lands as [ $hit_epoch, $weight, $member_ip ] under
+# $self->{subnet_counters}{$family}{$network}, the member undef when empty
+#
+# args:
+#   $now :: the current epoch... unused here, taken for symmetry with the
+#           other loaders as the prune that ages these happens later
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_subnet(time);
 sub _load_subnet {
 	my ( $self, $now ) = @_;
 
@@ -1323,7 +1372,17 @@ sub _load_subnet {
 # sort each restored counter bucket by epoch, per-IP and subnet stores
 # alike, and drop entries with nothing recent, then drop any per-rule
 # bucket left empty... the register path re-prunes per the effective
-# find_time on the next hit, and relies on the time-ordering settled here
+# find_time on the next hit, and relies on the time-ordering settled here.
+# "nothing recent" means the newest entry is over a day old
+#
+# args:
+#   $now :: the current epoch the day-stale cut is measured from
+#
+# returns:
+#   nothing... the buckets are rewritten in place
+#
+# example:
+#   $self->_prune_restored_counters(time);
 sub _prune_restored_counters {
 	my ( $self, $now ) = @_;
 
@@ -1361,7 +1420,19 @@ sub _prune_restored_counters {
 
 # distinct-cardinality sets, restored per (rule, ip, value) and pruned of
 # anything more than a day stale... the register path re-prunes to the
-# effective find_time on the next hit
+# effective find_time on the next hit. each line is a JSON object of rule,
+# ip, value, and epoch, landing as
+# $self->{distinct_counters}{$rule}{$ip}{$value} = $epoch. a line that does
+# not decode or lacks any of the four is skipped
+#
+# args:
+#   $now :: the current epoch the day-stale cut is measured from
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_distinct(time);
 sub _load_distinct {
 	my ( $self, $now ) = @_;
 
@@ -1388,7 +1459,21 @@ sub _load_distinct {
 } ## end sub _load_distinct
 
 # pending bans, the ip and cidr flavors alike... a subject and, optionally,
-# the ban_time it is owed
+# the ban_time it is owed. a CSV tablet of subject,ban_time with a header
+# line naming the key column, taken back up for the sweeper to retry
+#
+# args:
+#   $kind       :: the tablet kind to read, 'pending' or 'pending_cidr'
+#   $key_column :: the header's first column, 'ip' or 'net', used to skip
+#                  the header line
+#   $store      :: the hash ref to fill, subject to ban_time, the ban_time
+#                  undef when the row's is empty or not a integer
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_pending_tablet( 'pending', 'ip', $self->{pending_bans} );
 sub _load_pending_tablet {
 	my ( $self, $kind, $key_column, $store ) = @_;
 
@@ -1411,7 +1496,20 @@ sub _load_pending_tablet {
 	return;
 } ## end sub _load_pending_tablet
 
-# the writer twin... subject,ban_time with a empty ban_time meaning undef
+# the writer twin... subject,ban_time with a empty ban_time meaning undef,
+# under a header of the key column and ban_time, subjects sorted
+#
+# args:
+#   $kind       :: the tablet kind to write, 'pending' or 'pending_cidr'
+#   $key_column :: the header's first column, 'ip' or 'net'
+#   $store      :: the hash ref of subject to ban_time (undef for the
+#                  kur's default) to write out
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_write_pending_tablet( 'pending_cidr', 'net', $self->{pending_cidr_bans} );
 sub _write_pending_tablet {
 	my ( $self, $kind, $key_column, $store ) = @_;
 
@@ -1425,7 +1523,19 @@ sub _write_pending_tablet {
 	return;
 } ## end sub _write_pending_tablet
 
-# log positions... the saved inode and offset a file was last read to
+# log positions... the saved inode and offset a file was last read to, read
+# from the file,inode,offset CSV tablet into $self->{positions} as file path
+# to { inode => $inode, offset => $offset } for _seek_for to use. a row not
+# exactly three fields, or with a non-integer inode or offset, is skipped
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_positions;
 sub _load_positions {
 	my ($self) = @_;
 
@@ -1450,7 +1560,18 @@ sub _load_positions {
 } ## end sub _load_positions
 
 # journal cursors, kept only for a watcher that still exists and is still a
-# journal one
+# journal one. read from the watcher,cursor CSV tablet into
+# $self->{journal_cursors}, watcher name to cursor string, for _journal_cmd
+# to resume after
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_cursors;
 sub _load_cursors {
 	my ($self) = @_;
 
@@ -1478,7 +1599,18 @@ sub _load_cursors {
 } ## end sub _load_cursors
 
 # stats... take the stored totals, but only shapes and numbers that make
-# sense, as the tablet may be from a older format
+# sense, as the tablet may be from a older format. only keys $self->{stats}
+# already has are taken... a hash for a hash key, a integer for a counter
+# key. the first line that decodes to a hash is used and the rest ignored
+#
+# args:
+#   none
+#
+# returns:
+#   nothing... $self->{stats} is updated in place
+#
+# example:
+#   $self->_load_stats;
 sub _load_stats {
 	my ($self) = @_;
 
@@ -1509,7 +1641,20 @@ sub _load_stats {
 	return;
 } ## end sub _load_stats
 
-# correlation context, handed back to each rule to restore its own state
+# correlation context, handed back to each rule to restore its own state.
+# each line is a JSON object of rule and state... the rule is loaded by name
+# and its restore_state called with the state, a rule that no longer loads
+# being skipped
+#
+# args:
+#   $now :: the current epoch, passed to restore_state so the rule can drop
+#           what has aged out
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_context(time);
 sub _load_context {
 	my ( $self, $now ) = @_;
 
@@ -1532,7 +1677,19 @@ sub _load_context {
 	return;
 } ## end sub _load_context
 
-# marks, restored whole and pruned of anything already expired
+# marks, restored whole and pruned of anything already expired. each line is
+# a JSON object of name, key, expires, and optionally set, value, here, and
+# hosts, landing as $self->{marks}{$name}{$key} = { expires, set, value,
+# here, hosts }, hosts turned from a array into a hash of host to 1
+#
+# args:
+#   $now :: the current epoch, a mark expiring at or before it is dropped
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_marks(time);
 sub _load_marks {
 	my ( $self, $now ) = @_;
 
@@ -1569,7 +1726,18 @@ sub _load_marks {
 
 # tracked records, restored whole and pruned of anything already expired. a
 # record whose fields are not a hash is dropped rather than trusted, a
-# hand-edited or truncated tablet being the only way one gets here
+# hand-edited or truncated tablet being the only way one gets here. each
+# line is a JSON object of name, key, fields, and expires, landing as
+# $self->{tracked}{$name}{$key} = { expires => $epoch, fields => \%fields }
+#
+# args:
+#   $now :: the current epoch, a record expiring at or before it is dropped
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_tracked(time);
 sub _load_tracked {
 	my ( $self, $now ) = @_;
 
@@ -1601,7 +1769,18 @@ sub _load_tracked {
 # the mark stream cursor, then a first drain to catch up on whatever the
 # fleet branded while this galla was down... over the local marks just
 # restored above, so the two converge before the socket opens. a missing
-# or trimmed-away cursor just replays the retained stream, which is safe
+# or trimmed-away cursor just replays the retained stream, which is safe.
+# the cursor is the first non-empty line of the mark_stream tablet, put in
+# $self->{mark_stream_id}. only called when mark_sync is on
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_load_mark_stream;
 sub _load_mark_stream {
 	my ($self) = @_;
 
@@ -1619,6 +1798,18 @@ sub _load_mark_stream {
 # figures out where a fresh wheel on a file should start... the saved
 # offset if the file is the same one and has not shrunk, else the top for
 # a rotated file, else undef for a file with no saved position
+#
+# args:
+#   $file :: the path of the log about to be followed
+#
+# returns:
+#   the byte offset to seek to... the saved offset when the inode matches
+#   and the file is at least that long, 0 when it was rotated or truncated,
+#   or undef when there is no saved position or the file is not there, in
+#   which case FollowTail starts at the end as usual
+#
+# example:
+#   my $seek = $self->_seek_for('/var/log/auth.log');
 sub _seek_for {
 	my ( $self, $file ) = @_;
 
@@ -1643,7 +1834,22 @@ sub _seek_for {
 
 # emits a event to the EVE log... a no-op unless eve_enable is on... the
 # passed fields are merged over the common envelope, and a banish or
-# found event_type carries eve_type baphomet for downstream tooling
+# found event_type carries eve_type baphomet for downstream tooling. the
+# envelope is eve_type, event_type, timestamp, hostname, and kur. the record
+# is scrubbed to UTF-8, encoded, and appended under a exclusive lock to
+# eve_log. a encode or write failure is logged, never thrown
+#
+# args:
+#   $event_type :: the EVE event_type, such as 'banish', 'alert', or
+#                  'sighted'
+#   $fields     :: a hash ref of the event's own fields, merged over the
+#                  envelope
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_eve_emit( 'banish', { 'banishing' => ['192.0.2.7'], 'ban_time' => 3600 } );
 sub _eve_emit {
 	my ( $self, $event_type, $fields ) = @_;
 
@@ -1691,7 +1897,7 @@ sub _eve_emit {
 	return;
 } ## end sub _eve_emit
 
-# the parsed representation for a EVE event... the parsed JSON it's self
+# the parsed representation for a EVE event... the parsed JSON itself
 # for the JSON parsers, the field hash otherwise.
 #
 # The envelope hash doubles as the per-line scratch space a rule memoises its
@@ -1704,6 +1910,17 @@ sub _eve_emit {
 #
 # The json branch is left alone: those keys are the log's own, and a document
 # with a leading-underscore field (an _id, say) has every right to it.
+#
+# args:
+#   $parsed :: the parser's output for the line... a hash with a fields
+#              hash for the field parsers, a hash or array for a JSON log
+#
+# returns:
+#   the fields hash ref as is when there is one, else a shallow copy of a
+#   hash less its leading-underscore keys, else $parsed untouched
+#
+# example:
+#   my $parsed_for_eve = $self->_eve_parsed($parsed);
 sub _eve_parsed {
 	my ( $self, $parsed ) = @_;
 
@@ -1723,6 +1940,17 @@ sub _eve_parsed {
 # but when that line is itself a JSON object or array it rides along
 # decoded, so the eve stream carries the structure and not a escaped
 # string blob. anything that does not decode stays the line as received
+#
+# args:
+#   $raw :: the matched log line, may be undef
+#
+# returns:
+#   a hash or array ref when the line starts with { or [ and decodes as
+#   JSON, else $raw unchanged
+#
+# example:
+#   my $raw_for_eve = $self->_eve_raw('{"src_ip":"192.0.2.7"}');
+#   # { 'src_ip' => '192.0.2.7' }
 sub _eve_raw {
 	my ( $self, $raw ) = @_;
 
@@ -1745,6 +1973,18 @@ sub _eve_raw {
 # byte and is left byte-identical, so JSON numbers stay numbers, and a
 # string already decoded to characters (a JSON parser's output, flagged
 # utf8) is left as is rather than double-decoded
+#
+# args:
+#   $value :: a scalar, hash ref, or array ref, walked recursively... any
+#             other ref, such as a JSON boolean, is passed through
+#
+# returns:
+#   a deep copy of hashes and arrays with every high-byte string decoded
+#   to characters, or the scalar itself when it needs nothing
+#
+# example:
+#   my $clean = $self->_eve_utf8( { 'user' => "caf\xc3\xa9" } );
+#   # { 'user' => "caf\x{e9}" }
 sub _eve_utf8 {
 	my ( $self, $value ) = @_;
 
@@ -1785,36 +2025,121 @@ never dropped.
 
 The JSON commands handled are as below.
 
-    - status :: Instance status info... watchers with their log specs and
-          the files currently being followed, stats, effective settings,
-          how many IPs are being counted, and any bans pending retry.
+    - status :: Instance status info... watchers, stats, and how much is
+          being counted or waiting on Kur.
 
     - accused :: The IPs currently accumulating offenses but not yet
-          banished... per IP the live hit count and the epochs of the
-          first and last hit, across every bucket. A IP counted by a
-          rule carrying its own thresholds also gets a rules hash
-          breaking those buckets out.
+          banished.
 
-    - marked :: The live marks, per mark name a hash of the branded keys,
-          each with its expiry and, when the rule harvested one, the
-          stored value. A compound key, a vars mark, is its captures
-          joined on the unit separator, which JSON output shows as
-          \u001f.
+    - marked :: The live marks.
 
-    - tracked :: The live tracked records, per track name a hash of keys,
-          each with its expiry, the fields the transaction has accumulated
-          so far, and the key handed back split... a compound key as a
-          array of its components and a single one as a plain scalar,
-          rather than carrying the separator the store joins on.
+    - tracked :: The live tracked records.
 
     - watching :: Per watcher, what it is set to watch and what it is
-          watching now... for a file watcher the log specs (literal paths
-          and globs) under globs and the concrete files currently followed
-          under following, and for a journal watcher the journalctl matches
-          under journal with journal_running saying whether the wheel is up.
+          watching now.
 
-    - stop :: Stop following the logs and exit. Pending bans that could
-          not be delivered are lost.
+    - stop :: Stop following the logs and exit.
+
+None of them take args. Every result but stop's has name, this galla's kur,
+beside its payload.
+
+=head3 status
+
+The result...
+
+    - name :: The kur.
+
+    - pid :: The galla's PID.
+
+    - uptime :: Seconds since it started.
+
+    - watchers :: Keyed by watcher name, each with its parser, rules, and
+          settings (that watcher's effective settings), plus logs and
+          following for a file watcher or journal and journal_running for a
+          journal one, as in watching.
+
+    - stats :: The running stats totals, with per_watcher and per_rule
+          breakdowns.
+
+    - tracked_ips :: How many IPs have live hits, each counted once across
+          the shared and per-rule buckets.
+
+    - tracked_subnets :: How many subnets have live tallies, v4 and v6
+          together.
+
+    - pending_bans :: IPs banished but not yet heard by Ereshkigal.
+
+    - pending_cidr_bans :: The subnet twin of pending_bans.
+
+    - recidive :: The kur banishments escalate to, or undef.
+
+=head3 accused
+
+The result is accused, keyed by IP, across every bucket...
+
+    - hits :: The raw count of still-live hits.
+
+    - score :: Their weighted sum, what actually races max_score.
+
+    - first :: Epoch of the oldest live hit.
+
+    - last :: Epoch of the newest live hit.
+
+    - rules :: The same four per rule, present only for a IP counted by a
+          rule with its own thresholds.
+
+=head3 marked
+
+The result is marks, keyed by mark name, each branded key under it
+having...
+
+    - expires :: When the brand fades, epoch.
+
+    - hosts :: How many hosts of the fleet set the brand.
+
+    - value :: The harvested value, where the mark stores one.
+
+A compound key, a vars mark, is its captures joined on the unit
+separator, which JSON output shows as \u001f. Expired marks not yet swept
+are left out.
+
+=head3 tracked
+
+The result is tracked, keyed by track name, each live record under it
+keyed by its stored key and having...
+
+    - expires :: When the record lapses, epoch.
+
+    - key :: The key handed back split... a compound key as a array of its
+          components, a single one as a plain scalar.
+
+    - fields :: What the transaction has accumulated so far.
+
+=head3 watching
+
+The result is watchers, keyed by watcher name...
+
+    - globs :: The literal paths and globs a file watcher hunts by.
+
+    - following :: The concrete files it has a tail wheel on right now.
+
+    - journal :: The journalctl matches, for a journal watcher.
+
+    - journal_running :: Whether the journal wheel is up, 0 or 1, for the
+          same.
+
+=head3 stop
+
+The result...
+
+    - stopping :: Always 1.
+
+The kur client is shut first, so any ban still in flight answers with an
+error and falls back into the pending queues. A checkpoint is then written,
+the pending bans with it, and those are retried on the next start. The
+tails come down, the reply is sent, and the server shuts down a second later.
+Once the loop exits, start_server checkpoints again, catching anything
+answered into the pending queues while it wound down.
 
 =cut
 
@@ -1918,6 +2243,21 @@ sub start_server {
 # POE states for the tailing session
 #
 
+# the tailing session's _start... sets the session alias stop_tails is
+# posted to, starts a journalctl per journal watcher and a tail per resolved
+# file of each file watcher, then schedules the first sweep in ten seconds
+# and, when any watcher has a joiner, the first join_flush in one. a file
+# watcher resolving to nothing is logged, its globs rechecked each sweep
+#
+# args:
+#   KERNEL :: the POE kernel, from @_
+#
+# returns:
+#   nothing
+#
+# example:
+#   # never called directly, it is the session's '_start' state
+#   POE::Session->create( object_states => [ $self => { '_start' => '_poe_start' } ] );
 sub _poe_start {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
@@ -1959,7 +2299,20 @@ sub _poe_start {
 } ## end sub _poe_start
 
 # starts following a single file for a watcher... must be called from
-# with in the tailing session, as that is who the wheel belongs to
+# within the tailing session, as that is who the wheel belongs to. the
+# wheel resumes at the saved offset when _seek_for gives one, and is
+# registered in the watcher's wheels and the wheel ID maps got_line uses. a
+# file not there yet is logged and followed anyway, FollowTail waiting on it
+#
+# args:
+#   $watcher_name :: the name of the file watcher the file belongs to
+#   $file         :: the path to follow
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_start_tail( 'auth', '/var/log/auth.log' );
 sub _start_tail {
 	my ( $self, $watcher_name, $file ) = @_;
 
@@ -1998,7 +2351,19 @@ sub _start_tail {
 } ## end sub _start_tail
 
 # builds the journalctl command for a journal watcher... follow mode, JSON
-# output, the saved cursor if there is one, and the watcher's matches
+# output, the saved cursor if there is one, and the watcher's matches. with
+# no cursor it starts at --lines 0, reading only from now
+#
+# args:
+#   $watcher_name :: the name of a journal watcher
+#
+# returns:
+#   the command as a list, ready for POE::Wheel::Run's Program
+#
+# example:
+#   my @cmd = $self->_journal_cmd('sshd');
+#   # ( '/usr/bin/journalctl', '--follow', '--output', 'json', '--lines', '0',
+#   #   '_SYSTEMD_UNIT=sshd.service' )
 sub _journal_cmd {
 	my ( $self, $watcher_name ) = @_;
 
@@ -2018,8 +2383,20 @@ sub _journal_cmd {
 	return @cmd;
 } ## end sub _journal_cmd
 
-# starts a journalctl for a journal watcher... must be called from with in
-# the tailing session, as the wheel belongs to it
+# starts a journalctl for a journal watcher... must be called from within
+# the tailing session, as the wheel belongs to it. a no-op when the watcher
+# already has a running wheel or the galla is stopping. the child is
+# registered for journal_reaped, and its wheel ID and PID mapped back to the
+# watcher, and its spawn time noted for the restart backoff
+#
+# args:
+#   $watcher_name :: the name of a journal watcher
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_start_journal('sshd');
 sub _start_journal {
 	my ( $self, $watcher_name ) = @_;
 
@@ -2050,6 +2427,21 @@ sub _start_journal {
 	return;
 } ## end sub _start_journal
 
+# the journal_stdout state... one JSON line from a watcher's journalctl.
+# the __CURSOR is pulled out for a clean resume, then the line goes to
+# _handle_line with a source of journal plus its matches, as there is no
+# file to name. a line from a wheel no longer mapped is dropped
+#
+# args:
+#   ARG0 :: the line journalctl wrote
+#   ARG1 :: the ID of the POE::Wheel::Run it came from
+#
+# returns:
+#   nothing
+#
+# example:
+#   # POE::Wheel::Run fires it as its StdoutEvent
+#   'StdoutEvent' => 'journal_stdout',
 sub _poe_journal_stdout {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
 
@@ -2077,6 +2469,19 @@ sub _poe_journal_stdout {
 	return;
 } ## end sub _poe_journal_stdout
 
+# the journal_stderr state... logs whatever a watcher's journalctl said on
+# stderr as a err, the watcher named unknown when the wheel is not mapped
+#
+# args:
+#   ARG0 :: the stderr line
+#   ARG1 :: the ID of the POE::Wheel::Run it came from
+#
+# returns:
+#   nothing
+#
+# example:
+#   # POE::Wheel::Run fires it as its StderrEvent
+#   'StderrEvent' => 'journal_stderr',
 sub _poe_journal_stderr {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
 
@@ -2089,6 +2494,21 @@ sub _poe_journal_stderr {
 	return;
 } ## end sub _poe_journal_stderr
 
+# the journal_reaped state... a watcher's journalctl exited. its wheel is
+# forgotten and, unless stopping, restart_journal is scheduled after a
+# backoff that doubles each time up to 60 seconds, reset to 1 when the
+# child had run over a minute
+#
+# args:
+#   KERNEL :: the POE kernel
+#   ARG1   :: the PID of the child that exited
+#
+# returns:
+#   nothing
+#
+# example:
+#   # sig_child fires it when the journalctl is reaped
+#   $poe_kernel->sig_child( $wheel->PID, 'journal_reaped' );
 sub _poe_journal_reaped {
 	my ( $self, $kernel, $pid ) = @_[ OBJECT, KERNEL, ARG1 ];
 
@@ -2122,6 +2542,17 @@ sub _poe_journal_reaped {
 	return;
 } ## end sub _poe_journal_reaped
 
+# the restart_journal state... the backoff of _poe_journal_reaped elapsed,
+# so start the watcher's journalctl again
+#
+# args:
+#   ARG0 :: the name of the journal watcher
+#
+# returns:
+#   nothing
+#
+# example:
+#   $kernel->delay_set( 'restart_journal', $delay, $watcher_name );
 sub _poe_restart_journal {
 	my ( $self, $watcher_name ) = @_[ OBJECT, ARG0 ];
 
@@ -2134,6 +2565,17 @@ sub _poe_restart_journal {
 # with glob metacharacters are expanded and may match nothing, everything
 # else is kept literally even if it does not exist yet... deduped, order
 # preserving
+#
+# args:
+#   $watcher :: the watcher's hash ref from $self->{watchers}, its log_spec
+#               a array of paths and globs
+#
+# returns:
+#   the list of file paths to follow, possibly empty
+#
+# example:
+#   my @files = $self->_resolve_watcher_logs( $self->{watchers}{auth} );
+#   # ( '/var/log/auth.log', '/var/log/auth.log.0' ) for [ '/var/log/auth.log*' ]
 sub _resolve_watcher_logs {
 	my ( $self, $watcher ) = @_;
 
@@ -2151,8 +2593,17 @@ sub _resolve_watcher_logs {
 
 # re-expands the globs of every watcher, following new matches and
 # dropping wheels for vanished ones... literal entries always resolve to
-# themselves, so they are never dropped... must be called from with in
-# the tailing session
+# themselves, so they are never dropped... must be called from within
+# the tailing session. journal watchers are skipped, having no files
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_rescan_logs;
 sub _rescan_logs {
 	my ($self) = @_;
 
@@ -2189,6 +2640,20 @@ sub _rescan_logs {
 	return;
 } ## end sub _rescan_logs
 
+# the got_line state... a line from a followed file, handed to
+# _handle_line with the file as its source. a line from a wheel no longer
+# mapped, one dropped by a rescan, is ignored
+#
+# args:
+#   ARG0 :: the line, newline already stripped by FollowTail
+#   ARG1 :: the ID of the POE::Wheel::FollowTail it came from
+#
+# returns:
+#   nothing
+#
+# example:
+#   # POE::Wheel::FollowTail fires it as its InputEvent
+#   'InputEvent' => 'got_line',
 sub _poe_got_line {
 	my ( $self, $line, $wheel_id ) = @_[ OBJECT, ARG0, ARG1 ];
 
@@ -2202,6 +2667,21 @@ sub _poe_got_line {
 	return;
 } ## end sub _poe_got_line
 
+# the tail_error state... logs a FollowTail error as a err, naming the
+# watcher, or unknown when the wheel is not mapped. the wheel is left be
+#
+# args:
+#   ARG0 :: the operation that failed, such as read
+#   ARG1 :: the errno number
+#   ARG2 :: the error string
+#   ARG3 :: the ID of the wheel
+#
+# returns:
+#   nothing
+#
+# example:
+#   # POE::Wheel::FollowTail fires it as its ErrorEvent
+#   'ErrorEvent' => 'tail_error',
 sub _poe_tail_error {
 	my ( $self, $operation, $errnum, $errstr, $wheel_id ) = @_[ OBJECT, ARG0, ARG1, ARG2, ARG3 ];
 
@@ -2223,6 +2703,18 @@ sub _poe_tail_error {
 	return;
 } ## end sub _poe_tail_error
 
+# the tail_reset state... logs that a followed file was reset, most likely
+# rotated, FollowTail itself reopening it
+#
+# args:
+#   ARG0 :: the ID of the wheel
+#
+# returns:
+#   nothing
+#
+# example:
+#   # POE::Wheel::FollowTail fires it as its ResetEvent
+#   'ResetEvent' => 'tail_reset',
 sub _poe_tail_reset {
 	my ( $self, $wheel_id ) = @_[ OBJECT, ARG0 ];
 
@@ -2235,6 +2727,19 @@ sub _poe_tail_reset {
 	return;
 } ## end sub _poe_tail_reset
 
+# the sweep state, every ten seconds... runs _sweep, rescans the globs,
+# checkpoints when the checkpoint interval has passed, and schedules
+# itself again. once stopping it does nothing and stops rescheduling, so
+# the session can end
+#
+# args:
+#   KERNEL :: the POE kernel
+#
+# returns:
+#   nothing
+#
+# example:
+#   $kernel->delay( 'sweep', 10 );
 sub _poe_sweep {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
@@ -2257,6 +2762,18 @@ sub _poe_sweep {
 	return;
 } ## end sub _poe_sweep
 
+# the join_flush state, every second while any watcher has a joiner...
+# flushes the join buffers gone quiet past their flush_after and schedules
+# itself again. once stopping it does nothing and stops rescheduling
+#
+# args:
+#   KERNEL :: the POE kernel
+#
+# returns:
+#   nothing
+#
+# example:
+#   $kernel->delay( 'join_flush', 1 );
 sub _poe_join_flush {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
@@ -2270,7 +2787,19 @@ sub _poe_join_flush {
 	return;
 } ## end sub _poe_join_flush
 
-# tears the tail wheels down so the session can end and the kernel can exit
+# tears the tail wheels down so the session can end and the kernel can exit.
+# the stop_tails state... flushes every join buffer, drops the tail wheels,
+# TERMs each journalctl, empties the wheel maps, shuts the DNS client, then
+# clears the alarms and the session alias
+#
+# args:
+#   KERNEL :: the POE kernel
+#
+# returns:
+#   nothing
+#
+# example:
+#   $poe_kernel->post( 'galla-tails-' . $self->{name}, 'stop_tails' );
 sub _poe_stop_tails {
 	my ( $self, $kernel ) = @_[ OBJECT, KERNEL ];
 
@@ -2310,6 +2839,17 @@ sub _poe_stop_tails {
 
 # ticks a stat by name... the galla-wide count always, plus the per
 # watcher and per rule breakdowns when those are known
+#
+# args:
+#   $key          :: the stat to tick, such as 'lines' or 'bans'
+#   $watcher_name :: the watcher to also tick it under, or undef
+#   $rule_name    :: the rule to also tick it under, or undef
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_tick( 'matched', 'auth', 'sshd' );
 sub _tick {
 	my ( $self, $key, $watcher_name, $rule_name ) = @_;
 
@@ -2326,7 +2866,24 @@ sub _tick {
 
 # handles a single physical line from the log of the specified watcher...
 # a watcher with a joiner glues continuation lines onto their head line
-# ahead of the parser, so what the rules judge is one logical record
+# ahead of the parser, so what the rules judge is one logical record. a
+# unknown watcher is ignored. with no joiner the line goes straight to
+# _process_record... with one, a continuation is buffered onto its head
+# (flushing at max_lines) and a head line flushes the last record and
+# starts a new buffer
+#
+# args:
+#   $watcher_name :: the watcher the line came in on
+#   $line         :: the physical line
+#   $source       :: where it came from, the file path or the journal
+#                    source string, may be undef
+#
+# returns:
+#   whatever _process_record returned when there is no joiner, else
+#   nothing
+#
+# example:
+#   $self->_handle_line( 'auth', $line, '/var/log/auth.log' );
 sub _handle_line {
 	my ( $self, $watcher_name, $line, $source ) = @_;
 
@@ -2342,7 +2899,7 @@ sub _handle_line {
 		return $self->_process_record( $watcher_name, $line, $source );
 	}
 
-	# buffers are per source as continuation only means adjacency with in
+	# buffers are per source as continuation only means adjacency within
 	# one file, and several files may feed one watcher interleaved
 	my $source_key = $source // '';
 	my $buffer     = $self->{join_buffers}{$watcher_name}{$source_key};
@@ -2367,7 +2924,18 @@ sub _handle_line {
 } ## end sub _handle_line
 
 # flushes one join buffer through the pipeline as a single record, the
-# physical lines glued with newlines
+# physical lines glued with newlines... a record of more than one line
+# ticks joined
+#
+# args:
+#   $watcher_name :: the watcher the buffer belongs to
+#   $source_key   :: the buffer's source, the empty string for undef
+#
+# returns:
+#   what _process_record returned, or nothing when there was no buffer
+#
+# example:
+#   $self->_flush_join_buffer( 'mail', '/var/log/maillog' );
 sub _flush_join_buffer {
 	my ( $self, $watcher_name, $source_key ) = @_;
 
@@ -2384,7 +2952,18 @@ sub _flush_join_buffer {
 
 # flushes every join buffer not fed since its watcher's flush_after ago...
 # ran on the joiner tick, and forced by the stop path so nothing buffered
-# is dropped on a clean stop
+# is dropped on a clean stop. a buffer whose watcher has lost its joiner
+# is flushed too
+#
+# args:
+#   $force :: true flushes every buffer regardless of age, optional
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_flush_stale_join_buffers;     # the tick
+#   $self->_flush_stale_join_buffers(1);  # on stop
 sub _flush_stale_join_buffers {
 	my ( $self, $force ) = @_;
 
@@ -2442,6 +3021,10 @@ my $rule_index_max = 1024;
 # the syslog daemon (which is a field of the parsed envelope rather than of
 # the record's field space), or undef for a watcher with nothing to index on,
 # whose lines are then offered to every rule as they were before.
+#
+# example:
+#    my $field = _index_field( \@bindings );
+#    # '%%%DAEMON%%%' for a syslog watcher, 'alert.category' for a suricata one
 sub _index_field {
 	my ($bindings) = @_;
 
@@ -2505,6 +3088,7 @@ sub _index_field {
 # overlap semantics. A watcher with no index field returns every binding,
 # built once and held, so it walks exactly what it always did.
 #
+# example:
 #    foreach my $binding ( @{ $self->_rule_candidates( $watcher, $parsed ) } ) { ... }
 sub _rule_candidates {
 	my ( $self, $watcher, $parsed ) = @_;
@@ -2563,7 +3147,24 @@ sub _rule_candidates {
 } ## end sub _rule_candidates
 
 # handles a single logical record... the whole line for most watchers, the
-# joined lines for one with a joiner
+# joined lines for one with a joiner. parses it, ticking unparsed when the
+# parser gives up, then walks the candidate rules in config order... each
+# rule's line gates, then per offense its offense gates, counting the
+# survivors via _register_hit, draining the crossings that raised, and
+# emitting the found, noted, or sighting event when no crossing stood in
+# for it. the watcher's overlap setting decides whether a consuming rule
+# ends the walk (first), demotes the later ones (shadow), or neither (all)
+#
+# args:
+#   $watcher_name :: the watcher the record came in on
+#   $line         :: the record, newline-joined when a joiner glued it
+#   $source       :: the file path or journal source string, may be undef
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_process_record( 'auth', $line, '/var/log/auth.log' );
 sub _process_record {
 	my ( $self, $watcher_name, $line, $source ) = @_;
 
@@ -2604,7 +3205,7 @@ sub _process_record {
 	# shadow buckets; under overlap all every firing rule judges for
 	# real. the
 	# watcher name scopes any correlation state, as keys like conn ids
-	# are only unique with in one log.
+	# are only unique within one log.
 	#
 	# only the rules this record could match are walked, in their config
 	# order... the rest would have vetoed on their daemon gate or their
@@ -2821,6 +3422,7 @@ sub _process_record {
 #
 # returns a hashref of the fields, a empty one when the EVE log is off.
 #
+# example:
 #   my $fields = $self->_eve_fields( $context, $score );
 sub _eve_fields {
 	my ( $self, $context, $score, $set, $lifted ) = @_;
@@ -2906,7 +3508,7 @@ sub _eve_fields {
 #               addresses it answered with
 #
 # returns a list of key/value pairs to splat into a EVE record, empty when the
-# context carries no subjects... a recidive escalation, a pending ban restored
+# context has no subjects... a recidive escalation, a pending ban restored
 # off a tablet, or a rule naming no var that captured anything.
 #
 # subject_vars gives each var the bare value it captured, or, where a name was
@@ -3025,6 +3627,7 @@ sub _subject_var_fields {
 # than being silently dropped. a non-empty queue is also how _process_record
 # knows the result raised a terminal event.
 #
+# example:
 #   $self->_defer_crossing( $context, sub { $self->_ban_ip( $ip, $ban_time, $context, $score ); } );
 sub _defer_crossing {
 	my ( $self, $context, $crossing ) = @_;
@@ -3054,6 +3657,7 @@ sub _defer_crossing {
 #
 # returns nothing.
 #
+# example:
 #   $self->_drain_crossings($context);
 sub _drain_crossings {
 	my ( $self, $context ) = @_;
@@ -3074,7 +3678,21 @@ sub _drain_crossings {
 # stores a resolving closure on success, a error string otherwise. a set
 # enable_dns with no loadable Net::DNS leaves usedns behaving as no, which
 # the watcher build says loudly. the closure is the seam the tests inject
-# a mock resolver through
+# a mock resolver through. needs POE::Component::Client::DNS loadable too,
+# for the background engine
+#
+# args:
+#   none... usedns_timeout is read off $self
+#
+# returns:
+#   nothing. on success dns_resolver holds the Net::DNS::Resolver and
+#   dns_resolve a closure taking a hostname and returning a array ref of
+#   its A and AAAA addresses, or undef for none. on failure dns_error holds
+#   the error
+#
+# example:
+#   $self->_open_dns;
+#   my $addrs = $self->{dns_resolve}->('mail.example.com');    # [ '192.0.2.25' ]
 sub _open_dns {
 	my ($self) = @_;
 
@@ -3122,6 +3740,20 @@ sub _open_dns {
 # fail-closed logic leans on. only called when some rule carries the gate,
 # so Net::DNS stays optional for everyone else. the closures are the seam
 # the tests inject mocks through
+#
+# args:
+#   none... rdns_timeout is read off $self
+#
+# returns:
+#   nothing. on success rdns_resolver holds the Net::DNS::Resolver, and
+#   three closures are set... dns_reverse taking a address and answering its
+#   PTR names, dns_forward taking a hostname and answering its A and AAAA
+#   addresses, and dns_listed taking a blocklist query name and answering
+#   its A records. on failure rdns_error holds the error
+#
+# example:
+#   $self->_open_rdns;
+#   my $names = $self->{dns_reverse}->('192.0.2.7');    # [ 'crawl.example.com' ]
 sub _open_rdns {
 	my ($self) = @_;
 
@@ -3173,7 +3805,20 @@ sub _open_rdns {
 
 # folds a reply packet into the tri-valued outcome the blocking closures
 # return... an arrayref of extracted values for NOERROR/NXDOMAIN (possibly
-# empty, authoritative absence being an answer), undef for a failure
+# empty, authoritative absence being an answer), undef for a failure. a
+# plain function, not a method
+#
+# args:
+#   $packet :: the Net::DNS::Packet answered, or undef for a send that failed
+#   $qtype  :: the type asked, 'PTR', 'A', or 'AAAA'... PTR records give
+#              their ptrdname, the rest their address
+#
+# returns:
+#   a array ref of the names or addresses of the answers of that type, or
+#   undef for a undef packet or a rcode other than NOERROR or NXDOMAIN
+#
+# example:
+#   my $answers = _dns_fold( $resolver->send( '192.0.2.7', 'PTR' ), 'PTR' );
 sub _dns_fold {
 	my ( $packet, $qtype ) = @_;
 
@@ -3202,6 +3847,16 @@ sub _dns_fold {
 # the injectable seam or the kind's resolver. without this the blocking
 # closures stay the transport, which is what keeps run_tests and a galla
 # driven directly by the tests working with out an event loop
+#
+# args:
+#   $kind :: 'rdns' for the reverse_dns and dnsbl lookups, anything else,
+#            such as 'dns', for usedns
+#
+# returns:
+#   1 when background queries can fly, else 0
+#
+# example:
+#   if ( $self->_dns_async_ready('rdns') ) { ... }
 sub _dns_async_ready {
 	my ( $self, $kind ) = @_;
 
@@ -3216,8 +3871,23 @@ sub _dns_async_ready {
 
 # fires one background query, $done receiving the folded tri-value...
 # routed through the tails session so the DNS client answers back to it no
-# matter which session initiated (a kur client completion, say). the dns_bg closure is the test seam, standing in for the whole
-# wire engine when injected
+# matter which session initiated (a kur client completion, say). the dns_bg
+# closure is the test seam, standing in for the whole wire engine when
+# injected
+#
+# args:
+#   $kind  :: 'rdns' or the usedns kind, picking which timeout applies
+#   $qname :: the name to ask about... a address for a PTR, a hostname or
+#             blocklist query name otherwise
+#   $qtype :: the record type, 'PTR', 'A', or 'AAAA'
+#   $done  :: a code ref called later with the folded answer, a array ref
+#             or undef as _dns_fold returns
+#
+# returns:
+#   nothing, the answer arriving through $done
+#
+# example:
+#   $self->_dns_query_bg( 'rdns', '192.0.2.7', 'PTR', sub { my ($names) = @_; ... } );
 sub _dns_query_bg {
 	my ( $self, $kind, $qname, $qtype, $done ) = @_;
 
@@ -3245,7 +3915,18 @@ sub _dns_query_bg {
 # configured timeout rides each request. the client is spawned on first use,
 # so a test can inject one aimed at its own nameserver, and is given a empty
 # hosts file so A and AAAA answers come from DNS alone, as they do for the
-# blocking closures, never from /etc/hosts
+# blocking closures, never from /etc/hosts. the dns_start state
+#
+# args:
+#   ARG0 :: the query hash _dns_query_bg posted... kind, qname, qtype, and
+#           done, riding through as the request's context
+#
+# returns:
+#   nothing
+#
+# example:
+#   $poe_kernel->post( 'galla-tails-' . $self->{name}, 'dns_start',
+#       { 'kind' => 'rdns', 'qname' => '192.0.2.7', 'qtype' => 'PTR', 'done' => $done } );
 sub _poe_dns_start {
 	my ( $self, $query ) = @_[ OBJECT, ARG0 ];
 
@@ -3267,7 +3948,20 @@ sub _poe_dns_start {
 } ## end sub _poe_dns_start
 
 # the client's answer, its packet folded into the tri-value $done expects...
-# a timeout or a failed read arrives as a undef packet, so it fails closed
+# a timeout or a failed read arrives as a undef packet, so it fails closed.
+# the dns_answered state
+#
+# args:
+#   ARG0 :: the POE::Component::Client::DNS answer hash... response, the
+#           packet or undef, type, the type asked, and context, the query
+#           hash whose done is called
+#
+# returns:
+#   nothing
+#
+# example:
+#   # the DNS client fires it, as _poe_dns_start asked
+#   'event' => 'dns_answered',
 sub _poe_dns_answered {
 	my ( $self, $answer ) = @_[ OBJECT, ARG0 ];
 
@@ -3289,6 +3983,7 @@ sub _poe_dns_answered {
 #
 # returns nothing.
 #
+# example:
 #   $self->_open_geoip( 'geoip_asn', '/var/db/GeoIP/GeoLite2-ASN.mmdb' );
 #   if ( !defined( $self->{geoip_asn} ) ) { ... $self->{geoip_asn_error} ... }
 sub _open_geoip {
@@ -3321,6 +4016,7 @@ sub _open_geoip {
 # it does not say. undef when there is no database, the value is not a
 # locatable address, or the database has no coordinates for it.
 #
+# example:
 #   my $place = $self->_location_of('192.0.2.7');    # { 'lat' => 51.5072, 'lon' => -0.1276, 'radius' => 20 }
 sub _location_of {
 	my ( $self, $ip ) = @_;
@@ -3354,7 +4050,7 @@ sub _location_of {
 
 # how many lines some banning rule named a offender on of late, which is what
 # a pressure gate reads. the meter is kept in spans of ten seconds, and a
-# span counts whole while any of it is with in the time asked of, so the
+# span counts whole while any of it is within the time asked of, so the
 # answer may run up to ten seconds long and never short.
 #
 # args:
@@ -3366,6 +4062,7 @@ sub _location_of {
 #
 # returns the count, 0 when nothing has been metered.
 #
+# example:
 #   my $matched = $self->_pressure_of( 'auth', 'watcher', 60, time );    # 240
 sub _pressure_of {
 	my ( $self, $watcher_name, $scope, $seconds, $now ) = @_;
@@ -3400,6 +4097,7 @@ sub _pressure_of {
 #
 # returns the number of hits taken back.
 #
+# example:
 #   my $forgiven = $self->_forgive( '192.0.2.7', { 'syslog/sshd' => 1 }, 'neti' );    # 3
 sub _forgive {
 	my ( $self, $address, $rules, $account ) = @_;
@@ -3453,6 +4151,7 @@ sub _forgive {
 #
 # returns nothing.
 #
+# example:
 #   $self->_brand_banished( '192.0.2.7', 3600 );
 sub _brand_banished {
 	my ( $self, $address, $ban_time ) = @_;
@@ -3490,6 +4189,7 @@ sub _brand_banished {
 #
 # returns a array ref of the rule names, each once.
 #
+# example:
 #   my $rules = $self->_rules_hit( '192.0.2.7', time - 3600 );    # [ 'syslog/sshd', 'syslog/vsftpd' ]
 sub _rules_hit {
 	my ( $self, $address, $since ) = @_;
@@ -3521,6 +4221,7 @@ sub _rules_hit {
 #
 # returns the sum, 0 for a address with no live hits.
 #
+# example:
 #   my $score = $self->_address_score( '192.0.2.7', 0 );    # 7
 sub _address_score {
 	my ( $self, $address, $since ) = @_;
@@ -3594,6 +4295,7 @@ sub _asn_of {
 # the path of its login shell, possibly empty. undef when there is no such
 # account.
 #
+# example:
 #   my $account = $self->_account_of('neti');    # { 'uid' => 1001, 'gid' => 1001, 'shell' => '/bin/sh' }
 sub _account_of {
 	my ( $self, $name ) = @_;
@@ -3623,8 +4325,12 @@ sub _account_of {
 # to walk. no more than ten thousand are read, a account database larger
 # than that being no list of people a typo is made of.
 #
+# args:
+#   none
+#
 # returns a array ref of the names.
 #
+# example:
 #   my $names = $self->_account_names;    # [ 'root', 'daemon', 'neti', ... ]
 sub _account_names {
 	my ($self) = @_;
@@ -3660,6 +4366,7 @@ sub _account_names {
 # own gid it is belongs to with out being listed, and members, a hash ref
 # keyed by the names it lists. undef when there is no such group.
 #
+# example:
 #   my $group = $self->_group_of('wheel');    # { 'gid' => 0, 'members' => { 'root' => 1, 'neti' => 1 } }
 sub _group_of {
 	my ( $self, $group_name ) = @_;
@@ -3682,7 +4389,10 @@ sub _group_of {
 # what a gate that asks a DNS blocklist asks with... undef with dnsbl off or
 # no transport, on which such a gate fails closed. the lookups ride the
 # cache and the background engine of the reverse_dns gate, under keys of
-# their own.
+# their own. the sub is built once and kept.
+#
+# args:
+#   none
 #
 # returns a sub taking a zone and a address and answering a array ref of the
 # addresses the zone lists it under, a empty one when it does not list it, or
@@ -3709,9 +4419,18 @@ sub _dnsbl_asker {
 
 # the uppercased ISO country code of a IP per the GeoIP database, or undef
 # when there is no database, the value is not a locatable address, or it
-# carries no country... a country lookup dies on a bad address, so eval it.
+# has no country... a country lookup dies on a bad address, so eval it.
 # answers are cached 60 seconds like the DNS ones, as this was the one
 # uncached per-line gate lookup
+#
+# args:
+#   $ip :: the address to place, a IPv4 or IPv6 string
+#
+# returns:
+#   the two letter ISO country code, uppercased, or undef as above
+#
+# example:
+#   my $country = $self->_country_of('192.0.2.7');    # 'NL'
 sub _country_of {
 	my ( $self, $ip ) = @_;
 
@@ -3741,7 +4460,21 @@ sub _country_of {
 # the resolver pair a gate that asks reverse DNS judges over... undef with
 # rdns off or no transport, on which such a gate fails closed.
 # not to be confused with rdns_resolver, the Net::DNS handle the query
-# engine rides... this is the judgment-side pair of cached-lookup closures
+# engine rides... this is the judgment-side pair of cached-lookup closures.
+# built once and kept
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of two code refs, or undef as above... reverse takes a
+#   address and answers its PTR names, forward takes a hostname and answers
+#   its addresses, each a array ref (possibly empty) or undef for a failure,
+#   through _rdns_cached
+#
+# example:
+#   my $resolver = $self->_rdns_resolver;
+#   my $names    = $resolver->{reverse}->('192.0.2.7');    # [ 'crawl.example.com' ]
 sub _rdns_resolver {
 	my ($self) = @_;
 
@@ -3763,13 +4496,29 @@ sub _rdns_resolver {
 	return $self->{rdns_gate_resolver};
 } ## end sub _rdns_resolver
 
-# the cached tri-state lookups behind the reverse_dns and dnsbl gates... a array ref
-# (possibly empty, authoritative absence) or undef (failure), both
+# the cached tri-state lookups behind the reverse_dns and dnsbl gates... a
+# array ref (possibly empty, authoritative absence) or undef (failure), both
 # remembered, so a hostile flood of matches asks each question once a
 # minute at most. under the background engine a cold key fires its query
 # and answers undef for THIS line... a lookup failure, judged by the
 # entry's on_servfail knob like any other... the real answer warm in the
-# cache for the next line, and a flood on one cold key fires one query
+# cache for the next line, and a flood on one cold key fires one query. a
+# failed blocking lookup ticks dnsbl_failures for a bl: key, else
+# rdns_failures
+#
+# args:
+#   $cache_key :: the question, prefixed by kind... 'ptr:' and a address,
+#                 'fwd:' and a hostname, or 'bl:' and a blocklist query name
+#   $ask       :: a code ref doing the blocking lookup, returning a array
+#                 ref or undef, only called when the background engine is
+#                 not up
+#
+# returns:
+#   the cached or freshly asked array ref, or undef for a failure or a
+#   query still in flight
+#
+# example:
+#   my $names = $self->_rdns_cached( 'ptr:192.0.2.7', sub { $self->{dns_reverse}->('192.0.2.7'); } );
 sub _rdns_cached {
 	my ( $self, $cache_key, $ask ) = @_;
 
@@ -3802,9 +4551,21 @@ sub _rdns_cached {
 # fires the background lookup a cold rdns cache key names... ptr: keys ask
 # PTR of the address, bl: keys ask A of the blocklist name, and fwd: keys
 # ask A and AAAA of the name, either failing whole if a family fails,
-# matching the blocking $ask. a landed PTR answer
-# proactively warms the forward confirmations of its names, so the usual
-# cold-name cost is one line, not one per chain hop
+# matching the blocking $ask. a landed PTR answer proactively warms the
+# forward confirmations of its first ten names, so the usual cold-name cost
+# is one line, not one per chain hop. the key is marked in flight until it
+# lands or twice rdns_timeout plus one passes, and the landed answer is
+# cached 60 seconds
+#
+# args:
+#   $cache_key :: the cold key, 'ptr:', 'fwd:', or 'bl:' and its subject
+#   $now       :: the current epoch the in-flight expiry is measured from
+#
+# returns:
+#   nothing, the answer landing in $self->{rdns_cache}
+#
+# example:
+#   $self->_rdns_fire( 'ptr:192.0.2.7', time );
 sub _rdns_fire {
 	my ( $self, $cache_key, $now ) = @_;
 
@@ -3890,6 +4651,7 @@ sub _rdns_fire {
 # returns nothing. the cache holds the slot's four fields with the file's
 # mtime, undef for one that could not be read, and its compiled set.
 #
+# example:
 #   $self->_load_namtar_file($slot);
 sub _load_namtar_file {
 	my ( $self, $slot ) = @_;
@@ -3937,11 +4699,23 @@ sub _load_namtar_file {
 # price of a tracked gate above them having decided on a state one line
 # older than the event displays.
 #
-# takes the rule object, the found data hash ref, and the current time.
-# returns a hash ref of vars and key, or undef when the rule tracks nothing or
-# no declared key resolved. a compound key renders as a array of its
-# components and a single key as a plain scalar, both mapping to one keyword
-# field in Elasticsearch, rather than emitting the separator the store joins on
+# args:
+#   $rule_obj :: the rule object whose tracks are read
+#   $data     :: the found data hash ref the track keys are built from
+#   $now      :: the current epoch, a record expired by then is not read
+#
+# returns:
+#   a hash ref of vars and key, or undef when the rule tracks nothing or no
+#   declared key resolved. vars is per track name the live record's fields,
+#   key per track name the key that found it. a compound key renders as a
+#   array of its components and a single key as a plain scalar, both
+#   mapping to one keyword field in Elasticsearch, rather than emitting the
+#   separator the store joins on
+#
+# example:
+#   my $tracked = $self->_track_eve( $rule, $found, time );
+#   # { 'vars' => { 'postfix_queue' => { 'from' => 'a@example.com' } },
+#   #   'key'  => { 'postfix_queue' => '4F1A2B3C' } }
 sub _track_eve {
 	my ( $self, $rule_obj, $data, $now ) = @_;
 
@@ -3974,6 +4748,15 @@ sub _track_eve {
 # advancing the stream cursor... a no-op unless the store carries a bus. the
 # read path never touches it, so a bus that is down just yields nothing and the
 # gates keep deciding on the local marks
+#
+# args:
+#   none
+#
+# returns:
+#   nothing... $self->{marks} and $self->{mark_stream_id} are updated
+#
+# example:
+#   $self->_sync_marks;
 sub _sync_marks {
 	my ($self) = @_;
 
@@ -3995,7 +4778,24 @@ sub _sync_marks {
 # order, which is a single total order every galla agrees on, so this converges
 # without any locking. a set is extend-only on the expiry, so a re-brand from
 # anywhere never shortens a mark, and takes the delta's value; an unset lifts.
-# already-expired sets are dropped, the local sweeper handles the rest
+# already-expired sets are dropped, the local sweeper handles the rest. the
+# delta's origin joins the brand's hosts, capped at 256
+#
+# args:
+#   $event :: a drained delta hash... op ('set' or 'unset'), name, key, and
+#             for a set expires, plus optionally set, value, and origin. one
+#             missing op, name, or key is ignored
+#   $now   :: the current epoch, a set expiring by then is dropped
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ingest_mark_event(
+#       { 'op' => 'set', 'name' => 'banished', 'key' => '192.0.2.7', 'expires' => time + 3600,
+#         'origin' => 'gw1.example.com' },
+#       time
+#   );
 sub _ingest_mark_event {
 	my ( $self, $event, $now ) = @_;
 
@@ -4066,7 +4866,7 @@ sub _ingest_mark_event {
 } ## end sub _ingest_mark_event
 
 # registers a match of a subject, banning it once its accumulated score
-# reaches max_score with in find_time seconds... each match deposits the
+# reaches max_score within find_time seconds... each match deposits the
 # rule's weight, so a heavy signature bans faster and several different rules
 # against one IP sum toward the one judgment. in eve_only observe mode, and
 # for a detection rule, it counts into a shadow bucket kept wholly apart from
@@ -4088,6 +4888,7 @@ sub _ingest_mark_event {
 # returns the subject's live score, or undef when it is ignored and not being
 # observed or a distinct rule's grouping key is missing.
 #
+# example:
 #   my $score = $self->_register_hit( $binding, '192.0.2.7', $context, $binding->{eve_only} );
 sub _register_hit {
 	my ( $self, $binding, $ip, $context, $eve_only ) = @_;
@@ -4139,7 +4940,7 @@ sub _register_hit {
 		# distinct-cardinality counting... instead of summing hits, the bucket is
 		# the set of distinct values of the rule's `of` field, keyed by the
 		# grouping key, and the score is the set size. bans when the key has
-		# produced max_score distinct values with in find_time. the grouping key
+		# produced max_score distinct values within find_time. the grouping key
 		# is the `by` field when set (value_count, count of one field grouped by
 		# another, N sources against one account), else the offender (plain
 		# distinct-cardinality, N users from one source), and the ban always
@@ -4256,9 +5057,28 @@ sub _register_hit {
 # feeds the subnet bucket for a offender, when its family has a configured
 # prefix... v4 and v6 keep wholly separate stores, and only a family named in
 # the settings buckets at all. each deposit remembers the member IP so a
-# crossing can name who tipped it. crossing subnet_max_score with in
+# crossing can name who tipped it. crossing subnet_max_score within
 # subnet_find_time banishes the CIDR, or in observe mode alerts on it. counts
-# into the shadow store for observe mode, kept apart from the real one
+# into the shadow store for observe mode, kept apart from the real one. a
+# internal address never buckets. the threshold and window fall back to
+# max_score and find_time when the subnet ones are unset, and the bucket is
+# cleared on crossing so it re-arms. the crossing is deferred on the
+# caller's context like a per-IP one
+#
+# args:
+#   $watcher_name :: the watcher whose settings name the prefixes
+#   $ip           :: the offender's address
+#   $context      :: the match context, copied with the subnet threshold for
+#                    the event and holding the crossing queue
+#   $eve_only     :: true to count in the shadow store and alert, not banish
+#   $weight       :: the weight the per-IP hit was counted with
+#   $now          :: the current epoch
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_register_subnet_hit( 'auth', '192.0.2.7', $context, 0, 1, time );
 sub _register_subnet_hit {
 	my ( $self, $watcher_name, $ip, $context, $eve_only, $weight, $now ) = @_;
 
@@ -4414,9 +5234,18 @@ sub _usedns_subjects {
 # dropped post-resolution absolutely, since the name was hostile input and
 # must never aim Kur at your own, and a name resolving past
 # usedns_max_addrs is refused whole rather than trimmed. failing closed
-# every way... the failure mode is no ban, never a wrong one. returns a
-# array ref of addresses, possibly empty, or undef for unresolvable or
-# refused
+# every way... the failure mode is no ban, never a wrong one. this is the
+# blocking form, through the dns_resolve closure
+#
+# args:
+#   $hostname :: the name to resolve, hostile input off a log line
+#
+# returns:
+#   a array ref of addresses, possibly empty, or undef for unresolvable or
+#   refused
+#
+# example:
+#   my $addrs = $self->_resolve_hostname('bad.example.com');    # [ '192.0.2.72' ]
 sub _resolve_hostname {
 	my ( $self, $hostname ) = @_;
 
@@ -4439,7 +5268,22 @@ sub _resolve_hostname {
 
 # the fences and the cache write shared by the blocking and background
 # resolutions... max_addrs refusal, the absolute ignore/internal drops,
-# the failure tick, and the answered cache entry
+# the failure tick, and the answered cache entry, cached 60 seconds. a
+# answer that is not a IP is dropped too
+#
+# args:
+#   $hostname :: the name resolved
+#   $addrs    :: the array ref of addresses it answered with, or undef for
+#                a failure
+#   $now      :: the current epoch the cache entry expires from
+#
+# returns:
+#   the fenced array ref of addresses, possibly empty, or undef when the
+#   lookup failed or the name was refused past usedns_max_addrs
+#
+# example:
+#   my $fenced = $self->_resolve_hostname_fence( 'bad.example.com', [ '192.0.2.72', '10.0.0.1' ], time );
+#   # [ '192.0.2.72' ] with 10.0.0.0/8 internal
 sub _resolve_hostname_fence {
 	my ( $self, $hostname, $addrs, $now ) = @_;
 
@@ -4485,6 +5329,17 @@ sub _resolve_hostname_fence {
 # fires A and AAAA concurrently (the blocking closure asks them in turn),
 # every waiter answered from the one fenced fold. falls back to the
 # blocking path when the engine can not fly
+#
+# args:
+#   $hostname :: the name to resolve
+#   $done     :: a code ref called with the fenced answer, a array ref of
+#                addresses or undef, as _resolve_hostname_fence returns
+#
+# returns:
+#   nothing, the answer arriving through $done, possibly before this returns
+#
+# example:
+#   $self->_resolve_hostname_async( 'bad.example.com', sub { my ($addrs) = @_; ... } );
 sub _resolve_hostname_async {
 	my ( $self, $hostname, $done ) = @_;
 
@@ -4544,6 +5399,16 @@ sub _resolve_hostname_async {
 # resolution and counts nobody THIS line (the fail-closed posture the
 # feature already promises), the answer warm for the next line. without
 # the engine the blocking path stands in its place
+#
+# args:
+#   $hostname :: the name a resolve_seen watcher's ban_var captured
+#
+# returns:
+#   the cached array ref of addresses, or undef for a failure, a cold name,
+#   or a resolution still in flight
+#
+# example:
+#   my $addrs = $self->_resolve_hostname_seen('bad.example.com');
 sub _resolve_hostname_seen {
 	my ( $self, $hostname ) = @_;
 
@@ -4564,7 +5429,21 @@ sub _resolve_hostname_seen {
 # banishes what a hostname names... the resolve_ban terminal. resolution
 # failing or refusing means no ban at all, said loudly... a hostname is
 # never queued for retry, since what a name means changes with whoever
-# controls it
+# controls it, and any pending entry for the name is dropped. a name already
+# being resolved for a ban is left to that resolution. what it resolves to
+# goes to _ban_ips as one banish, the context rewritten to the addresses
+#
+# args:
+#   $hostname :: the name that crossed the threshold
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $context  :: the match context, or undef
+#   $score    :: the score that crossed, or undef
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ban_hostname( 'bad.example.com', 3600, $context, 5 );
 sub _ban_hostname {
 	my ( $self, $hostname, $ban_time, $context, $score ) = @_;
 
@@ -4682,7 +5561,21 @@ sub _resolved_subject_context {
 # determination, synchronously and with the full context, so the audit does
 # not wait on Ereshkigal. the send then rides Kur, pending for retry if the
 # manager can not be reached, but never re-records... the banish is written
-# once, when the decision was made
+# once, when the decision was made. a target that is not a IP goes to
+# _ban_hostname, else to _ban_ips as a one address list
+#
+# args:
+#   $ip       :: the address, or a hostname a resolve_ban rule counted by
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $context  :: the match context, or undef for a ban with no match behind
+#                it
+#   $score    :: the score that crossed, or undef
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ban_ip( '192.0.2.7', 3600, $context, 5 );
 sub _ban_ip {
 	my ( $self, $ip, $ban_time, $context, $score ) = @_;
 
@@ -4714,6 +5607,7 @@ sub _ban_ip {
 # a flood of crossings during a Kur outage down to the one banish already
 # written. nothing at all is written when every address is dropped that way.
 #
+# example:
 #   $self->_ban_ips( [ '192.0.2.72', '192.0.2.73' ], 3600, $context, 5 );
 sub _ban_ips {
 	my ( $self, $ip_list, $ban_time, $context, $score ) = @_;
@@ -4777,6 +5671,7 @@ sub _ban_ips {
 # and a name's addresses usually do, and where they differ there is no one
 # country to name, so the field is left off rather than picking one of them.
 #
+# example:
 #   $self->_emit_banish( [ '1.2.3.4' ], 3600, $context, 5 );
 sub _emit_banish {
 	my ( $self, $ip_list, $ban_time, $context, $score ) = @_;
@@ -4810,7 +5705,18 @@ sub _emit_banish {
 # sweeper's batched retry... the record already happened, so this only
 # clears the inflight mark and either pends the IP on a error or drops it
 # from the retry queue on success. no EVE, no ledger... those were written
-# once at the determination
+# once at the determination. a failure ticks ban_errors
+#
+# args:
+#   $ip       :: the address the send was for
+#   $ban_time :: the ban_time it was sent with, kept with it when pended
+#   $error    :: the error string the send failed with, or undef on success
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ban_delivered( '192.0.2.7', 3600, undef );
 sub _ban_delivered {
 	my ( $self, $ip, $ban_time, $error ) = @_;
 
@@ -4836,6 +5742,18 @@ sub _ban_delivered {
 # event a banish would, envelope and country and all, but sends nothing to
 # Kur, chisels no ledger, escalates no recidive, and ticks alerts not bans.
 # the shadow bucket was already cleared by the caller, so it re-arms
+#
+# args:
+#   $ip       :: the address that crossed
+#   $ban_time :: the ban_time a real ban would have had, or undef
+#   $context  :: the match context, or undef
+#   $score    :: the shadow score that crossed, or undef
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_alert_ip( '192.0.2.7', 3600, $context, 5 );
 sub _alert_ip {
 	my ( $self, $ip, $ban_time, $context, $score ) = @_;
 
@@ -4870,6 +5788,17 @@ sub _alert_ip {
 # and no ban_time. it sends nothing to Kur, chisels no ledger, escalates no
 # recidive, and ticks sightings. the shadow bucket was already cleared, so it
 # re-arms
+#
+# args:
+#   $subject :: what the detection_var named that crossed, such as a account
+#   $context :: the match context, or undef
+#   $score   :: the shadow score that crossed, or undef
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_sighted( 'admin', $context, 5 );
 sub _sighted {
 	my ( $self, $subject, $context, $score ) = @_;
 
@@ -4893,7 +5822,24 @@ sub _sighted {
 # the last triggering line as its raw, and a bucket field naming the members
 # that fed it. no country lookup, a CIDR has no single one. the CIDR is chiseled
 # into the shared ledger under its own key, so a subnet banished too many times
-# escalates to the recidive kur just as a IP would, as a cidr_ban
+# escalates to the recidive kur just as a IP would, as a cidr_ban. a CIDR
+# already in flight or pending was recorded by the crossing that queued it,
+# so it is dropped here
+#
+# args:
+#   $network  :: the CIDR, such as '192.0.2.0/24'
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $context  :: the match context, or undef
+#   $score    :: the subnet score that crossed
+#   $info     :: the bucket hash _register_subnet_hit built... family, cidr,
+#                prefix, members, hits, score, first, and last... written as
+#                the event's bucket
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ban_subnet( '192.0.2.0/24', 3600, $context, 10, $info );
 sub _ban_subnet {
 	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
 
@@ -4942,7 +5888,19 @@ sub _ban_subnet {
 } ## end sub _ban_subnet
 
 # the CIDR delivery bookkeeping, the twin of _ban_delivered... the record
-# already happened, so this only clears inflight and pends or drops the CIDR
+# already happened, so this only clears inflight and pends or drops the CIDR.
+# a failure ticks ban_errors
+#
+# args:
+#   $network  :: the CIDR the send was for
+#   $ban_time :: the ban_time it was sent with, kept with it when pended
+#   $error    :: the error string the send failed with, or undef on success
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_subnet_ban_delivered( '192.0.2.0/24', 3600, undef );
 sub _subnet_ban_delivered {
 	my ( $self, $network, $ban_time, $error ) = @_;
 
@@ -4964,7 +5922,21 @@ sub _subnet_ban_delivered {
 } ## end sub _subnet_ban_delivered
 
 # the observe-mode twin of _ban_subnet... a crossed shadow subnet bucket raises
-# a alert instead of banishing, sending nothing to Kur
+# a alert instead of banishing, sending nothing to Kur, chiseling no ledger,
+# and ticking subnet_alerts
+#
+# args:
+#   $network  :: the CIDR that crossed
+#   $ban_time :: the ban_time a real ban would have had, or undef
+#   $context  :: the match context, or undef
+#   $score    :: the shadow subnet score that crossed
+#   $info     :: the bucket hash, as for _ban_subnet
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_alert_subnet( '192.0.2.0/24', 3600, $context, 10, $info );
 sub _alert_subnet {
 	my ( $self, $network, $ban_time, $context, $score, $info ) = @_;
 
@@ -4999,7 +5971,17 @@ sub _alert_subnet {
 # lazy-connecting, every request bounded by the config timeout and answered
 # locally past it, so the galla's event loop never waits on Kur. only under
 # POE... without it (run_tests, a galla driven directly by the tests) the
-# blocking client stays the transport, via the _kur_ban fallbacks
+# blocking client stays the transport, via the _kur_ban fallbacks. errors
+# and disconnects are logged
+#
+# args:
+#   none
+#
+# returns:
+#   nothing... the client is kept as $self->{kur_client}
+#
+# example:
+#   $self->_spawn_kur_client;
 sub _spawn_kur_client {
 	my ($self) = @_;
 
@@ -5038,6 +6020,18 @@ sub _spawn_kur_client {
 # the client) and, if the manager demands authentication, completes the
 # ownership challenge once on this connection and resends... the same dance
 # the blocking client does
+#
+# args:
+#   $command :: the Ereshkigal command, such as 'ban' or 'cidr_ban'
+#   $args    :: the hash ref of its args
+#   $done    :: a code ref called once with the error string, or undef on a
+#               status of ok
+#
+# returns:
+#   nothing, the outcome arriving through $done
+#
+# example:
+#   $self->_kur_call( 'ban', { 'ips' => ['192.0.2.7'], 'kur' => 'sshd' }, sub { my ($error) = @_; ... } );
 sub _kur_call {
 	my ( $self, $command, $args, $done ) = @_;
 
@@ -5108,6 +6102,18 @@ sub _kur_call {
 # when answered... async over the kur client when it is up, else the
 # blocking _send_ban with $done called before this returns, which is what
 # keeps a galla usable without a event loop
+#
+# args:
+#   $ips      :: a address or a array ref of them
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $kur      :: the kur to ban in, or undef for this galla's own
+#   $done     :: a code ref called with the error, or undef on success
+#
+# returns:
+#   nothing, the outcome arriving through $done
+#
+# example:
+#   $self->_kur_ban( '192.0.2.7', 3600, undef, sub { my ($error) = @_; ... } );
 sub _kur_ban {
 	my ( $self, $ips, $ban_time, $kur, $done ) = @_;
 
@@ -5130,7 +6136,20 @@ sub _kur_ban {
 	return;
 } ## end sub _kur_ban
 
-# the CIDR twin of _kur_ban
+# the CIDR twin of _kur_ban... Ereshkigal's cidr_ban over the kur client
+# when it is up, else the blocking _send_cidr_ban
+#
+# args:
+#   $networks :: a CIDR or a array ref of them
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $kur      :: the kur to ban in, or undef for this galla's own
+#   $done     :: a code ref called with the error, or undef on success
+#
+# returns:
+#   nothing, the outcome arriving through $done
+#
+# example:
+#   $self->_kur_cidr_ban( '192.0.2.0/24', 3600, undef, sub { my ($error) = @_; ... } );
 sub _kur_cidr_ban {
 	my ( $self, $networks, $ban_time, $kur, $done ) = @_;
 
@@ -5157,7 +6176,18 @@ sub _kur_cidr_ban {
 # manager masks the host bits, dedupes, and drops it on a kur that can not do
 # CIDR per its cidr_silent_drop. to this galla's kur by default. takes one
 # network or an arrayref of them, so the sweep drain sends a batch as one
-# request
+# request. blocking, a fresh client per call
+#
+# args:
+#   $network  :: a CIDR or a array ref of them
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $kur      :: the kur to ban in, or undef for this galla's own
+#
+# returns:
+#   nothing. dies when Ereshkigal can not be reached or refuses
+#
+# example:
+#   $self->_send_cidr_ban( [ '192.0.2.0/24', '2001:db8::/48' ], 3600 );
 sub _send_cidr_ban {
 	my ( $self, $network, $ban_time, $kur ) = @_;
 
@@ -5180,7 +6210,19 @@ sub _send_cidr_ban {
 
 # the actual ban request to the Ereshkigal manager, to this galla's kur by
 # default or the passed one for a recidive escalation. takes one ip or an
-# arrayref of them, so the sweep drain sends a batch as one request
+# arrayref of them, so the sweep drain sends a batch as one request.
+# blocking, a fresh client per call
+#
+# args:
+#   $ip       :: a address or a array ref of them
+#   $ban_time :: the ban duration in seconds, or undef for the kur's default
+#   $kur      :: the kur to ban in, or undef for this galla's own
+#
+# returns:
+#   nothing. dies when Ereshkigal can not be reached or refuses
+#
+# example:
+#   $self->_send_ban( '192.0.2.7', 86400, 'recidive' );
 sub _send_ban {
 	my ( $self, $ip, $ban_time, $kur ) = @_;
 
@@ -5205,7 +6247,20 @@ sub _send_ban {
 # owed ban_time and each group goes out as one batched request, so a down
 # Ereshkigal costs the sweep one timeout per group rather than one per
 # subject. a non-IP subject restored off an old tablet falls back through
-# _ban_ip, which resolves-or-drops it as always
+# _ban_ip, which resolves-or-drops it as always. a subject already in flight
+# is skipped. a failed group stays pending for the next sweep, logged once
+#
+# args:
+#   $pending :: the pending queue, subject to owed ban_time (undef for the
+#               kur's default)... $self->{pending_bans} or
+#               $self->{pending_cidr_bans}
+#   $subnet  :: true when $pending holds CIDRs
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_drain_pending_group( $self->{pending_cidr_bans}, 1 );
 sub _drain_pending_group {
 	my ( $self, $pending, $subnet ) = @_;
 
@@ -5271,8 +6326,17 @@ sub _drain_pending_group {
 	return;
 } ## end sub _drain_pending_group
 
-# returns the path of the shared banishment ledger, under the tablet dir,
-# not per galla as every galla writes to the one ledger
+=head2 ledger_path
+
+Returns the path of the shared banishment ledger, banishments.csv under the
+tablet base dir. It is not per galla, as every galla chisels its
+banishments into the one ledger, and the recidive count reads across them
+all.
+
+    my $ledger = $galla->ledger_path;
+
+=cut
+
 sub ledger_path {
 	my ($self) = @_;
 
@@ -5280,18 +6344,34 @@ sub ledger_path {
 }
 
 # escalates to the recidive kur if the subject has now been banished
-# max_score times with in find_time across all kurs, per the ledger count
+# max_score times within find_time across all kurs, per the ledger count
 # from _ledger_append_and_count... a no-op when recidive is off, and never
-# re-counts a recidive escalation it's self. the subject is a IP normally, or
+# re-counts a recidive escalation itself. the subject is a IP normally, or
 # a CIDR when $subnet is set, in which case the escalation goes out as a
-# cidr_ban and no country is looked up, a CIDR having no single one
+# cidr_ban and no country is looked up, a CIDR having no single one. the
+# threshold is the recidive max_score, 5 by default, and the ban_time the
+# recidive one, 0 by default. a landed escalation writes its own banish
+# event, recidive true, with the count beside it
+#
+# args:
+#   $subject :: the address or CIDR just banished
+#   $count   :: the ledger count _ledger_append_and_count returned, or
+#               undef when the ledger could not be updated
+#   $subnet  :: true when $subject is a CIDR, optional
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_recidive_check( '192.0.2.7', $ledger_count );
+#   $self->_recidive_check( '192.0.2.0/24', $ledger_count, 1 );
 sub _recidive_check {
 	my ( $self, $subject, $count, $subnet ) = @_;
 
 	if ( !defined( $self->{recidive} ) ) {
 		return;
 	}
-	# a escalation to the recidive kur is not it's self a offense to count
+	# a escalation to the recidive kur is not itself a offense to count
 	if ( $self->{name} eq $self->{recidive}{kur} ) {
 		return;
 	}
@@ -5355,7 +6435,17 @@ sub _recidive_check {
 	return;
 } ## end sub _recidive_check
 
-# the recidive window in seconds, 0 when recidive is off
+# the recidive window in seconds, 0 when recidive is off... the recidive
+# find_time, a week when unset
+#
+# args:
+#   none
+#
+# returns:
+#   the window in seconds, or 0
+#
+# example:
+#   my $find_time = $self->_recidive_find_time;    # 604800
 sub _recidive_find_time {
 	my ($self) = @_;
 
@@ -5367,8 +6457,23 @@ sub _recidive_find_time {
 
 # folds ledger rows from the folded-to offset onward into the in-memory
 # recidive tally, subject => [epochs]... rows landing on the recidive kur
-# it's self are never counted, as a escalation's landing is not a offense.
-# expects the caller to hold the ledger lock
+# itself are never counted, as a escalation's landing is not a offense.
+# expects the caller to hold the ledger lock. a ledger shorter than the
+# offset was compacted, so the tally restarts from the top. rows already
+# past the window are skipped, and the offset ends at EOF
+#
+# args:
+#   $fh           :: the open, locked ledger handle
+#   $now          :: the current epoch
+#   $find_time    :: the recidive window in seconds
+#   $recidive_kur :: the name of the recidive kur, whose rows are skipped
+#
+# returns:
+#   nothing... $self->{ledger_tally} and $self->{ledger_offset} are updated.
+#   dies if the seek fails
+#
+# example:
+#   $self->_ledger_fold( $fh, time, 604800, 'recidive' );
 sub _ledger_fold {
 	my ( $self, $fh, $now, $find_time, $recidive_kur ) = @_;
 
@@ -5401,11 +6506,25 @@ sub _ledger_fold {
 } ## end sub _ledger_fold
 
 # chisels a banishment row into the shared ledger under a exclusive lock
-# and returns how many times this IP appears with in the recidive window.
+# and returns how many times this IP appears within the recidive window.
 # rows are epoch,kur,ip,rule,watcher. only rows appended since the last
 # look are read, folded into a live tally, so a ban costs O(new rows)
 # rather than O(ledger)... the whole-ledger pruning to ledger_keep lives in
-# _ledger_compact, off the ban path, on the checkpoint cadence
+# _ledger_compact, off the ban path, on the checkpoint cadence. with
+# recidive off the row is appended and nothing is read
+#
+# args:
+#   $ip      :: the address or CIDR banished
+#   $context :: the match context, its rule_name and watcher filling those
+#               columns, or undef to leave them empty
+#
+# returns:
+#   the count of rows for $ip in the window, this one included, 0 with
+#   recidive off, or undef when the ledger could not be written, which is
+#   logged
+#
+# example:
+#   my $ledger_count = $self->_ledger_append_and_count( '192.0.2.7', $context );    # 3
 sub _ledger_append_and_count {
 	my ( $self, $ip, $context ) = @_;
 
@@ -5474,7 +6593,17 @@ sub _ledger_append_and_count {
 # inside the recidive window surviving whatever ledger_keep says... ran on
 # the checkpoint cadence rather than per ban, and a no-op when ledger_keep
 # is 0, keep forever. unfolded rows are folded first so the offset landing
-# at the rewritten EOF loses nothing
+# at the rewritten EOF loses nothing. a missing ledger is left be, and a
+# failure is logged, never thrown
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ledger_compact;
 sub _ledger_compact {
 	my ($self) = @_;
 
@@ -5535,7 +6664,20 @@ sub _ledger_compact {
 } ## end sub _ledger_compact
 
 # ran every ten seconds via the sweeper... retries pending bans and drops
-# counter entries that have entirely aged out
+# counter entries that have entirely aged out. in order it drains both
+# pending queues, trims the pressure meter, drops per-IP, subnet, and
+# distinct entries a day stale (real and shadow), ages the recidive tally,
+# reloads any namtar list whose file changed, syncs the fleet marks, expires
+# marks and tracked records, and sweeps each rule's correlation state once
+#
+# args:
+#   none
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_sweep;
 sub _sweep {
 	my ($self) = @_;
 
@@ -5620,7 +6762,7 @@ sub _sweep {
 	} ## end if ( defined( $self->{recidive} ) && is_plain_hashref...)
 
 	# reload any namtar list slot whose file mtime changed, appeared, or
-	# vanished, so a updated feed takes effect with in a sweep... _load keys
+	# vanished, so a updated feed takes effect within a sweep... _load keys
 	# by the same slot, so it overwrites in place
 	foreach my $key ( keys( %{ $self->{namtar_files} } ) ) {
 		my $rec    = $self->{namtar_files}{$key};
@@ -5676,6 +6818,20 @@ sub _sweep {
 # the per-watcher journal-or-files rendering shared by status and
 # watching... status names the file specs logs where watching names them
 # globs, a wire shape kept as chiseled, so the key is the caller's
+#
+# args:
+#   $watcher  :: the watcher's hash ref from $self->{watchers}
+#   $spec_key :: the key to put a file watcher's log specs under, 'logs' or
+#                'globs'
+#
+# returns:
+#   a list of key/value pairs... journal and journal_running (0 or 1) for a
+#   journal watcher, else $spec_key and following, the sorted files with a
+#   tail wheel now
+#
+# example:
+#   my %shown = $self->_watcher_following( $watcher, 'globs' );
+#   # ( 'globs' => [ '/var/log/auth.log*' ], 'following' => [ '/var/log/auth.log' ] )
 sub _watcher_following {
 	my ( $self, $watcher, $spec_key ) = @_;
 
@@ -5691,6 +6847,24 @@ sub _watcher_following {
 	);
 } ## end sub _watcher_following
 
+# the status command... the galla's own report, the shape the manager
+# folds into its status_all and status_galla
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of name, pid, uptime (seconds, 0 before start_server),
+#   watchers (per watcher its parser, rules, settings, and what
+#   _watcher_following gives under logs), stats, tracked_ips (IPs with
+#   live hits in any bucket, each once), tracked_subnets (v4 and v6 networks
+#   with live tallies), pending_bans and pending_cidr_bans (sorted array
+#   refs of subjects awaiting retry), and recidive (the recidive kur, or
+#   undef)
+#
+# example:
+#   my $status = $self->_cmd_status;
+#   # { 'name' => 'sshd', 'pid' => 4242, 'uptime' => 3600, 'tracked_ips' => 3, ... }
 sub _cmd_status {
 	my ($self) = @_;
 
@@ -5729,7 +6903,16 @@ sub _cmd_status {
 } ## end sub _cmd_status
 
 # makes the EVE log's dir if it is missing, best effort... telemetry
-# should never take the galla down
+# should never take the galla down, so a failure is logged and swallowed
+#
+# args:
+#   none... eve_log is read off $self
+#
+# returns:
+#   nothing
+#
+# example:
+#   $self->_ensure_eve_dir;
 sub _ensure_eve_dir {
 	my ($self) = @_;
 
@@ -5762,6 +6945,7 @@ sub _ensure_eve_dir {
 # port is written as it is rather than dropped, so the rule bug surfaces
 # instead of hiding.
 #
+# example:
 #   _eve_port('22')     # 22, a number
 #   _eve_port(22)       # 22
 #   _eve_port(undef)    # undef
@@ -5776,13 +6960,41 @@ sub _eve_port {
 	return $port + 0;
 }
 
-# sums the weights of a bucket's [epoch, weight] entries into its score
+# sums the weights of a bucket's [epoch, weight] entries into its score...
+# a plain function, not a method
+#
+# args:
+#   $entries :: a array ref of hit entries, each a array ref whose second
+#               element is the weight... [ $epoch, $weight, ... ]
+#
+# returns:
+#   the sum of the weights, 0 for a empty bucket
+#
+# example:
+#   my $score = _score_of( [ [ 1700000000, 1 ], [ 1700000005, 2.5 ] ] );    # 3.5
 sub _score_of {
 	my ($entries) = @_;
 
 	return sum0( map { $_->[1] } @{$entries} );
 }
 
+# the accused command... every IP with live hits that has not yet crossed,
+# real buckets only, the shadow ones of observe mode left out
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of name and accused, accused keyed by IP, each a hash of
+#   hits (the live hit count), score (their weighted sum, what races
+#   max_score), first and last (the epochs of the oldest and newest hit),
+#   and, for a IP in a rule's own bucket, rules keyed by rule name with
+#   those same four for that bucket alone
+#
+# example:
+#   my $accused = $self->_cmd_accused;
+#   # { 'name' => 'sshd', 'accused' => { '192.0.2.7' => { 'hits' => 2, 'score' => 2,
+#   #     'first' => 1700000000, 'last' => 1700000030 } } }
 sub _cmd_accused {
 	my ($self) = @_;
 
@@ -5832,6 +7044,21 @@ sub _cmd_accused {
 	};
 } ## end sub _cmd_accused
 
+# the marked command... the live marks, any expired but not yet swept left
+# out
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of name and marks, marks keyed by mark name then branded key,
+#   each a hash of expires (epoch), hosts (from mark_hosts, how many hosts
+#   of the fleet set it), and value when the mark stores one
+#
+# example:
+#   my $marked = $self->_cmd_marked;
+#   # { 'name' => 'sshd', 'marks' => { 'banished' => { '192.0.2.7' =>
+#   #     { 'expires' => 1700003600, 'hosts' => 1 } } } }
 sub _cmd_marked {
 	my ($self) = @_;
 
@@ -5858,6 +7085,22 @@ sub _cmd_marked {
 	};
 } ## end sub _cmd_marked
 
+# the tracked command... the live tracked records, any expired but not yet
+# swept left out
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of name and tracked, tracked keyed by track name then the
+#   stored key, each a hash of expires (epoch), key (the key split, a array
+#   for a compound one, a scalar otherwise), and fields (what the
+#   transaction has accumulated)
+#
+# example:
+#   my $tracked = $self->_cmd_tracked;
+#   # { 'name' => 'postfix', 'tracked' => { 'postfix_queue' => { '4F1A2B3C' =>
+#   #     { 'expires' => 1700000600, 'key' => '4F1A2B3C', 'fields' => { 'from' => 'a@example.com' } } } } }
 sub _cmd_tracked {
 	my ($self) = @_;
 
@@ -5886,6 +7129,21 @@ sub _cmd_tracked {
 	};
 } ## end sub _cmd_tracked
 
+# the watching command... per watcher, what it is set to watch and what it
+# follows now
+#
+# args:
+#   none
+#
+# returns:
+#   a hash ref of name and watchers, watchers keyed by watcher name, each
+#   what _watcher_following gives under globs... globs and following for a
+#   file watcher, journal and journal_running for a journal one
+#
+# example:
+#   my $watching = $self->_cmd_watching;
+#   # { 'name' => 'sshd', 'watchers' => { 'auth' => { 'globs' => [ '/var/log/auth.log*' ],
+#   #     'following' => [ '/var/log/auth.log' ] } } }
 sub _cmd_watching {
 	my ($self) = @_;
 
@@ -5905,6 +7163,19 @@ sub _cmd_watching {
 	};
 } ## end sub _cmd_watching
 
+# the stop command... marks the galla stopping, shuts the kur client so
+# every in-flight ban errors back into the pending queues, checkpoints,
+# posts stop_tails, answers, and has the server shut down a second later.
+# the pending bans are on the tablet for the next start to retry
+#
+# args:
+#   $ctx :: the JSONUnix request context, answered and closed here
+#
+# returns:
+#   undef, the reply { stopping => 1 } having gone out through $ctx
+#
+# example:
+#   'stop' => sub { my ( undef, undef, $ctx ) = @_; return $self->_cmd_stop($ctx); },
 sub _cmd_stop {
 	my ( $self, $ctx ) = @_;
 
@@ -5912,7 +7183,7 @@ sub _cmd_stop {
 
 	log_drek( 'info', 'stop requested', undef, $ident );
 
-	# keeps the sweeper from rescheduling so it's session can end
+	# keeps the sweeper from rescheduling so its session can end
 	$self->{stopping} = 1;
 
 	# drop the kur client... every in-flight ban is answered with an error,
@@ -5938,7 +7209,7 @@ sub _cmd_stop {
 	return undef;
 } ## end sub _cmd_stop
 
-=head1 ERRORS CODES / ERROR FLAGS
+=head1 ERROR CODES / ERROR FLAGS
 
 Error handling is provided by L<Error::Helper>. All errors
 are considered fatal.

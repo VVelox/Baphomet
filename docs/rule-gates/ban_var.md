@@ -70,8 +70,8 @@ the match raises names each var and what each is worth, under
 
 - told other than a list of names :: "is not a non-empty array of non-empty strings"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

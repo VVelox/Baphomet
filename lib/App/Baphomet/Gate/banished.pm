@@ -56,7 +56,7 @@ A entry is told...
           on their way.
 
     - times / within :: Optional, and only together. How many times it has
-          to have been banished, and with in how many seconds back, 90 days
+          to have been banished, and within how many seconds back, 90 days
           at the most.
 
 It needs the C<marks> of the L<context|App::Baphomet::Gate/THE CONTEXT>,

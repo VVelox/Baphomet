@@ -2,10 +2,10 @@
 
 Sigma is the generic detection format... a YAML signature language written
 once and compiled to whatever SIEM backend runs it, Splunk, Elastic, or the
-next one. Baphomet is not a SIEM, it is an accuser that counts an IP's
-offenses and banishes the repeat ones to Kur. But its `json` rule type was
-built on Sigma's detection model on purpose, so a Sigma rule over a log source
-Baphomet can parse ports almost verbatim. The difference is where it runs:
+next one. Baphomet is not a SIEM, but beside banishing it is a live
+[detection engine](log-analysis.md), and its `json` rule type was built on
+Sigma's detection model on purpose, so a Sigma rule over a log source Baphomet
+can parse ports almost verbatim. The difference is where it runs:
 Sigma is a query compiled against a data lake, here it is a matcher run live
 on a log stream, and the verdict is a banishment, or a detection `sighting`,
 not a dashboard alert.
@@ -28,7 +28,7 @@ not a dashboard alert.
 | `\|fieldref`                                 | `fieldref`, comparing to another field's live value                                            |
 | `\|exists: true` / `\|exists: false`         | `op: exists` / `op: exists` with `negate`                                                      |
 | `\|expand`                                   | a `values` list, or a `namtar_list` gate (spliced at conversion)                               |
-| `field: null` / absent                       | `negate` (a negated predicate holds when the field is absent)                                  |
+| `field: null` / absent                       | `op: exists` with `negate`                                                                     |
 | `title` / `description`                      | `msg`                                                                                          |
 | `level`                                      | `severity` (informational->info, else 1:1)                                                     |
 | `tags: attack.tXXXX`                         | `attack`                                                                                       |
@@ -65,7 +65,7 @@ supported log source the translation is mechanical.
 1. **Check the logsource.** A `product: linux` service becomes a `syslog`
    rule with a `daemons` gate; a webserver category an `http` or `http_error`
    rule; a generic JSON log a `json` rule. A windows or sysmon source has no
-   parser here, unless being forwarded to like syslog.
+   parser here, unless it is forwarded as syslog.
 2. **Selections become selections.** Each `detection` selection maps to a
    `selections` entry, and each `field: value` (with its modifiers) to a
    predicate per the concept map. A json rule's fields are the flattened dotted
@@ -74,12 +74,8 @@ supported log source the translation is mechanical.
    `all of them` / `1 of them` / `N of <prefix>_*` quantifiers.
 4. **Carry the metadata.** `title`/`description` to `msg`, `level` to
    `severity`, `tags` to `attack`, `references` to `references`.
-5. **Choose ban or detect.** A Sigma rule alerts, it does not firewall, so it
-   is naturally a detection rule... a `detection_var: [ SRC ]` gate, writing
-   `sighting`/`sighted` to EVE and banishing nobody. Name a `ban_var` instead
-   to turn the signature into a ban. This is the one real choice the port asks,
-   the same as coming from [sagan](sagan.md).
-6. **Add tests and verify.** Paste sample lines into a `tests:` block, then
-   `baphomet test_line` pokes single lines at a draft and `baphomet
-   check_rules` runs the embedded tests, refusing to load a rule that fails its
-   own... the same guard `baphomet start` uses.
+5. **Choose ban or detect.** A Sigma rule alerts and does not firewall, so it
+   is naturally a `detection_var: [ SRC ]` rule, or a `ban_var` to turn it into
+   a ban... see [the two verdicts](log-analysis.md#the-two-verdicts).
+6. **Add tests and verify.** Paste sample lines into a `tests:` block and run
+   them with `baphomet check_rules`... see [tests](rules.md#tests).

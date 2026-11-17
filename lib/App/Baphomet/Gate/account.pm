@@ -237,7 +237,7 @@ sub holds {
 } ## end sub holds
 
 # whether one name can be made of another by at most so many letters added,
-# dropped, or changed. a name that is the other exactly is not with in any,
+# dropped, or changed. a name that is the other exactly is not within any,
 # as it is no typo of it.
 #
 # args:
@@ -245,7 +245,7 @@ sub holds {
 #   $real  :: the account name it is measured against
 #   $edits :: the most letters it may be off by, one or more
 #
-# returns 1 when it is with in that many, else 0.
+# returns 1 when it is within that many, else 0.
 #
 #   _within_edits( 'netti', 'neti', 1 );    # 1
 #   _within_edits( 'oracle', 'neti', 2 );   # 0

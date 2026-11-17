@@ -7,25 +7,29 @@ configure there, as Baphomet's config targets them.
 
 ## Dependencies
 
-| CPAN module                          | FreeBSD pkg      | Debian pkg            |
-|--------------------------------------|------------------|-----------------------|
-| App::Cmd                             | p5-App-Cmd       | libapp-cmd-perl       |
-| Error::Helper                        | p5-Error-Helper  | (cpanm)               |
-| File::ShareDir                       | p5-File-ShareDir | libfile-sharedir-perl |
-| JSON::MaybeXS                        | p5-JSON-MaybeXS  | libjson-maybexs-perl  |
-| Log::Munger                          | (cpanm)          | (cpanm)               |
-| Net::Patricia                        | p5-Net-Patricia  | libnet-patricia-perl  |
-| Net::Server (Net::Server::Daemonize) | p5-Net-Server    | libnet-server-perl    |
-| Path::Tiny                           | p5-Path-Tiny     | libpath-tiny-perl     |
-| POE                                  | p5-POE           | libpoe-perl           |
-| POE::Component::Server::JSONUnix     | (cpanm)          | (cpanm)               |
-| Ref::Util                            | p5-Ref-Util      | libref-util-perl      |
-| Regexp::IPv4                         | (cpanm)          | (cpanm)               |
-| Regexp::IPv6                         | p5-Regexp-IPv6   | libregexp-ipv6-perl   |
-| Text::CSV_XS                         | p5-Text-CSV_XS   | libtext-csv-xs-perl   |
-| TOML::Tiny                           | (cpanm)          | libtoml-tiny-perl     |
-| YAML::XS                             | p5-YAML-LibYAML  | libyaml-libyaml-perl  |
-| Ereshkigal (for Ereshkigal::Client)  | (cpanm)          | (cpanm)               |
+Perl 5.40 or newer, plus the modules below. `File::ShareDir::Install` is
+wanted at configure time only, by Makefile.PL itself...
+
+| CPAN module                          | FreeBSD pkg              | Debian pkg                    |
+|--------------------------------------|--------------------------|-------------------------------|
+| App::Cmd                             | p5-App-Cmd               | libapp-cmd-perl               |
+| Error::Helper                        | p5-Error-Helper          | (cpanm)                       |
+| File::ShareDir                       | p5-File-ShareDir         | libfile-sharedir-perl         |
+| File::ShareDir::Install              | p5-File-ShareDir-Install | libfile-sharedir-install-perl |
+| JSON::MaybeXS                        | p5-JSON-MaybeXS          | libjson-maybexs-perl          |
+| Log::Munger                          | (cpanm)                  | (cpanm)                       |
+| Net::Patricia                        | p5-Net-Patricia          | libnet-patricia-perl          |
+| Net::Server (Net::Server::Daemonize) | p5-Net-Server            | libnet-server-perl            |
+| Path::Tiny                           | p5-Path-Tiny             | libpath-tiny-perl             |
+| POE                                  | p5-POE                   | libpoe-perl                   |
+| POE::Component::Server::JSONUnix     | (cpanm)                  | (cpanm)                       |
+| Ref::Util                            | p5-Ref-Util              | libref-util-perl              |
+| Regexp::IPv4                         | (cpanm)                  | (cpanm)                       |
+| Regexp::IPv6                         | p5-Regexp-IPv6           | libregexp-ipv6-perl           |
+| Text::CSV_XS                         | p5-Text-CSV_XS           | libtext-csv-xs-perl           |
+| TOML::Tiny                           | (cpanm)                  | libtoml-tiny-perl             |
+| YAML::XS                             | p5-YAML-LibYAML          | libyaml-libyaml-perl          |
+| Ereshkigal (for Ereshkigal::Client)  | (cpanm)                  | (cpanm)                       |
 
 A few more are optional, wanted only if the pieces they serve are in use...
 
@@ -45,6 +49,13 @@ and `dnsbl` gates (see [usedns.md](usedns.md)). `Redis::Fast` backs the
 `redis` tablet backend (see [tablets.md](tablets.md)). None are needed
 otherwise.
 
+Two more are wanted only by the test suite...
+
+| CPAN module                     | FreeBSD pkg | Debian pkg               |
+|---------------------------------|-------------|--------------------------|
+| Net::EmptyPort (from Test::TCP) | (cpanm)     | libtest-tcp-perl         |
+| Test::RedisServer               | (cpanm)     | libtest-redisserver-perl |
+
 Package names are current as of writing. Anything marked `(cpanm)`, or
 missing from your release, installs cleanly from CPAN via
 [cpanminus](https://metacpan.org/pod/App::cpanminus).
@@ -55,6 +66,8 @@ Dependencies are declared in Makefile.PL, so from a checkout or an
 unpacked release tarball...
 
 ```shell
+# Makefile.PL itself needs this one before it can say what else is wanted
+cpanm File::ShareDir::Install
 cpanm --installdeps .
 perl Makefile.PL
 make

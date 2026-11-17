@@ -113,8 +113,8 @@ the offenses waiting on it can survive a restart.
 - an entry's `match` not a non-empty list of `field` and `regexp` hashes :: "match is not a non-empty array", "match entry N lacks a ..."
 - a `match` regexp naming an unknown token, or one that will not compile :: "uses the unknown token ...", "does not compile"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -148,11 +148,6 @@ tests:
           advance: 61
       found: 0
 ```
-
-## Shipped rules using it
-
-None. `json/mongodb-auth` finds the address in the failure record's own
-`attr.remote`, and needs no correlation.
 
 ## See also
 

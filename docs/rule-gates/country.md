@@ -118,14 +118,15 @@ country the account did not last use.
 - a `vars` that is not a name or a list of them :: "has a vars that is not a non-empty string or a non-empty array of them"
 - both `is` and `isnot` :: "has both is and isnot"
 - none of `is`, `isnot`, or `into` :: "has none of is, isnot, or into"
+- an `into` that is not a string :: "has a into that is not a non-empty string"
 - an `into` with other than one var :: "has a into, which needs exactly one var to lift the country of"
 - an import of a list the watcher does not define, when bound :: "imports country_codes{...}, which is not a defined list for it"
 
 The last is found when the galla binds the rule to a watcher, and the
 galla will not start on it.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -137,6 +138,16 @@ a fixture of only `asns` or `locations` leaves it skipped too. See
 [tests](../rules.md#tests) for the shape.
 
 ```yaml
+rule_gates:
+  - daemons: [ sshd ]
+  - message_regexp:
+      - '^Accepted \S+ for \S+ from %%%%SRC%%%%'
+  - ban_var: [ SRC ]
+  - country:
+      isnot:
+        - "%%%country_codes{allowed}%%%"
+        - "MX"
+max_score: 1
 tests:
   positive:
     # a login from abroad... the isnot gate lets it count
@@ -145,9 +156,25 @@ tests:
         countries:
           "203.0.113.9": NL
         lists:
-          home: [ US ]
+          allowed: [ US ]
       found: 1
   negative:
+    # a login from a country you do business in
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 198.51.100.4 port 4711 ssh2"
+      geo:
+        countries:
+          "198.51.100.4": US
+        lists:
+          allowed: [ US ]
+      found: 0
+    # MX, listed literally
+    - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.8 port 4711 ssh2"
+      geo:
+        countries:
+          "192.0.2.8": MX
+        lists:
+          allowed: [ US ]
+      found: 0
     # an unplaceable address fails closed, so a database gap misses rather
     # than false-alarms
     - message: "Jul 12 08:25:49 mail01 sshd[2278]: Accepted password for root from 192.0.2.66 port 4711 ssh2"
@@ -155,25 +182,25 @@ tests:
         countries:
           "192.0.2.66": unknown
         lists:
-          home: [ US ]
+          allowed: [ US ]
       found: 0
 ```
 
-Prove the home, the away, and the unplaceable... the last is the one that
+Prove the allowed, the away, and the unplaceable... the last is the one that
 catches a rule mistakenly written to fire on database gaps.
 
 ## Shipped rules using it
 
-Two shipped families use it, both importing `country_codes{home}` and
-neither shipping the policy. Each does nothing until you both list it in a
-watcher and name your home countries in the config, and the galla will
-not start with one listed and `home` undefined. All of them prove their
-gate from their own tests with a `geo` fixture.
+Three detection rules and one group use it, all importing
+`country_codes{home}` and none shipping the policy. Each does nothing
+until you both list it in a watcher and name your home countries in the
+config, and the galla will not start with one listed and `home` undefined.
+All of them prove their gate from their own tests with a `geo` fixture.
 
-- `syslog/sshd-foreign-login` :: With `syslog/dovecot-foreign-login` and `syslog/postfix-sasl-foreign`, sights a successful login from abroad and banishes nobody.
+- `syslog/sshd-foreign-login`, `syslog/dovecot-foreign-login`, `syslog/postfix-sasl-foreign` :: Three rules, not a group, each sighting a successful login from abroad and banishing nobody.
 - `%syslog/foreign-auth%` :: Fourteen rules banishing at `max_score: 1` on any authentication event from abroad, failed or successful.
 
-The detection family is detection-only because a foreign login is a
+The three detection rules sight only because a foreign login is a
 traveler or a takeover, and the rule can not tell which.
 
 The ban family matches each service's whole offense vocabulary *plus* that
@@ -181,7 +208,7 @@ service's successful login. It is the blunt policy, for the drive-by that
 probes a few credentials and moves on faster than any per-service
 threshold can answer. It banishes on a login that worked, which is
 deliberate and which will banish a traveling admin mid-session, so read
-the group file before listing it. Run one family or the other per
+the group file before listing it. Run the group or the detection rule per
 service, not both... whichever is listed first consumes the successes and
 the other never sees them.
 
@@ -198,5 +225,5 @@ plus a `country` gate and your own `country_codes` lists.
 
 - [`asn`](asn.md) :: The same question asked of the network an address is on, and written the same way.
 - [`travel`](travel.md) :: How far an account went, not which border it crossed.
-- [`detection_var`](detection_var.md) :: What the foreign-login family counts by.
+- [`detection_var`](detection_var.md) :: What the three foreign-login rules count by.
 - [rule groups](../rules.md#rule-groups) :: Listing `%syslog/foreign-auth%` as a whole.

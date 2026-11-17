@@ -69,8 +69,8 @@ with a fleet, and are forgotten at a restart.
 - a `seconds` that is not a whole number of one or more :: "has a seconds that is not a positive int of seconds"
 - a `count` that is not a whole number of one or more :: "has a count that is not a positive int"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

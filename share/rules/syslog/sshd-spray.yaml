@@ -6,7 +6,8 @@
 # rule's marks: the account is branded (marked) and the source stored on
 # it differs from this line's source (value_not SRC), meaning a second,
 # different address is working the same account. max_score 1 banishes it
-# at once, so this only fires when the kur allows per-rule thresholds.
+# at once where allow_per_rule_thresholds is on... with out it, it counts
+# against the watcher's max_score like any other rule.
 #
 # Requires syslog/sshd-mark-users to run in the same watcher, listed AFTER
 # this rule so the gate reads the established source rather than this

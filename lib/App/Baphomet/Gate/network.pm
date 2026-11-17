@@ -53,7 +53,7 @@ A entry is told...
 
 =cut
 
-# a prefix length with in what the family has bits for
+# a prefix length within what the family has bits for
 my $V4_PREFIX = {
 	'test' => sub { return ( $_[0] // '' ) =~ /^[0-9]+$/ && $_[0] >= 1 && $_[0] <= 32; },
 	'says' => 'a prefix length of 1 to 32'

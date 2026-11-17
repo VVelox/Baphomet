@@ -33,7 +33,7 @@ written. A total of exactly `above` does not hold.
 
 The total is kept in sixty spans of the `seconds`, each a whole second or
 more, so what falls out of it does so a span at a time. A span counts while
-any of it is with in `seconds`, so the total may run up to one span long
+any of it is within `seconds`, so the total may run up to one span long
 and never short. Once above the mark it holds on every offense of the key
 while the total stands, whatever that offense added.
 
@@ -71,8 +71,8 @@ a fleet, and are forgotten at a restart.
 - an `above` that is not a number over nothing :: "has a above that is not a positive number"
 - a `seconds` that is not a whole number of one or more :: "has a seconds that is not a positive int of seconds"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

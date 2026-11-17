@@ -26,9 +26,8 @@ rule_gates:
 A list of the values to search every field for, or a hash of:
 
 - `values` :: The values to search for, a non-empty list.
-- `in` :: Where to search... a field path, a `%%%ANY:prefix%%%` subtree,
-      or `%%%ANY%%%`, every field.
-    - default :: `%%%ANY%%%`
+- `in` :: Where to search... a field path, a `%%%ANY:prefix%%%` subtree, or `%%%ANY%%%`, every field.
+  - default :: `%%%ANY%%%`
 
 The hash form scopes the search, so nothing unrelated is searched when the
 path is known:
@@ -60,15 +59,14 @@ below it still harvests, but nothing is counted.
 
 ## Refused at load
 
-- neither a list nor a hash :: is not a list of strings or a table
-- a hash key other than `in` and `values` :: has the unknown key
-- an `in` that is not a non-empty string :: has a in that is not a
-      non-empty string
-- no `values`, or an empty one :: lacks a non-empty values list
-- a value that is not a scalar :: has a non-scalar value
+- neither a list nor a hash :: "is not a list of strings or a table"
+- a hash key other than `in` and `values` :: "has the unknown key ..."
+- an `in` that is not a non-empty string :: "has a in that is not a non-empty string"
+- no `values`, or an empty one :: "lacks a non-empty values list"
+- a value that is not a scalar :: "has a non-scalar value"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -77,6 +75,11 @@ does not reach proves the scope. See [tests](../rules.md#tests) for the
 shape.
 
 ```yaml
+rule_gates:
+  - keywords:
+      in: process.command_line
+      values: [ mimikatz ]
+  - ban_var: [ src_ip ]
 tests:
   positive:
     - message: '{"src_ip":"192.0.2.10","process":{"command_line":"mimikatz.exe sekurlsa::logonpasswords"}}'
@@ -88,7 +91,6 @@ tests:
 
 ## See also
 
-- [`gate`](gate.md) :: The long form, for a search that has to fold case,
-      decode, or negate.
+- [`gate`](gate.md) :: The long form, for a search that has to fold case, decode, or negate.
 - [`condition`](condition.md) :: ANDed with it like a `gate` is.
 - [the gate / selections / condition / keywords family](../rules.md#gate--selections--condition--keywords)

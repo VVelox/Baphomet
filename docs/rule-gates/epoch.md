@@ -25,18 +25,15 @@ rule_gates:
 ## Told
 
 - `var` :: The field holding the timestamp.
-    - default :: the line's own timestamp, as the parser found it
+  - default :: the line's own timestamp, as the parser found it
 - `into` :: The field the seconds go into.
-    - default :: the `var`, converted where it is
-- `format` :: How the timestamp is written, a `strptime` format or one of
-      the names below.
-    - default :: `auto`
-- `zone` :: The zone of a timestamp that names none... `local`, `utc`, or
-      an offset as `+02:00`.
-    - default :: `local`
+  - default :: the `var`, converted where it is
+- `format` :: How the timestamp is written, a `strptime` format or one of the names below.
+  - default :: `auto`
+- `zone` :: The zone of a timestamp that names none... `local`, `utc`, or an offset as `+02:00`.
+  - default :: `local`
 - `hour_into` :: The field the hour, 0 to 23, is lifted into.
-- `weekday_into` :: The field the day of the week, 0 for Sunday to 6 for
-      Saturday as `active_time` counts them, is lifted into.
+- `weekday_into` :: The field the day of the week, 0 for Sunday to 6 for Saturday as `active_time` counts them, is lifted into.
 
 The line's own timestamp is no field, so reading it needs an `into`, or an
 `hour_into` or `weekday_into`, for the seconds to go somewhere. The hour
@@ -45,17 +42,15 @@ its own. An offset may be written `+0200` as well.
 
 The formats that are names...
 
-- `auto` :: Whichever of the others reads it, then the ways the parsers
-      write one.
-- `epoch` / `epoch_ms` / `epoch_us` :: Seconds, milliseconds, or
-      microseconds since the epoch already.
-- `iso8601` :: `2026-07-12T08:15:50`, a fraction of a second and a zone
-      after it or not.
+- `auto` :: Whichever of the others reads it, then the ways the parsers write one.
+- `epoch` / `epoch_ms` / `epoch_us` :: Seconds, milliseconds, or microseconds since the epoch already.
+- `iso8601` :: `2026-07-12T08:15:50`, a fraction of a second and a zone after it or not.
 
 `auto` tells the units of a bare number apart by how many digits it has,
-then tries `iso8601`, then a syslog `Jul 12 08:15:50`, an access log
-`12/Jul/2026:08:15:50 -0500`, and the two error logs. A fraction of a
-second is dropped under every format.
+then tries `iso8601`, then an access log `12/Jul/2026:08:15:50 -0500`, a
+syslog `Jul 12 08:15:50`, and the two error logs, `Sun Jul 12 08:15:50
+2026` and `2026/07/12 08:15:50`, in that order. A fraction of a second is
+dropped under every format.
 
 A timestamp with no year, as syslog's has none, is taken as this year's, or
 as last year's when that would put it more than a day ahead of the line.
@@ -102,18 +97,17 @@ Nothing outlives the line.
 
 ## Refused at load
 
-- neither a `var`, an `into`, an `hour_into`, nor a `weekday_into` :: has
-      neither a var nor a into, and the line's own timestamp is no field to
-      convert where it is
-- a `zone` that is not `local`, `utc`, or an offset :: is not local, utc,
-      or a offset as +02:00
-- a key it does not know :: has the unknown key
+- told other than a hash :: "is not a hash"
+- a key it does not know :: "has the unknown key ..."
+- a `var`, `into`, `format`, `hour_into`, or `weekday_into` that is not a string :: "has a ... that is not a non-empty string"
+- a `zone` that is not `local`, `utc`, or an offset :: "has a zone that is not local, utc, or a offset as +02:00"
+- neither a `var`, an `into`, an `hour_into`, nor a `weekday_into` :: "has neither a var nor a into, and the line's own timestamp is no field to convert where it is"
 
-A `format` is not vetted, so one that never reads a line's timestamp loads
-and leaves every `into` unset.
+A `format` is vetted only as a non-empty string, so one that never reads a
+line's timestamp loads and leaves every `into` unset.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -139,5 +133,4 @@ tests:
 
 - [`fresh`](fresh.md) :: Turns away a line whose seconds are too old.
 - [`novel`](novel.md) :: A value never seen before, the lifted hour say.
-- [`active_time`](active_time.md) :: Named windows of the clock, the same
-      for every key.
+- [`active_time`](active_time.md) :: Named windows of the clock, the same for every key.

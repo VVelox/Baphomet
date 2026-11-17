@@ -70,8 +70,8 @@ goes on to the rules after it.
 - on json, a regexp naming an unknown token :: "uses the unknown token ..."
 - a regexp that will not compile :: "does not compile"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

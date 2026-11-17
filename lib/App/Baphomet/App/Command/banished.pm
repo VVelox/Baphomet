@@ -37,8 +37,8 @@ yet heard, marked C<pending>, so this command reaches only the one manager
 socket rather than around it.
 
 A kur this Baphomet targets that is a fan_out kur on the Ereshkigal side
-has no ban list of it's own... the banishments land on it's members, so
-such a kur is shown with it's member list and each member's holdings.
+has no ban list of its own... the banishments land on its members, so
+such a kur is shown with its member list and each member's holdings.
 
 The recidive kur, when configured, is included alongside the watched kurs.
 
@@ -47,10 +47,16 @@ the command errors rather than falling back to Ereshkigal.
 
 =head1 METHODS
 
-Standard L<App::Cmd::Command> methods... abstract, opt_spec, validate_args,
-and execute.
+Standard L<App::Cmd::Command> methods... abstract, description, usage_desc,
+opt_spec, validate_args, and execute.
 
 =cut
+
+# the subs below with out a comment block are App::Cmd::Command hooks the
+# framework calls... abstract and description for the help, usage_desc and
+# opt_spec for the usage line and option parsing, validate_args to vet the
+# args ahead of execute, and execute for the work itself. their contract is
+# App::Cmd's, so they are not documented one by one here
 
 sub abstract { return 'show who Kur holds for the kurs this Baphomet feeds' }
 
@@ -100,8 +106,30 @@ sub execute {
 	return;
 } ## end sub execute
 
-# pares the result down to the one IP... each kur reduced to whether it
-# holds it, banned or pending, and kurs not holding it dropped entirely
+# pares the manager's banished answer down to the one IP for --ip... each
+# kur reduced to whether it holds it, banned outright, on a fan_out kur's
+# members, or pending, and kurs not holding it at all dropped entirely
+#
+# args:
+#   $result :: hashref, the manager's banished answer... kurs is a hash of
+#       kur name to entry, each entry with banned (arrayref of IPs) and
+#       expires (hashref of IP to epoch), or members (hashref of member kur
+#       name to a hashref of the same banned/expires shape), plus pending
+#       (arrayref of IPs not yet heard by Kur). pending_error is passed
+#       through when present
+#   $ip :: the IP string to pare to, compared as a exact string
+#
+# returns:
+#   hashref... ip, the IP; kurs, a hash of kur name to a hashref of what was
+#   found, banned => 1 and expires when held directly, members => { member
+#   => { banned => 1, expires } } when held by members, pending => 1 when
+#   pending; and pending_error when the answer had one. a kur holding none
+#   of these is left out, so kurs may be empty
+#
+# example:
+#   my $pared = _pare_to_ip( $result, '192.0.2.7' );
+#   # { 'ip' => '192.0.2.7',
+#   #   'kurs' => { 'sshd' => { 'banned' => 1, 'expires' => 1763300000 } } }
 sub _pare_to_ip {
 	my ( $result, $ip ) = @_;
 

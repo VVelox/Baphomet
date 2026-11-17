@@ -67,7 +67,8 @@ of the lines it is there for.
 
 **Below the gates that are to stop it.** An `ignore_regexp` written below
 it lets the context be stored on a line the rule was told to ignore, and a
-deferred offense that line completes stands.
+deferred offense that line completes is lost... taken off the wait, then
+turned away with the line.
 
 An offense it completes stands among the line's results and is judged by
 every gate below it, line and offense phase both, like any other.
@@ -109,8 +110,8 @@ the offenses waiting on it can survive a restart.
 - a regexp naming an unknown token, or one that will not compile :: "uses the unknown token ...", "does not compile"
 - one beside a `stages` gate :: "is beside capture_regexp... stages are the whole matcher"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -123,16 +124,19 @@ never comes. See [tests](../rules.md#tests) for the shape.
 tests:
   positive:
     - messages:
-        - "Jul  8 02:10:03 ldap-server slapd[1183]: conn=2048 fd=30 ACCEPT from IP=203.0.113.7:52001 (IP=0.0.0.0:636)"
-        - "Jul  8 02:10:04 ldap-server slapd[1183]: conn=2048 op=1 RESULT tag=97 err=49 text="
+        - "2016-11-20T00:04:00.110+0100 [conn1] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed UserNotFound Could not find user root@admin"
+        - "2016-11-20T00:04:00.111+0100 [conn1] end connection 192.0.2.35:53276 (0 connections now open)"
       found: 1
       data:
-        SRC: "203.0.113.7"
+        SRC: "192.0.2.35"
   negative:
-    # an ACCEPT alone is context, not a offense
-    - message: "Jul  8 03:20:00 ldap-server slapd[1183]: conn=4000 fd=50 ACCEPT from IP=192.0.2.20:41000 (IP=0.0.0.0:636)"
+    # an end connection alone is context, not a offense
+    - message: "2016-11-20T00:31:00.110+0100 [conn500] end connection 192.0.2.100:53281 (0 connections now open)"
       found: 0
       undefed: ["SRC"]
+    # a failure whose connection never ends resolves to no one
+    - message: "2016-11-20T00:24:00.110+0100 [conn334] Failed to authenticate root@admin with mechanism MONGODB-CR: AuthenticationFailed key mismatch"
+      found: 0
 ```
 
 ## Shipped rules using it

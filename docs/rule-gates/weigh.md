@@ -71,8 +71,8 @@ rule reads back while the hit is live.
 - a `by` that is not a string :: "has a by that is not a non-empty string"
 - a `when` a `gate` would not take :: what the `gate` refuses it for, its lead in ending "when"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

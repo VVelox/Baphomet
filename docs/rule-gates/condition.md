@@ -27,8 +27,7 @@ rule_gates:
 
 ## Told
 
-- `selections` :: A hash of selection name to a list of entries, as a
-      [`gate`](gate.md) takes.
+- `selections` :: A hash of selection name to a list of entries, as a [`gate`](gate.md) takes.
 - `condition` :: The expression over the selection names, a string.
 
 Both are required. There is no `selections` gate of its own... the
@@ -46,9 +45,9 @@ count selections that hold:
 
 - `all of them` :: Every selection.
 - `1 of them` :: Any one... `N of them` for any N.
-- `N of <prefix>*` :: N of the selections whose names start with
-      `prefix`.
+- `N of <prefix>*` :: N of the selections whose names start with `prefix`.
 - `all of <prefix>*` :: Every one of them.
+- `1 of <name>` / `all of <name>` :: The one selection, the same as naming it bare.
 
 The words read the same in any case. A selection is only judged when the
 expression gets to it, and only once, so an `and` whose first arm failed or
@@ -68,36 +67,34 @@ below it still harvests, but nothing is counted.
 
 ## Refused at load
 
-- a `gate` in the same rule :: is beside a condition gate, and the two are
-      two forms of the same thing
-- a second `condition` :: is the second condition gate of the rule, which
-      can have the one
-- no `condition` or no `selections`, or a key beside them :: lacks a
-      condition / lacks a selections / has the unknown key
-- an empty `selections` :: has a selections that is empty
-- a selection name that is no plain identifier, or is one of the
-      expression's words :: is not a plain identifier
-- a selection that is not a list of entries :: anything a `gate` list is
-      refused for, the selection named
-- an expression that is empty :: is not a non-empty string
-- a name no selection has :: references the unknown selection
-- an unbalanced paren :: has an unbalanced paren
-- an expression that stops short :: ends unexpectedly
-- a word out of place :: has a misplaced
-- tokens after a whole expression :: has trailing tokens after
-- an `of` with nothing after it :: has an "of" with no target
-- an `of` target that is no selection and no `*` pattern :: is not a
-      selection or a *-pattern
-- a `*` pattern that covers no selection :: covers no selections
-- `0 of` :: asks for 0 of, which is vacuously true
-- more than the target covers :: asks for N of M selections, which can
-      never be met
+- a `gate` in the same rule :: "is beside a condition gate, and the two are two forms of the same thing"
+- a second `condition` :: "is the second condition gate of the rule, which can have the one"
+- told other than a hash :: "is not a hash"
+- no `condition` :: "lacks a condition"
+- no `selections` :: "lacks a selections"
+- a key beside them :: "has the unknown key ..."
+- a `condition` that is not a string, or is empty :: "has a condition that is not a non-empty string"
+- a blank `condition` :: "is not a non-empty string"
+- a `selections` that is not a hash :: "has a selections that is not a hash"
+- an empty `selections` :: "has a selections that is empty"
+- a selection name that is no plain identifier, or is one of the expression's words :: "which is not a plain identifier"
+- a selection that is not a list of entries :: anything a `gate` list is refused for, led by "selection "...""
+- a name no selection has :: "references the unknown selection ..."
+- an unbalanced paren :: "has an unbalanced paren"
+- an expression that stops short :: "ends unexpectedly"
+- a word out of place :: "has a misplaced ..."
+- tokens after a whole expression :: "has trailing tokens after ..."
+- an `of` with nothing after it :: "has an "of" with no target"
+- an `of` target that is no selection and no `*` pattern :: "that is not a selection or a *-pattern"
+- a `*` pattern that covers no selection :: "that covers no selections"
+- `0 of` :: "asks for 0 of, which is vacuously true"
+- more than the target covers :: "asks for N of M selections, which can never be met"
 
 A pattern covering nothing is refused rather than read as true, as
 `all of` over nothing would make a typo match everything.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
@@ -120,16 +117,11 @@ tests:
 
 ## Shipped rules using it
 
-- `raw/fortinet-vpn-auth` :: `ssl_vpn or ppp_auth`, two log ids each with
-      a test of its own.
-- `raw/huawei-auth-bruteforce` :: `ssh or shell or ftp or web` over the
-      huawei munger's module and mnemonic.
-- `syslog/baphomet_errors` and most of the other `_errors` rules ::
-      `1 of them` over a munger's fields, with no `message_regexp`.
-- `syslog/named_errors` :: `has_zone and 1 of fail_*`, a prefix
-      quantifier behind a selection every hit needs.
-- `raw/fortinet-attack` and `raw/fortinet-policy` :: `modern or legacy`,
-      the one event under its `logid` and its older `log_id` form.
+- `raw/fortinet-vpn-auth` :: `ssl_vpn or ppp_auth`, two log ids each with a test of its own.
+- `raw/huawei-auth-bruteforce` :: `ssh or shell or ftp or web` over the huawei munger's module and mnemonic.
+- `syslog/baphomet_errors` and most of the other `_errors` rules :: `1 of them` over a munger's fields, with no `message_regexp`.
+- `syslog/named_errors` :: `has_zone and 1 of fail_*`, a prefix quantifier behind a selection every hit needs.
+- `raw/fortinet-attack` and `raw/fortinet-policy` :: `modern or legacy`, the one event under its `logid` and its older `log_id` form.
 
 ## See also
 

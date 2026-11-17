@@ -1,7 +1,8 @@
-# The base SSH daemons. Deliberately excludes the sshd-aggressive / sshd-ddos
-# / sshd-extra / sshd-spray tuning variants, which are alternative modes of
-# the same detection, not additive rules... pick one of those by hand if the
-# plain sshd rule is not enough. Reference as %syslog/ssh%.
+# The base SSH daemons. Leaves out the sshd-* variants, each a choice to make
+# by hand: sshd-ddos and sshd-extra run beside syslog/sshd, adding pre-auth
+# abuse and negotiation probes it does not count, and sshd-aggressive is those
+# two as one rule, listed beside syslog/sshd in their place. sshd-spray reads
+# sshd-mark-users' brands and needs it listed after. Reference as %syslog/ssh%.
 #
 # See docs/rules.md (Rule groups).
 

@@ -49,7 +49,7 @@ A named list comes to one B<slot> per file it names, a hash of...
 
     - type :: How the file is read, C<cidr> or C<string>.
 
-    - nocase :: If a C<string> one is matched with out regard to case.
+    - nocase :: Whether a C<string> one is matched with out regard to case.
 
     - path :: The file.
 

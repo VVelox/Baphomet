@@ -21,7 +21,7 @@ rule_gates:
 - rule types :: every type
 - keys on :: a found value, the `by` vars joined
 - vetoes :: yes
-- needs :: nothing
+- needs :: the galla's mark store
 - repeatable :: yes, each entry is a gate of its own
 
 ## Told
@@ -71,7 +71,7 @@ login from anywhere would teach it values the owner never had.
 
 A veto drops the offense, and the line goes on to the rules after this one.
 
-It does not hold on a value the key has had with in `ttl`, or on a key
+It does not hold on a value the key has had within `ttl`, or on a key
 seen fewer than `after_seen` times before. It fails closed on an offense
 lacking the value, or holding it empty, or lacking part of the key, and
 such an offense is not remembered either.
@@ -101,8 +101,8 @@ them.
 - a `ttl` that is not a whole number of one or more :: "has a ttl that is not a positive int of seconds"
 - an `after_seen` that is not a whole number of one or more :: "has a after_seen that is not a positive int"
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 

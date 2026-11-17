@@ -124,7 +124,7 @@ it, and one of the below.
 # window must look like... the alphabet of a rule name, so one rides tablets,
 # commands, and config tables cleanly. the words for it sit beside it so the
 # alphabet is typed in one place
-my $NAME_RE   = qr/^[a-zA-Z0-9_\-]+$/;
+my $NAME_RE   = qr/^[a-zA-Z0-9_\-]+\z/;
 my $NAME_SAYS = 'a name matching /^[a-zA-Z0-9_\-]+$/';
 
 # a string or a number, and never a ref or undef... also all a boolean is
@@ -150,7 +150,7 @@ my %KINDS = (
 	'positive_number'  => {
 		'test' => sub {
 			my ($value) = @_;
-			if ( !defined($value) || ref($value) ne '' || $value !~ /^[0-9]+(?:\.[0-9]+)?$/ ) {
+			if ( !defined($value) || ref($value) ne '' || $value !~ /^[0-9]+(?:\.[0-9]+)?\z/ ) {
 				return 0;
 			}
 			return ( $value + 0 > 0 ) ? 1 : 0;
@@ -383,14 +383,13 @@ fail.
 sub is_non_negative_int {
 	my ($value) = @_;
 
-	return ( defined($value) && ref($value) eq '' && $value =~ /^[0-9]+$/ ) ? 1 : 0;
+	return ( defined($value) && ref($value) eq '' && $value =~ /^[0-9]+\z/ ) ? 1 : 0;
 }
 
 =head2 is_positive_int
 
 Returns 1 when the passed value is a whole number of one or more, written as
-plain digits, else 0. A value that is all zeros fails only when perl reads
-it as false, so C<0> fails and C<00> passes.
+plain digits, else 0... a value of all zeros, such as C<0> or C<00>, fails.
 
     if ( !is_positive_int( $config->{timeout} ) ) { die(...) }
 
@@ -399,7 +398,7 @@ it as false, so C<0> fails and C<00> passes.
 sub is_positive_int {
 	my ($value) = @_;
 
-	return ( is_non_negative_int($value) && $value ) ? 1 : 0;
+	return ( is_non_negative_int($value) && $value > 0 ) ? 1 : 0;
 }
 
 1;

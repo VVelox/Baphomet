@@ -69,18 +69,14 @@ A found time that is missing, or that does not parse, **fails closed**.
 The last is found when the galla binds the rule to a watcher, and the
 galla will not start on it.
 
-Beyond these, every gate is refused for what
-[every gate is refused for](../rules.md#what-every-gate-is-refused-for).
+It is also refused for
+[what every gate is refused for](../rules.md#what-every-gate-is-refused-for).
 
 ## Proving it
 
 A rule's tests can not prove it. Its windows are config, and a rule file
 has none of it, so in a test the gate is unjudged and the rule counts as
 if it were not written. It is proven galla-side only.
-
-## Shipped rules using it
-
-None. Which hours matter is your policy.
 
 ## See also
 

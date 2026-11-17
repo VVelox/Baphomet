@@ -65,7 +65,9 @@ several `found`s and then a single `banish` on the one that tipped it.
   envelope but banishes nobody... the subject need not be a address, and
   nothing is sent to Kur.
 
-Every record carries these fields...
+Every record carries these fields, save the recidive banish... it has only
+the first five, plus its own fields described
+[below](#the-offense-written-as-its-parts).
 
 - `eve_type` :: `baphomet`, always... marks the producer for
   downstream tooling.
@@ -75,7 +77,8 @@ Every record carries these fields...
 - `hostname` :: the system hostname.
 - `kur` :: the kur.
 - `path` :: the source... the log file, or `journal:<matches>` for a
-  journal watcher (bare `journal` when it names no matches).
+  journal watcher (bare `journal` when it names no matches). Present
+  only when the event has a source.
 - `score` :: the offender's accumulated weighted score after this
   hit... equal to the raw hit count when no weights are in play.
 - `threshold` :: the score that offender had to reach, the effective
@@ -97,9 +100,9 @@ Every record carries these fields...
 - `rev` :: the rule's revision, Suricata's `alert.rev`... the rule's
   `rev`, or `0` when it sets none (an unversioned rule). Always
   present as an integer.
-- `severity` :: the rule's severity
-  (`info`/`low`/`medium`/`high`/`critical`), or the config
-  `default_severity`... omitted when neither is set.
+- `severity` :: `info`/`low`/`medium`/`high`/`critical`... the config's
+  per-rule `severity`, else the rule's own, else the config
+  `default_severity`, and omitted when none is set.
 - `category` :: the rule's class in words, Suricata's `alert.category`
   promoted to the top level... a `classtype: misc-attack` reads here
   as `Misc Attack`, the description Snort and Suricata's
@@ -129,17 +132,20 @@ Every record carries these fields...
 - `raw` :: the log line exactly as received (bytes untouched), or,
   when that line is itself a JSON object or array, the decoded
   structure rather than an escaped string blob. The unprocessed input.
-  See [raw, parsed, found](#raw-parsed-found).
+  Omitted when the rule sets [`eve_line: false`](rules.md#eve_line). See
+  [raw, parsed, found](#raw-parsed-found).
 - `parsed` :: the record the parser made of that line, before the rule
   touched it... the structural fields. The unit of what the rule
-  matched against. See [raw, parsed, found](#raw-parsed-found).
+  matched against. Omitted under [`eve_line: false`](rules.md#eve_line).
+  See [raw, parsed, found](#raw-parsed-found).
 - `found` :: the assembled offense... the fields the rule matched,
   extracted, or correlated, and the ones `ban_var`/`detection_var`,
   the other gates, and the marks resolve against. See
   [raw, parsed, found](#raw-parsed-found).
 - `stages` :: a staged rule's whole story... an array of every stage
   hit (`stage` index, `time` epoch, `line`), `raw` above being only
-  the final line. Present only on staged-rule events.
+  the final line. Present only on staged-rule events, and under
+  [`eve_line: false`](rules.md#eve_line) each hit omits its `line`.
 - `rule` :: the rule's name and def, with its tests stripped to save
   space.
 
@@ -231,18 +237,20 @@ vars then read the one bucket and report the one score.
 
 A **banish** event adds `.banishing`, and `.ban_time` when a duration is
 set... a ban riding the kur's default omits the field. `.recidive` is true
-when it is a seventh-gate escalation to the recidive kur. A banish
-triggered by a specific line crossing the threshold carries that line's
+when it is a seventh-gate escalation to the recidive kur. A banish triggered
+by a specific line crossing the threshold carries that line's
 `raw`/`parsed`/`found`/`rule`, as above. A recidive escalation, which is
-triggered by the ledger count
-rather than a line, is the bare banishment: it carries `.count`, how many
-times the IP has been banished across all kurs, and the `.threshold` that
-count had to reach, the recidive gate's own `max_score` and not any
-watcher's. It is also the one banish written on delivery rather than at
-determination... the event lands when the recidive kur accepts the
-escalation, and a failed escalation is logged but leaves no event and no
-retry. With a `geoip_db` loaded, `.country` rides along too, though only
-where the whole banishment shares one... a single address always does.
+triggered by the ledger count rather than a line, is the bare banishment: it
+has no `path`, `msg`, `gid`/`sid`/`rev`, `rule`, flow fields, `raw`, `parsed`,
+or `found`, since no rule or line stands behind it. It always has `.ban_time`,
+`0` when `[recidive]` sets none, and `.count`, how many times the IP has been
+banished across all kurs, and the `.threshold` that count had to reach, the
+recidive gate's own `max_score` and not any watcher's. It is also the one
+banish written on delivery rather than at determination... the event lands
+when the recidive kur accepts the escalation, and a failed escalation is
+logged but leaves no event and no retry. With a `geoip_db` loaded, `.country`
+rides along too, though only where the whole banishment shares one... a single
+address always does.
 
 One crossing is one banish however many addresses it lands on. A name counted
 under a `usedns` of `resolve_ban` resolves at the threshold and may name

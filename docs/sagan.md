@@ -1,10 +1,10 @@
 # Coming from Sagan
 
-Run in eve mode, Baphomet is similar to Sagan.
-[Sagan](https://github.com/quadrantsec/sagan)... the same real-time engine
-that parses a stream, matches each line against signatures, correlates, and
-emits a eve alert (see [log-analysis](log-analysis.md)). Neither
-keeps the events; both stream and forget, feeding their alerts onward.
+With detection rules, Baphomet is the same kind of real-time engine as
+[Sagan](https://github.com/quadrantsec/sagan)... one that parses a stream,
+matches each line against signatures, correlates, and emits a EVE alert (see
+[log-analysis](log-analysis.md)). Neither keeps the events; both stream and
+forget, feeding their alerts onward.
 
 ## The concept map
 
@@ -25,7 +25,7 @@ keeps the events; both stream and forget, feeding their alerts onward.
 
 ## Porting a rule
 
-A Sagan rule can in generally be ported.
+A Sagan rule can generally be ported.
 
 The options translate like so:
 
@@ -45,7 +45,8 @@ The options translate like so:
 | `country_code:`                                                               | the `country` gate                                                                                  |
 | `blacklist:`                                                                  | the `namtar_list` gate                                                                              |
 | `alert_time:`                                                                 | the `active_time` gate                                                                              |
-| `sid`, `rev`, `metadata`                                                      | dropped                                                                                             |
+| `rev:`                                                                        | `rev`                                                                                               |
+| `sid`, `metadata`                                                             | dropped... `sid` is derived from the rule name                                                      |
 
 **Keep the bit names.** The shipped rules brand Sagan's standard vocabulary name for
 name... `brute_force`, `recon`, `exploit_attempt`, `honeypot`, at the corpus's own
@@ -53,18 +54,12 @@ TTLs... so port a rule's xbits without renaming them and it interlocks with the 
 setters and the `-condemned`/`-escalation` readers instead of a private namespace. See the
 standard brands in [rules](rules.md).
 
-**Ban or detect.** A Sagan rule alerts, it does not firewall. To keep that...
-surface the signature without banning... port it as a detection rule with a
-`detection_var: [ SRC ]` gate, so it writes `sighting`/`sighted` to
-[EVE](eve.md) and touches no firewall. To turn the signature into a ban
-instead, make that gate `ban_var: [ SRC ]` and let the kur's thresholds
-decide. This is the one real choice the port asks of you. See
-[rules](rules.md) for more info.
+**Ban or detect.** A Sagan rule alerts and does not firewall, so port it with
+a `detection_var: [ SRC ]` gate to keep it that way, or `ban_var: [ SRC ]` to
+turn it into a ban... see [the two verdicts](log-analysis.md#the-two-verdicts).
 
-**Tests.** Lift sample lines from the rule's comments or your own logs into a
-`tests:` block, then `baphomet test_line` pokes single lines at a draft and
-`baphomet check_rules` runs the embedded tests, refusing to load a rule that
-fails its own... the same guard `baphomet start` uses.
+**Tests.** Lift sample lines into a `tests:` block and run them with
+`baphomet check_rules`... see [tests](rules.md#tests).
 
 See [rules](rules.md) to write one, and [rules-catalog](rules-catalog.md) for what
 already ships.
